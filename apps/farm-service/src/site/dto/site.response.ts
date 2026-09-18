@@ -88,8 +88,9 @@ export class SiteResponse {
   @Field({ nullable: true })
   region?: string;
 
-  @Field()
-  timezone!: string;
+  /** NULL = tenant lokalizasyonundan devral (W5). */
+  @Field(() => String, { nullable: true })
+  timezone!: string | null;
 
   @Field(() => SiteStatus)
   status!: SiteStatus;

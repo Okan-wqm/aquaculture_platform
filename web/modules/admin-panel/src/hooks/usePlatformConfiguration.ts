@@ -12,7 +12,6 @@
  * hooks/useAdminMutation.ts).
  */
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UseMutationResult } from '@tanstack/react-query';
 import { graphqlClient } from '@aquaculture/shared-ui';
 
@@ -30,7 +29,8 @@ import type {
   PlatformSettingsSnapshot,
 } from '../services/api/platform-configuration';
 import { adminKeys } from './adminQueryKeys';
-import { useAdminQuery } from './useAdminQuery';
+import { useAdminGraphQLQuery } from './useAdminQuery';
+import { useAdminMutation } from './useAdminMutation';
 
 interface PlatformConfigurationsResponse {
   effectiveConfigurationsByService: EffectiveConfigurationRow[];
@@ -52,7 +52,7 @@ export function usePlatformSettings(): {
   error: Error | null;
   refetch: () => void;
 } {
-  const query = useAdminQuery<PlatformConfigurationsResponse>(
+  const query = useAdminGraphQLQuery<PlatformConfigurationsResponse>(
     adminKeys.system.settings(),
     PLATFORM_CONFIGURATIONS_QUERY,
     { service: PLATFORM_CONFIGURATION_SERVICE },
@@ -86,10 +86,8 @@ export function useSavePlatformSettings(): UseMutationResult<
   Error,
   PlatformConfigurationWrite[]
 > {
-  const queryClient = useQueryClient();
-
-  return useMutation<void, Error, PlatformConfigurationWrite[]>({
-    mutationFn: async (writes: PlatformConfigurationWrite[]): Promise<void> => {
+  return useAdminMutation<void, PlatformConfigurationWrite[]>(
+    async (writes: PlatformConfigurationWrite[]): Promise<void> => {
       for (const write of writes) {
         await graphqlClient.request<SetConfigurationResponse>(SET_PLATFORM_CONFIGURATION_MUTATION, {
           service: PLATFORM_CONFIGURATION_SERVICE,
@@ -100,8 +98,6 @@ export function useSavePlatformSettings(): UseMutationResult<
         });
       }
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: adminKeys.system.settings() });
-    },
-  });
+    { invalidateKeys: [adminKeys.system.settings()] },
+  );
 }

@@ -46,9 +46,7 @@ describe('NotFoundPage (MOB-LOW-001)', () => {
 
     const cta = screen.getByRole('button', { name: 'Back to Home' });
     // Field ergonomics: the recovery CTA keeps the 44px touch-target floor.
-    // v4: the hand-rolled `min-h-[44px]` became the shared <Button/>, which bakes
-    // the same floor in as the `min-h-touch` spacing token (2.75rem = 44px).
-    expect(cta.className).toContain('min-h-touch');
+    expect(cta.className).toContain('min-h-[44px]');
 
     fireEvent.click(cta);
     expect(screen.getByText('HOME-DASHBOARD')).toBeTruthy();

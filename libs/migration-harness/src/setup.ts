@@ -39,10 +39,25 @@
  *
  * The override accepts any image ID; the harness does not validate.
  * Supply-chain concern is the caller's responsibility when overriding.
+ *
+ * # Running without Docker (`MIGRATION_HARNESS_PG_URL`)
+ *
+ * Set `MIGRATION_HARNESS_PG_URL=postgres://user:pass@host:port/maintenance_db`
+ * and `bootPostgresContainer()` starts no container: it connects to that
+ * server, creates a fresh database for THIS boot, and drops it on
+ * `shutdownHarness`. Isolation is the same as a container per boot — one
+ * database per `beforeAll`, gone on `afterAll` — so a suite cannot tell the
+ * two apart and needs no changes. The role must be allowed to CREATE DATABASE.
+ *
+ * WHY: the Postgres lane is the only way to see an entity or table the
+ * fixture forgot (EntityMetadataNotFoundError surfaces at runtime, inside a
+ * handler), and it could not run anywhere Docker was unavailable — so those
+ * defects reached CI blind, three times on one spec. `image`,
+ * `testOptimisations` and `labels` describe a container and are ignored on
+ * an external server; the server's own settings apply.
  */
 import { randomBytes } from 'node:crypto';
 
-import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import type { DataSource, QueryRunner } from 'typeorm';
 
 /**
@@ -63,8 +78,21 @@ export const DEFAULT_POSTGRES_IMAGE =
  * Owned by the suite's `beforeAll`; consumers should NOT construct
  * this directly — use `bootPostgresContainer()`.
  */
+/**
+ * The running Postgres a suite was handed. Testcontainers'
+ * `StartedPostgreSqlContainer` satisfies this structurally; the external
+ * backend implements it over a database created for this boot. `getId()` is
+ * a Docker container id in the container case and `external:<host>:<port>/<db>`
+ * otherwise — a suite that shells out to Docker with it (db-migrate's restore
+ * verification) needs a container and fails by name on an external server.
+ */
+export interface HarnessBackend {
+  getId(): string;
+  stop(): Promise<unknown>;
+}
+
 export interface HarnessContext {
-  readonly container: StartedPostgreSqlContainer;
+  readonly container: HarnessBackend;
   readonly dataSource: DataSource;
   readonly connectionOptions: {
     readonly host: string;
@@ -86,6 +114,157 @@ export interface BootOptions {
   readonly labels?: Readonly<Record<string, string>>;
 }
 
+/** Env var naming an external Postgres to use instead of a container. */
+export const EXTERNAL_POSTGRES_ENV = 'MIGRATION_HARNESS_PG_URL';
+
+/** Where `MIGRATION_HARNESS_PG_URL` points: a server + the maintenance db to CREATE DATABASE from. */
+export interface ExternalPostgresTarget {
+  readonly host: string;
+  readonly port: number;
+  readonly username: string;
+  readonly password: string;
+  readonly maintenanceDatabase: string;
+}
+
+/**
+ * Parse `MIGRATION_HARNESS_PG_URL` from `env`. `undefined` when unset or
+ * blank (use a container); throws on a value that is set but unusable, because
+ * a suite that silently fell back to Docker on a typo would be testing
+ * something other than what the operator asked for.
+ */
+export function resolveExternalPostgres(
+  env: NodeJS.ProcessEnv = process.env,
+): ExternalPostgresTarget | undefined {
+  const raw = env[EXTERNAL_POSTGRES_ENV];
+  if (raw === undefined || raw.trim() === '') return undefined;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `${EXTERNAL_POSTGRES_ENV} is not a URL (expected postgres://user:pass@host:port/db)`,
+    );
+  }
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+    throw new Error(
+      `${EXTERNAL_POSTGRES_ENV} must use the postgres:// scheme, got ${url.protocol}`,
+    );
+  }
+  if (url.username === '') {
+    throw new Error(
+      `${EXTERNAL_POSTGRES_ENV} must carry a username (the role that may CREATE DATABASE)`,
+    );
+  }
+  const port = url.port === '' ? 5432 : Number(url.port);
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error(`${EXTERNAL_POSTGRES_ENV} has an invalid port: ${url.port}`);
+  }
+  const maintenanceDatabase = url.pathname.replace(/^\//, '') || 'postgres';
+
+  return {
+    host: url.hostname,
+    port,
+    username: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    maintenanceDatabase,
+  };
+}
+
+async function listRoles(maintenance: {
+  query(sql: string): Promise<unknown>;
+}): Promise<Set<string>> {
+  const rows = await maintenance.query('SELECT rolname FROM pg_roles');
+  const names = new Set<string>();
+  if (Array.isArray(rows)) {
+    for (const row of rows) {
+      if (typeof row === 'object' && row !== null && 'rolname' in row) {
+        const { rolname } = row as { rolname: unknown };
+        if (typeof rolname === 'string') names.add(rolname);
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * The external-server boot: one fresh database per call, dropped on stop().
+ * Mirrors the container path's shape exactly so callers see no difference.
+ */
+async function bootExternalPostgres(target: ExternalPostgresTarget): Promise<HarnessContext> {
+  const { DataSource } = await import('typeorm');
+  const database = `harness_${randomBytes(6).toString('hex')}`;
+
+  const maintenance = new DataSource({
+    type: 'postgres',
+    host: target.host,
+    port: target.port,
+    username: target.username,
+    password: target.password,
+    database: target.maintenanceDatabase,
+    entities: [],
+    synchronize: false,
+    logging: false,
+    name: `migration-harness-maintenance-${randomBytes(6).toString('hex')}`,
+  });
+  await maintenance.initialize();
+  // Databases are per boot, but roles are cluster-global: a suite that
+  // CREATE ROLEs (farm-service's grant tests do) would collide with the next
+  // boot on the same server, where a fresh container never could. Snapshot
+  // the roles now and drop the ones this boot added on stop(), so the
+  // external server offers the same isolation a container does.
+  let rolesBefore: ReadonlySet<string>;
+  try {
+    await maintenance.query(`CREATE DATABASE "${database}"`);
+    rolesBefore = await listRoles(maintenance);
+  } catch (error) {
+    await maintenance.destroy();
+    throw error;
+  }
+
+  const connectionOptions = {
+    host: target.host,
+    port: target.port,
+    username: target.username,
+    password: target.password,
+    database,
+  };
+
+  const dataSource = new DataSource({
+    type: 'postgres',
+    ...connectionOptions,
+    entities: [],
+    synchronize: false,
+    logging: false,
+    name: `migration-harness-${randomBytes(6).toString('hex')}`,
+  });
+  await dataSource.initialize();
+
+  const container: HarnessBackend = {
+    getId: () => `external:${target.host}:${target.port}/${database}`,
+    stop: async () => {
+      try {
+        if (dataSource.isInitialized) await dataSource.destroy();
+      } finally {
+        try {
+          // FORCE: a suite's own DataSource may still hold a session; the
+          // database is this boot's and nothing else may keep it alive.
+          await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+          for (const role of await listRoles(maintenance)) {
+            if (!rolesBefore.has(role)) {
+              await maintenance.query(`DROP ROLE "${role}"`);
+            }
+          }
+        } finally {
+          await maintenance.destroy();
+        }
+      }
+    },
+  };
+
+  return { container, dataSource, connectionOptions };
+}
+
 /**
  * Boot a Postgres testcontainer + initialise an isolated TypeORM
  * DataSource against it. Idempotent per container name — repeat calls
@@ -101,6 +280,11 @@ export interface BootOptions {
  * trigger Docker — only `bootPostgresContainer()` does.
  */
 export async function bootPostgresContainer(opts: BootOptions = {}): Promise<HarnessContext> {
+  const external = resolveExternalPostgres();
+  if (external !== undefined) {
+    return bootExternalPostgres(external);
+  }
+
   const image = opts.image ?? DEFAULT_POSTGRES_IMAGE;
   const testOpt = opts.testOptimisations ?? true;
 

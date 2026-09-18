@@ -130,6 +130,8 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         {
           provide: TokenBudgetService,
           useValue: {
+            reserveBudget: jest.fn().mockResolvedValue(undefined),
+            settleReservation: jest.fn().mockResolvedValue(undefined),
             checkBudget: jest.fn().mockResolvedValue({ allowed: true, used: 0 }),
             addUsage: jest.fn().mockResolvedValue(undefined),
           },
@@ -154,6 +156,7 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         {
           provide: AiSafetyMiddleware,
           useValue: {
+            scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({ allowed: true, systemPrompt: 'sys' }),
             postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),

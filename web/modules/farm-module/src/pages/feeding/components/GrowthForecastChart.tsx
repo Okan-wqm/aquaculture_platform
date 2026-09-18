@@ -37,7 +37,7 @@ interface Batch {
 interface GrowthForecastChartProps {
   siteId: string;
   batchId: string;
-  batches: Batch[];
+  batches: readonly Batch[];
 }
 
 export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({

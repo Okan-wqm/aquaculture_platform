@@ -207,6 +207,22 @@ export class AiSafetyMiddleware {
    * @param tenantId - Tenant identifier for audit
    * @returns PostProcessResult with (possibly redacted) text
    */
+  /**
+   * SEC-LOW-088 (2026-08-23 scan №33): scan-only gate for UNTRUSTED CONTEXT
+   * strings bound for the model — replayed conversation history and tool
+   * results. preProcess runs the full pipeline on the USER message only;
+   * these surfaces previously entered the prompt unfiltered, an indirect
+   * prompt-injection lane (tenant-editable strings like tank names riding
+   * stored data). Scanning is non-destructive: the CALLER decides the
+   * containment (drop the history entry / replace the tool payload).
+   */
+  scanUntrustedContext(text: string, tenantId: string): boolean {
+    if (!this.config.inputFilterEnabled) {
+      return true;
+    }
+    return this.inputFilter.scanInput(text, tenantId).safe;
+  }
+
   postProcess(outputText: string, tenantId: string): PostProcessResult {
     const result: PostProcessResult = {
       outputText,

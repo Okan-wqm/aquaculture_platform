@@ -18,6 +18,8 @@
  */
 
 import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 export const SCHEMA_OWNING_SERVICES = [
   'farm-service',
@@ -101,10 +103,7 @@ export const NON_AGENT_FILES = ['README.md', 'INVOCATION-PACK.md'] as const;
  * Lane-B under product-audit/. Retired prompt directories are deleted rather
  * than archived because stale copies duplicate names and output contracts.
  */
-export const ACTIVE_AGENT_DIRS = [
-  '.claude/agents',
-  '.claude/agents/product-audit',
-] as const;
+export const ACTIVE_AGENT_DIRS = ['.claude/agents', '.claude/agents/product-audit'] as const;
 
 /**
  * File globs subject to active-path hygiene checks (cross-reference
@@ -122,10 +121,7 @@ export const ACTIVE_HYGIENE_PATHS = [
 /**
  * Root-level files also subject to hygiene checks.
  */
-export const ACTIVE_HYGIENE_ROOT_FILES = [
-  '.claude/README.md',
-  'CLAUDE.md',
-] as const;
+export const ACTIVE_HYGIENE_ROOT_FILES = ['.claude/README.md', 'CLAUDE.md'] as const;
 
 /**
  * Tokens banned in active paths. Each represents a pre-flatten or pre-CLI
@@ -185,23 +181,52 @@ export const DYNAMIC_AGENT_PLACEHOLDERS = [
 export const STEERING_EXCLUDED_DIR_RX =
   /(^|\/)(\.worktrees|\.codex-worktrees|\.claude\/worktrees|node_modules)\//;
 
+/**
+ * Locate the installed `node_modules` tree that carries an executable
+ * `esbuild/bin/esbuild`, starting at `repoRoot` and walking up.
+ *
+ * WHY THIS EXISTS. The production-host bundle producer compiles the deploy
+ * runtimes with the workspace's own esbuild, so its fixtures must hand a real
+ * installation to a throwaway git tree under /tmp. Each of the three
+ * production-host fixtures carried its own copy of that lookup, and every copy
+ * fell back to one hardcoded absolute path (`/var/aqua-saas/node_modules`) —
+ * the droplet's checkout. That path does not exist on a GitHub runner, and it
+ * does not exist in a `git worktree` checkout either, where the install lives
+ * in the parent repository and Node's own resolver already finds it by walking
+ * up. The fixtures therefore failed on exactly the two hosts they are meant to
+ * run on, for a reason that had nothing to do with the invariant under test.
+ *
+ * Walking the ancestor chain is the rule Node's module resolution already
+ * uses, so the fixture finds the install wherever the checkout is rooted.
+ * Failure is closed and named: a missing install is a fixture precondition,
+ * never a silently skipped assertion.
+ */
+export function resolveEsbuildNodeModules(repoRoot: string): string {
+  const relativeEsbuild = join('esbuild', 'bin', 'esbuild');
+  let directory = resolve(repoRoot);
+  for (;;) {
+    const candidate = join(directory, 'node_modules');
+    if (existsSync(join(candidate, relativeEsbuild))) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error(
+    'an installed node_modules/esbuild/bin/esbuild is required for this fixture; ' +
+      `none found from ${repoRoot} upward`,
+  );
+}
+
 export function discoverSteeringFiles(repoRoot: string): string[] {
   const gitList = (cmd: string): string[] => {
     try {
-      return execSync(cmd, { cwd: repoRoot, encoding: 'utf8' })
-        .split('\n')
-        .filter(Boolean);
+      return execSync(cmd, { cwd: repoRoot, encoding: 'utf8' }).split('\n').filter(Boolean);
     } catch {
       return [];
     }
   };
-  const all = [
-    ...gitList('git ls-files'),
-    ...gitList('git ls-files --others --exclude-standard'),
-  ];
+  const all = [...gitList('git ls-files'), ...gitList('git ls-files --others --exclude-standard')];
   return [...new Set(all)].filter(
-    (f) =>
-      (/(^|\/)CLAUDE\.md$/.test(f) || f === 'AGENTS.md') &&
-      !STEERING_EXCLUDED_DIR_RX.test(f),
+    (f) => (/(^|\/)CLAUDE\.md$/.test(f) || f === 'AGENTS.md') && !STEERING_EXCLUDED_DIR_RX.test(f),
   );
 }

@@ -12,7 +12,7 @@ import {
 } from '@/graphql/operations';
 import { cacheData, getCachedData, cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { LeaveRequest, LeaveBalance, LeaveType } from '@/types';
+import type { LeaveRequest, LeaveRequestStatus, LeaveBalance, LeaveType } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -29,25 +29,20 @@ const CACHE_TTL_LEAVE_TYPES = 1000 * 60 * 60 * 24; // 24 hours
 // ---------------------------------------------------------------------------
 
 async function fetchLeaveBalances(year: number): Promise<LeaveBalance[]> {
-  const result = await graphqlRequest<{ myLeaveBalances: LeaveBalance[] }>(GET_MY_LEAVE_BALANCES, {
-    year,
-  });
+  const result = await graphqlRequest(GET_MY_LEAVE_BALANCES, { year });
   return result.myLeaveBalances;
 }
 
 async function fetchLeaveRequests(
-  status: string | undefined,
+  status: LeaveRequestStatus | undefined,
   limit: number,
 ): Promise<LeaveRequest[]> {
-  const result = await graphqlRequest<{ myLeaveRequests: LeaveRequest[] }>(GET_MY_LEAVE_REQUESTS, {
-    status,
-    limit,
-  });
+  const result = await graphqlRequest(GET_MY_LEAVE_REQUESTS, { status, limit });
   return result.myLeaveRequests;
 }
 
 async function fetchLeaveTypes(): Promise<LeaveType[]> {
-  const result = await graphqlRequest<{ leaveTypes: LeaveType[] }>(GET_LEAVE_TYPES);
+  const result = await graphqlRequest(GET_LEAVE_TYPES);
   return result.leaveTypes;
 }
 
@@ -131,7 +126,7 @@ export function useMyLeaveBalances(
  * control over the request without imperative `fetch()` calls.
  */
 export function useMyLeaveRequests(
-  status?: string,
+  status?: LeaveRequestStatus,
   limit = 20,
   options?: LeaveQueryOptions,
 ): UseQueryResult<LeaveRequest[], Error> {

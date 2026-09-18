@@ -20,7 +20,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Interval } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
@@ -320,6 +324,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     private readonly loraDeviceRepository: Repository<LoRaDevice>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional()
     @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
@@ -797,7 +802,17 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Iterates ALL tenant schemas so that devices in every tenant are checked,
    * not just the default search_path (which would only hit the `sensor` schema).
    */
-  @Interval(60_000)
+  /**
+   * The scheduled entry point. Separate from the method below because a
+   * scheduled tick takes no arguments and returns nothing — the timeout is a
+   * parameter of the operation, not of the schedule, and the affected count is
+   * a result for a caller that asked.
+   */
+  @ScheduledJob({ name: 'edge-device.mark-stale-offline', every: 60_000 })
+  async markStaleDevicesOfflineTick(): Promise<void> {
+    await this.markStaleDevicesOffline();
+  }
+
   async markStaleDevicesOffline(timeoutMinutes = 5): Promise<number> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
     let totalAffected = 0;

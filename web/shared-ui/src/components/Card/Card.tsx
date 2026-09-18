@@ -253,10 +253,14 @@ export interface MetricCardProps {
   change?: number;
   /** Değişim yönü veya sayısal değer */
   trend?: 'up' | 'down' | 'neutral' | number;
-  /** Trend etiketi (örn: "bu hafta", "dünden") */
+  /** Trend etiketi (örn: "bu hafta", "dünden"). Türkçe varsayılan korunur. */
   trendLabel?: string;
+  /** Değerin altında serbest içerik (ör. ARPU satırı, sağlık durumu). */
+  subtitle?: React.ReactNode;
   /** Ikon */
   icon?: React.ReactNode;
+  /** Ikon kapsayıcısının arka plan/renk sınıfları (varsayılan mavi). */
+  iconClassName?: string;
   /** Tıklama işleyicisi */
   onClick?: () => void;
   /** Ek CSS sınıfları */
@@ -282,7 +286,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   unit,
   change,
   trend: trendProp = 'neutral',
+  trendLabel,
+  subtitle,
   icon,
+  iconClassName,
   onClick,
   className = '',
 }) => {
@@ -323,13 +330,19 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           {change !== undefined && (
             <p className={`mt-2 text-sm ${trendColors[trend]}`}>
               <span className="mr-1">{trendIcons[trend]}</span>
-              {Math.abs(change)}%
-              <span className="ml-1 text-gray-500">son 30 günde</span>
+              {Math.abs(change).toFixed(1)}%
+              {/* trendLabel artık GERÇEKTEN render ediliyor — bildirilmiş ama
+                  hiç kullanılmayan bir prop'tu, yani her çağıran sessizce
+                  yok sayılıyordu. Türkçe varsayılan korunur. */}
+              <span className="ml-1 text-gray-500">{trendLabel ?? 'son 30 günde'}</span>
             </p>
           )}
+          {subtitle && <div className="mt-2 text-sm text-gray-500">{subtitle}</div>}
         </div>
         {icon && (
-          <div className="flex-shrink-0 p-3 bg-blue-50 rounded-lg text-blue-600">
+          <div
+            className={`flex-shrink-0 p-3 rounded-lg ${iconClassName ?? 'bg-blue-50 text-blue-600'}`}
+          >
             {icon}
           </div>
         )}

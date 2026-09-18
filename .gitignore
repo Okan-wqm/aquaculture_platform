@@ -293,6 +293,14 @@ aria-findings/
 # ORPHAN-HIGH-518 (salvaged from PR #936's branch-local ORPHAN-HIGH-334).
 aria-debts/keys/
 
+# B8 (2026-09-12) — the executor drain's per-request git worktrees
+# (tools/aria-poc/ci_executor_drain.py, REQUEST_WORKTREES_DIR). They sit
+# INSIDE the checkout so node resolution walks up to its node_modules, and
+# the drain runs in the persistent self-hosted workspace whose `git status`
+# must never see one. `git worktree remove` takes each away after its child;
+# the ignore covers the window in between and any run reaped mid-child.
+aria-worktrees/
+
 # Plan ARIA-V4 §2e — inter-agent question envelope ledger. Hash-
 # chained (gitignored per V2 I-23 update); operator-local audit
 # trail of cross-agent tier-classification questions.

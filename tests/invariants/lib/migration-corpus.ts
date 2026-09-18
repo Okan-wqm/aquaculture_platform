@@ -163,10 +163,17 @@ export function migrationSource(...services: readonly string[]): string {
   return services.map((service) => migrationCorpus(service).source).join('\n---\n');
 }
 
-/** Every service that owns a migrations directory. */
+/**
+ * Every service that owns a migrations directory.
+ *
+ * `:(glob)` is load-bearing: without the pathspec magic git treats `**` as
+ * two ordinary `*`, which cannot match ZERO directories, so services whose
+ * migrations live directly under `src/migrations` (admin-api, auth) silently
+ * dropped out of the fleet while `src/database/migrations` services stayed in.
+ */
 export function servicesWithMigrations(): string[] {
   const services = new Set<string>();
-  for (const rel of gitFiles('apps/*/src/**/migrations/*.ts')) {
+  for (const rel of gitFiles(':(glob)apps/*/src/**/migrations/*.ts')) {
     const service = rel.split('/')[1];
     if (service) services.add(service);
   }

@@ -80,7 +80,13 @@ class AutoPrFoundationTests(unittest.TestCase):
         self.assertIn("per-action cap exceeded", blocked["reasons"])
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
-    def test_task_candidates_rank_pressure_and_shadow_summaries(self):
+    def test_task_candidates_rank_pressure_and_leave_shadow_runs_to_the_gap_path(self):
+        """A shadow run with raw findings and nothing emitted used to add a
+        ``shadow_run_summary`` candidate carrying a constant panel block —
+        refused on sight, every night. The producer is retired
+        (`mission.RETIRED_SOURCE_KINDS`); the run reaches the panel through
+        `capability_gap._gaps_from_shadow_runs`, and the pressure is the only
+        task this fixture yields."""
         pressure_dir = self.tools_dir / "pressure"
         pressure_dir.mkdir(parents=True)
         (pressure_dir / "cycle-1.json").write_text(
@@ -118,9 +124,11 @@ class AutoPrFoundationTests(unittest.TestCase):
             expected_surface="runs",
         )
         payload = generate_task_candidates(cycle_id="cycle-1", base_dir=self.tools_dir)
-        self.assertEqual(payload["task_count"], 2)
+        self.assertEqual(payload["task_count"], 1)
         self.assertEqual(payload["tasks"][0]["source"], "pressure")
-        self.assertEqual(payload["tasks"][1]["source_authority"], "shadow_draft")
+        self.assertEqual((payload["blocked_count"], payload["routed_to_panel_count"]), (0, 0))
+        every_partition = [*payload["tasks"], *payload["blocked"], *payload["routed_to_panel"]]
+        self.assertNotIn("shadow_run_summary", {t["source"] for t in every_partition})
 
     def test_llm_amplification_rejects_uncited_evidence(self):
         task = {

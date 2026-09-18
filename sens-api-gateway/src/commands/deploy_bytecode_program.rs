@@ -213,9 +213,11 @@ impl CommandHandler {
         // wraps ed25519_dalek verify against the agent's
         // firmware_signing_pubkey.
         let verify_closure = |msg: &[u8], sig_bytes: &[u8; 64]| {
-            use ed25519_dalek::Verifier;
+            // verify_strict rejects non-canonical R encodings and small-order
+            // public keys (signature malleability) — mandatory on the firmware/
+            // program-integrity boundary. Matches the crate-wide verify_strict SSoT.
             let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
-            pubkey.verify(msg, &sig).is_ok()
+            pubkey.verify_strict(msg, &sig).is_ok()
         };
 
         match verify_and_deploy(&registry, &signed, tenant_str.as_deref(), verify_closure).await {

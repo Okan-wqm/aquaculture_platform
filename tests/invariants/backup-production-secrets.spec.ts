@@ -1,10 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const BACKUP_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'backup-production.yml');
@@ -431,7 +439,7 @@ describe('production backup secret contract', () => {
         const checkoutIndex = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
         const authorityIndex = steps.findIndex(
           (step) =>
-            step.run?.includes("test \"${GITHUB_REF}\" = 'refs/heads/main'") === true &&
+            step.run?.includes('test "${GITHUB_REF}" = \'refs/heads/main\'') === true &&
             step.run.includes('test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"'),
         );
         const firstProtectedIndex = steps.findIndex(
@@ -505,6 +513,9 @@ describe('production backup secret contract', () => {
     expect(helper).toContain(
       'if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then',
     );
+    expect(helper).toContain('ssh-keyscan -T 15 -t ed25519');
+    expect(helper).toContain('[ "${candidate_algorithm}" = \'ssh-ed25519\' ] || continue');
+    expect(helper).toContain('HostKeyAlgorithms=ssh-ed25519');
     expect(helper).toContain('StrictHostKeyChecking=yes');
     expect(helper).toContain('UserKnownHostsFile="${KNOWN_HOSTS_PATH}"');
     expect(helper).toContain('GlobalKnownHostsFile=/dev/null');
@@ -536,6 +547,15 @@ describe('production backup secret contract', () => {
         join(fakeBin, 'ssh-keygen'),
         `printf '%s\\n' '256 ${fingerprint} host.example (ED25519)'`,
       );
+      // The helper's precondition loop requires `ssh` on PATH before it
+      // reaches the host-key scan. Every other external binary this fixture
+      // depends on is already stubbed here; `ssh` was the one left to the
+      // host, which made four otherwise-hermetic invariants unrunnable on any
+      // machine without an OpenSSH client. The stubbed `timeout` above stands
+      // in for the whole `timeout ... ssh ...` invocation, so this file is
+      // never executed — it exists to satisfy the precondition the same way
+      // the ssh-keyscan and ssh-keygen stubs do.
+      writeExecutable(join(fakeBin, 'ssh'), "printf 'unstubbed ssh invocation\\n' >&2; exit 97");
       writeExecutable(join(fakeBin, 'timeout'), `printf '%s\\n' '${evidenceSentinel}'`);
       writeFileSync(payloadPath, 'exit 0\n', { mode: 0o600 });
 
@@ -559,7 +579,7 @@ describe('production backup secret contract', () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain(keySentinel);
       expect(read(stdoutPath)).toContain(evidenceSentinel);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -597,6 +617,15 @@ describe('production backup secret contract', () => {
           `printf '%s\\n' '256 ${fingerprint} host.example (ED25519)'`,
         ].join('\n'),
       );
+      // The helper's precondition loop requires `ssh` on PATH before it
+      // reaches the host-key scan. Every other external binary this fixture
+      // depends on is already stubbed here; `ssh` was the one left to the
+      // host, which made four otherwise-hermetic invariants unrunnable on any
+      // machine without an OpenSSH client. The stubbed `timeout` above stands
+      // in for the whole `timeout ... ssh ...` invocation, so this file is
+      // never executed — it exists to satisfy the precondition the same way
+      // the ssh-keyscan and ssh-keygen stubs do.
+      writeExecutable(join(fakeBin, 'ssh'), "printf 'unstubbed ssh invocation\\n' >&2; exit 97");
       writeExecutable(join(fakeBin, 'timeout'), "printf '%s\\n' 'remote-ok'");
       writeFileSync(payloadPath, 'exit 0\n', { mode: 0o600 });
 
@@ -620,7 +649,65 @@ describe('production backup secret contract', () => {
       expect(result.stderr).toContain('skipping an advertised host key');
       expect(read(stdoutPath)).toContain('remote-ok');
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
+    }
+  });
+
+  it('refuses a fingerprint-matching host key that is not the provisioned ED25519 key', () => {
+    // INFRA-MEDIUM-088. The droplet's provisioned host key is ED25519 and
+    // DROPLET_SSH_FINGERPRINT is its SHA256, but the helper compared only the
+    // fingerprint. A SHA256 collision is not the threat model here; ambiguity
+    // during multi-key advertisement and rotation is. This fixture advertises
+    // an RSA line whose fingerprint the stub reports as the pinned value: with
+    // the algorithm unchecked it is accepted and written to known_hosts, and
+    // the connection proceeds against a key the contract never provisioned.
+    const directory = mkdtempSync(join(tmpdir(), 'aqua-protected-ssh-algorithm-'));
+    const fakeBin = join(directory, 'bin');
+    const payloadPath = join(directory, 'payload.sh');
+    const stdoutPath = join(directory, 'stdout');
+    const fingerprint = `SHA256:${'D'.repeat(43)}`;
+    try {
+      mkdirSync(fakeBin, { mode: 0o700 });
+      writeExecutable(
+        join(fakeBin, 'ssh-keyscan'),
+        "printf '%s\\n' 'host.example ssh-rsa not-the-provisioned-key'",
+      );
+      writeExecutable(
+        join(fakeBin, 'ssh-keygen'),
+        `printf '%s\\n' '3072 ${fingerprint} host.example (RSA)'`,
+      );
+      // The helper's precondition loop requires `ssh` on PATH before it
+      // reaches the host-key scan. Every other external binary this fixture
+      // depends on is already stubbed here; `ssh` was the one left to the
+      // host, which made four otherwise-hermetic invariants unrunnable on any
+      // machine without an OpenSSH client. The stubbed `timeout` above stands
+      // in for the whole `timeout ... ssh ...` invocation, so this file is
+      // never executed — it exists to satisfy the precondition the same way
+      // the ssh-keyscan and ssh-keygen stubs do.
+      writeExecutable(join(fakeBin, 'ssh'), "printf 'unstubbed ssh invocation\\n' >&2; exit 97");
+      writeExecutable(join(fakeBin, 'timeout'), "printf '%s\\n' 'must-not-run'");
+      writeFileSync(payloadPath, 'exit 0\n', { mode: 0o600 });
+
+      const result = spawnSync('bash', [PROTECTED_SSH_PATH], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          PATH: `${fakeBin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+          TMPDIR: directory,
+          DROPLET_HOST: 'host.example',
+          DROPLET_USER: 'backup',
+          DROPLET_SSH_KEY: 'unused-private-key',
+          DROPLET_SSH_FINGERPRINT: fingerprint,
+          SSH_PAYLOAD_PATH: payloadPath,
+          SSH_STDOUT_PATH: stdoutPath,
+        },
+      });
+
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('exactly one advertised ED25519 host key');
+      expect(existsSync(stdoutPath)).toBe(false);
+    } finally {
+      removeFixtureTree(directory);
     }
   });
 
@@ -640,6 +727,15 @@ describe('production backup secret contract', () => {
         join(fakeBin, 'ssh-keygen'),
         `printf '%s\\n' '256 ${fingerprint} host.example (ED25519)'`,
       );
+      // The helper's precondition loop requires `ssh` on PATH before it
+      // reaches the host-key scan. Every other external binary this fixture
+      // depends on is already stubbed here; `ssh` was the one left to the
+      // host, which made four otherwise-hermetic invariants unrunnable on any
+      // machine without an OpenSSH client. The stubbed `timeout` above stands
+      // in for the whole `timeout ... ssh ...` invocation, so this file is
+      // never executed — it exists to satisfy the precondition the same way
+      // the ssh-keyscan and ssh-keygen stubs do.
+      writeExecutable(join(fakeBin, 'ssh'), "printf 'unstubbed ssh invocation\\n' >&2; exit 97");
       writeExecutable(join(fakeBin, 'timeout'), 'exit 0');
       writeExecutable(join(fakeBin, 'rm'), 'exit 1');
       writeFileSync(payloadPath, 'exit 0\n', { mode: 0o600 });
@@ -661,7 +757,7 @@ describe('production backup secret contract', () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('protected SSH runtime cleanup failed');
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -724,9 +820,7 @@ describe('production backup secret contract', () => {
     expect(evidenceVerifier).toContain(
       '--expected-postgres-dr-contract-sha256 "${EXPECTED_POSTGRES_DR_CONTRACT_SHA256}"',
     );
-    expect(evidenceVerifier).toContain(
-      '/compare/${source_revision}...${evidence_main}',
-    );
+    expect(evidenceVerifier).toContain('/compare/${source_revision}...${evidence_main}');
     expect(evidenceVerifier).toContain('(.status == "ahead" or .status == "identical")');
     expect(evidenceVerifier).toContain('.base_commit.sha == $source');
     expect(evidenceVerifier).toContain('.merge_base_commit.sha == $source');

@@ -1,11 +1,37 @@
 /**
  * MinIO Client Service
- * Handles file storage operations with MinIO S3-compatible storage
+ * Handles file storage operations against the platform's MinIO server over
+ * the S3 API, through `@aws-sdk/client-s3`.
+ *
+ * WHY the AWS SDK and not the `minio` package: `minio@8` pins
+ * `stream-json@^1.8` for its bucket-notification stream — an API this
+ * platform never calls — and that range carries GHSA-528h-pc64-c93x. The
+ * fixed `stream-json` line is ESM-only with a different layout, so `minio`
+ * cannot be moved onto it with an override (its package main requires the
+ * old CommonJS path eagerly), and no newer `minio` exists. `@aws-sdk/client-s3`
+ * was already a dependency (messaging-service's media path) and MinIO speaks
+ * S3, so the vulnerable client is replaced rather than the advisory ignored.
+ * The class keeps its name: it is still the client of the MinIO server, and
+ * every consumer imports it by that name. (SUPPLY-MEDIUM-008)
+ *
  * @module Storage/MinioClientService
  */
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import * as Minio from 'minio';
 import { Readable } from 'stream';
+
+import {
+  CreateBucketCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+  S3ServiceException,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+
 import {
   StorageConfig,
   UploadResult,
@@ -16,36 +42,70 @@ import {
 
 export const STORAGE_CONFIG = 'STORAGE_CONFIG';
 
+/** Default presigned-URL lifetime (seconds). */
+const DEFAULT_PRESIGN_EXPIRY_SECONDS = 3600;
+
+/**
+ * S3 returns ETags wrapped in double quotes (`"d41d8..."`); the `minio`
+ * client stripped them, and `UploadResult.etag` has always been the bare
+ * hash that consumers persist. Keep that contract.
+ */
+function bareEtag(etag: string | undefined, operation: string): string {
+  if (etag === undefined) {
+    throw new Error(`${operation} returned no ETag`);
+  }
+  return etag.replace(/^"|"$/g, '');
+}
+
+/**
+ * S3 user metadata is bare, lowercase keys — the `x-amz-meta-` prefix is a
+ * wire detail the SDK adds and strips. The `minio` client accepted either
+ * form from callers, so both are still accepted here and normalised to the
+ * form `HeadObject` hands back.
+ */
+function toObjectMetadata(entries: Record<string, string>): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  for (const [rawKey, value] of Object.entries(entries)) {
+    const key = rawKey.toLowerCase();
+    metadata[key.startsWith('x-amz-meta-') ? key.slice('x-amz-meta-'.length) : key] = value;
+  }
+  return metadata;
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404;
+}
+
+/** The message a caught value carries, for the structured error line. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 @Injectable()
 export class MinioClientService implements OnModuleInit {
   private readonly logger = new Logger(MinioClientService.name);
-  private client: Minio.Client;
-  private bucket: string;
-  private endpoint: string;
-  private port?: number;
-  private useSSL: boolean;
+  private readonly client: S3Client;
+  private readonly bucket: string;
+  private readonly endpoint: string;
+  private readonly port?: number;
+  private readonly useSSL: boolean;
 
-  constructor(
-    @Inject(STORAGE_CONFIG) private readonly config: StorageConfig,
-  ) {
+  constructor(@Inject(STORAGE_CONFIG) private readonly config: StorageConfig) {
     this.bucket = config.bucket;
     this.endpoint = config.endpoint;
     this.port = config.port;
     this.useSSL = config.useSSL;
 
-    const clientOptions: Minio.ClientOptions = {
-      endPoint: config.endpoint,
-      useSSL: config.useSSL,
-      accessKey: config.accessKey,
-      secretKey: config.secretKey,
+    this.client = new S3Client({
+      endpoint: this.buildEndpointUrl(),
       region: config.region || 'us-east-1',
-    };
-
-    if (config.port !== undefined) {
-      clientOptions.port = config.port;
-    }
-
-    this.client = new Minio.Client(clientOptions);
+      credentials: {
+        accessKeyId: config.accessKey,
+        secretAccessKey: config.secretKey,
+      },
+      // MinIO addresses buckets by path (`/bucket/key`), not by virtual host.
+      forcePathStyle: true,
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -57,15 +117,14 @@ export class MinioClientService implements OnModuleInit {
    */
   async ensureBucketExists(): Promise<void> {
     try {
-      const exists = await this.client.bucketExists(this.bucket);
-      if (!exists) {
-        await this.client.makeBucket(this.bucket, this.config.region || 'us-east-1');
-        this.logger.log(`Created bucket: ${this.bucket}`);
-      } else {
+      if (await this.bucketExists()) {
         this.logger.log(`Bucket exists: ${this.bucket}`);
+        return;
       }
+      await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+      this.logger.log(`Created bucket: ${this.bucket}`);
     } catch (error) {
-      this.logger.error(`Failed to ensure bucket exists: ${error}`);
+      this.logger.error(`Failed to ensure bucket exists: ${describeError(error)}`);
       throw error;
     }
   }
@@ -96,41 +155,7 @@ export class MinioClientService implements OnModuleInit {
     buffer: Buffer,
     options?: UploadOptions,
   ): Promise<UploadResult> {
-    const path = this.generateFilePath(tenantId, entityType, entityId, filename);
-    const contentType = options?.contentType || this.detectContentType(filename);
-
-    try {
-      const metaData: Record<string, string> = {
-        'Content-Type': contentType,
-        'x-amz-meta-tenant-id': tenantId,
-        'x-amz-meta-entity-type': entityType,
-        'x-amz-meta-entity-id': entityId,
-        ...(options?.metadata || {}),
-      };
-
-      const etag = await this.client.putObject(
-        this.bucket,
-        path,
-        buffer,
-        buffer.length,
-        metaData,
-      );
-
-      const internalUrl = this.buildFileUrl(path);
-
-      this.logger.log(`Uploaded file: ${path} (${buffer.length} bytes)`);
-
-      return {
-        internalUrl,
-        path,
-        etag: typeof etag === 'string' ? etag : etag.etag,
-        size: buffer.length,
-        contentType,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to upload file ${path}: ${error}`);
-      throw error;
-    }
+    return this.putObject(tenantId, entityType, entityId, filename, buffer, buffer.length, options);
   }
 
   /**
@@ -145,41 +170,7 @@ export class MinioClientService implements OnModuleInit {
     size: number,
     options?: UploadOptions,
   ): Promise<UploadResult> {
-    const path = this.generateFilePath(tenantId, entityType, entityId, filename);
-    const contentType = options?.contentType || this.detectContentType(filename);
-
-    try {
-      const metaData: Record<string, string> = {
-        'Content-Type': contentType,
-        'x-amz-meta-tenant-id': tenantId,
-        'x-amz-meta-entity-type': entityType,
-        'x-amz-meta-entity-id': entityId,
-        ...(options?.metadata || {}),
-      };
-
-      const etag = await this.client.putObject(
-        this.bucket,
-        path,
-        stream,
-        size,
-        metaData,
-      );
-
-      const internalUrl = this.buildFileUrl(path);
-
-      this.logger.log(`Uploaded file: ${path} (${size} bytes)`);
-
-      return {
-        internalUrl,
-        path,
-        etag: typeof etag === 'string' ? etag : etag.etag,
-        size,
-        contentType,
-      };
-    } catch (error) {
-      this.logger.error(`Failed to upload file ${path}: ${error}`);
-      throw error;
-    }
+    return this.putObject(tenantId, entityType, entityId, filename, stream, size, options);
   }
 
   /**
@@ -187,10 +178,10 @@ export class MinioClientService implements OnModuleInit {
    */
   async deleteFile(path: string): Promise<void> {
     try {
-      await this.client.removeObject(this.bucket, path);
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: path }));
       this.logger.log(`Deleted file: ${path}`);
     } catch (error) {
-      this.logger.error(`Failed to delete file ${path}: ${error}`);
+      this.logger.error(`Failed to delete file ${path}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -211,11 +202,7 @@ export class MinioClientService implements OnModuleInit {
   /**
    * Delete all files for an entity
    */
-  async deleteEntityFiles(
-    tenantId: string,
-    entityType: string,
-    entityId: string,
-  ): Promise<number> {
+  async deleteEntityFiles(tenantId: string, entityType: string, entityId: string): Promise<number> {
     const prefix = `${tenantId}/${entityType}/${entityId}/`;
     let deletedCount = 0;
 
@@ -223,14 +210,14 @@ export class MinioClientService implements OnModuleInit {
       const objectsList = await this.listObjects(prefix);
 
       for (const obj of objectsList) {
-        await this.client.removeObject(this.bucket, obj.name);
+        await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: obj.name }));
         deletedCount++;
       }
 
       this.logger.log(`Deleted ${deletedCount} files for entity ${entityId}`);
       return deletedCount;
     } catch (error) {
-      this.logger.error(`Failed to delete entity files: ${error}`);
+      this.logger.error(`Failed to delete entity files: ${describeError(error)}`);
       throw error;
     }
   }
@@ -238,28 +225,19 @@ export class MinioClientService implements OnModuleInit {
   /**
    * Get a presigned URL for downloading a file
    */
-  async getPresignedUrl(
-    path: string,
-    options?: PresignedUrlOptions,
-  ): Promise<string> {
+  async getPresignedUrl(path: string, options?: PresignedUrlOptions): Promise<string> {
     try {
-      const expirySeconds = options?.expirySeconds || 3600; // 1 hour default
-
-      const respHeaders: Record<string, string> = {};
-      if (options?.responseContentDisposition) {
-        respHeaders['response-content-disposition'] = options.responseContentDisposition;
-      }
-
-      const url = await this.client.presignedGetObject(
-        this.bucket,
-        path,
-        expirySeconds,
-        Object.keys(respHeaders).length > 0 ? respHeaders : undefined,
-      );
-
-      return url;
+      const expiresIn = options?.expirySeconds || DEFAULT_PRESIGN_EXPIRY_SECONDS;
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: path,
+        ...(options?.responseContentDisposition
+          ? { ResponseContentDisposition: options.responseContentDisposition }
+          : {}),
+      });
+      return await getSignedUrl(this.client, command, { expiresIn });
     } catch (error) {
-      this.logger.error(`Failed to generate presigned URL for ${path}: ${error}`);
+      this.logger.error(`Failed to generate presigned URL for ${path}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -269,31 +247,28 @@ export class MinioClientService implements OnModuleInit {
    *
    * @param path - Storage path within the bucket
    * @param expirySeconds - URL expiry time in seconds (default: 3600)
-   * @param contentType - Optional MIME type restriction. When provided, the presigned URL
-   *   will include a `Content-Type` condition so that browsers must upload with the
-   *   matching content type. Example: `'application/pdf'`, `'image/png'`.
-   *   If omitted, any content type is accepted.
+   * @param contentType - Optional MIME type restriction. When provided, the
+   *   `Content-Type` is part of the signature, so the browser must upload with
+   *   the matching content type or the request is rejected.
+   *   Example: `'application/pdf'`, `'image/png'`. If omitted, any content
+   *   type is accepted.
    */
   async getPresignedUploadUrl(
     path: string,
-    expirySeconds: number = 3600,
+    expirySeconds: number = DEFAULT_PRESIGN_EXPIRY_SECONDS,
     contentType?: string,
   ): Promise<string> {
     try {
-      const reqParams: Record<string, string> = {};
-      if (contentType) {
-        reqParams['Content-Type'] = contentType;
-      }
-
-      const url = await this.client.presignedPutObject(
-        this.bucket,
-        path,
-        expirySeconds,
-      );
-
-      return url;
+      const command = new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: path,
+        ...(contentType ? { ContentType: contentType } : {}),
+      });
+      return await getSignedUrl(this.client, command, { expiresIn: expirySeconds });
     } catch (error) {
-      this.logger.error(`Failed to generate presigned upload URL for ${path}: ${error}`);
+      this.logger.error(
+        `Failed to generate presigned upload URL for ${path}: ${describeError(error)}`,
+      );
       throw error;
     }
   }
@@ -301,30 +276,41 @@ export class MinioClientService implements OnModuleInit {
   /**
    * List objects with a given prefix
    */
-  async listObjects(prefix: string): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
-    return new Promise((resolve, reject) => {
-      const objects: Array<{ name: string; size: number; lastModified: Date }> = [];
-      const stream = this.client.listObjects(this.bucket, prefix, true);
-
-      stream.on('data', (obj: { name?: string; size: number; lastModified: Date }) => {
-        if (obj.name) {
-          objects.push({
-            name: obj.name,
-            size: obj.size,
-            lastModified: obj.lastModified,
-          });
+  async listObjects(
+    prefix: string,
+  ): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
+    const objects: Array<{ name: string; size: number; lastModified: Date }> = [];
+    try {
+      // Explicit continuation loop rather than the SDK paginator: the same
+      // request/response shape, one fewer indirection, and nothing that
+      // depends on the client's concrete class.
+      let continuationToken: string | undefined;
+      do {
+        const page = await this.client.send(
+          new ListObjectsV2Command({
+            Bucket: this.bucket,
+            Prefix: prefix,
+            ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+          }),
+        );
+        for (const entry of page.Contents ?? []) {
+          // A listing entry without a key, size or timestamp is not an object.
+          if (
+            entry.Key === undefined ||
+            entry.Size === undefined ||
+            entry.LastModified === undefined
+          ) {
+            continue;
+          }
+          objects.push({ name: entry.Key, size: entry.Size, lastModified: entry.LastModified });
         }
-      });
-
-      stream.on('error', (err: Error) => {
-        this.logger.error(`Failed to list objects with prefix ${prefix}: ${err}`);
-        reject(err);
-      });
-
-      stream.on('end', () => {
-        resolve(objects);
-      });
-    });
+        continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (continuationToken !== undefined);
+      return objects;
+    } catch (error) {
+      this.logger.error(`Failed to list objects with prefix ${prefix}: ${describeError(error)}`);
+      throw error;
+    }
   }
 
   /**
@@ -332,7 +318,7 @@ export class MinioClientService implements OnModuleInit {
    */
   async fileExists(path: string): Promise<boolean> {
     try {
-      await this.client.statObject(this.bucket, path);
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: path }));
       return true;
     } catch {
       return false;
@@ -349,12 +335,14 @@ export class MinioClientService implements OnModuleInit {
     etag: string;
   } | null> {
     try {
-      const stat = await this.client.statObject(this.bucket, path);
+      const head = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: path }),
+      );
       return {
-        size: stat.size,
-        lastModified: stat.lastModified,
-        contentType: stat.metaData?.['content-type'] || 'application/octet-stream',
-        etag: stat.etag,
+        size: head.ContentLength ?? 0,
+        lastModified: head.LastModified ?? new Date(0),
+        contentType: head.ContentType || 'application/octet-stream',
+        etag: bareEtag(head.ETag, 'HeadObject'),
       };
     } catch {
       return null;
@@ -366,18 +354,20 @@ export class MinioClientService implements OnModuleInit {
    */
   async getFileMetadata(path: string): Promise<FileMetadata | null> {
     try {
-      const stat = await this.client.statObject(this.bucket, path);
-      const meta = stat.metaData || {};
+      const head = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: path }),
+      );
+      const meta = head.Metadata ?? {};
 
       return {
         tenantId: meta['tenant-id'] || '',
         entityType: meta['entity-type'] || '',
         entityId: meta['entity-id'] || '',
         filename: path.split('/').pop() || '',
-        contentType: meta['content-type'] || 'application/octet-stream',
-        size: stat.size,
+        contentType: head.ContentType || 'application/octet-stream',
+        size: head.ContentLength ?? 0,
         uploadedBy: meta['uploaded-by'] || '',
-        uploadedAt: stat.lastModified,
+        uploadedAt: head.LastModified ?? new Date(0),
       };
     } catch {
       return null;
@@ -389,19 +379,15 @@ export class MinioClientService implements OnModuleInit {
    */
   async downloadFile(path: string): Promise<Buffer> {
     try {
-      const stream = await this.client.getObject(this.bucket, path);
-      const chunks: Buffer[] = [];
-
-      return new Promise((resolve, reject) => {
-        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-        stream.on('end', () => resolve(Buffer.concat(chunks)));
-        stream.on('error', (err: Error) => {
-          this.logger.error(`Failed to download file ${path}: ${err}`);
-          reject(err);
-        });
+      const body = await this.getObjectBody(path);
+      return await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        body.on('data', (chunk: Buffer) => chunks.push(chunk));
+        body.on('end', () => resolve(Buffer.concat(chunks)));
+        body.on('error', reject);
       });
     } catch (error) {
-      this.logger.error(`Failed to get object ${path}: ${error}`);
+      this.logger.error(`Failed to download file ${path}: ${describeError(error)}`);
       throw error;
     }
   }
@@ -411,11 +397,92 @@ export class MinioClientService implements OnModuleInit {
    */
   async getFileStream(path: string): Promise<Readable> {
     try {
-      return await this.client.getObject(this.bucket, path);
+      return await this.getObjectBody(path);
     } catch (error) {
-      this.logger.error(`Failed to get file stream for ${path}: ${error}`);
+      this.logger.error(`Failed to get file stream for ${path}: ${describeError(error)}`);
       throw error;
     }
+  }
+
+  /**
+   * The one PutObject call behind uploadFile and uploadStream: the same
+   * metadata contract, the same result shape.
+   */
+  private async putObject(
+    tenantId: string,
+    entityType: string,
+    entityId: string,
+    filename: string,
+    body: Buffer | Readable,
+    size: number,
+    options?: UploadOptions,
+  ): Promise<UploadResult> {
+    const path = this.generateFilePath(tenantId, entityType, entityId, filename);
+    const contentType = options?.contentType || this.detectContentType(filename);
+
+    try {
+      const output = await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: path,
+          Body: body,
+          ContentLength: size,
+          ContentType: contentType,
+          Metadata: toObjectMetadata({
+            'tenant-id': tenantId,
+            'entity-type': entityType,
+            'entity-id': entityId,
+            ...(options?.metadata || {}),
+          }),
+        }),
+      );
+
+      this.logger.log(`Uploaded file: ${path} (${size} bytes)`);
+
+      return {
+        internalUrl: this.buildFileUrl(path),
+        path,
+        etag: bareEtag(output.ETag, 'PutObject'),
+        size,
+        contentType,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to upload file ${path}: ${describeError(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * GetObject whose body is a Node stream — the only shape the SDK produces
+   * on Node, and the one both download paths need. A body of any other shape
+   * (or none) is a contract violation, not a case to paper over.
+   */
+  private async getObjectBody(path: string): Promise<Readable> {
+    const output = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: path }));
+    const body = output.Body;
+    if (!(body instanceof Readable)) {
+      throw new Error(`GetObject for ${path} returned no readable body`);
+    }
+    return body;
+  }
+
+  private async bucketExists(): Promise<boolean> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return true;
+    } catch (error) {
+      if (isNotFound(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /** `http(s)://endpoint[:port]` — the S3 endpoint the client signs requests for. */
+  private buildEndpointUrl(): string {
+    const protocol = this.useSSL ? 'https' : 'http';
+    const portSuffix = this.port !== undefined ? `:${this.port}` : '';
+    return `${protocol}://${this.endpoint}${portSuffix}`;
   }
 
   /**
@@ -428,9 +495,7 @@ export class MinioClientService implements OnModuleInit {
     const defaultPort = this.useSSL ? 443 : 80;
 
     // Omit port from URL when it matches the protocol default
-    const portSuffix = (this.port !== undefined && this.port !== defaultPort)
-      ? `:${this.port}`
-      : '';
+    const portSuffix = this.port !== undefined && this.port !== defaultPort ? `:${this.port}` : '';
 
     return `${protocol}://${this.endpoint}${portSuffix}/${this.bucket}/${path}`;
   }
@@ -492,7 +557,7 @@ export class MinioClientService implements OnModuleInit {
     if (!resolved) {
       this.logger.debug(
         `detectContentType: unknown extension "${ext}" for file "${filename}", ` +
-        `falling back to application/octet-stream`,
+          `falling back to application/octet-stream`,
       );
       return 'application/octet-stream';
     }

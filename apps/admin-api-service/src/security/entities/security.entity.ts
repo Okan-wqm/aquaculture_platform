@@ -54,17 +54,34 @@ export type SecurityEventType =
   | 'device_anomaly'
   | 'time_anomaly';
 
-export type SecurityEventStatus = 'detected' | 'investigating' | 'confirmed' | 'mitigated' | 'false_positive' | 'escalated';
+export type SecurityEventStatus =
+  | 'detected'
+  | 'investigating'
+  | 'confirmed'
+  | 'mitigated'
+  | 'false_positive'
+  | 'escalated';
 
 export type ThreatLevel = 'low' | 'medium' | 'high' | 'critical';
 
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
 
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestType =
+  | 'access'
+  | 'deletion'
+  | 'portability'
+  | 'rectification'
+  | 'restriction';
 
 export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
 
-export type IncidentStatus = 'open' | 'investigating' | 'contained' | 'eradicated' | 'recovered' | 'closed';
+export type IncidentStatus =
+  | 'open'
+  | 'investigating'
+  | 'contained'
+  | 'eradicated'
+  | 'recovered'
+  | 'closed';
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -155,13 +172,13 @@ export class ActivityLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   tenantName?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -193,8 +210,13 @@ export class ActivityLog {
   entityName?: string | null;
 
   // Request details
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   geoLocation?: GeoLocation | null;
@@ -227,7 +249,7 @@ export class ActivityLog {
   metadata?: Record<string, unknown> | null;
 
   // Tags for categorization
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   // Outcome
@@ -244,15 +266,19 @@ export class ActivityLog {
   @Column({ type: 'int', nullable: true })
   duration?: number | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  // For archival tracking
+  /**
+   * Litigation-hold flag (ADR-0008). Mirror of the DB-level guard installed by
+   * migration 1808600000000: `trg_activity_logs_prevent_update` refuses every
+   * UPDATE and `trg_activity_logs_prevent_legal_hold_delete` refuses DELETE
+   * while this is true. The former `isArchived` / `archivedAt` lifecycle flags
+   * are gone — a WORM ledger has no mutable state; disposal is the retention
+   * kernel's (ADR-0012) and it honours this flag.
+   */
   @Column({ type: 'boolean', default: false })
-  isArchived!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  archivedAt?: Date | null;
+  legalHold!: boolean;
 }
 
 // ============================================================================
@@ -286,8 +312,13 @@ export class SecurityEvent {
   description!: string;
 
   // Source info
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   geoLocation?: GeoLocation | null;
@@ -296,10 +327,10 @@ export class SecurityEvent {
   deviceInfo?: DeviceInfo | null;
 
   // Target info
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -328,21 +359,21 @@ export class SecurityEvent {
   @Column({ type: 'jsonb', nullable: true })
   rawData?: Record<string, unknown> | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedActivityIds?: string[] | null;
 
   // Response
   @Column({ type: 'boolean', default: false })
   autoMitigated!: boolean;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   mitigationActions?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
   investigationNotes?: string | null;
 
   // Assignment
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -358,20 +389,20 @@ export class SecurityEvent {
   @Column({ type: 'timestamptz', nullable: true })
   resolvedAt?: Date | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   resolvedBy?: string | null;
 
   // Metadata
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -408,10 +439,10 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 100, nullable: true })
   attackVector?: string | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   affectedSystems?: string[] | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   affectedTenants?: string[] | null;
 
   // Impact assessment
@@ -450,11 +481,11 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 255, nullable: true })
   leadInvestigatorName?: string | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   teamMembers?: string[] | null;
 
   // Related events
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedSecurityEvents?: string[] | null;
 
   // Documentation
@@ -487,10 +518,10 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 100 })
   createdBy!: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -523,10 +554,10 @@ export class ThreatIntelligence {
   description?: string | null;
 
   // Classification
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   threatTypes?: string[] | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   // Confidence & validity
@@ -553,7 +584,7 @@ export class ThreatIntelligence {
   firstSeenAt?: Date | null;
 
   // Related data
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedIndicators?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -562,10 +593,10 @@ export class ThreatIntelligence {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -598,7 +629,7 @@ export class DataRequest {
   complianceFramework!: ComplianceType;
 
   // Requester info
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'uuid' })
   tenantId!: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -617,7 +648,7 @@ export class DataRequest {
   @Column({ type: 'text' })
   description!: string;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   dataCategories?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
@@ -640,7 +671,7 @@ export class DataRequest {
   @Column({ type: 'timestamptz' })
   dueDate!: Date;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -714,7 +745,7 @@ export class ComplianceReport {
   reportPeriodEnd!: Date;
 
   // Scope
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   includedTenants?: string[] | null;
 
   @Column({ type: 'boolean', default: true })
@@ -776,67 +807,10 @@ export class ComplianceReport {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
-  updatedAt!: Date;
-}
-
-// ============================================================================
-// Retention Policy Entity
-// ============================================================================
-
-@Entity('retention_policies', { schema: 'admin' })
-@Index(['name'], { unique: true })
-export class RetentionPolicyEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 100, unique: true })
-  name!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  category!: ActivityCategory;
-
-  @Column({ type: 'text', nullable: true })
-  description?: string | null;
-
-  // Retention settings
-  @Column({ type: 'int' })
-  retentionDays!: number;
-
-  @Column({ type: 'int', nullable: true })
-  archiveAfterDays?: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  deleteAfterArchiveDays?: number | null;
-
-  // Scope
-  @Column({ type: 'boolean', default: true })
-  isGlobal!: boolean;
-
-  @Column({ type: 'simple-array', nullable: true })
-  specificTenants?: string[] | null;
-
-  // Compliance requirements
-  @Column({ type: 'simple-array', nullable: true })
-  complianceFrameworks?: ComplianceType[] | null;
-
-  @Column({ type: 'boolean', default: true })
-  isActive!: boolean;
-
-  // Audit
-  @Column({ type: 'varchar', length: 100 })
-  createdBy!: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  updatedBy?: string | null;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -855,8 +829,13 @@ export class LoginAttempt {
   @Column({ type: 'varchar', length: 255 })
   email!: string;
 
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'boolean' })
   success!: boolean;
@@ -870,16 +849,27 @@ export class LoginAttempt {
   @Column({ type: 'jsonb', nullable: true })
   deviceInfo?: DeviceInfo | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   sessionId?: string | null;
 
-  @CreateDateColumn()
+  /**
+   * The id of the security event this row was projected from (ADMIN-HIGH-014).
+   *
+   * NULL for a row written by any path other than the JetStream projection.
+   * A partial unique index over the non-NULL values makes an at-least-once
+   * redelivery unable to double-count a failed login into a brute-force alert
+   * (migration `1809600000000-ProjectionSourceEventIdentity`).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  sourceEventId?: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -897,10 +887,10 @@ export class ApiUsageLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -917,7 +907,13 @@ export class ApiUsageLog {
   path!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  queryParams?: Record<string, unknown> | null;
+  /**
+   * The request's query string, as parsed. Typed to what a query string can
+   * actually hold — `Record<string, unknown>` cannot be written through
+   * TypeORM's insert builder, and an `unknown` bag invites a token or an email
+   * into a table `maskPii()` never sees.
+   */
+  queryParams?: Record<string, string | string[]> | null;
 
   @Column({ type: 'int', nullable: true })
   requestSize?: number | null;
@@ -933,8 +929,13 @@ export class ApiUsageLog {
   responseTimeMs!: number;
 
   // Source
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   userAgent?: string | null;
@@ -962,78 +963,13 @@ export class ApiUsageLog {
   @Column({ type: 'varchar', length: 255, nullable: true })
   correlationId?: string | null;
 
-  @CreateDateColumn()
+  /**
+   * The id of the security event this row was projected from (ADMIN-HIGH-014).
+   * See `LoginAttempt.sourceEventId` — same partial unique index, same reason.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  sourceEventId?: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
-}
-
-// ============================================================================
-// Session Entity (for session tracking)
-// ============================================================================
-
-@Entity('user_sessions', { schema: 'admin' })
-@Index(['userId', 'isActive'])
-@Index(['tenantId', 'isActive'])
-@Index(['sessionToken'], { unique: true })
-@Index(['lastActivityAt'])
-export class UserSession {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 255, unique: true })
-  sessionToken!: string;
-
-  @Column({ type: 'varchar', length: 100 })
-  userId!: string;
-
-  @Column({ type: 'varchar', length: 255 })
-  userName!: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId?: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  tenantName?: string | null;
-
-  // Session info
-  @Column({ type: 'boolean', default: true })
-  isActive!: boolean;
-
-  @Column({ type: 'timestamptz' })
-  expiresAt!: Date;
-
-  // Source info
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  geoLocation?: GeoLocation | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  deviceInfo?: DeviceInfo | null;
-
-  // Activity tracking
-  @Column({ type: 'int', default: 0 })
-  requestCount!: number;
-
-  @Column({ type: 'timestamptz' })
-  lastActivityAt!: Date;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  lastActivityPath?: string | null;
-
-  // Termination
-  @Column({ type: 'timestamptz', nullable: true })
-  terminatedAt?: Date | null;
-
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  terminationReason?: 'logout' | 'expired' | 'forced' | 'security' | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  terminatedBy?: string | null;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
 }

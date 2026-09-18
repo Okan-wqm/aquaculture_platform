@@ -40,13 +40,16 @@ describe('VfdDeviceService', () => {
     updatedAt: new Date(),
   };
 
-  const createMockQueryBuilder = () => ({
+  // `total` is a parameter because the pagination authority rejects a page that
+  // could not exist: one row with total=1 is not page 2 of anything. A double
+  // that describes an impossible page tests nothing the runtime can produce.
+  const createMockQueryBuilder = (rows = [mockDevice], total = rows.length) => ({
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
     take: jest.fn().mockReturnThis(),
-    getManyAndCount: jest.fn().mockResolvedValue([[mockDevice], 1]),
+    getManyAndCount: jest.fn().mockResolvedValue([rows, total]),
     select: jest.fn().mockReturnThis(),
     addSelect: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
@@ -175,7 +178,7 @@ describe('VfdDeviceService', () => {
     });
 
     it('should apply pagination', async () => {
-      const mockQueryBuilder = createMockQueryBuilder();
+      const mockQueryBuilder = createMockQueryBuilder([mockDevice], 11);
       repository.createQueryBuilder.mockReturnValue(mockQueryBuilder as any);
 
       await service.findAll(tenantId, undefined, { page: 2, limit: 10 });

@@ -6,11 +6,23 @@
  * Every endpoint is guarded by PlatformAdminGuard (APP_GUARD in app.module.ts)
  * which restricts access to SUPER_ADMIN / PLATFORM_ADMIN roles.
  *
- * Endpoints that messaging-service does not yet expose return 501 Not Implemented
- * with a clear message -- no mock data is ever returned.
+ * Every route here is backed by a messaging-service NATS handler. A route
+ * whose only behaviour would be to refuse (501 / 410) is not declared:
+ * `tests/invariants/admin-no-stub-routes.spec.ts` (ADMIN-HIGH-011).
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
+import {
+  CreateLegalHoldDto,
+  TriggerExportDto,
+  UpdateRetentionPolicyDto,
+} from './dto/messaging-admin.dto';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+} from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -36,27 +48,6 @@ import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorat
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
-
-// ── DTO Interfaces ──────────────────────────────────────────────────────
-
-interface CreateLegalHoldDto {
-  tenantId: string;
-  channelId?: string | null;
-  reason: string;
-  legalMatterId: string;
-  legalMatterDescription?: string;
-  requestedBy?: string;
-  expiresAt?: string;
-}
-
-interface UpdateRetentionPolicyDto {
-  channelId?: string | null;
-  retentionDays: number;
-}
-
-interface TriggerExportDto {
-  format?: 'csv' | 'json';
-}
 
 // ── Response Interfaces ────────────────────────────────────────────────
 
@@ -92,6 +83,42 @@ interface AuditLogResponse {
 interface ExportResponse {
   exportId: string;
   status: string;
+}
+
+/** Per-tenant messaging activity row (ADMIN-HIGH-009). */
+interface TenantMessagingOverviewRow {
+  tenantId: string;
+  messageCount24h: number;
+  messageCount7d: number;
+  totalMessages: number;
+  activeChannels: number;
+}
+
+/** Cross-tenant outbox health snapshot (ADMIN-HIGH-009). */
+interface MessagingOutboxHealth {
+  pendingCount: number;
+  failedCount: number;
+  oldestPendingAgeSeconds: number | null;
+}
+
+/** Platform-wide monitoring statistics returned by GET /messaging/monitoring/stats. */
+interface MonitoringStatsResponse {
+  totals: {
+    totalMessages: number;
+    messages24h: number;
+    messages7d: number;
+    activeChannels: number;
+    tenantCount: number;
+  };
+  perTenant: TenantMessagingOverviewRow[];
+  outbox: MessagingOutboxHealth;
+  generatedAt: string;
+}
+
+/** Per-tenant messaging overview returned by GET /messaging/tenants. */
+interface TenantsOverviewResponse {
+  tenants: TenantMessagingOverviewRow[];
+  generatedAt: string;
 }
 
 /**
@@ -136,7 +163,9 @@ export class MessagingAdminController {
    */
   @Get('compliance/stats')
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
-  async getComplianceStats(@Query('tenantId') tenantId: string): Promise<ComplianceStatsResponse> {
+  async getComplianceStats(
+    @TenantParam('query') tenantId: string,
+  ): Promise<ComplianceStatsResponse> {
     return this.sendNatsRequest<ComplianceStatsResponse>(
       'request.messaging.admin.complianceStats',
       { tenantId },
@@ -151,7 +180,7 @@ export class MessagingAdminController {
    */
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
-  async getLegalHolds(@Query('tenantId') tenantId: string): Promise<LegalHoldResponse[]> {
+  async getLegalHolds(@TenantParam('query') tenantId: string): Promise<LegalHoldResponse[]> {
     return this.sendNatsRequest<LegalHoldResponse[]>('request.messaging.admin.getLegalHolds', {
       tenantId,
     });
@@ -160,21 +189,25 @@ export class MessagingAdminController {
   /**
    * Create a new legal hold on messaging data.
    */
+  @AuditedOperation({ resource: 'LegalHold', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post('compliance/legal-holds')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a legal hold' })
   async createLegalHold(
+    @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.createLegalHold', {
-      tenantId: dto.tenantId,
+      tenantId,
       userId: user.id,
       channelId: dto.channelId ?? null,
       reason: dto.reason,
       legalMatterId: dto.legalMatterId,
       legalMatterDescription: dto.legalMatterDescription,
-      requestedBy: dto.requestedBy,
+      // ADMIN-CRITICAL-102: the requesting actor is the verified principal.
+      requestedBy: user.id,
       expiresAt: dto.expiresAt,
     });
   }
@@ -183,11 +216,14 @@ export class MessagingAdminController {
    * Release (deactivate) an existing legal hold.
    * @param id - UUID of the legal hold to release
    */
+  @AuditedOperation({ resource: 'LegalHold', action: 'RELEASE' })
+  @Destructive()
+  @RequiresCapability('support-ops')
   @Delete('compliance/legal-holds/:id')
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
     return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.releaseLegalHold', {
@@ -206,7 +242,7 @@ export class MessagingAdminController {
   @Get('retention/policies')
   @ApiOperation({ summary: 'List retention policies for a tenant' })
   async getRetentionPolicies(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
   ): Promise<RetentionPolicyResponse[]> {
     return this.sendNatsRequest<RetentionPolicyResponse[]>(
       'request.messaging.admin.getRetentionPolicies',
@@ -218,17 +254,19 @@ export class MessagingAdminController {
    * Create or update a retention policy.
    * @param id - Tenant ID (used as scope identifier)
    */
+  @AuditedOperation({ resource: 'RetentionPolicy', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put('retention/policies/:id')
   @ApiOperation({ summary: 'Update a retention policy' })
   async updateRetentionPolicy(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id' }) tenantId: string,
     @Body() dto: UpdateRetentionPolicyDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<RetentionPolicyResponse> {
     return this.sendNatsRequest<RetentionPolicyResponse>(
       'request.messaging.admin.updateRetentionPolicy',
       {
-        tenantId: id,
+        tenantId,
         userId: user.id,
         channelId: dto.channelId ?? null,
         retentionDays: dto.retentionDays,
@@ -239,16 +277,17 @@ export class MessagingAdminController {
   // ── Monitoring ──────────────────────────────────────────────────────
 
   /**
-   * Get messaging monitoring statistics.
-   * Not yet implemented in messaging-service.
+   * Platform-wide messaging monitoring statistics: message volume totals
+   * (24h / 7d / all-time), active channel counts, the per-tenant breakdown and
+   * transactional-outbox health. Aggregated cross-tenant by messaging-service
+   * and cached there for 60 seconds (ADMIN-HIGH-009).
    */
   @Get('monitoring/stats')
   @ApiOperation({ summary: 'Get messaging monitoring statistics' })
-  async getMonitoringStats(): Promise<never> {
-    throw new HttpException(
-      'Messaging monitoring stats not yet implemented in messaging-service. ' +
-        'Requires real-time metrics aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
+  async getMonitoringStats(): Promise<MonitoringStatsResponse> {
+    return this.sendNatsRequest<MonitoringStatsResponse>(
+      'request.messaging.admin.getMonitoringStats',
+      {},
     );
   }
 
@@ -263,7 +302,7 @@ export class MessagingAdminController {
   @Get('audit')
   @ApiOperation({ summary: 'Get compliance audit log entries' })
   async getAuditLog(
-    @Query('tenantId') tenantId: string,
+    @TenantParam('query') tenantId: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
     @Query('userId') userId?: string,
@@ -287,16 +326,17 @@ export class MessagingAdminController {
   // ── Tenant Messaging Overview ───────────────────────────────────────
 
   /**
-   * Get tenant list with messaging statistics.
-   * Not yet implemented in messaging-service.
+   * Per-tenant messaging overview: message counts (24h / 7d / all-time) and
+   * active channel counts per tenant, sorted by 24h volume. Aggregated
+   * cross-tenant by messaging-service and cached there for 60 seconds
+   * (ADMIN-HIGH-009).
    */
   @Get('tenants')
   @ApiOperation({ summary: 'List tenants with messaging stats' })
-  async getTenants(): Promise<never> {
-    throw new HttpException(
-      'Tenant messaging overview not yet implemented in messaging-service. ' +
-        'Requires cross-tenant aggregation endpoint.',
-      HttpStatus.NOT_IMPLEMENTED,
+  async getTenants(): Promise<TenantsOverviewResponse> {
+    return this.sendNatsRequest<TenantsOverviewResponse>(
+      'request.messaging.admin.getTenantsOverview',
+      {},
     );
   }
 
@@ -306,16 +346,19 @@ export class MessagingAdminController {
    * Trigger a data export for a specific tenant.
    * @param id - UUID of the tenant to export
    */
+  @AuditedOperation({ resource: 'Export', action: 'TRIGGER' })
+  @Destructive()
+  @RequiresCapability('support-ops')
   @Post('tenants/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })
   async triggerExport(
-    @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('param', { key: 'id', allow: 'any' }) tenantId: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<ExportResponse> {
     return this.sendNatsRequest<ExportResponse>('request.messaging.admin.triggerExport', {
-      tenantId: id,
+      tenantId,
       userId: user.id,
       format: dto.format ?? 'json',
     });
@@ -329,25 +372,10 @@ export class MessagingAdminController {
    */
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
-  async getPersonas(@Query('tenantId') tenantId: string): Promise<PersonaResponse[]> {
+  async getPersonas(@TenantParam('query') tenantId: string): Promise<PersonaResponse[]> {
     return this.sendNatsRequest<PersonaResponse[]>('request.messaging.admin.getPersonas', {
       tenantId,
     });
-  }
-
-  /**
-   * Update an AI persona configuration.
-   * Not yet implemented in messaging-service (personas are currently static).
-   * @param id - Persona ID
-   */
-  @Put('personas/:id')
-  @ApiOperation({ summary: 'Update AI persona configuration' })
-  async updatePersona(@Param('id') _id: string): Promise<never> {
-    throw new HttpException(
-      'AI persona configuration update not yet implemented in messaging-service. ' +
-        'Personas are currently static; per-tenant configuration is planned.',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
   }
 
   // ── NATS Helper ─────────────────────────────────────────────────────

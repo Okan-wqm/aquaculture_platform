@@ -241,12 +241,28 @@ function classifyFormatFile(path) {
       'historical archive content is hash-pinned evidence',
     );
   }
+  if (path === 'apps/admin-api-service/openapi.json') {
+    return excluded(
+      path,
+      'generated',
+      'admin-openapi-generator',
+      'written by `nx run admin-api-service:openapi`; tests/invariants/admin-openapi-artifact-parity.spec.ts asserts the committed bytes equal a fresh generation, so reformatting would break the contract gate',
+    );
+  }
   if (path.includes('/generated/') || path.includes('.generated.')) {
     return excluded(
       path,
       'generated',
       'codegen-owner',
       'generated artifact; source generator is canonical',
+    );
+  }
+  if (path.startsWith('tools/eslint-rules/dist/')) {
+    return excluded(
+      path,
+      'generated',
+      'eslint-rules-owner',
+      'tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds',
     );
   }
   if (
@@ -258,6 +274,14 @@ function classifyFormatFile(path) {
       'generated',
       'frontend-bundle-owner',
       'checked-in browser bundle; generator/source package is canonical',
+    );
+  }
+  if (path.startsWith('aria-kernel/tests/fixtures/')) {
+    return excluded(
+      path,
+      'archive_immutable',
+      'aria-kernel-fixture-capture',
+      'byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)',
     );
   }
   if (path.startsWith('.aria-ci/') || path.startsWith('aria-tools/')) {
@@ -906,7 +930,7 @@ function buildClosureManifest() {
     step('format-check', ['npm', 'run', 'format:check']),
     step('lint-all', ['npm', 'run', 'lint:all', '--', '--max-warnings=0'], { heavy: true }),
     step('type-check', ['npm', 'run', 'type-check'], { heavy: true }),
-    step('aria-acceptance', ['npm', 'run', 'aria:acceptance'], { heavy: true }),
+    step('aria-acceptance', ['npm', 'run', 'test:aria-acceptance'], { heavy: true }),
     step('invariants-full', ['npm', 'run', 'invariants:full'], { heavy: true }),
     step('test-all', ['npm', 'run', 'test:all'], { heavy: true }),
     step('build-all', ['npm', 'run', 'build:all'], { heavy: true }),

@@ -135,7 +135,7 @@ const RESTRICTED_SYNTAX_MAIN = [
   {
     selector: "CallExpression[callee.property.name='getOrThrow'][arguments.0.value='JWT_SECRET']",
     message:
-      'JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get(\'JWT_SECRET\') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>(\'JWT_SECRET\') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.',
+      "JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get('JWT_SECRET') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>('JWT_SECRET') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.",
   },
   {
     selector:
@@ -249,6 +249,13 @@ const NON_PROVENANCE_TS_PROJECTS = [
   'libs/shared-contracts',
   'platform/libs/service-catalog',
   'tools/executors/cargo',
+  // tools/scripts owns a tsconfig with `moduleResolution: Bundler` because the
+  // operator CLIs there import packages whose declarations are reachable only
+  // through an `exports` map (`@nats-io/nats-core` publishes `types` pointing at
+  // a `.js` path, so node10 resolution error-types every value derived from it).
+  // Without this pin the parser fell back to the repo-wide node-resolution
+  // project and reported `no-unsafe-*` on correctly-typed code.
+  'tools/scripts',
 ];
 
 const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({
@@ -462,6 +469,44 @@ export default [
     ignores: [...PROJECT_GLOBS, 'web/**/*.spec.ts', 'web/**/*.test.ts', 'web/**/__tests__/**'],
     plugins: { aquaculture },
     rules: { 'aquaculture/no-bare-tenant-query-key': 'warn' },
+  },
+
+  // ── override 8a: no-unsandboxed-html-frame (web, NON-project only) ──
+  // 'error' from the first commit: the one existing violation (the admin
+  // email-template preview) was migrated to SandboxedHtmlPreview in the same
+  // change. A bare <iframe> without `sandbox`, or `srcDoc` outside the shared
+  // component, is a same-origin XSS path to the operator session. ADMIN-CRITICAL-104.
+  {
+    files: ['web/**/*.tsx', 'web/**/*.jsx'],
+    ignores: [...PROJECT_GLOBS, 'web/**/*.spec.tsx', 'web/**/*.test.tsx', 'web/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unsandboxed-html-frame': 'error' },
+  },
+
+  // ── override 8b: no-actor-in-input-dto (admin-api, NON-project only) ──
+  // 'error' from the first commit: every existing violation (terminatedBy,
+  // requestedBy, createdBy*/changedBy* on ticket and messaging bodies, the
+  // client-writable activity-log POST) was removed in the same change. A
+  // validated request body must not claim who acted; the audit writer reads
+  // the guard-verified principal from the request frame. ADMIN-CRITICAL-102.
+  {
+    files: ['apps/admin-api-service/src/**/*.ts'],
+    ignores: [...PROJECT_GLOBS, 'apps/**/*.spec.ts', 'apps/**/*.test.ts', 'apps/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-actor-in-input-dto': 'error' },
+  },
+
+  // ── override 8c: no-unverified-tenant-param (admin-api, NON-project only) ──
+  // 'error' from the first commit: every raw @Param('tenantId') /
+  // @Query('tenantId') and every validated body `tenantId` on the admin
+  // surface was converted to @TenantParam() in the same change. A tenant id
+  // reaches a handler only after VerifiedTenantPipe resolved it against
+  // auth.tenants and applied the route's lifecycle tolerance. ADMIN-CRITICAL-009.
+  {
+    files: ['apps/admin-api-service/src/**/*.ts'],
+    ignores: [...PROJECT_GLOBS, 'apps/**/*.spec.ts', 'apps/**/*.test.ts', 'apps/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unverified-tenant-param': 'error' },
   },
 
   // ── override 9: no-direct-event-publish (NON-project only) ──

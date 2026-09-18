@@ -2,7 +2,13 @@
  * Purchase Order hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // Types
 export enum PurchaseOrderCategory {
@@ -67,13 +73,7 @@ export interface PurchaseOrder {
   updatedAt: string;
 }
 
-interface PaginatedPurchaseOrders {
-  items: PurchaseOrder[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PaginatedPurchaseOrders = PaginationResultV1<PurchaseOrder>;
 
 export interface CreatePurchaseOrderInput {
   category: PurchaseOrderCategory;
@@ -147,6 +147,8 @@ const LIST_PURCHASE_ORDERS = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

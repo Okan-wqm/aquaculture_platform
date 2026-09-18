@@ -72,9 +72,7 @@ export class VfdChangeSetService {
     input: CreateChangeSetInput,
     createdBy: string,
   ): Promise<VfdChangeSet> {
-    this.logger.log(
-      `Creating change set for device ${input.vfdDeviceId} by ${createdBy}`,
-    );
+    this.logger.log(`Creating change set for device ${input.vfdDeviceId} by ${createdBy}`);
 
     const changeSet = this.changeSetRepository.create({
       tenantId,
@@ -111,18 +109,15 @@ export class VfdChangeSetService {
 
     // Resolve device brand for parameter lookups
     const deviceId = changeSet.vfdDeviceId;
-    const definitions =
-      await this.parameterDefinitionService.getDefinitionsForDevice(
-        deviceId,
-        tenantId,
-      );
+    const definitions = await this.parameterDefinitionService.getDefinitionsForDevice(
+      deviceId,
+      tenantId,
+    );
 
     const newItems: VfdChangeSetItem[] = [];
 
     for (const item of items) {
-      const definition = definitions.find(
-        (d) => d.parameterName === item.parameterName,
-      );
+      const definition = definitions.find((d) => d.parameterName === item.parameterName);
 
       if (!definition) {
         throw new BadRequestException(
@@ -165,9 +160,7 @@ export class VfdChangeSetService {
     });
 
     if (!item) {
-      throw new NotFoundException(
-        `Item ${itemId} not found in change set ${changeSetId}`,
-      );
+      throw new NotFoundException(`Item ${itemId} not found in change set ${changeSetId}`);
     }
 
     await this.changeSetItemRepository.remove(item);
@@ -190,17 +183,14 @@ export class VfdChangeSetService {
     this.assertStatus(changeSet, VfdChangeSetStatus.DRAFT, 'submit');
 
     if (!changeSet.items || changeSet.items.length === 0) {
-      throw new BadRequestException(
-        'Change set must have at least one item before submission',
-      );
+      throw new BadRequestException('Change set must have at least one item before submission');
     }
 
     // Load definitions for the device to validate values and assess risk
-    const definitions =
-      await this.parameterDefinitionService.getDefinitionsForDevice(
-        changeSet.vfdDeviceId,
-        changeSet.tenantId,
-      );
+    const definitions = await this.parameterDefinitionService.getDefinitionsForDevice(
+      changeSet.vfdDeviceId,
+      changeSet.tenantId,
+    );
     const defMap = new Map(definitions.map((d) => [d.parameterName, d]));
 
     const riskChanges: Array<{
@@ -224,20 +214,14 @@ export class VfdChangeSetService {
       riskChanges.push({
         parameterName: item.parameterName,
         value: item.requestedValue,
-        limits: definition
-          ? { min: definition.minValue, max: definition.maxValue }
-          : undefined,
+        limits: definition ? { min: definition.minValue, max: definition.maxValue } : undefined,
       });
     }
 
     const riskResult = this.riskEvaluator.evaluateBatchRisk(riskChanges);
 
     // Concurrent guard: no other active change set for this device
-    await this.ensureNoActiveChangeSet(
-      changeSet.tenantId,
-      changeSet.vfdDeviceId,
-      changeSet.id,
-    );
+    await this.ensureNoActiveChangeSet(changeSet.tenantId, changeSet.vfdDeviceId, changeSet.id);
 
     changeSet.status = VfdChangeSetStatus.PENDING_APPROVAL;
     changeSet.metadata = {
@@ -283,22 +267,30 @@ export class VfdChangeSetService {
 
     // Maker-Checker enforcement
     if (changeSet.createdBy === approvedBy) {
-      throw new ForbiddenException(
-        'Maker-Checker violation: approver must differ from requester',
-      );
+      throw new ForbiddenException('Maker-Checker violation: approver must differ from requester');
     }
 
-    // Concurrent guard
-    await this.ensureNoActiveChangeSet(
-      changeSet.tenantId,
-      changeSet.vfdDeviceId,
-      changeSet.id,
-    );
+    // Concurrent guard (friendly error; the partial unique index
+    // uq_vfd_change_sets_one_active_per_device is the structural invariant)
+    await this.ensureNoActiveChangeSet(changeSet.tenantId, changeSet.vfdDeviceId, changeSet.id);
 
+    // SEC-MEDIUM-083 (2026-08-23 scan №28): ATOMIC status claim — the
+    // previous read-check-write let two concurrent approvals both pass
+    // assertStatus and both emit 'vfd.changeset.approved'. The conditional
+    // UPDATE makes the second approval structurally impossible.
+    const claim = await this.changeSetRepository.update(
+      { id: changeSetId, tenantId, status: VfdChangeSetStatus.PENDING_APPROVAL },
+      { status: VfdChangeSetStatus.APPROVED, approvedBy },
+    );
+    if (!claim.affected) {
+      throw new ConflictException(
+        `Change set ${changeSetId} is no longer PENDING_APPROVAL (concurrently approved, rejected or cancelled)`,
+      );
+    }
     changeSet.status = VfdChangeSetStatus.APPROVED;
     changeSet.approvedBy = approvedBy;
 
-    const saved = await this.changeSetRepository.save(changeSet);
+    const saved = changeSet;
 
     // If not scheduled, trigger immediate apply
     if (!changeSet.scheduledAt) {
@@ -310,9 +302,7 @@ export class VfdChangeSetService {
       });
     }
 
-    this.logger.log(
-      `Change set ${changeSetId} approved by ${approvedBy}`,
-    );
+    this.logger.log(`Change set ${changeSetId} approved by ${approvedBy}`);
 
     return saved;
   }
@@ -345,9 +335,7 @@ export class VfdChangeSetService {
       reason,
     });
 
-    this.logger.log(
-      `Change set ${changeSetId} rejected by ${rejectedBy}: ${reason}`,
-    );
+    this.logger.log(`Change set ${changeSetId} rejected by ${rejectedBy}: ${reason}`);
 
     return saved;
   }
@@ -403,9 +391,7 @@ export class VfdChangeSetService {
     });
 
     this.logger.log(
-      `Change set ${changeSetId} cancelled by ${cancelledBy}${
-        reason ? `: ${reason}` : ''
-      }`,
+      `Change set ${changeSetId} cancelled by ${cancelledBy}${reason ? `: ${reason}` : ''}`,
     );
 
     return saved;
@@ -422,6 +408,7 @@ export class VfdChangeSetService {
     reason: string,
     performedBy: string,
     tenantId: string,
+    options?: { emergency?: boolean },
   ): Promise<VfdChangeSet> {
     const original = await this.findByIdOrFail(changeSetId, tenantId);
 
@@ -466,13 +453,27 @@ export class VfdChangeSetService {
 
     await this.changeSetItemRepository.save(inverseItems);
 
-    const isEmergency = reason === 'emergency';
+    // SEC-LOW-084 (2026-08-23 scan №29): the override is a TYPED caller
+    // decision (emergencyRollbackChangeSet, TENANT_ADMIN-gated resolver
+    // mutation) — a free-text reason value can never again self-approve a
+    // change set.
+    const isEmergency = options?.emergency === true;
 
     if (isEmergency) {
-      // Emergency rollback: auto-approve and emit with EMERGENCY_OVERRIDE
+      // Emergency rollback: auto-approve and emit with EMERGENCY_OVERRIDE.
+      // Atomic DRAFT→APPROVED claim (№28): a concurrent state change on the
+      // rollback row aborts the override instead of double-writing.
+      const claim = await this.changeSetRepository.update(
+        { id: savedRollback.id, tenantId, status: VfdChangeSetStatus.DRAFT },
+        { status: VfdChangeSetStatus.APPROVED, approvedBy: performedBy },
+      );
+      if (!claim.affected) {
+        throw new ConflictException(
+          `Rollback change set ${savedRollback.id} changed state before the emergency override could claim it`,
+        );
+      }
       savedRollback.status = VfdChangeSetStatus.APPROVED;
       savedRollback.approvedBy = performedBy;
-      await this.changeSetRepository.save(savedRollback);
 
       // Mark original as rolled back
       original.status = VfdChangeSetStatus.ROLLED_BACK;
@@ -496,19 +497,40 @@ export class VfdChangeSetService {
         action: VfdAuditAction.EMERGENCY_OVERRIDE,
       });
 
-      this.logger.warn(
-        `EMERGENCY rollback of change set ${changeSetId} by ${performedBy}`,
-      );
+      this.logger.warn(`EMERGENCY rollback of change set ${changeSetId} by ${performedBy}`);
     } else {
       // Normal rollback: submit for approval
       await this.submitForApproval(savedRollback.id, performedBy, tenantId);
 
-      this.logger.log(
-        `Rollback change set ${savedRollback.id} created for ${changeSetId}`,
-      );
+      this.logger.log(`Rollback change set ${savedRollback.id} created for ${changeSetId}`);
     }
 
+    // Same contract as before the fix: a freshly loaded entity (with the
+    // items relation), not the in-memory working copy.
     return this.findByIdOrFail(savedRollback.id, tenantId);
+  }
+
+  /**
+   * SEC-LOW-084 (2026-08-23 scan №29): explicit emergency rollback entry.
+   *
+   * The 4-eyes principle is overridden ONLY through this typed path, which
+   * the resolver gates to TENANT_ADMIN — never through rollback metadata
+   * (the old `reason === 'emergency'` magic string was one free-text field
+   * away from a self-approved inverse change set). Still audit-logged as
+   * EMERGENCY_OVERRIDE.
+   */
+  async emergencyRollbackChangeSet(
+    changeSetId: string,
+    reason: string,
+    performedBy: string,
+    tenantId: string,
+  ): Promise<VfdChangeSet> {
+    this.logger.warn(
+      `EMERGENCY rollback requested for change set ${changeSetId} by ${performedBy}: ${reason}`,
+    );
+    return this.rollbackChangeSet(changeSetId, reason, performedBy, tenantId, {
+      emergency: true,
+    });
   }
 
   // ─── QUERIES ─────────────────────────────────────────────────────────
@@ -570,9 +592,7 @@ export class VfdChangeSetService {
     });
 
     if (!changeSet) {
-      throw new NotFoundException(
-        `Change set ${changeSetId} not found`,
-      );
+      throw new NotFoundException(`Change set ${changeSetId} not found`);
     }
 
     return changeSet;

@@ -6,7 +6,7 @@
  * or related domain types.
  */
 
-import type { TenantRolePermissions } from '../types/permissions';
+import type { PanelPermissions, TenantRolePermissions } from '../types/permissions';
 
 // ============================================================================
 // Enums & Literal Types
@@ -47,6 +47,8 @@ export interface User {
   preferredLanguage?: string | null;
   // Security fields
   mfaEnabled?: boolean;
+  /** Failed-login lockout expiry; null/absent or in the past = not locked. */
+  lockedUntil?: string | null;
   lastLoginAt?: string;
   createdAt: string;
   updatedAt?: string;
@@ -556,3 +558,30 @@ export type {
   PermissionAction,
   PermissionResource,
 } from '../types/permissions';
+
+/**
+ * Result of the bulkAssignUserRole mutation (auth-service BulkAssignResult).
+ * Partial success is a real outcome: the server reports per-user failures
+ * instead of aborting the whole batch.
+ */
+export interface BulkAssignRoleResult {
+  /** User ids the role was assigned to. */
+  success: string[];
+  /** Per-user failures with the server-side reason. */
+  failed: Array<{ userId: string; error: string }>;
+}
+
+/**
+ * A user's RESOLVED permissions (auth-service EffectivePermissions): the role's
+ * permissions plus the per-user grant/revoke overrides that modify them.
+ */
+export interface UserEffectivePermissions {
+  roleId: string;
+  roleName: string;
+  panelPermissions: PanelPermissions;
+  resourcePermissions: string[];
+  overrides: {
+    grants: string[];
+    revokes: string[];
+  };
+}

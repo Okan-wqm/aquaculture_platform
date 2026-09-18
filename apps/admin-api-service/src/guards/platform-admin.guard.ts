@@ -26,6 +26,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { toPlatformCapabilities } from '@platform/event-contracts';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
@@ -66,7 +67,10 @@ export interface JwtPayload {
   type?: string;
   jti?: string;
   iat: number;
-  exp: number;
+  exp: number /** MFA step-up cleared on this session (auth-service claim). */;
+  mfaVerified?: boolean;
+  /** ADR-0016: platform-operator capabilities minted from auth.platform_capability_grants. */
+  platformCapabilities?: string[];
 }
 
 // Product language calls this actor "platform admin"; the auth domain
@@ -231,12 +235,24 @@ export class PlatformAdminGuard implements CanActivate {
         roles: userRoles,
         role: payload.role || userRoles[0],
         tenantId: payload.tenantId,
+        // Read by AuditedOperationInterceptor for the mandatory mfaVerified column
+        // and by DestructiveActionGuard for the MFA freshness window (ADR-0011).
+        mfaVerified: payload.mfaVerified === true,
+        iat: payload.iat,
+        // ADR-0016: read by PlatformCapabilityGuard (route capability) and
+        // DestructiveActionGuard (break-glass). Narrowed to the closed enum so a
+        // forged or stale string can never act as a capability.
+        platformCapabilities: toPlatformCapabilities(payload.platformCapabilities),
       };
 
       const requestContext = requestContextStorage.getStore();
       if (requestContext) {
         requestContext.userId = payload.sub;
         requestContext.tenantId = payload.tenantId;
+        // ADMIN-CRITICAL-102: the audit writer derives the actor from this
+        // frame; a request body can never name who acted.
+        requestContext.userEmail = payload.email;
+        requestContext.mfaVerified = payload.mfaVerified === true;
       }
 
       // Admin API is a platform-admin boundary. In the current auth model that

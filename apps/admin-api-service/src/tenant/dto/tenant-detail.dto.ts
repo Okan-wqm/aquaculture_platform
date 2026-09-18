@@ -1,6 +1,6 @@
 import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
 
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
+import { TenantActivity, TenantNote } from '../entities/tenant-activity.entity';
 import { Tenant } from '../entities/tenant.entity';
 
 import { TenantLimitsDto } from './tenant.dto';
@@ -13,55 +13,55 @@ export type TenantAvailableAction =
   | 'retryProvisioning';
 
 // User Statistics by Role
-export interface UserStatsByRole {
-  total: number;
-  active: number;
-  inactive: number;
-  byRole: {
+export class UserStatsByRole {
+  total!: number;
+  active!: number;
+  inactive!: number;
+  byRole!: {
     admin: number;
     manager: number;
     supervisor: number;
     operator: number;
     viewer: number;
   };
-  recentlyActive: number; // last 7 days
-  newUsersLast30Days: number;
+  recentlyActive!: number; // last 7 days
+  newUsersLast30Days!: number;
 }
 
 // Module Usage Statistics
-export interface ModuleUsageStats {
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  isActive: boolean;
-  assignedAt: Date;
+export class ModuleUsageStats {
+  moduleId!: string;
+  moduleCode!: string;
+  moduleName!: string;
+  isActive!: boolean;
+  assignedAt!: Date;
   usageCount?: number;
   lastUsedAt?: Date;
 }
 
 // Storage & API Usage
-export interface ResourceUsage {
-  storage: {
+export class ResourceUsage {
+  storage!: {
     usedGb: number;
     limitGb: number;
     percentage: number;
   };
-  users: {
+  users!: {
     count: number;
     limit: number;
     percentage: number;
   };
-  farms: {
+  farms!: {
     count: number;
     limit: number;
     percentage: number;
   };
-  sensors: {
+  sensors!: {
     count: number;
     limit: number;
     percentage: number;
   };
-  apiCalls: {
+  apiCalls!: {
     last24h: number;
     last7d: number;
     limit: number;
@@ -69,36 +69,66 @@ export interface ResourceUsage {
 }
 
 // Billing Summary
-export interface BillingSummary {
-  currentPlan: string;
-  monthlyAmount: number;
-  currency: string;
-  billingCycle: string;
-  paymentStatus: string;
-  nextBillingDate: Date | null;
-  lastPaymentDate: Date | null;
-  lastPaymentAmount: number | null;
+/**
+ * What billing knows about this tenant.
+ *
+ * Every field is read from billing's own tables — `billing.subscriptions` for
+ * the subscription state (rule D14 makes it the SSoT) and `billing.invoices`
+ * for what was actually charged and paid. The former source,
+ * `admin.tenant_billing_info`, was a second billing store with no writer, so
+ * this block was blank on every tenant (DB-ADMIN-MEDIUM-005).
+ *
+ * There is deliberately no `monthlyAmount`. The only per-cycle figure billing
+ * holds outside an invoice is `subscriptions.pricing.basePrice`, a float inside
+ * a jsonb blob that also excludes the per-farm / per-sensor / per-user
+ * components — so it is neither exact nor complete, and "monthly" is wrong
+ * outright for an annual cycle. The last invoice's total is the amount this
+ * tenant was actually billed, in a `numeric` column, and it says which period
+ * it covers.
+ */
+export class BillingSummary {
+  /** `billing.subscriptions.plan_name` — the plan billing charges for. */
+  currentPlan!: string;
+  /** `billing.subscriptions.plan_tier`. */
+  planTier!: string;
+  /** monthly | quarterly | semi_annual | annual. */
+  billingCycle!: string;
+  /** trial | active | past_due | cancelled | suspended | expired. */
+  subscriptionStatus!: string;
+  /** End of the current period — when the next invoice is due. */
+  nextBillingDate!: Date | null;
+  /** Total of the most recent invoice; null until one has been issued. */
+  lastInvoiceAmount!: number | null;
+  lastInvoiceIssuedAt!: Date | null;
+  /** Period the most recent invoice covers. Null with no invoice. */
+  lastInvoicePeriodStart!: Date | null;
+  lastInvoicePeriodEnd!: Date | null;
+  /** Currency of the most recent invoice. Null with no invoice — not 'USD'. */
+  currency!: string | null;
+  /** Most recent invoice that was actually paid. */
+  lastPaymentDate!: Date | null;
+  lastPaymentAmount!: number | null;
 }
 
 // Full Tenant Detail Response
-export interface TenantDetailDto {
+export class TenantDetailDto {
   // Basic Info
-  id: string;
-  name: string;
-  slug: string;
+  id!: string;
+  name!: string;
+  slug!: string;
   description?: string;
   domain?: string;
 
   // Status & Tier
-  status: string;
-  tier: string;
+  status!: string;
+  tier!: string;
   plan?: string;
   trialEndsAt?: Date;
   // Suspension audit (DB-ADMIN-HIGH-003): real auth.tenants columns written
   // only by auth-service; NULL when the tenant is not suspended.
   suspendedAt?: Date | null;
   suspendedReason?: string | null;
-  availableActions: TenantAvailableAction[];
+  availableActions!: TenantAvailableAction[];
 
   // Contact Info
   primaryContact?: {
@@ -135,11 +165,11 @@ export interface TenantDetailDto {
     features: string[];
   };
   limits?: TenantLimitsDto;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  maxStorage: number;
-  isTrialActive: boolean;
+  userCount!: number;
+  farmCount!: number;
+  sensorCount!: number;
+  maxStorage!: number;
+  isTrialActive!: boolean;
 
   // Statistics
   userStats?: UserStatsByRole;
@@ -156,8 +186,8 @@ export interface TenantDetailDto {
   billing?: BillingSummary;
 
   // Metadata
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt!: Date;
+  updatedAt!: Date;
   createdBy?: string;
   // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): no
   // auth.tenants column ever backed it, so the field was always undefined.
@@ -165,21 +195,28 @@ export interface TenantDetailDto {
 }
 
 // Tenant List Item (optimized for list view)
-export interface TenantListItemDto {
-  id: string;
-  name: string;
-  slug: string;
+export class TenantListItemDto {
+  id!: string;
+  name!: string;
+  slug!: string;
   domain?: string;
-  status: string;
-  tier: string;
+  status!: string;
+  tier!: string;
   contactEmail?: string;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
+  userCount!: number;
+  farmCount!: number;
+  sensorCount!: number;
   activeModulesCount?: number;
+  // Derived from trialEndsAt, the same rule TenantDetailService applies
+  // (MT-MEDIUM-001): the is_trial_active column was dropped from auth.tenants.
+  // The list renders a Trial badge from this; it read `isTrialActive` off a
+  // hand-written frontend type that had it while this DTO did not, so the badge
+  // has never drawn (ADMIN-MEDIUM-111). The list query already loads the full
+  // entity, so this costs no additional round-trip.
+  isTrialActive!: boolean;
   // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): the list
   // mapper never populated it and no auth.tenants column backed it.
-  createdAt: Date;
+  createdAt!: Date;
 }
 
 // Note categories allowed for tenant notes (HIGH-003 fix)

@@ -45,6 +45,26 @@ When SPEC and IDENTITY conflict, SPEC wins. When CONTRACTS specifies a schema, a
 
 Specialized agents enforce CLAUDE.md banned phrases on humans. **ARIA enforces them on itself + its own emergent sub-agents**. The banned-phrase SSoT is `aria-kernel/aria_kernel/draft_intent.py::BANNED_PHRASES_DEFAULT`, checked at the kernel boundary (`agent_contract.py`, `agent_compliance.py`) and on every finding/debt/genesis artifact. This means: when reviewing ARIA-emitted artifacts, you should NOT find "for now / interim solution / pragmatic / temporary / good enough / deferred / out of scope" in any finding text, debt rationale, or report. If you do, it's a process failure of ARIA's gate — surface it as a process finding.
 
+## Is an ARIA safety control actually wired?
+
+`docs/aria/SAFETY-CONTROL-WIRING-LEDGER.md` is the answer, and the history of who
+changed it. Read it before concluding that any `guard_*` / `assert_*` / `verify_*`
+in `aria-kernel` protects anything — the recurring defect here is a control that
+is written, tested, exported and called by nobody, and a green suite is no
+evidence against it because the tests call the control directly.
+
+Two things in it that a reader will otherwise re-derive the hard way:
+
+- **The reachability gate has a blind spot.** `control_reachability.CONTROL_VERBS`
+  only matches `validate_ enforce_ assert_ require_ verify_ guard_ refuse_ check_`.
+  A `record_*` producer that a control depends on is invisible to it. That is how
+  `ORPHAN-MEDIUM-808` hid: the deciders were flagged and waived, the missing
+  reset was not, and without the reset the counter they read was monotonic.
+- **On a dormant control there are three dispositions and pushing `expires_on` is
+  not one of them.** Delete it (a live path already answers), wire it (verify the
+  whole contract first), or waive it honestly with owner + reason + expiry. At
+  this stage of ARIA's life the correct answer is usually *delete*.
+
 ## Minimal interaction surface
 
 If you are a specialized review agent and you need to interact with ARIA's outputs:

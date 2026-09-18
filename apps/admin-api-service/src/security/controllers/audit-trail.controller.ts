@@ -5,6 +5,19 @@
  */
 
 import {
+  CreateAlertRuleDto,
+  ExportAuditTrailDto,
+  QueryAuditTrailDto,
+  UpdateAuditAlertRuleDto,
+} from './dto/audit-trail.dto';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -14,19 +27,29 @@ import {
   Param,
   Body,
   Res,
-  Req,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, IsObject, Min, Max } from 'class-validator';
-import { Request, Response } from 'express';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  IsObject,
+  Min,
+  Max,
+} from 'class-validator';
+import { Response } from 'express';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
-import { getAuthUser } from '../../shared/authenticated-request';
-import { ActivityCategory, ActivitySeverity, RetentionPolicyEntity, ComplianceType } from '../entities/security.entity';
+import { listRetentionPolicies } from '@aquaculture/backend-common/database';
+
+import { ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   AuditTrailService,
   AuditExportOptions,
@@ -36,282 +59,18 @@ import {
 import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
 
 // ============================================================================
-// DTOs
-// ============================================================================
-
-export class QueryAuditTrailDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  performedBy?: string;
-
-  @IsOptional()
-  @IsString()
-  userEmail?: string;
-
-  @IsOptional()
-  @IsIn(['user_action', 'system_event', 'api_call', 'data_access', 'security_event', 'configuration', 'authentication'])
-  category?: ActivityCategory;
-
-  @IsOptional()
-  @IsString()
-  severity?: string; // Comma-separated
-
-  @IsOptional()
-  @IsString()
-  action?: string;
-
-  @IsOptional()
-  @IsString()
-  actions?: string; // Comma-separated
-
-  @IsOptional()
-  @IsString()
-  entityType?: string;
-
-  @IsOptional()
-  @IsString()
-  entityId?: string;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  success?: boolean;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsString()
-  search?: string;
-
-  @IsOptional()
-  @IsString()
-  searchQuery?: string;
-
-  @IsOptional()
-  @IsString()
-  tags?: string; // Comma-separated
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  includeArchived?: boolean;
-
-  @IsOptional()
-  @IsIn(ACTIVITY_LOG_SORT_FIELDS)
-  sortBy?: ActivityLogSortField;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
-
-class ExportAuditTrailDto {
-  @IsIn(['csv', 'json', 'pdf'])
-  format!: 'csv' | 'json' | 'pdf';
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: ActivityCategory;
-
-  @IsString()
-  startDate!: string;
-
-  @IsString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsBoolean()
-  includeMetadata?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeChanges?: boolean;
-}
-
-class CreateRetentionPolicyDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  category!: ActivityCategory;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsNumber()
-  retentionDays!: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-}
-
-class UpdateRetentionPolicyDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsNumber()
-  retentionDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
-class CreateAlertRuleDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsBoolean()
-  isActive!: boolean;
-
-  @IsObject()
-  conditions!: {
-    category?: ActivityCategory[];
-    severity?: ActivitySeverity[];
-    actions?: string[];
-    entityTypes?: string[];
-    successOnly?: boolean;
-    failureOnly?: boolean;
-    ipPatterns?: string[];
-  };
-
-  @IsArray()
-  alertChannels!: ('email' | 'webhook' | 'slack' | 'sms')[];
-
-  @IsArray()
-  recipients!: string[];
-
-  @IsNumber()
-  cooldownMinutes!: number;
-}
-
-class UpdateAuditAlertRuleDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-
-  @IsOptional()
-  @IsObject()
-  conditions?: {
-    category?: ActivityCategory[];
-    severity?: ActivitySeverity[];
-    actions?: string[];
-    entityTypes?: string[];
-    successOnly?: boolean;
-    failureOnly?: boolean;
-    ipPatterns?: string[];
-  };
-
-  @IsOptional()
-  @IsArray()
-  alertChannels?: ('email' | 'webhook' | 'slack' | 'sms')[];
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsNumber()
-  cooldownMinutes?: number;
-}
-
-// ============================================================================
 // Controller
 // ============================================================================
+
+export interface RetentionPolicyView {
+  id: string;
+  ownerTag: string;
+  schema: string;
+  tableName: string;
+  timestampColumn: string;
+  retentionDays: number;
+  legalHoldAware: boolean;
+}
 
 @ApiTags('Security')
 @Controller('security/audit')
@@ -321,24 +80,15 @@ export class AuditTrailController {
     private readonly auditLogService: AuditLogService,
   ) {}
 
-  private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
-    const user = getAuthUser(req);
-    const userAgentHeader = req.headers['user-agent'];
-    const userAgent = Array.isArray(userAgentHeader)
-      ? userAgentHeader.join(',')
-      : userAgentHeader;
-
-    void this.auditLogService.log({
+  private async writeMetaAudit(action: string, details: Record<string, unknown>): Promise<void> {
+    // Awaited and fail-closed (ADMIN-CRITICAL-102): reading the security
+    // ledger leaves a trace or does not happen. The actor is the guard-
+    // verified principal in the request frame, never a caller string.
+    await this.auditLogService.record({
       action: 'AUDIT_LOG_ACCESSED',
       entityType: 'AuditLog',
-      performedBy: user?.id ?? 'unknown',
-      performedByEmail: user?.email,
-      ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
-      userAgent,
       details: { subAction: action, ...details },
       severity: ImmutableAuditSeverity.INFO,
-    }).catch(() => {
-      // Meta-audit failure must not block the primary immutable audit read.
     });
   }
 
@@ -346,10 +96,7 @@ export class AuditTrailController {
    * Query audit trail
    */
   @Get()
-  async queryAuditTrail(
-    @Req() req: Request,
-    @Query() query: QueryAuditTrailDto,
-  ): Promise<PaginatedAuditLogs> {
+  async queryAuditTrail(@Query() query: QueryAuditTrailDto): Promise<PaginatedAuditLogs> {
     const action = query.action ?? query.actions?.split(',')[0];
     const severity = query.severity?.split(',')[0] as ImmutableAuditSeverity | undefined;
     const filter: AuditLogFilter = {
@@ -365,7 +112,7 @@ export class AuditTrailController {
       search: query.search ?? query.searchQuery,
     };
 
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_QUERY', {
+    await this.writeMetaAudit('SECURITY_AUDIT_QUERY', {
       action,
       entityType: query.entityType,
       tenantId: query.tenantId,
@@ -384,12 +131,11 @@ export class AuditTrailController {
    */
   @Get('entity/:entityType/:entityId')
   async getEntityAuditTrail(
-    @Req() req: Request,
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_ENTITY', { entityType, entityId });
+    await this.writeMetaAudit('SECURITY_AUDIT_ENTITY', { entityType, entityId });
 
     return this.auditLogService.getEntityHistory(
       entityType,
@@ -403,8 +149,7 @@ export class AuditTrailController {
    */
   @Get('summary')
   async getAuditSummary(
-    @Req() req: Request,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<{
@@ -420,7 +165,7 @@ export class AuditTrailController {
       ? new Date(startDate)
       : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    this.writeMetaAudit(req, 'SECURITY_AUDIT_SUMMARY', { tenantId });
+    await this.writeMetaAudit('SECURITY_AUDIT_SUMMARY', { tenantId });
 
     return this.auditLogService.getStatistics(tenantId, start, end);
   }
@@ -428,14 +173,18 @@ export class AuditTrailController {
   /**
    * Export audit trail
    */
+  @AuditedOperation({ resource: 'AuditTrail', action: 'EXPORT' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Post('export')
   async exportAuditTrail(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: ExportAuditTrailDto,
     @Res() res: Response,
   ): Promise<void> {
     const options: AuditExportOptions = {
       format: dto.format,
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       userId: dto.userId,
       category: dto.category,
       startDate: new Date(dto.startDate),
@@ -452,57 +201,26 @@ export class AuditTrailController {
   }
 
   // ============================================================================
-  // Retention Policies
+  // Retention Policies — READ-ONLY view of the build-time registry (ADR-0012)
   // ============================================================================
 
   /**
-   * Get all retention policies
+   * The retention windows in force, straight from the kernel registry.
+   * Windows are compliance commitments declared in code
+   * (AdminApiRetentionBootstrapModule) and enforced by the single platform
+   * enforcer; there is no runtime editor and no per-policy "apply".
    */
   @Get('retention-policies')
-  async getRetentionPolicies(): Promise<RetentionPolicyEntity[]> {
-    return this.auditService.getRetentionPolicies();
-  }
-
-  /**
-   * Get retention policy by ID
-   */
-  @Get('retention-policies/:id')
-  async getRetentionPolicy(@Param('id') id: string): Promise<RetentionPolicyEntity> {
-    return this.auditService.getRetentionPolicy(id);
-  }
-
-  /**
-   * Create retention policy
-   */
-  @Post('retention-policies')
-  @HttpCode(HttpStatus.CREATED)
-  async createRetentionPolicy(
-    @Body() dto: CreateRetentionPolicyDto,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.createRetentionPolicy({
-      ...dto,
-      createdBy: 'admin', // Would come from auth context
-    });
-  }
-
-  /**
-   * Update retention policy
-   */
-  @Put('retention-policies/:id')
-  async updateRetentionPolicy(
-    @Param('id') id: string,
-    @Body() dto: UpdateRetentionPolicyDto,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.updateRetentionPolicy(id, dto, 'admin');
-  }
-
-  /**
-   * Delete retention policy
-   */
-  @Delete('retention-policies/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteRetentionPolicy(@Param('id') id: string): Promise<void> {
-    await this.auditService.deleteRetentionPolicy(id);
+  getRetentionPolicies(): RetentionPolicyView[] {
+    return listRetentionPolicies().map((policy) => ({
+      id: policy.id,
+      ownerTag: policy.ownerTag,
+      schema: policy.schema,
+      tableName: policy.tableName,
+      timestampColumn: policy.timestampColumn,
+      retentionDays: policy.retentionDays,
+      legalHoldAware: policy.legalHoldAware,
+    }));
   }
 
   /**
@@ -511,16 +229,6 @@ export class AuditTrailController {
   @Get('retention-stats')
   async getRetentionStats(): Promise<RetentionStats> {
     return this.auditService.getRetentionStats();
-  }
-
-  /**
-   * Apply retention policies manually
-   */
-  @Post('retention-policies/apply')
-  @HttpCode(HttpStatus.OK)
-  async applyRetentionPolicies(): Promise<{ success: boolean }> {
-    await this.auditService.applyRetentionPolicies();
-    return { success: true };
   }
 
   // ============================================================================
@@ -538,6 +246,8 @@ export class AuditTrailController {
   /**
    * Create alert rule
    */
+  @AuditedOperation({ resource: 'AlertRule', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('alert-rules')
   @HttpCode(HttpStatus.CREATED)
   createAlertRule(@Body() dto: CreateAlertRuleDto): AuditAlertRule {
@@ -547,6 +257,8 @@ export class AuditTrailController {
   /**
    * Update alert rule
    */
+  @AuditedOperation({ resource: 'AlertRule', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('alert-rules/:id')
   updateAlertRule(
     @Param('id') id: string,
@@ -558,6 +270,9 @@ export class AuditTrailController {
   /**
    * Delete alert rule
    */
+  @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteAlertRule(@Param('id') id: string): void {

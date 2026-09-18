@@ -25,7 +25,21 @@ import {
   type RunSchemaOptions,
 } from './migration-orchestrator';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
-import { ensureTenantSensorContinuousAggregateAuthority } from './tenant-sensor-continuous-aggregate-authority';
+import {
+  dropSchemaCreatedByFailedProvision,
+  tenantSchemaExists,
+} from './tenant-provision-failure-cleanup';
+import {
+  ensureTenantSensorContinuousAggregateAuthority,
+  type TenantSensorContinuousAggregateAuthorityResult,
+} from './tenant-sensor-continuous-aggregate-authority';
+
+/**
+ * The SCHEMA_REGISTRY entry that owns `sensor_metrics`, the hypertable the
+ * continuous aggregates read. Named so the ordering constraint below reads as
+ * the constraint it is rather than as a bare string comparison.
+ */
+const SENSOR_SOURCE_SCHEMA = 'sensor';
 
 type TenantSchemaJobStatus =
   | 'REQUESTED'
@@ -710,7 +724,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function assertDeleteProof(job: TenantSchemaJob): void {
   const payload = asRecord(job.requestPayload);
   const proof = asRecord(payload?.['cleanupProof']);
-  const backup = asRecord(proof?.['backup']);
+  const recoveryPoint = asRecord(proof?.['recoveryPoint']);
   const tombstone = asRecord(payload?.['tombstone']);
   const preCounts = asRecord(proof?.['preCounts']);
   const existingSchemas = preCounts?.['existingSchemas'];
@@ -733,16 +747,21 @@ function assertDeleteProof(job: TenantSchemaJob): void {
       `[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`,
     );
   }
+  // ADR-0009: the drop is reversible only through WAL-G PITR, so the proof
+  // must name the archive epoch and the WAL position the data existed at.
   if (
     proof['purpose'] === 'tenant_deprovision' &&
-    (!backup ||
-      backup['isEncrypted'] !== true ||
-      typeof backup['checksum'] !== 'string' ||
-      backup['checksum'].length === 0 ||
-      Number(backup['sizeBytes']) <= 0)
+    (!recoveryPoint ||
+      recoveryPoint['authority'] !== 'wal-g' ||
+      typeof recoveryPoint['backupEpoch'] !== 'string' ||
+      recoveryPoint['backupEpoch'].trim().length === 0 ||
+      typeof recoveryPoint['walLsn'] !== 'string' ||
+      !/^[0-9A-F]{1,8}\/[0-9A-F]{1,8}$/.test(recoveryPoint['walLsn']) ||
+      typeof recoveryPoint['capturedAt'] !== 'string' ||
+      recoveryPoint['capturedAt'].length === 0)
   ) {
     throw new Error(
-      `[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`,
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires a WAL-G recovery point`,
     );
   }
   if (!preCounts || !Array.isArray(existingSchemas)) {
@@ -928,16 +947,22 @@ async function processJob(
   const sourceHeads: Record<string, unknown> = {};
   const tenantHeads: Record<string, unknown> = {};
   let tableCount = 0;
+  // INFRA-HIGH-150: only a schema THIS run creates may be dropped on failure.
+  // `IF NOT EXISTS` hides pre-existence, so it is observed before the CREATE.
+  let schemaCreatedByThisRun = false;
 
   try {
     await queryRunner.connect();
     await assertTenantSchemaIdentityAvailable(queryRunner, job);
     await setJobStatus(queryRunner, job, 'CREATING_SCHEMA', lease);
+    const schemaPreexisted = await tenantSchemaExists(queryRunner, job.schemaName);
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(job.schemaName)}`);
+    schemaCreatedByThisRun = !schemaPreexisted;
 
     const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) =>
       TENANT_AWARE_SCHEMAS.has(entry.schema),
     );
+    let sensorAggregates: TenantSensorContinuousAggregateAuthorityResult | undefined;
     for (const entry of tenantAwareEntries) {
       await setJobStatus(queryRunner, job, 'COPYING_TABLES', lease);
       const migrations = entry.migrationsGlob.map((glob) => resolve(options.root, glob));
@@ -972,6 +997,27 @@ async function processJob(
         sourceSchema: entry.schema,
       });
 
+      // The sensor rollups are created HERE, between the sensor migrations and
+      // the sensor hardening, and not after the loop where the rest of the
+      // authority work happens. TimescaleDB refuses
+      //
+      //   cannot create continuous aggregate on hypertable with row security
+      //
+      // and `postMigrationHardening` below arms RLS on `sensor_metrics`. So this
+      // is the only window in which the hypertable exists and is not yet
+      // RLS-armed. The asymmetry is TimescaleDB's: enabling row security on a
+      // hypertable that already carries a continuous aggregate is allowed;
+      // creating the aggregate afterwards is not. Found by the live provisioning
+      // gate, which got this far only once the job-heartbeat guard was fixed.
+      if (entry.schema === SENSOR_SOURCE_SCHEMA) {
+        await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
+        sensorAggregates = await ensureTenantSensorContinuousAggregateAuthority(
+          queryRunner,
+          job.schemaName,
+        );
+        await renewJobLease(queryRunner, job, lease);
+      }
+
       if (entry.postMigrationHardening !== undefined) {
         await setJobStatus(queryRunner, job, 'HARDENING_RLS', lease);
         await applyProvisionerHardening(
@@ -984,12 +1030,16 @@ async function processJob(
       }
     }
 
-    await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
-    const sensorAggregates = await ensureTenantSensorContinuousAggregateAuthority(
-      queryRunner,
-      job.schemaName,
-    );
-    await renewJobLease(queryRunner, job, lease);
+    if (sensorAggregates === undefined) {
+      // Fail closed rather than provision a tenant with no rollups: the only way
+      // to reach this is SCHEMA_REGISTRY losing its sensor entry, and a silently
+      // aggregate-less tenant is the "looks provisioned, is not" shape this whole
+      // gate exists to catch.
+      throw new Error(
+        `[tenant-schema-provisioner] No "${SENSOR_SOURCE_SCHEMA}" entry among the tenant-aware ` +
+          `schemas, so the sensor continuous aggregates were never created for ${job.schemaName}`,
+      );
+    }
     options.log({
       level: sensorAggregates.timescalePresent ? 'info' : 'warn',
       message: sensorAggregates.timescalePresent
@@ -1041,18 +1091,39 @@ async function processJob(
       tableCount,
     });
   } catch (error: unknown) {
+    // Diagnosis first: the residue (schema present? how many tables?) is what
+    // the live gate read to find each defect. Then the cleanup, recorded beside
+    // it, so the evidence says both what was left and what was done about it.
     const failureResidue = await collectFailureResidue(queryRunner, job).catch(
       (residueError: unknown) => ({
         residueCaptureFailed:
           residueError instanceof Error ? residueError.message : String(residueError),
       }),
     );
+    const cleanup = await dropSchemaCreatedByFailedProvision(queryRunner, {
+      schemaName: job.schemaName,
+      createdByThisRun: schemaCreatedByThisRun,
+    });
+    options.log({
+      level: cleanup.dropped || !cleanup.createdByThisRun ? 'warn' : 'error',
+      message: cleanup.dropped
+        ? 'Tenant schema provisioner dropped the schema this failed provision created'
+        : cleanup.createdByThisRun
+          ? 'Tenant schema provisioner could not drop the schema this failed provision created'
+          : 'Tenant schema provisioner left a pre-existing tenant schema in place after failure',
+      context: 'TenantSchemaProvisioner',
+      jobId: job.id,
+      operationId: job.operationId,
+      tenantId: job.tenantId,
+      schemaName: job.schemaName,
+      ...(cleanup.dropError !== undefined ? { dropError: cleanup.dropError } : {}),
+    });
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads,
       tenantHeads,
       tableCount,
-      failureResidue,
+      failureResidue: { ...failureResidue, cleanup },
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch((writeError: unknown) => {
       options.log({

@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { App as KonstaApp } from 'konsta/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -9,7 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
-import { I18nProvider } from '@aquaculture/shared-ui/i18n';
+import { I18nProvider } from './i18n';
 import './styles/main.css';
 import { logger } from './utils/logger';
 
@@ -73,6 +74,14 @@ const updateSW = registerSW({
   },
 });
 
+// Detect iOS for Konsta theme
+// SEC-08: Use navigator.maxTouchPoints instead of the deprecated navigator.platform.
+// The maxTouchPoints check handles iPadOS 13+ which reports a Mac-like userAgent.
+const isIOS =
+  typeof navigator !== 'undefined' &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
+
 // FE-HIGH-056: explicit null check for the mount node instead of a forbidden
 // non-null assertion. A missing #root is a deploy-shell error, not a runtime
 // condition to hide — throw a clear message so it surfaces immediately.
@@ -94,12 +103,14 @@ ReactDOM.createRoot(rootElement).render(
       <ErrorBoundary>
         {/* P-28: mobil i18n — dil tarayıcıdan sezilir (varsayılan tr).
             Router/Auth ÜSTÜNDE: hata kartları dahil her yüzey t() erişir. */}
-        <I18nProvider locale="en">
+        <I18nProvider>
           <BrowserRouter basename="/mobile">
             <AuthProvider>
               <IdentityBoundary>
                 <OfflineProvider>
-                  <App />
+                  <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
+                    <App />
+                  </KonstaApp>
                 </OfflineProvider>
               </IdentityBoundary>
             </AuthProvider>

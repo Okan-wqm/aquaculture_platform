@@ -38,13 +38,7 @@
  *   Phase 6.2 of the "Farm modülü kalan kör noktalar" plan.
  *   Closes Girdi 15-C4 size + mime axes.
  */
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import sharp from 'sharp';
 
 import { MinioClientService } from './minio-client.service';
@@ -222,6 +216,9 @@ export interface SecureUploadRequest {
   options?: UploadOptions;
 }
 
+/** SEC-MEDIUM-074: intrinsic pixel ceiling (see messaging ThumbnailService). */
+const MAX_IMAGE_PIXELS = 40_000_000;
+
 @Injectable()
 export class FileUploadSecurityService {
   private readonly logger = new Logger(FileUploadSecurityService.name);
@@ -250,9 +247,7 @@ export class FileUploadSecurityService {
     policies: readonly UploadPolicy[] | undefined = undefined,
   ) {
     const effective = policies ?? DEFAULT_UPLOAD_POLICIES;
-    this.policies = new Map(
-      effective.map((p) => [p.documentType.toUpperCase(), p]),
-    );
+    this.policies = new Map(effective.map((p) => [p.documentType.toUpperCase(), p]));
   }
 
   /**
@@ -271,10 +266,7 @@ export class FileUploadSecurityService {
     // preserving) and then re-encodes without the metadata
     // block. PDFs and other non-image mimes pass through
     // unchanged.
-    const sanitisedBuffer = await this.stripMetadataIfImage(
-      request.buffer,
-      request.declaredMime,
-    );
+    const sanitisedBuffer = await this.stripMetadataIfImage(request.buffer, request.declaredMime);
 
     const options: UploadOptions = {
       ...(request.options ?? {}),
@@ -300,14 +292,22 @@ export class FileUploadSecurityService {
    * the pre-flight mime check already restricted the surface to
    * known-good image types.
    */
-  async stripMetadataIfImage(
-    buffer: Buffer,
-    declaredMime: string,
-  ): Promise<Buffer> {
+  async stripMetadataIfImage(buffer: Buffer, declaredMime: string): Promise<Buffer> {
     if (!IMAGE_MIMES_WITH_METADATA.has(declaredMime.toLowerCase())) {
       return buffer;
     }
     try {
+      // SEC-MEDIUM-074 (2026-08-23 scan №19): pixel cap BEFORE decode —
+      // header-level metadata read, then reject anything that would
+      // decompress to gigabytes.
+      const meta = await sharp(buffer).metadata();
+      if (
+        typeof meta.width === 'number' &&
+        typeof meta.height === 'number' &&
+        meta.width * meta.height > MAX_IMAGE_PIXELS
+      ) {
+        throw new Error(`Image exceeds pixel cap (${meta.width}x${meta.height}); refusing decode`);
+      }
       // rotate() honours EXIF orientation before stripping, so a
       // phone photo taken in portrait renders portrait on the
       // far side. Without rotate() the stripped image would
@@ -405,29 +405,15 @@ export class FileUploadSecurityService {
   private sniffMagic(buffer: Buffer): string | null {
     if (buffer.length < 4) return null;
     // PDF: %PDF
-    if (
-      buffer[0] === 0x25 &&
-      buffer[1] === 0x50 &&
-      buffer[2] === 0x44 &&
-      buffer[3] === 0x46
-    ) {
+    if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
       return 'application/pdf';
     }
     // PNG: 89 50 4E 47
-    if (
-      buffer[0] === 0x89 &&
-      buffer[1] === 0x50 &&
-      buffer[2] === 0x4e &&
-      buffer[3] === 0x47
-    ) {
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
       return 'image/png';
     }
     // JPEG: FF D8 FF
-    if (
-      buffer[0] === 0xff &&
-      buffer[1] === 0xd8 &&
-      buffer[2] === 0xff
-    ) {
+    if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
       return 'image/jpeg';
     }
     // WEBP (RIFF....WEBP) — first 4 are 'RIFF', bytes 8-11 are 'WEBP'

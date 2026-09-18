@@ -1,25 +1,28 @@
 /**
  * Database Management Page
  *
- * Schema yonetimi, migration, backup ve monitoring ana sayfasi.
+ * Schema yonetimi, migration ve monitoring ana sayfasi. Yedekleme WAL-G'nin
+ * (ADR-0009): bu sayfada yedek/geri yukleme yuzeyi yoktur.
  * Sprint 4 Fix: Mock data kaldirildi, gercek API entegrasyonu yapildi.
  *
  * Backend controller'lar:
  *   - schema.controller.ts: /database/schemas
  *   - migration.controller.ts: /database/migrations
- *   - backup.controller.ts: /database/backups
  *   - monitoring.controller.ts: /database/monitoring
  */
 
-import React, { useState, useCallback } from 'react';
-import { useAsyncData } from '../hooks';
+import React, { useState } from 'react';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
+import type { ApiSchema } from '../services/contract';
+import type { SchemaMigration } from '../services/types/database';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type TabType = 'schemas' | 'migrations' | 'backups' | 'monitoring';
+type TabType = 'schemas' | 'migrations' | 'monitoring';
 
 interface SchemaItem {
   tenantId: string;
@@ -45,50 +48,6 @@ interface MigrationPlan {
   estimatedDuration: number;
   isDestructive: boolean;
   requiresDowntime: boolean;
-}
-
-interface MigrationHistoryItem {
-  id: string;
-  version: string;
-  name: string;
-  status: string;
-  appliedToSchemas?: string[];
-  failedSchemas?: string[];
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  createdBy: string;
-  createdAt: string;
-  // Fields from inline type fallback
-  tenantId?: string | null;
-  schemaName?: string;
-  migrationName?: string;
-  executionTimeMs?: number;
-  isDryRun?: boolean;
-  executedBy?: string | null;
-  errorMessage?: string | null;
-}
-
-interface BackupItem {
-  id: string;
-  type?: string;
-  backupType?: string;
-  status: string;
-  tenantId?: string | null;
-  schemaName?: string;
-  sizeBytes?: number;
-  location?: string;
-  fileName?: string;
-  compressionType?: string;
-  isCompressed?: boolean;
-  encryptionKey?: string;
-  isEncrypted?: boolean;
-  startedAt?: string;
-  createdAt?: string;
-  completedAt?: string | null;
-  expiresAt?: string | null;
-  error?: string;
-  createdBy?: string;
 }
 
 interface DatabaseHealth {
@@ -205,7 +164,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
 const ProgressBar: React.FC<{ value: number; max: number; color?: string }> = ({
   value,
   max,
-  color = 'bg-blue-500'
+  color = 'bg-blue-500',
 }) => {
   const percentage = max > 0 ? (value / max) * 100 : 0;
   return (
@@ -227,27 +186,6 @@ const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Loading...'
   </div>
 );
 
-const ErrorState: React.FC<{ error: string; onRetry?: () => void }> = ({ error, onRetry }) => (
-  <div className="flex items-center justify-center py-12">
-    <div className="text-center">
-      <div className="text-red-500 mb-3">
-        <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-        </svg>
-      </div>
-      <p className="text-sm text-red-600 mb-3">{error}</p>
-      {onRetry && (
-        <button
-          onClick={onRetry}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-        >
-          Retry
-        </button>
-      )}
-    </div>
-  </div>
-);
-
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div className="flex items-center justify-center py-12">
     <p className="text-sm text-gray-500">{message}</p>
@@ -261,56 +199,98 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 const SchemasTab: React.FC = () => {
   const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
 
-  const schemasState = useAsyncData<SchemaItem[]>(
-    useCallback(() => databaseApi.getSchemas({ page: 1, limit: 100 }).then(res => {
-      // PaginatedResult -> data array, veya dogrudan array olabilir
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: SchemaItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as SchemaItem[];
-      return [];
-    }), []),
-    { initialData: [] }
+  // The four cards above the table are PLATFORM totals, so they come from the
+  // platform's own aggregate. They used to be `schemas.length`,
+  // `schemas.filter(active).length` and two `reduce`s over the list below —
+  // which is fetched with `limit: 100`. Past a hundred tenants every one of
+  // them was the first page's subtotal printed under the word "Total".
+  const summaryQuery = useAdminQuery<ApiSchema<'SchemaSummaryDto'>>(
+    adminKeys.database.summary(),
+    ({ signal }) => databaseApi.getSchemaSummary(signal),
   );
 
-  const schemas = schemasState.data || [];
+  const listParams = { page: 1, limit: 100 };
 
-  if (schemasState.loading && schemasState.isInitialLoad) {
+  // The endpoint returns the platform page contract, so there is one shape to
+  // read. The three-way sniff that used to live here existed only because the
+  // response could have been a bare array, an `items` envelope or a `data` one.
+  const schemasQuery = useAdminQuery<readonly SchemaItem[]>(
+    adminKeys.database.tenantSchemas(listParams),
+    ({ signal }) => databaseApi.getSchemas(listParams, signal).then((page) => page.data),
+  );
+
+  // The isolation check is evidence an operator reads, compares and quotes in
+  // an incident. It used to be handed to `alert()` — a modal that cannot be
+  // copied out of, is dismissed by the Enter key, and takes the issue list with
+  // it. It renders in the detail panel now, and a failed check reports the
+  // server's message instead of `Validation failed: …` around it.
+  const validateIsolation = useAdminMutation<
+    { valid: boolean; issues: string[] },
+    { tenantId: string }
+  >(({ tenantId }) => databaseApi.validateSchemaIsolation(tenantId));
+
+  const summary = summaryQuery.data;
+  const schemas = schemasQuery.data ?? [];
+
+  const reload = (): void => {
+    void summaryQuery.refetch();
+    void schemasQuery.refetch();
+  };
+
+  const openSchema = (schema: SchemaItem): void => {
+    validateIsolation.reset();
+    setSelectedSchema(schema);
+  };
+
+  if (schemasQuery.isPending && summaryQuery.isPending) {
     return <LoadingSpinner message="Loading schemas..." />;
   }
 
-  if (schemasState.error) {
-    return <ErrorState error={schemasState.error} onRetry={schemasState.retry} />;
-  }
-
-  if (schemas.length === 0) {
-    return <EmptyState message="No tenant schemas found." />;
+  if (schemasQuery.error && schemas.length === 0) {
+    return (
+      <QueryFailureNotice
+        errors={[schemasQuery.error, summaryQuery.error]}
+        hasContent={false}
+        onRetry={reload}
+      />
+    );
   }
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
+      <QueryFailureNotice
+        errors={[schemasQuery.error, summaryQuery.error, validateIsolation.error]}
+        hasContent
+        onRetry={reload}
+      />
+
+      {/* Platform totals — the server's aggregate over every schema, not a
+          reduction over the hundred rows this page happens to list. An em dash
+          when the aggregate did not load, so a failed read is never read as a
+          platform with no tenants. */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Schemas</div>
-          <div className="text-2xl font-bold text-gray-900">{schemas.length}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {summary ? summary.totalSchemas.toLocaleString() : '—'}
+          </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Active</div>
           <div className="text-2xl font-bold text-green-600">
-            {schemas.filter(s => s.status === 'active').length}
+            {summary ? summary.activeSchemas.toLocaleString() : '—'}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Size</div>
           <div className="text-2xl font-bold text-blue-600">
-            {formatBytes(schemas.reduce((sum, s) => sum + (s.sizeBytes || 0), 0))}
+            {summary ? formatBytes(summary.totalSizeBytes) : '—'}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Tables</div>
           <div className="text-2xl font-bold text-purple-600">
-            {schemas.reduce((sum, s) => sum + (s.tableCount || 0), 0)}
+            {summary ? summary.totalTableCount.toLocaleString() : '—'}
           </div>
         </div>
       </div>
@@ -318,16 +298,26 @@ const SchemasTab: React.FC = () => {
       {/* Schema List */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Tenant Schemas</h3>
+          <h3 className="text-lg font-medium text-gray-900">
+            Tenant Schemas
+            {summary && summary.totalSchemas > schemas.length && (
+              <span className="ml-2 text-sm font-normal text-gray-500">
+                showing {schemas.length.toLocaleString()} of {summary.totalSchemas.toLocaleString()}
+              </span>
+            )}
+          </h3>
           <div className="flex space-x-3">
+            {/* "Create Schema" sat here with no `onClick`. A tenant schema is
+                provisioned by the tenant-creation flow — admin-api exposes no
+                create-schema route at all — so the button could never have done
+                anything, and a button that does nothing on a platform-admin
+                page is worse than an absent one: the operator concludes the
+                provisioning failed silently. */}
             <button
-              onClick={() => schemasState.refresh()}
+              onClick={reload}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
-            </button>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              Create Schema
             </button>
           </div>
         </div>
@@ -335,13 +325,27 @@ const SchemasTab: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schema Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Backup</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Schema Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Version
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Size
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Tables
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Last Backup
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -355,7 +359,9 @@ const SchemasTab: React.FC = () => {
                     <StatusBadge status={schema.status} />
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{schema.currentVersion}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{formatBytes(schema.sizeBytes || 0)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {formatBytes(schema.sizeBytes || 0)}
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{schema.tableCount || 0}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {formatDate(schema.lastBackupAt)}
@@ -363,32 +369,11 @@ const SchemasTab: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => setSelectedSchema(schema)}
+                        onClick={() => openSchema(schema)}
                         className="text-blue-600 hover:text-blue-800 text-sm"
                       >
                         View
                       </button>
-                      {schema.status === 'active' ? (
-                        <button
-                          onClick={() => {
-                            if (confirm('Are you sure you want to suspend this schema?')) {
-                              databaseApi.suspendSchema(schema.tenantId).then(() => schemasState.refresh());
-                            }
-                          }}
-                          className="text-yellow-600 hover:text-yellow-800 text-sm"
-                        >
-                          Suspend
-                        </button>
-                      ) : schema.status === 'suspended' ? (
-                        <button
-                          onClick={() => {
-                            databaseApi.activateSchema(schema.tenantId).then(() => schemasState.refresh());
-                          }}
-                          className="text-green-600 hover:text-green-800 text-sm"
-                        >
-                          Activate
-                        </button>
-                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -404,9 +389,17 @@ const SchemasTab: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-medium text-gray-900">Schema Details</h3>
-              <button onClick={() => setSelectedSchema(null)} className="text-gray-500 hover:text-gray-600">
+              <button
+                onClick={() => setSelectedSchema(null)}
+                className="text-gray-500 hover:text-gray-600"
+              >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -451,31 +444,39 @@ const SchemasTab: React.FC = () => {
               </div>
               <div className="flex space-x-3 pt-4">
                 <button
-                  onClick={() => {
-                    databaseApi.validateSchemaIsolation(selectedSchema.tenantId)
-                      .then(result => {
-                        alert(result.valid ? 'Schema isolation is valid.' : `Issues found: ${result.issues.join(', ')}`);
-                      })
-                      .catch(err => alert(`Validation failed: ${err.message}`));
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                  onClick={() => validateIsolation.mutate({ tenantId: selectedSchema.tenantId })}
+                  disabled={validateIsolation.isPending}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
                 >
-                  Validate Isolation
-                </button>
-                <button
-                  onClick={() => {
-                    databaseApi.refreshSchemaStats(selectedSchema.tenantId)
-                      .then(() => {
-                        schemasState.refresh();
-                        setSelectedSchema(null);
-                      })
-                      .catch(err => alert(`Refresh failed: ${err.message}`));
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                >
-                  Refresh Stats
+                  {validateIsolation.isPending ? 'Validating…' : 'Validate Isolation'}
                 </button>
               </div>
+              {validateIsolation.error && (
+                <div
+                  className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                  role="alert"
+                >
+                  {validateIsolation.error.message}
+                </div>
+              )}
+              {validateIsolation.data &&
+                (validateIsolation.data.valid ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                    Schema isolation is valid.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                    <div className="font-medium">
+                      {validateIsolation.data.issues.length} isolation issue
+                      {validateIsolation.data.issues.length === 1 ? '' : 's'}
+                    </div>
+                    <ul className="mt-2 list-inside list-disc space-y-1">
+                      {validateIsolation.data.issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
             </div>
           </div>
         </div>
@@ -489,83 +490,63 @@ const SchemasTab: React.FC = () => {
 // ============================================================================
 
 const MigrationsTab: React.FC = () => {
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchVersion, setBatchVersion] = useState('');
-  const [batchDryRun, setBatchDryRun] = useState(false);
-  const [batchRunning, setBatchRunning] = useState(false);
-
-  const plansState = useAsyncData<MigrationPlan[]>(
-    useCallback(() => databaseApi.getAvailableMigrations(), []),
-    { initialData: [] }
+  const plansQuery = useAdminQuery<MigrationPlan[]>(
+    adminKeys.database.migrationPlans(),
+    ({ signal }) => databaseApi.getAvailableMigrations(signal),
   );
 
-  const historyState = useAsyncData<MigrationHistoryItem[]>(
-    useCallback(() => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: MigrationHistoryItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as MigrationHistoryItem[];
-      return [];
-    }), []),
-    { initialData: [] }
+  const historyParams = { page: 1, limit: 50 };
+
+  const historyQuery = useAdminQuery<readonly SchemaMigration[]>(
+    adminKeys.database.migrationHistory(historyParams),
+    ({ signal }) =>
+      databaseApi.getMigrationHistory(historyParams, signal).then((page) => page.data),
   );
 
-  const plans = plansState.data || [];
-  const history = historyState.data || [];
+  const plans = plansQuery.data ?? [];
+  const history = historyQuery.data ?? [];
 
-  const isLoading = (plansState.loading && plansState.isInitialLoad) || (historyState.loading && historyState.isInitialLoad);
-  const error = plansState.error || historyState.error;
+  const reload = (): void => {
+    void plansQuery.refetch();
+    void historyQuery.refetch();
+  };
 
-  if (isLoading) {
+  if (plansQuery.isPending && historyQuery.isPending) {
     return <LoadingSpinner message="Loading migrations..." />;
   }
 
-  if (error) {
-    return <ErrorState error={error} onRetry={() => { plansState.retry(); historyState.retry(); }} />;
-  }
+  // Either read failing used to replace the WHOLE tab with one error state, so
+  // a history read that timed out hid the available-migrations list that had
+  // loaded beside it. The notice sits above whichever half arrived.
+  const hasContent = plans.length > 0 || history.length > 0;
 
-  const handleBatchMigration = async () => {
-    if (!batchVersion) return;
-    setBatchRunning(true);
-    try {
-      await databaseApi.runBatchMigration({
-        version: batchVersion,
-        isDryRun: batchDryRun,
-      });
-      setShowBatchModal(false);
-      setBatchVersion('');
-      setBatchDryRun(false);
-      historyState.refresh();
-    } catch (err) {
-      alert(`Batch migration failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setBatchRunning(false);
-    }
-  };
+  if (!hasContent && (plansQuery.error || historyQuery.error)) {
+    return (
+      <QueryFailureNotice
+        errors={[plansQuery.error, historyQuery.error]}
+        hasContent={false}
+        onRetry={reload}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
+      <QueryFailureNotice
+        errors={[plansQuery.error, historyQuery.error]}
+        hasContent
+        onRetry={reload}
+      />
       {/* Available Migrations */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Available Migrations</h3>
           <div className="flex space-x-3">
             <button
-              onClick={() => plansState.refresh()}
+              onClick={() => void plansQuery.refetch()}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
-            </button>
-            <button
-              onClick={() => {
-                if (plans.length > 0) {
-                  setBatchVersion(plans[plans.length - 1].version);
-                }
-                setShowBatchModal(true);
-              }}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
-            >
-              Batch Migration
             </button>
           </div>
         </div>
@@ -612,7 +593,7 @@ const MigrationsTab: React.FC = () => {
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Migration History</h3>
           <button
-            onClick={() => historyState.refresh()}
+            onClick={() => void historyQuery.refetch()}
             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
           >
             Refresh
@@ -625,11 +606,21 @@ const MigrationsTab: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Migration</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schemas</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Migration
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Schemas
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Created By
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Date
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -637,21 +628,26 @@ const MigrationsTab: React.FC = () => {
                   <tr key={migration.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-                      <div className="text-xs text-gray-500">{migration.name || migration.migrationName}</div>
+                      <div className="text-xs text-gray-500">{migration.migrationName}</div>
                     </td>
                     <td className="px-6 py-4">
                       <StatusBadge status={migration.status} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.appliedToSchemas
-                        ? `${migration.appliedToSchemas.length} applied`
-                        : migration.schemaName || '-'}
-                      {migration.failedSchemas && migration.failedSchemas.length > 0 && (
-                        <span className="ml-1 text-red-500">({migration.failedSchemas.length} failed)</span>
+                      {/* A row IS one schema's run (ADMIN-MEDIUM-111); the
+                          `appliedToSchemas` / `failedSchemas` counts this cell
+                          used to show have no counterpart on it and always
+                          rendered '-'. The affected tables are what the row
+                          actually carries. */}
+                      {migration.schemaName}
+                      {migration.affectedTables.length > 0 && (
+                        <span className="ml-1 text-gray-400">
+                          ({migration.affectedTables.length} tables)
+                        </span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.createdBy || migration.executedBy || '-'}
+                      {migration.executedBy || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {formatDate(migration.createdAt)}
@@ -663,483 +659,6 @@ const MigrationsTab: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Batch Migration Modal */}
-      {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-gray-900">Batch Migration</h3>
-              <button onClick={() => setShowBatchModal(false)} className="text-gray-500 hover:text-gray-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Select Migration Version
-                </label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  value={batchVersion}
-                  onChange={(e) => setBatchVersion(e.target.value)}
-                >
-                  <option value="">Select version...</option>
-                  {plans.map((plan) => (
-                    <option key={plan.version} value={plan.version}>
-                      {plan.version} - {plan.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="dryRun"
-                  className="rounded border-gray-300"
-                  checked={batchDryRun}
-                  onChange={(e) => setBatchDryRun(e.target.checked)}
-                />
-                <label htmlFor="dryRun" className="text-sm text-gray-700">
-                  Dry Run (test without applying changes)
-                </label>
-              </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  This will apply the migration to all active tenant schemas.
-                  Make sure to have recent backups before proceeding.
-                </p>
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowBatchModal(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                  disabled={batchRunning}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleBatchMigration}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                  disabled={!batchVersion || batchRunning}
-                >
-                  {batchRunning ? 'Running...' : 'Start Batch Migration'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// Backups Tab Component
-// ============================================================================
-
-const BackupsTab: React.FC = () => {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [selectedBackup, setSelectedBackup] = useState<BackupItem | null>(null);
-  const [createForm, setCreateForm] = useState({
-    tenantId: '',
-    backupType: 'full' as string,
-    retentionDays: 30,
-    compress: true,
-    encrypt: false,
-  });
-  const [creating, setCreating] = useState(false);
-
-  const backupsState = useAsyncData<BackupItem[]>(
-    useCallback(() => databaseApi.getBackups({ page: 1, limit: 50 }).then(res => {
-      if (res && 'data' in res && Array.isArray((res as { data: unknown }).data)) {
-        return (res as { data: BackupItem[] }).data;
-      }
-      if (Array.isArray(res)) return res as unknown as BackupItem[];
-      return [];
-    }), []),
-    { initialData: [] }
-  );
-
-  const scheduleState = useAsyncData(
-    useCallback(() => databaseApi.getBackupScheduleStatus(), []),
-    { initialData: null }
-  );
-
-  const backups = backupsState.data || [];
-
-  if (backupsState.loading && backupsState.isInitialLoad) {
-    return <LoadingSpinner message="Loading backups..." />;
-  }
-
-  if (backupsState.error) {
-    return <ErrorState error={backupsState.error} onRetry={backupsState.retry} />;
-  }
-
-  const handleCreateBackup = async () => {
-    setCreating(true);
-    try {
-      await databaseApi.createBackup({
-        backupType: createForm.backupType,
-        tenantId: createForm.tenantId || undefined,
-        compress: createForm.compress,
-        encrypt: createForm.encrypt,
-        retentionDays: createForm.retentionDays,
-      });
-      setShowCreateModal(false);
-      backupsState.refresh();
-    } catch (err) {
-      alert(`Backup creation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleDeleteBackup = async (backupId: string) => {
-    if (!confirm('Are you sure you want to delete this backup?')) return;
-    try {
-      await databaseApi.deleteBackup(backupId);
-      backupsState.refresh();
-    } catch (err) {
-      alert(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  const handleRestoreBackup = async (backupId: string) => {
-    if (!confirm('This will overwrite existing data. Are you sure?')) return;
-    try {
-      await databaseApi.restoreFromBackup({ backupId });
-      alert('Restore initiated successfully.');
-      setSelectedBackup(null);
-    } catch (err) {
-      alert(`Restore failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  const getBackupType = (b: BackupItem) => b.backupType || b.type || 'unknown';
-  const getBackupCreatedAt = (b: BackupItem) => b.createdAt || b.startedAt || '';
-
-  return (
-    <div className="space-y-6">
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Total Backups</div>
-          <div className="text-2xl font-bold text-gray-900">{backups.length}</div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Completed</div>
-          <div className="text-2xl font-bold text-green-600">
-            {backups.filter(b => b.status === 'completed').length}
-          </div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Total Size</div>
-          <div className="text-2xl font-bold text-blue-600">
-            {formatBytes(backups.filter(b => b.status === 'completed').reduce((sum, b) => sum + (b.sizeBytes || 0), 0))}
-          </div>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">In Progress</div>
-          <div className="text-2xl font-bold text-yellow-600">
-            {backups.filter(b => b.status === 'running' || b.status === 'in_progress').length}
-          </div>
-        </div>
-      </div>
-
-      {/* Backup Schedule */}
-      {scheduleState.data && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Backup Schedule</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-              <div>
-                <div className="font-medium text-gray-900">Schedule</div>
-                <div className="text-sm text-gray-500">{scheduleState.data.schedule || 'Not configured'}</div>
-              </div>
-              <StatusBadge status={scheduleState.data.enabled ? 'active' : 'suspended'} />
-            </div>
-            {scheduleState.data.nextRun && (
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <div className="font-medium text-gray-900">Next Run</div>
-                  <div className="text-sm text-gray-500">{formatDate(scheduleState.data.nextRun)}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Backup List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Backups</h3>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => backupsState.refresh()}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
-            >
-              Refresh
-            </button>
-            <button
-              onClick={() => setShowRestoreModal(true)}
-              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
-            >
-              Point-in-Time Recovery
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-            >
-              Create Backup
-            </button>
-          </div>
-        </div>
-        {backups.length === 0 ? (
-          <EmptyState message="No backups found." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Backup</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Options</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {backups.map((backup) => (
-                  <tr key={backup.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{backup.fileName || backup.location || backup.id}</div>
-                      <div className="text-xs text-gray-500">{backup.schemaName || (backup.tenantId ? `Tenant: ${backup.tenantId}` : 'All')}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <StatusBadge status={getBackupType(backup)} />
-                    </td>
-                    <td className="px-6 py-4">
-                      <StatusBadge status={backup.status} />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {backup.status === 'completed' && backup.sizeBytes ? formatBytes(backup.sizeBytes) : '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex space-x-2">
-                        {(backup.isCompressed || backup.compressionType) && (
-                          <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-600 rounded">
-                            Compressed
-                          </span>
-                        )}
-                        {(backup.isEncrypted || backup.encryptionKey) && (
-                          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-600 rounded">
-                            Encrypted
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatDate(getBackupCreatedAt(backup))}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatDate(backup.expiresAt)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex space-x-2">
-                        {backup.status === 'completed' && (
-                          <button
-                            onClick={() => setSelectedBackup(backup)}
-                            className="text-green-600 hover:text-green-800 text-sm"
-                          >
-                            Restore
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteBackup(backup.id)}
-                          className="text-red-600 hover:text-red-800 text-sm"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Create Backup Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-gray-900">Create Backup</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-500 hover:text-gray-600">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Target Tenant (optional)</label>
-                <input
-                  type="text"
-                  placeholder="Leave empty for all schemas"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  value={createForm.tenantId}
-                  onChange={(e) => setCreateForm(f => ({ ...f, tenantId: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Backup Type</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  value={createForm.backupType}
-                  onChange={(e) => setCreateForm(f => ({ ...f, backupType: e.target.value }))}
-                >
-                  <option value="full">Full Backup</option>
-                  <option value="incremental">Incremental</option>
-                  <option value="differential">Differential</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Retention (days)</label>
-                <input
-                  type="number"
-                  value={createForm.retentionDays}
-                  onChange={(e) => setCreateForm(f => ({ ...f, retentionDays: parseInt(e.target.value) || 30 }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                />
-              </div>
-              <div className="flex items-center space-x-4">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={createForm.compress}
-                    onChange={(e) => setCreateForm(f => ({ ...f, compress: e.target.checked }))}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-gray-700">Compress</span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={createForm.encrypt}
-                    onChange={(e) => setCreateForm(f => ({ ...f, encrypt: e.target.checked }))}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-gray-700">Encrypt</span>
-                </label>
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                  disabled={creating}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateBackup}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                  disabled={creating}
-                >
-                  {creating ? 'Creating...' : 'Create Backup'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Restore Modal */}
-      {(showRestoreModal || selectedBackup) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-gray-900">
-                {selectedBackup ? 'Restore from Backup' : 'Point-in-Time Recovery'}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowRestoreModal(false);
-                  setSelectedBackup(null);
-                }}
-                className="text-gray-500 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              {selectedBackup ? (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-500">Selected Backup</div>
-                  <div className="font-medium">{selectedBackup.fileName || selectedBackup.location || selectedBackup.id}</div>
-                  <div className="text-xs text-gray-500">Created: {formatDate(selectedBackup.createdAt || selectedBackup.startedAt)}</div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Tenant ID</label>
-                    <input
-                      type="text"
-                      placeholder="Enter tenant ID"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Recovery Point</label>
-                    <input
-                      type="datetime-local"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                </>
-              )}
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-800">
-                  Warning: This will overwrite existing data in the target schema.
-                  This action cannot be undone.
-                </p>
-              </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => {
-                    setShowRestoreModal(false);
-                    setSelectedBackup(null);
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedBackup) {
-                      handleRestoreBackup(selectedBackup.id);
-                    }
-                  }}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                >
-                  Start Restore
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -1148,65 +667,88 @@ const BackupsTab: React.FC = () => {
 // Monitoring Tab Component
 // ============================================================================
 
+const SLOW_QUERY_PARAMS = { grouped: true, limit: 20 } as const;
+
 const MonitoringTab: React.FC = () => {
-  const healthState = useAsyncData<DatabaseHealth>(
-    useCallback(() => databaseApi.getDatabaseHealth(), []),
-    { initialData: null }
+  const healthQuery = useAdminQuery<DatabaseHealth>(adminKeys.database.health(), ({ signal }) =>
+    databaseApi.getDatabaseHealth(signal),
   );
 
-  const connectionsState = useAsyncData<ConnectionStats>(
-    useCallback(() => databaseApi.getConnectionStats(), []),
-    { initialData: null }
+  const connectionsQuery = useAdminQuery<ConnectionStats>(
+    adminKeys.database.connections(),
+    ({ signal }) => databaseApi.getConnectionStats(signal),
   );
 
-  const storageState = useAsyncData<StorageInfo[]>(
-    useCallback(() => databaseApi.getStorageByTenant(), []),
-    { initialData: [] }
+  const storageQuery = useAdminQuery<StorageInfo[]>(adminKeys.database.storage(), ({ signal }) =>
+    databaseApi.getStorageByTenant(signal),
   );
 
-  const slowQueriesState = useAsyncData<SlowQueryItem[]>(
-    useCallback(() => databaseApi.getSlowQueries({ grouped: true, limit: 20 }), []),
-    { initialData: [] }
+  const slowQueriesQuery = useAdminQuery<SlowQueryItem[]>(
+    adminKeys.database.slowQueries(SLOW_QUERY_PARAMS),
+    ({ signal }) => databaseApi.getSlowQueries(SLOW_QUERY_PARAMS, signal),
   );
 
-  const indexState = useAsyncData<IndexRecommendation[]>(
-    useCallback(() => databaseApi.getIndexRecommendations(), []),
-    { initialData: [] }
+  const indexQuery = useAdminQuery<IndexRecommendation[]>(
+    adminKeys.database.indexRecommendations(),
+    ({ signal }) => databaseApi.getIndexRecommendations(undefined, signal),
   );
 
-  const isLoading =
-    (healthState.loading && healthState.isInitialLoad) ||
-    (connectionsState.loading && connectionsState.isInitialLoad);
-
-  if (isLoading) {
+  if (healthQuery.isPending && connectionsQuery.isPending) {
     return <LoadingSpinner message="Loading monitoring data..." />;
   }
 
-  const health = healthState.data;
-  const connections = connectionsState.data;
-  const storage = storageState.data || [];
-  const slowQueries = slowQueriesState.data || [];
-  const indexRecommendations = indexState.data || [];
+  const health = healthQuery.data;
+  const connections = connectionsQuery.data;
+  const storage = storageQuery.data ?? [];
+  const slowQueries = slowQueriesQuery.data ?? [];
+  const indexRecommendations = indexQuery.data ?? [];
+
+  const queryErrors = [
+    healthQuery.error,
+    connectionsQuery.error,
+    storageQuery.error,
+    slowQueriesQuery.error,
+    indexQuery.error,
+  ];
+
+  const reload = (): void => {
+    void healthQuery.refetch();
+    void connectionsQuery.refetch();
+    void storageQuery.refetch();
+    void slowQueriesQuery.refetch();
+    void indexQuery.refetch();
+  };
 
   return (
     <div className="space-y-6">
+      {/* One notice naming every read that failed. Each section used to carry
+          its own full-height ErrorState, so a page with three failures showed
+          three stacked retry panels and no indication they were related. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={health !== undefined || connections !== undefined}
+        onRetry={reload}
+      />
       {/* Health Status */}
-      {healthState.error ? (
-        <ErrorState error={healthState.error} onRetry={healthState.retry} />
-      ) : health ? (
+      {health ? (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Database Health</h3>
             <div className="flex items-center space-x-3">
-              <span className={`text-3xl font-bold ${
-                health.status === 'healthy' ? 'text-green-600' :
-                health.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
-              }`}>
+              <span
+                className={`text-3xl font-bold ${
+                  health.status === 'healthy'
+                    ? 'text-green-600'
+                    : health.status === 'warning'
+                      ? 'text-yellow-600'
+                      : 'text-red-600'
+                }`}
+              >
                 {health.score}
               </span>
               <StatusBadge status={health.status} />
               <button
-                onClick={() => healthState.refresh()}
+                onClick={() => void healthQuery.refetch()}
                 className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
                 Refresh
@@ -1239,14 +781,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Connection Stats */}
-      {connectionsState.error ? (
-        <ErrorState error={connectionsState.error} onRetry={connectionsState.retry} />
-      ) : connections ? (
+      {connections ? (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Connection Pool</h3>
             <button
-              onClick={() => connectionsState.refresh()}
+              onClick={() => void connectionsQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -1277,26 +817,32 @@ const MonitoringTab: React.FC = () => {
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm text-gray-500">Utilization</span>
-              <span className="text-sm font-medium">{(connections.utilizationPercent || 0).toFixed(1)}%</span>
+              <span className="text-sm font-medium">
+                {(connections.utilizationPercent || 0).toFixed(1)}%
+              </span>
             </div>
             <ProgressBar
               value={connections.total}
               max={connections.maxConnections}
-              color={(connections.utilizationPercent || 0) > 80 ? 'bg-red-500' : (connections.utilizationPercent || 0) > 60 ? 'bg-yellow-500' : 'bg-green-500'}
+              color={
+                (connections.utilizationPercent || 0) > 80
+                  ? 'bg-red-500'
+                  : (connections.utilizationPercent || 0) > 60
+                    ? 'bg-yellow-500'
+                    : 'bg-green-500'
+              }
             />
           </div>
         </div>
       ) : null}
 
       {/* Storage by Tenant */}
-      {storageState.error ? (
-        <ErrorState error={storageState.error} onRetry={storageState.retry} />
-      ) : storage.length > 0 ? (
+      {storage.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Storage by Tenant</h3>
             <button
-              onClick={() => storageState.refresh()}
+              onClick={() => void storageQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -1306,19 +852,32 @@ const MonitoringTab: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schema</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Size</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indexes</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distribution</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Schema
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Total Size
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Data
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Indexes
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Tables
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Distribution
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {(() => {
                   const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
                   return storage.map((item) => {
-                    const percentage = totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
+                    const percentage =
+                      totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
                     return (
                       <tr key={item.tenantId} className="hover:bg-gray-50">
                         <td className="px-6 py-4">
@@ -1334,9 +893,7 @@ const MonitoringTab: React.FC = () => {
                         <td className="px-6 py-4 text-sm text-gray-500">
                           {formatBytes(item.indexSizeBytes)}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {item.tableCount}
-                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">{item.tableCount}</td>
                         <td className="px-6 py-4">
                           <div className="flex items-center space-x-2">
                             <ProgressBar value={percentage} max={100} />
@@ -1351,7 +908,7 @@ const MonitoringTab: React.FC = () => {
             </table>
           </div>
         </div>
-      ) : !storageState.loading ? (
+      ) : !storageQuery.isPending && !storageQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Storage by Tenant</h3>
           <EmptyState message="No storage data available." />
@@ -1359,14 +916,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Slow Queries */}
-      {slowQueriesState.error ? (
-        <ErrorState error={slowQueriesState.error} onRetry={slowQueriesState.retry} />
-      ) : slowQueries.length > 0 ? (
+      {slowQueries.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Slow Queries (Grouped)</h3>
             <button
-              onClick={() => slowQueriesState.refresh()}
+              onClick={() => void slowQueriesQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -1376,9 +931,15 @@ const MonitoringTab: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Query Pattern</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Query Pattern
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Count
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Avg Time
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1386,14 +947,18 @@ const MonitoringTab: React.FC = () => {
                   <tr key={idx} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
-                        {query.query.length > 80 ? query.query.substring(0, 80) + '...' : query.query}
+                        {query.query.length > 80
+                          ? query.query.substring(0, 80) + '...'
+                          : query.query}
                       </code>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{query.count}</td>
                     <td className="px-6 py-4">
-                      <span className={`text-sm font-medium ${
-                        query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
-                      }`}>
+                      <span
+                        className={`text-sm font-medium ${
+                          query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
+                        }`}
+                      >
                         {formatDuration(query.avgTime)}
                       </span>
                     </td>
@@ -1403,7 +968,7 @@ const MonitoringTab: React.FC = () => {
             </table>
           </div>
         </div>
-      ) : !slowQueriesState.loading ? (
+      ) : !slowQueriesQuery.isPending && !slowQueriesQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Slow Queries</h3>
           <EmptyState message="No slow queries detected." />
@@ -1411,14 +976,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Index Recommendations */}
-      {indexState.error ? (
-        <ErrorState error={indexState.error} onRetry={indexState.retry} />
-      ) : indexRecommendations.length > 0 ? (
+      {indexRecommendations.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Index Recommendations</h3>
             <button
-              onClick={() => indexState.refresh()}
+              onClick={() => void indexQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -1431,11 +994,15 @@ const MonitoringTab: React.FC = () => {
                   <div>
                     <div className="flex items-center space-x-2">
                       <span className="font-medium text-gray-900">{rec.tableName}</span>
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${
-                        rec.estimatedImpact === 'high' ? 'bg-red-100 text-red-600' :
-                        rec.estimatedImpact === 'medium' ? 'bg-yellow-100 text-yellow-600' :
-                        'bg-green-100 text-green-600'
-                      }`}>
+                      <span
+                        className={`px-2 py-0.5 text-xs rounded-full ${
+                          rec.estimatedImpact === 'high'
+                            ? 'bg-red-100 text-red-600'
+                            : rec.estimatedImpact === 'medium'
+                              ? 'bg-yellow-100 text-yellow-600'
+                              : 'bg-green-100 text-green-600'
+                        }`}
+                      >
                         {rec.estimatedImpact} impact
                       </span>
                     </div>
@@ -1449,7 +1016,7 @@ const MonitoringTab: React.FC = () => {
             ))}
           </div>
         </div>
-      ) : !indexState.loading ? (
+      ) : !indexQuery.isPending && !indexQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Index Recommendations</h3>
           <EmptyState message="No index recommendations at this time." />
@@ -1469,7 +1036,6 @@ const DatabaseManagementPage: React.FC = () => {
   const tabs: Array<{ id: TabType; label: string }> = [
     { id: 'schemas', label: 'Schemas' },
     { id: 'migrations', label: 'Migrations' },
-    { id: 'backups', label: 'Backups' },
     { id: 'monitoring', label: 'Monitoring' },
   ];
 
@@ -1479,7 +1045,7 @@ const DatabaseManagementPage: React.FC = () => {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Database Management</h1>
         <p className="text-gray-500">
-          Multi-tenant schema yonetimi, migration, backup ve performans izleme
+          Multi-tenant schema yonetimi, migration ve performans izleme
         </p>
       </div>
 
@@ -1507,7 +1073,6 @@ const DatabaseManagementPage: React.FC = () => {
       {/* Tab Content */}
       {activeTab === 'schemas' && <SchemasTab />}
       {activeTab === 'migrations' && <MigrationsTab />}
-      {activeTab === 'backups' && <BackupsTab />}
       {activeTab === 'monitoring' && <MonitoringTab />}
     </div>
   );

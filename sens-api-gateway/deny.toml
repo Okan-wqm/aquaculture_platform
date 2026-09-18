@@ -79,11 +79,14 @@ ignore = [
     # EDGE-CI-007: proc-macro-error2 2.0.1 unmaintained (RUSTSEC-2026-0173,
     # published 2026-06-07). Owner: platform-team. Deadline: 2026-10-01.
     # Build-time-only transitive: proc-macro-error2 <- defmt-macros <-
-    # defmt <- lorawan stack. defmt-macros latest (1.1.0, 2026-05-12)
-    # still depends on it, so no upstream upgrade path exists yet —
-    # re-check on each defmt release. Unmaintained signal only, no
-    # active vulnerability; the crate never reaches the shipped binary
-    # (proc-macro host dependency).
+    # defmt <- lorawan stack. STILL RESOLVES in Cargo.lock (proc-macro-error2
+    # 2.0.1 via defmt-macros 1.0.1); the advisory is live upstream
+    # (informational=unmaintained, patched=[]). The 2026-07-11 removal was
+    # reverted on 2026-07-12 (PR935-HIGH-001) — the crate had NOT left the
+    # tree, so cargo-audit/cargo-deny would have failed the audit gates.
+    # Re-check on each defmt release for an upgrade path. Unmaintained signal
+    # only, no active vulnerability; the crate never reaches the shipped
+    # binary (proc-macro host dependency).
     # -----------------------------------------------------------------
     "RUSTSEC-2026-0173",
 

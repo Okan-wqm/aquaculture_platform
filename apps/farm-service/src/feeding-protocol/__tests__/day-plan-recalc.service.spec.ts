@@ -13,6 +13,7 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import {
@@ -25,15 +26,13 @@ import {
   FcrResolvedSource,
 } from '../entities/feeding-protocol-v2.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { RECALC_LOG_MAX_ENTRIES } from '../constants';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'protocol-1',
   bands: [
     {
@@ -67,7 +66,8 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 interface HarnessOpts {
-  dayPlan?: FeedingDayPlan | null;
+  /** `null` = plan yok; kısmi nesne makeDayPlan üzerine bindirilir. */
+  dayPlan?: Partial<FeedingDayPlan> | null;
   meals?: FeedingMeal[];
   settledMeals?: FeedingMeal[];
   tankBatch?: Partial<TankBatch> | null;
@@ -75,7 +75,7 @@ interface HarnessOpts {
 }
 
 function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
-  return mock<FeedingDayPlan>({
+  return stub<FeedingDayPlan>({
     id: 'plan-1',
     tenantId: TENANT,
     assignmentId: 'assign-1',
@@ -101,12 +101,27 @@ function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
       expectedFcr: 1.2,
       fcrResolvedSource: FcrResolvedSource.BAND,
     },
+    // W3: band/oran/FCR'ın CANLI değerleri ayrı kolonda; snapshot üretim anı
+    // provenansı olarak donuk kalır (FARM-HIGH-247/FARM-MEDIUM-252).
+    resolution: {
+      resolvedAt: '2026-07-20T06:00:00.000Z',
+      bandIndex: 0,
+      feed: { id: 'feed-a', code: 'FA', name: 'Feed A' },
+      baseRatePercent: 3,
+      tempMultiplier: 1,
+      effectiveRatePercent: 3,
+      expectedFcr: 1.2,
+      fcrResolvedSource: FcrResolvedSource.BAND,
+      bandBasisWeightG: 50,
+      waterTempC: null,
+      temperatureSource: 'none',
+    },
     ...over,
   });
 }
 
 function makeMeal(index: number, plannedKg: number, percent: number): FeedingMeal {
-  return mock<FeedingMeal>({
+  return stub<FeedingMeal>({
     id: `meal-${index}`,
     mealIndex: index,
     dayPlanId: 'plan-1',
@@ -118,20 +133,20 @@ function makeMeal(index: number, plannedKg: number, percent: number): FeedingMea
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
-  const dayPlan = opts.dayPlan === undefined ? makeDayPlan() : opts.dayPlan;
+  const dayPlan = opts.dayPlan === null ? null : makeDayPlan(opts.dayPlan ?? {});
   const meals = opts.meals ?? [makeMeal(0, 0.9, 60), makeMeal(1, 0.6, 40)];
   const settled = opts.settledMeals ?? [];
   const tankBatch =
     opts.tankBatch === null
       ? null
-      : mock<TankBatch>({
+      : stub<TankBatch>({
           tankId: UNIT,
           totalQuantity: 1000,
           totalBiomassKg: 50,
           avgWeightG: 50,
           ...opts.tankBatch,
         });
-  const assignment = mock<ProtocolAssignment>({
+  const assignment = stub<ProtocolAssignment>({
     id: 'assign-1',
     protocolId: 'protocol-1',
     status: ProtocolAssignmentStatus.ACTIVE,
@@ -176,14 +191,15 @@ function makeHarness(opts: HarnessOpts = {}) {
     return entity;
   });
 
-  const manager = mock<EntityManager>({ createQueryBuilder, findOne, save });
-  const outbox = mock<OutboxPublisher>({
+  const manager = stub<EntityManager>({ createQueryBuilder, findOne, save });
+  const outbox = stub<OutboxPublisher>({
     enqueue: jest.fn(async (event: { eventType: string }) => {
       enqueued.push(event);
       return undefined as never;
     }),
   });
-  const service = new DayPlanRecalcService(new ProtocolRateService(), outbox);
+  const rateService = new ProtocolRateService();
+  const service = new DayPlanRecalcService(outbox, new ProtocolResolutionService(rateService));
   return { service, manager, dayPlan, meals, assignment, saved, enqueued };
 }
 
@@ -213,6 +229,33 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
     expect(harness.dayPlan!.recalcLog.at(-1)?.reason).toBe('mortality');
   });
 
+  /**
+   * W8 / FARM-MEDIUM-286 — `recalcLog` ÜST SINIRSIZ büyüyordu ve tamamı
+   * GraphQL'de açıktı. Bir gün planı sıcaklık, ölüm, hasat, transfer, ayıklama,
+   * protokol/atama değişimi ve manuel geçişle yeniden hesaplanabilir; yoğun bir
+   * ünitede satır günde onlarca girdi biriktiriyordu.
+   */
+  it('caps recalcLog at the shared limit while keeping the TOTAL count', async () => {
+    const existing = Array.from({ length: RECALC_LOG_MAX_ENTRIES }, (_, i) => ({
+      at: `2026-07-20T0${i % 10}:00:00.000Z`,
+      reason: 'temperature' as const,
+      remainingPlannedKg: 1,
+      biomassKg: 50,
+    }));
+    const harness = makeHarness({
+      tankBatch: { totalBiomassKg: 40, avgWeightG: 50 },
+      dayPlan: { recalcLog: existing, recalcCount: RECALC_LOG_MAX_ENTRIES },
+    });
+
+    await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'mortality');
+
+    expect(harness.dayPlan!.recalcLog).toHaveLength(RECALC_LOG_MAX_ENTRIES);
+    // En YENİ girdi korunur, en eski düşer — kırpma budama değil pencere.
+    expect(harness.dayPlan!.recalcLog.at(-1)?.reason).toBe('mortality');
+    // Kırpma bilgi kaybı yaratmaz: toplam sayaç ilerler.
+    expect(harness.dayPlan!.recalcCount).toBe(RECALC_LOG_MAX_ENTRIES + 1);
+  });
+
   it('holds the current band inside the hysteresis buffer (no oscillation)', async () => {
     // 102g: yeni band min 100 + buffer 5 = 105 AŞILMADI → band 0 korunur.
     const harness = makeHarness({ tankBatch: { avgWeightG: 102, totalBiomassKg: 102 } });
@@ -239,9 +282,15 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
 
   it('uses the fresh reading for temperature-triggered recalcs', async () => {
     const harness = makeHarness({});
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'temperature', {
-      newTemperatureC: 8, // 5–12°C bandı → ×0.5
-    });
+    const result = await harness.service.recalcForUnit(
+      harness.manager,
+      TENANT,
+      UNIT,
+      'temperature',
+      {
+        newTemperatureC: 8, // 5–12°C bandı → ×0.5
+      },
+    );
     expect(result?.outcome).toBe('repriced');
     // 50kg × 3% × 0.5 = 0.75 → 0.45 / 0.30
     expect(harness.meals[0]!.plannedKg).toBeCloseTo(0.45);

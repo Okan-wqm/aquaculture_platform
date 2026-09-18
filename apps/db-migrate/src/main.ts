@@ -89,6 +89,7 @@ import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 import { healStrayTenantMigrationJournals } from './stray-tenant-journal-heal';
+import { backfillTenantLedger, type TenantLedgerBackfillOutcome } from './tenant-ledger-backfill';
 import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
 import { ensureTenantSensorContinuousAggregateAuthority } from './tenant-sensor-continuous-aggregate-authority';
 
@@ -398,18 +399,13 @@ async function backfillTenantLedgersForSource(
   database: RunSchemaOptions['database'],
   sourceSchema: string,
   tenantSchemas: readonly string[],
-): Promise<Array<{ tenantSchema: string; copiedRows: number; skipped: boolean }>> {
+): Promise<TenantLedgerBackfillOutcome[]> {
   if (tenantSchemas.length === 0) return [];
 
   const dataSource = createControlDataSource(database);
   await dataSource.initialize();
   const queryRunner = dataSource.createQueryRunner();
-  const tenantLedger = tenantMigrationLedgerTable(sourceSchema);
-  const backfills: Array<{
-    tenantSchema: string;
-    copiedRows: number;
-    skipped: boolean;
-  }> = [];
+  const backfills: TenantLedgerBackfillOutcome[] = [];
 
   try {
     await queryRunner.connect();
@@ -436,58 +432,49 @@ async function backfillTenantLedgersForSource(
     }
 
     for (const tenantSchema of tenantSchemas) {
-      if (!TENANT_SCHEMA_NAME_RE.test(tenantSchema)) {
-        throw new Error(
-          `[db-migrate] Refusing unsafe tenant schema during ledger backfill: ${tenantSchema}`,
-        );
-      }
-
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "${tenantSchema}"."${tenantLedger}" (
-          "id" SERIAL PRIMARY KEY,
-          "timestamp" bigint NOT NULL,
-          "name" varchar NOT NULL
-        )
-      `);
-      const grant = await grantTenantMigrationLedgerReadAccess(queryRunner, {
-        tenantSchema,
+      // INFRA-CRITICAL-149: the ledger is stamped only when the tenant schema
+      // carries every per-tenant table the registry names for this source. A
+      // ledger-less schema that does not is what a failed PROVISION leaves
+      // behind; left unstamped, the fan-out below builds it in this deploy.
+      const outcome = await backfillTenantLedger(queryRunner, {
         sourceSchema,
+        tenantSchema,
+        sourceRows,
       });
+      backfills.push(outcome);
       log({
         level: 'info',
         message: 'Tenant migration ledger read grant asserted',
         context: 'DbMigrate',
         sourceSchema,
         tenantSchema,
-        tenantLedger: grant.tenantLedger,
-        serviceRole: grant.serviceRole,
+        tenantLedger: outcome.tenantLedger,
+        serviceRole: outcome.serviceRole,
       });
-
-      const existingRows = await ledgerRowCount(queryRunner, tenantSchema, tenantLedger);
-      if (existingRows > 0) {
-        backfills.push({ tenantSchema, copiedRows: 0, skipped: true });
-        continue;
+      if (!outcome.skipped) {
+        log({
+          level: 'info',
+          message: 'Tenant migration ledger backfilled',
+          context: 'DbMigrate',
+          sourceSchema,
+          tenantSchema,
+          tenantLedger: outcome.tenantLedger,
+          copiedRows: outcome.copiedRows,
+        });
+      } else if (outcome.reason === 'missing-per-tenant-tables') {
+        log({
+          level: 'error',
+          message:
+            'Tenant schema lacks per-tenant tables for this source — ledger left empty so the ' +
+            'fan-out replays the source history instead of stamping an unproven schema',
+          context: 'DbMigrate',
+          sourceSchema,
+          tenantSchema,
+          tenantLedger: outcome.tenantLedger,
+          missingTableCount: outcome.missingTables.length,
+          missingTables: outcome.missingTables,
+        });
       }
-
-      await queryRunner.query(`
-        INSERT INTO "${tenantSchema}"."${tenantLedger}" ("timestamp", "name")
-        SELECT "timestamp", "name"
-          FROM "${sourceSchema}"."${MIGRATION_LEDGER_TABLE}"
-      `);
-      backfills.push({
-        tenantSchema,
-        copiedRows: sourceRows,
-        skipped: false,
-      });
-      log({
-        level: 'info',
-        message: 'Tenant migration ledger backfilled',
-        context: 'DbMigrate',
-        sourceSchema,
-        tenantSchema,
-        tenantLedger,
-        copiedRows: sourceRows,
-      });
     }
 
     return backfills;
@@ -1339,9 +1326,7 @@ async function main(): Promise<number> {
         // the process works regardless of the process.cwd() at invocation.
         const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
         const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
-        let backfills:
-          | Array<{ tenantSchema: string; copiedRows: number; skipped: boolean }>
-          | undefined;
+        let backfills: TenantLedgerBackfillOutcome[] | undefined;
         if (TENANT_AWARE_SCHEMAS.has(entry.schema)) {
           backfills = await backfillTenantLedgersForSource(database, entry.schema, tenantSchemas);
         }

@@ -119,7 +119,7 @@ export class AnalyticsSnapshot {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -266,7 +266,7 @@ export class ReportDefinition {
   @Column({ type: 'int', default: 0 })
   runCount!: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
@@ -347,7 +347,7 @@ export class ReportExecution {
   @Column({ type: 'varchar', length: 255, nullable: true })
   executedByEmail?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Column({ type: 'timestamptz', nullable: true })

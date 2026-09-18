@@ -1,32 +1,25 @@
 import { clsx } from 'clsx';
-import { CalendarOff, Plus, Clock } from 'lucide-react';
+import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { AppHeader } from '@/components/AppHeader';
-import { Button, Card, EmptyState, IconButton, SegmentedControl, Skeleton } from '@/components/ui';
-import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
+import {
+  useMyLeaveBalances,
+  useMyLeaveRequests,
+  useCancelLeaveRequest,
+  useLeaveTypes,
+} from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
 
-/**
- * Request status → badge tone. DRAFT and CANCELLED share the neutral treatment
- * because neither is asking anything of the worker; the badge text is what
- * separates them.
- */
-const STATUS_TONES: Record<string, string> = {
-  DRAFT: 'bg-surface-2 text-ink-2',
-  PENDING: 'bg-warn-dim text-warn',
-  APPROVED: 'bg-surface-2 text-ok',
-  REJECTED: 'bg-crit-dim text-crit',
-  CANCELLED: 'bg-surface-2 text-ink-3',
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'bg-gray-100 text-gray-600',
+  PENDING: 'bg-amber-100 text-amber-700',
+  APPROVED: 'bg-green-100 text-green-700',
+  REJECTED: 'bg-red-100 text-red-700',
+  CANCELLED: 'bg-gray-100 text-gray-500',
 };
 
 type Tab = 'balances' | 'requests';
-
-const TABS = [
-  { value: 'balances' as const, label: 'Balances' },
-  { value: 'requests' as const, label: 'Requests' },
-];
 
 export function MyLeavesPage(): JSX.Element {
   const navigate = useNavigate();
@@ -44,6 +37,11 @@ export function MyLeavesPage(): JSX.Element {
     refetchOnMount: 'always',
   });
   const { cancel, loading: cancelling } = useCancelLeaveRequest();
+  // The HR LeaveBalance type carries only leaveTypeId; the display type is
+  // joined client-side against the leaveTypes list (MOB-HIGH-022 — the old
+  // `balance.leaveType` read a field the schema never had).
+  const { data: leaveTypes = [] } = useLeaveTypes();
+  const leaveTypeById = new Map(leaveTypes.map((type) => [type.id, type]));
 
   // WHY: no manual invalidateQueries here — useCancelLeaveRequest now
   // invalidates leaveRequests and leaveBalances caches in its onSuccess
@@ -57,97 +55,122 @@ export function MyLeavesPage(): JSX.Element {
   };
 
   return (
-    <div className="pb-32">
-      <AppHeader
-        title="Leave"
-        onBack={() => navigate(-1)}
-        showAvatar={false}
-        actions={
-          <IconButton
-            aria-label="New leave request"
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
+        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <div className="flex items-center gap-2.5">
+              <CalendarOff size={22} />
+              <h1 className="text-lg font-bold">Leave</h1>
+            </div>
+          </div>
+          <button
             onClick={() => navigate('/leave/request')}
-            className="bg-surface-2 rounded-xl"
+            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 touch-feedback"
           >
-            <Plus size={20} className="text-ink-2" />
-          </IconButton>
-        }
-      />
+            <Plus size={20} />
+          </button>
+        </div>
+      </div>
 
       {/* Tabs */}
-      <div className="px-4">
-        <SegmentedControl
-          label="Leave view"
-          options={TABS}
-          value={activeTab}
-          onChange={setActiveTab}
-        />
+      <div className="px-4 mt-4 flex gap-2">
+        <button
+          onClick={() => setActiveTab('balances')}
+          className={clsx(
+            'flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all',
+            activeTab === 'balances'
+              ? 'bg-violet-600 text-white shadow-md'
+              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700',
+          )}
+        >
+          Balances
+        </button>
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={clsx(
+            'flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all',
+            activeTab === 'requests'
+              ? 'bg-violet-600 text-white shadow-md'
+              : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700',
+          )}
+        >
+          Requests
+        </button>
       </div>
 
       {/* Balances Tab */}
       {activeTab === 'balances' && (
         <div className="px-4 mt-4 space-y-3">
-          {balancesLoading && <Skeleton variant="tile" count={2} />}
+          {balancesLoading && (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500" />
+            </div>
+          )}
           {balances.map((balance: LeaveBalance) => (
-            <Card key={balance.id} className="p-4">
+            <div
+              key={balance.id}
+              className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800"
+            >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  {/* Tenant-configured colour for this leave type — data, not a
-                      design token, so it stays inline. */}
                   <div
-                    className="w-3 h-3 rounded-full shrink-0"
-                    style={{ backgroundColor: balance.leaveType?.color || '#6366f1' }}
+                    className="w-3 h-3 rounded-full"
+                    style={{
+                      backgroundColor: leaveTypeById.get(balance.leaveTypeId)?.color || '#6366f1',
+                    }}
                   />
-                  <h3 className="text-title font-semibold text-ink-1">
-                    {balance.leaveType?.name || 'Leave'}
+                  <h3 className="font-semibold text-gray-900 dark:text-white">
+                    {leaveTypeById.get(balance.leaveTypeId)?.name || 'Leave'}
                   </h3>
                 </div>
-                <span className="text-body font-mono text-ink-3">{balance.year}</span>
+                <span className="text-sm text-gray-400">{balance.year}</span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
-                  <p className="text-meta text-ink-3">Total</p>
-                  <p className="text-title font-mono font-bold text-ink-1 tabular-nums">
+                  <p className="text-xs text-gray-400">Total</p>
+                  <p className="font-bold text-gray-900 dark:text-white">
                     {balance.totalEntitlement}
                   </p>
                 </div>
                 <div>
-                  <p className="text-meta text-ink-3">Used</p>
-                  <p className="text-title font-mono font-bold text-ink-2 tabular-nums">
-                    {balance.usedDays}
-                  </p>
+                  <p className="text-xs text-gray-400">Used</p>
+                  <p className="font-bold text-red-500">{balance.usedDays}</p>
                 </div>
                 <div>
-                  <p className="text-meta text-ink-3">Pending</p>
-                  <p className="text-title font-mono font-bold text-warn tabular-nums">
-                    {balance.pendingDays}
-                  </p>
+                  <p className="text-xs text-gray-400">Pending</p>
+                  <p className="font-bold text-amber-500">{balance.pendingDays}</p>
                 </div>
                 <div>
-                  <p className="text-meta text-ink-3">Left</p>
-                  <p className="text-title font-mono font-bold text-ok tabular-nums">
-                    {balance.remainingDays}
-                  </p>
+                  <p className="text-xs text-gray-400">Left</p>
+                  <p className="font-bold text-green-600">{balance.remainingDays}</p>
                 </div>
               </div>
 
               {/* Progress bar */}
-              <div className="mt-3 h-2 bg-surface-2 rounded-full overflow-hidden">
+              <div className="mt-3 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-acc rounded-full motion-safe:transition-all"
+                  className="h-full bg-violet-500 rounded-full transition-all"
                   style={{
                     width: `${Math.min(100, (balance.usedDays / balance.totalEntitlement) * 100)}%`,
                   }}
                 />
               </div>
-            </Card>
+            </div>
           ))}
           {!balancesLoading && balances.length === 0 && (
-            <EmptyState
-              icon={<CalendarOff size={22} />}
-              title="No leave balances found"
-              className="py-8"
-            />
+            <div className="text-center py-8 text-gray-400">
+              <CalendarOff size={32} className="mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No leave balances found</p>
+            </div>
           )}
         </div>
       )}
@@ -155,24 +178,31 @@ export function MyLeavesPage(): JSX.Element {
       {/* Requests Tab */}
       {activeTab === 'requests' && (
         <div className="px-4 mt-4 space-y-3">
-          {requestsLoading && <Skeleton variant="tile" count={2} />}
+          {requestsLoading && (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500" />
+            </div>
+          )}
           {requests.map((request: LeaveRequest) => (
-            <Card key={request.id} className="p-4">
+            <div
+              key={request.id}
+              className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800"
+            >
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-title font-semibold text-ink-1">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
                   {request.leaveType?.name || 'Leave'}
                 </h3>
                 <span
                   className={clsx(
-                    'px-2 py-0.5 rounded-full text-meta font-semibold',
-                    STATUS_TONES[request.status] ?? 'bg-surface-2 text-ink-2',
+                    'px-2 py-0.5 rounded-full text-xs font-semibold',
+                    STATUS_COLORS[request.status],
                   )}
                 >
                   {request.status}
                 </span>
               </div>
 
-              <div className="text-body text-ink-2 space-y-1">
+              <div className="text-sm text-gray-500 space-y-1">
                 <p>
                   {new Date(request.startDate).toLocaleDateString()} -{' '}
                   {new Date(request.endDate).toLocaleDateString()}
@@ -181,33 +211,37 @@ export function MyLeavesPage(): JSX.Element {
                   {request.totalDays} day{request.totalDays !== 1 ? 's' : ''}
                   {request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}
                 </p>
-                {request.reason && <p className="text-ink-3 italic">{request.reason}</p>}
+                {request.reason && <p className="text-gray-400 italic">{request.reason}</p>}
               </div>
 
               {(request.status === 'PENDING' || request.status === 'DRAFT') && (
-                <Button
-                  variant="danger"
-                  block
+                <button
                   onClick={() => {
                     void handleCancel(request.id);
                   }}
                   disabled={cancelling}
-                  className="mt-3"
+                  className="mt-3 w-full py-2 text-sm font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 touch-feedback"
                 >
                   Cancel Request
-                </Button>
+                </button>
               )}
-            </Card>
+            </div>
           ))}
           {!requestsLoading && requests.length === 0 && (
-            <EmptyState icon={<Clock size={22} />} title="No leave requests" className="py-8" />
+            <div className="text-center py-8 text-gray-400">
+              <Clock size={32} className="mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No leave requests</p>
+            </div>
           )}
 
           {/* New Request Button */}
-          <Button variant="primary" size="save" block onClick={() => navigate('/leave/request')}>
+          <button
+            onClick={() => navigate('/leave/request')}
+            className="w-full py-4 bg-gradient-to-r from-violet-600 to-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-500/25 touch-feedback transition-all flex items-center justify-center gap-2"
+          >
             <Plus size={20} />
             New Leave Request
-          </Button>
+          </button>
         </div>
       )}
     </div>

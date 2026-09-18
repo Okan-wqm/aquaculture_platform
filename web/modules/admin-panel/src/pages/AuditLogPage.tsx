@@ -1,17 +1,34 @@
 /**
  * Audit Log Page
  *
- * System audit logs with real API integration and mock fallback.
- * Uses custom hooks for data fetching, pagination, and filtering.
+ * System audit logs, read through the admin data layer (ADMIN-HIGH-105): every
+ * fetch is a `useAdminQuery` keyed from `adminKeys`, so the cache lives in the
+ * shell's `QueryClient` — cleared by `logoutCleanup()` and invalidatable by any
+ * write — instead of the module-scoped Map `useAsyncData` owns.
+ *
+ * Two defects went with the move. The logs fetcher called
+ * `pagination.setTotal(result.total)` from INSIDE the fetch, so a request that
+ * lost its race still wrote its page count into the controller; the query now
+ * returns the whole `PaginatedResult` and the total is synced from the settled
+ * data. And the fetchers ignored cancellation entirely — they now forward the
+ * `signal` React Query aborts on unmount and on every key change, so a fast
+ * operator paging through no longer has four superseded requests in flight.
  */
 
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
-import { useAsyncData, usePagination, useFilters } from '../hooks';
+import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
-import type { AuditLog, AuditLogStats, Tenant } from '../services/adminApi';
+import type {
+  AuditLog,
+  AuditLogStats,
+  AuditSeverity,
+  PaginatedResult,
+  Tenant,
+} from '../services/adminApi';
 import { TenantTier, TenantStatus } from '../services/adminApi';
+import { saveBlob } from '../services/blob-client';
 
 // ============================================================================
 // Types
@@ -30,6 +47,40 @@ interface AuditFilters extends Record<string, unknown> {
 // ============================================================================
 // Constants
 // ============================================================================
+
+/** One page of tenants is enough to populate a filter dropdown. */
+const TENANT_FILTER_LIMIT = 100;
+
+/** Export window; the list itself is paged. */
+const EXPORT_ROW_LIMIT = 10000;
+
+/**
+ * The ONE place audit query params are assembled.
+ *
+ * The list read and the CSV export used to build this shape separately, and
+ * they had already drifted: a `search` term the operator could see in the table
+ * was missing from the export until it was patched in by hand. Sharing the
+ * builder makes "the export matches what is on screen" structural rather than
+ * a thing two call sites have to agree about.
+ */
+function buildAuditQueryParams(
+  filters: AuditFilters,
+  page: number,
+  limit: number,
+): Record<string, string> {
+  const params: Record<string, string> = {
+    page: page.toString(),
+    limit: limit.toString(),
+  };
+  if (filters.action) params.action = filters.action;
+  if (filters.severity) params.severity = filters.severity;
+  if (filters.entityType) params.entityType = filters.entityType;
+  if (filters.tenantId) params.tenantId = filters.tenantId;
+  if (filters.search) params.search = filters.search;
+  if (filters.startDate) params.startDate = filters.startDate;
+  if (filters.endDate) params.endDate = filters.endDate;
+  return params;
+}
 
 const INITIAL_FILTERS: AuditFilters = {
   search: '',
@@ -66,11 +117,18 @@ const ENTITY_TYPES = [
   { value: 'Setting', label: 'Setting' },
 ];
 
-const SEVERITY_LEVELS = [
+/**
+ * The severities `admin.audit_logs` can actually hold.
+ *
+ * This offered Low, Medium and High — three values the column has never held
+ * (ADMIN-HIGH-112). An auditor filtering for High got an empty list and read it
+ * as "no high-severity events". Built from the contract union now, so a value
+ * the API cannot return cannot be offered.
+ */
+const SEVERITY_LEVELS: Array<{ value: '' | AuditSeverity; label: string }> = [
   { value: '', label: 'All Severities' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'info', label: 'Info' },
+  { value: 'warning', label: 'Warning' },
   { value: 'critical', label: 'Critical' },
 ];
 
@@ -117,14 +175,21 @@ const getActionBadgeVariant = (action: string): 'success' | 'info' | 'error' | '
   return variants[action] || 'default';
 };
 
-const getSeverityBadgeVariant = (severity: string): 'default' | 'info' | 'warning' | 'error' => {
-  const variants: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-    low: 'default',
-    medium: 'info',
-    high: 'warning',
+/**
+ * Keyed on `AuditSeverity`, not on `string`: a `Record<string, …>` accepted
+ * four keys the column never holds and silently defaulted the two it does, so
+ * a `warning` row rendered grey like a routine one. Exhaustive over the real
+ * union, adding a severity server-side is a compile error here.
+ */
+const getSeverityBadgeVariant = (
+  severity: AuditSeverity,
+): 'default' | 'info' | 'warning' | 'error' => {
+  const variants: Record<AuditSeverity, 'default' | 'info' | 'warning' | 'error'> = {
+    info: 'info',
+    warning: 'warning',
     critical: 'error',
   };
-  return variants[severity] || 'default';
+  return variants[severity];
 };
 
 /**
@@ -208,11 +273,13 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
             </p>
           </div>
 
-          {log.metadata && Object.keys(log.metadata).length > 0 && (
+          {log.details && Object.keys(log.details).length > 0 && (
             <div>
-              <label className="text-xs text-gray-500">Metadata</label>
+              {/* `details` is the column (audit.entity.ts). The hand-written
+                  type called it `metadata`, so this block never rendered. */}
+              <label className="text-xs text-gray-500">Details</label>
               <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.metadata, null, 2)}
+                {JSON.stringify(log.details, null, 2)}
               </pre>
             </div>
           )}
@@ -275,60 +342,71 @@ const AuditLogPage: React.FC = () => {
     syncUrl: true,
   });
 
-  // Fetch tenants for filter dropdown
-  const fetchTenants = useCallback(async () => {
-    const result = await tenantsApi.list({ limit: 100 });
-    return result.data;
-  }, []);
+  // Tenants for the filter dropdown. Reference data — a long staleTime, and the
+  // key is shared with every other page that lists tenants, so they hit one
+  // cache entry instead of one request each.
+  const { data: tenants } = useAdminQuery<PaginatedResult<Tenant>>(
+    adminKeys.tenants.list({ limit: TENANT_FILTER_LIMIT }),
+    ({ signal }) => tenantsApi.list({ limit: TENANT_FILTER_LIMIT }, signal),
+    { staleTime: 300_000 },
+  );
 
-  const { data: tenants } = useAsyncData<Tenant[]>(fetchTenants, {
-    cacheKey: 'audit-tenants',
-    cacheTTL: 300000, // 5 minutes
-  });
-
-  // Fetch logs
-  const fetchLogs = useCallback(async () => {
-    const params: Record<string, string> = {
-      page: pagination.page.toString(),
-      limit: pagination.limit.toString(),
-    };
-
-    if (debouncedFilters.action) params.action = debouncedFilters.action;
-    if (debouncedFilters.severity) params.severity = debouncedFilters.severity;
-    if (debouncedFilters.entityType) params.entityType = debouncedFilters.entityType;
-    if (debouncedFilters.tenantId) params.tenantId = debouncedFilters.tenantId;
-    if (debouncedFilters.search) params.search = debouncedFilters.search;
-    if (debouncedFilters.startDate) params.startDate = debouncedFilters.startDate;
-    if (debouncedFilters.endDate) params.endDate = debouncedFilters.endDate;
-
-    const result = await auditApi.query(params);
-    pagination.setTotal(result.total);
-    return result.data;
-  }, [pagination.page, pagination.limit, debouncedFilters]);
+  // Logs. The query params ARE the cache key — page, limit and every active
+  // filter — so a back-navigation to a page already fetched renders from cache
+  // and a changed filter is a different entry rather than an overwrite.
+  const logQueryParams = useMemo(
+    () => buildAuditQueryParams(debouncedFilters, pagination.page, pagination.limit),
+    [debouncedFilters, pagination.page, pagination.limit],
+  );
 
   const {
-    data: logs,
-    loading,
-    error,
-    refresh,
-  } = useAsyncData<AuditLog[]>(fetchLogs, {
-    cacheKey: `audit-logs-${JSON.stringify(debouncedFilters)}-${pagination.page}`,
-    cacheTTL: 30000,
-  });
+    data: logPage,
+    isPending: loading,
+    error: logsError,
+    refetch,
+  } = useAdminQuery<PaginatedResult<AuditLog>>(
+    adminKeys.security.audit(logQueryParams),
+    ({ signal }) => auditApi.query(logQueryParams, signal),
+    { staleTime: 30_000 },
+  );
 
-  // Fetch stats
-  const fetchStats = useCallback(async () => {
-    return auditApi.getStatistics(
-      debouncedFilters.tenantId || undefined,
-      debouncedFilters.startDate || undefined,
-      debouncedFilters.endDate || undefined
-    );
-  }, [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate]);
+  const logs = logPage?.data;
+  const error = logsError ? logsError.message : null;
+  const refresh = (): void => {
+    void refetch();
+  };
 
-  const { data: stats } = useAsyncData<AuditLogStats>(fetchStats, {
-    cacheKey: `audit-stats-${debouncedFilters.tenantId}`,
-    cacheTTL: 60000,
-  });
+  // The server owns the row count; the controller owns the page. Syncing from
+  // SETTLED data (rather than from inside the fetcher, as this page used to)
+  // means a superseded request can no longer write its total over a newer one.
+  useEffect(() => {
+    if (logPage) pagination.setTotal(logPage.total);
+  }, [logPage?.total]);
+
+  // Statistics. The old cache key named only `tenantId`, so changing a date
+  // bound re-fetched into the SAME entry and the header cards showed the
+  // previous range's numbers until the TTL expired. All three discriminators
+  // are in the key now.
+  const statsFilter = useMemo(
+    () => ({
+      tenantId: debouncedFilters.tenantId || undefined,
+      startDate: debouncedFilters.startDate || undefined,
+      endDate: debouncedFilters.endDate || undefined,
+    }),
+    [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate],
+  );
+
+  const { data: stats } = useAdminQuery<AuditLogStats>(
+    [...adminKeys.security.all(), 'audit-stats', statsFilter],
+    ({ signal }) =>
+      auditApi.getStatistics(
+        statsFilter.tenantId,
+        statsFilter.startDate,
+        statsFilter.endDate,
+        signal,
+      ),
+    { staleTime: 60_000 },
+  );
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -338,14 +416,9 @@ const AuditLogPage: React.FC = () => {
   // Export handler
   const handleExport = async () => {
     try {
-      const params: Record<string, string> = { limit: '10000' };
-      if (filters.action) params.action = filters.action;
-      if (filters.severity) params.severity = filters.severity;
-      if (filters.entityType) params.entityType = filters.entityType;
-      if (filters.tenantId) params.tenantId = filters.tenantId;
-      if (filters.search) params.search = filters.search; // Fix: H22 -- include search filter
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
+      // Same builder as the on-screen list, so the export cannot drift from it;
+      // only the page window differs.
+      const params = buildAuditQueryParams(filters, 1, EXPORT_ROW_LIMIT);
 
       const result = await auditApi.query(params);
 
@@ -361,13 +434,10 @@ const AuditLogPage: React.FC = () => {
       ]);
 
       const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-      URL.revokeObjectURL(url); // Fix: H22 -- prevent memory leak
+      saveBlob(
+        new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }),
+        `audit-logs-${new Date().toISOString().split('T')[0]}.csv`,
+      );
     } catch (err) {
       setExportError('Export failed: ' + (err as Error).message);
     }
@@ -438,7 +508,7 @@ const AuditLogPage: React.FC = () => {
   // Tenant options for filter
   const tenantOptions = useMemo(() => [
     { value: '', label: 'All Tenants' },
-    ...(tenants || []).map((t) => ({ value: t.id, label: t.name })),
+    ...(tenants?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
   ], [tenants]);
 
   return (

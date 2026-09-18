@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 
 import * as YAML from 'yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 interface ResolvedRange {
   readonly baseSha: string;
   readonly headSha: string;
@@ -272,7 +273,7 @@ describe('affected CI range resolver', () => {
         reason: 'pull-request-base',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -301,7 +302,7 @@ describe('affected CI range resolver', () => {
         reason: 'development-deploy-baseline',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -334,7 +335,7 @@ describe('affected CI range resolver', () => {
         reason: 'development-baseline-missing',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -370,7 +371,7 @@ describe('affected CI range resolver', () => {
         reason: 'development-baseline-not-ancestor',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -404,7 +405,7 @@ describe('affected CI range resolver', () => {
         reason: 'development-baseline-invalid',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -434,7 +435,7 @@ describe('affected CI range resolver', () => {
       ]);
       expect(git(repo, 'rev-parse', 'deployed/development')).not.toBe(failedDeploySha);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 });
@@ -801,7 +802,7 @@ describe('development image and deploy scope selector', () => {
         validationRequired: false,
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -846,7 +847,7 @@ describe('development image and deploy scope selector', () => {
         deployServices: ['db-migrate', 'farm-service'],
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -891,7 +892,7 @@ describe('development image and deploy scope selector', () => {
         reason: 'full-validation',
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -936,7 +937,7 @@ describe('development image and deploy scope selector', () => {
         validationRequired: true,
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -982,7 +983,7 @@ describe('development image and deploy scope selector', () => {
         validationRequired: true,
       });
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 });
@@ -1029,7 +1030,7 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('bootstrap inherited unowned TypeScript: 1 file(s)');
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -1042,7 +1043,7 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(result.stdout).toContain('apps/owned/tsconfig.e2e.json');
       expect(result.stdout).not.toContain('apps/owned/tsconfig.spec.json');
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -1064,7 +1065,7 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(failure.status).toBe(1);
       expect(readdirSync(tempRoot)).toEqual([]);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -1085,7 +1086,7 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).not.toContain(archivedMigration);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -1104,7 +1105,7 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(result.stderr).toContain('changed TypeScript files have no known tsconfig owner');
       expect(result.stderr).toContain('libs/inherited/src/index.ts');
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 
@@ -1126,8 +1127,8 @@ describe('first-rollout type-check ownership baseline', () => {
       expect(incompleteResult.stderr).toContain('untracked bootstrap ownership debt');
       expect(incompleteResult.stderr).toContain('libs/inherited/src/index.ts');
     } finally {
-      rmSync(stale.repo, { recursive: true, force: true });
-      rmSync(incomplete.repo, { recursive: true, force: true });
+      removeFixtureTree(stale.repo);
+      removeFixtureTree(incomplete.repo);
     }
   });
 });
@@ -1176,7 +1177,7 @@ describe('first-rollout changed-file lint baseline', () => {
       expect(result.status).toBe(0);
       expect(existsSync(eslintMarker)).toBe(false);
     } finally {
-      rmSync(repo, { recursive: true, force: true });
+      removeFixtureTree(repo);
     }
   });
 });

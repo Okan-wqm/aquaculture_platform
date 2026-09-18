@@ -18,6 +18,7 @@ import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import {
   AlertIncident,
   IncidentStatus,
+  TimelineEventType,
 } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import {
@@ -40,6 +41,30 @@ function makeSpec(overrides: Partial<FarmSignalIncidentSpec> = {}): FarmSignalIn
     triggeredAt: TRIGGERED_AT,
     signalLabel: 'mortality',
     ...overrides,
+  };
+}
+
+/**
+ * Structurally-sufficient open-incident fixture: a single typed widening (not
+ * an unsafe cast). The service reads status/severity/occurrenceCount and calls
+ * `recordOccurrence` / `addTimelineEvent` on it.
+ */
+function openIncident(severity: AlertSeverity): AlertIncident & {
+  recordOccurrence: jest.Mock;
+  addTimelineEvent: jest.Mock;
+} {
+  return {
+    id: 'incident-existing',
+    occurrenceCount: 1,
+    status: IncidentStatus.NEW,
+    severity,
+    description: 'opened seven days ago',
+    triggerData: { historyId: 'history-1' },
+    recordOccurrence: jest.fn(),
+    addTimelineEvent: jest.fn(),
+  } as Partial<AlertIncident> as AlertIncident & {
+    recordOccurrence: jest.Mock;
+    addTimelineEvent: jest.Mock;
   };
 }
 
@@ -102,25 +127,79 @@ describe('FarmSignalIncidentService', () => {
   });
 
   it('bumps an existing open incident instead of creating a new one', async () => {
-    // Structurally-sufficient open-incident fixture: a single typed widening
-    // (not unsafe casts) — the service only reads status/occurrenceCount and
-    // calls recordOccurrence on it.
-    const recordOccurrence = jest.fn();
-    const existing = {
-      id: 'incident-existing',
-      occurrenceCount: 1,
-      status: IncidentStatus.NEW,
-      recordOccurrence,
-    } as Partial<AlertIncident> as AlertIncident;
+    const existing = openIncident(AlertSeverity.CRITICAL);
     const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
 
     await service.ensureIncident(makeSpec());
 
-    expect(recordOccurrence).toHaveBeenCalledTimes(1);
-    expect(recordOccurrence).toHaveBeenCalledWith(TRIGGERED_AT);
+    expect(existing.recordOccurrence).toHaveBeenCalledTimes(1);
+    expect(existing.recordOccurrence).toHaveBeenCalledWith(TRIGGERED_AT);
     expect(incidentRepo.save).toHaveBeenCalledWith(existing);
     expect(incidentRepo.create).not.toHaveBeenCalled();
     expect(escalation.startEscalation).not.toHaveBeenCalled();
+  });
+
+  /**
+   * W7 / FARM-MEDIUM-259 — dedup used to freeze an incident at the severity it
+   * was FIRST opened with. A feed-stockout opened at WARNING on day 7 of cover
+   * stayed WARNING all the way down to day 1: the CRITICAL threshold the
+   * coverage service recomputed every morning was passed in and discarded,
+   * because the escalation ladder is chosen at `startEscalation` time and that
+   * only ran on creation.
+   */
+  it('promotes an open incident when a MORE severe occurrence arrives, and re-runs escalation', async () => {
+    const existing = openIncident(AlertSeverity.WARNING);
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
+
+    await service.ensureIncident(
+      makeSpec({
+        severity: AlertSeverity.CRITICAL,
+        description: '2 days of cover remaining',
+        triggerData: { historyId: 'history-2', daysOfCover: 2 },
+      }),
+    );
+
+    expect(existing.severity).toBe(AlertSeverity.CRITICAL);
+    // The operator opening the incident must read the CURRENT reason, not the
+    // one it was opened with seven days ago.
+    expect(existing.description).toBe('2 days of cover remaining');
+    expect(existing.triggerData).toEqual({ historyId: 'history-2', daysOfCover: 2 });
+    expect(existing.addTimelineEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: TimelineEventType.ESCALATED,
+        data: { previousSeverity: AlertSeverity.WARNING, severity: AlertSeverity.CRITICAL },
+      }),
+    );
+    expect(incidentRepo.create).not.toHaveBeenCalled();
+
+    expect(escalation.startEscalation).toHaveBeenCalledTimes(1);
+    const [, severityArg, ruleArg] = escalation.startEscalation.mock.calls[0] ?? [];
+    expect(severityArg).toBe(AlertSeverity.CRITICAL);
+    expect(ruleArg).toBe(RULE_ID);
+  });
+
+  it('does NOT de-escalate or re-page when a less severe occurrence arrives', async () => {
+    const existing = openIncident(AlertSeverity.CRITICAL);
+    const { service, escalation } = makeService({ existingIncident: existing });
+
+    await service.ensureIncident(makeSpec({ severity: AlertSeverity.WARNING }));
+
+    // De-escalation is an operator decision (resolve/close); re-running the
+    // ladder on every repeat occurrence would be a pager storm.
+    expect(existing.severity).toBe(AlertSeverity.CRITICAL);
+    expect(existing.addTimelineEvent).not.toHaveBeenCalled();
+    expect(escalation.startEscalation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the escalated incident write when the re-run escalation rejects', async () => {
+    const existing = openIncident(AlertSeverity.WARNING);
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
+    escalation.startEscalation.mockRejectedValueOnce(new Error('policy service down'));
+
+    await expect(
+      service.ensureIncident(makeSpec({ severity: AlertSeverity.CRITICAL })),
+    ).resolves.toBeUndefined();
+    expect(incidentRepo.save).toHaveBeenCalledWith(existing);
   });
 
   it('does not fail the incident write when escalation rejects (non-blocking)', async () => {

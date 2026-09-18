@@ -11,7 +11,11 @@
  */
 
 import Decimal from 'decimal.js';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
@@ -256,15 +260,42 @@ describe('RecordPaymentHandler', () => {
       expect(defaultInvoice.status).toBe(InvoiceStatus.PAID);
     });
 
-    it('should reject when amountDue is NaN (invalid invoice data)', async () => {
-      defaultInvoice.amountDue = new Decimal(Number.NaN);
+    // BILLING-HIGH-004. Corrupt persisted monetary state is a server-side
+    // integrity failure, so it fails closed as a 500 — a 400 would tell the
+    // caller to fix a request that was never wrong. `amountPaid` and `total`
+    // are proven at the same boundary as `amountDue`: they were previously
+    // read only AFTER the Payment row had been saved, so a NaN there produced
+    // a recorded payment whose invoice could not be updated, or propagated NaN
+    // straight into the invoice's new balance.
+    it.each([
+      ['amountDue', 'amount due'],
+      ['amountPaid', 'amount paid'],
+      ['total', 'total'],
+    ] as const)(
+      'should fail closed when persisted %s is non-finite',
+      async (field, message) => {
+        defaultInvoice[field] = new Decimal(Number.NaN);
 
-      await expect(
-        handler.execute(buildCommand({ amount: 100 })),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        handler.execute(buildCommand({ amount: 100 })),
-      ).rejects.toThrow('has invalid amount due value');
+        await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+          InternalServerErrorException,
+        );
+        await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+          `has invalid ${message} value`,
+        );
+        expect(mockManager.save).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should fail closed when a persisted monetary column is not a Decimal', async () => {
+      Object.assign(defaultInvoice, { total: '200' });
+
+      await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(handler.execute(buildCommand({ amount: 100 }))).rejects.toThrow(
+        'has invalid total value',
+      );
+      expect(mockManager.save).not.toHaveBeenCalled();
     });
   });
 

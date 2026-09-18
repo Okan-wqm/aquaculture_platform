@@ -3,20 +3,14 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BaseEvent } from '@platform/event-contracts';
-import {
-  AlertEvaluationService,
-  SensorReadingData,
-} from '../alert-evaluation.service';
+import { AlertEvaluationService, SensorReadingData } from '../alert-evaluation.service';
 import {
   AlertRule,
   AlertOperator,
   AlertSeverity,
 } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import {
-  AlertIncident,
-  IncidentStatus,
-} from '../../../database/entities/alert-incident.entity';
+import { AlertIncident, IncidentStatus } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
@@ -62,6 +56,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
   const reading: SensorReadingData = {
     sensorId: 'sensor-1',
     tenantId: TENANT_ID,
+    sourceEventId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     farmId: 'farm-1',
     pondId: 'pond-1',
     readings: { dissolved_oxygen: 2 },
@@ -100,9 +95,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
     // shape — cast-free. `useValue` is untyped so this literal is accepted by
     // Nest without asserting DataSource compatibility.
     const mockDataSource = {
-      transaction: (
-        cb: (m: typeof manager) => Promise<unknown>,
-      ): Promise<unknown> => cb(manager),
+      transaction: (cb: (m: typeof manager) => Promise<unknown>): Promise<unknown> => cb(manager),
     };
 
     const ruleQueryBuilder = {
@@ -167,10 +160,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
       await service.evaluateSensorReading(reading);
 
       expect(outbox.enqueue).toHaveBeenCalledTimes(1);
-      const [, passedManager] = outbox.enqueue.mock.calls[0] as [
-        BaseEvent,
-        EntityManager,
-      ];
+      const [, passedManager] = outbox.enqueue.mock.calls[0] as [BaseEvent, EntityManager];
       // Enqueued on the SAME manager the state writes used.
       expect(passedManager).toBe(manager);
       // History + incident saved on the same manager → atomic.
@@ -213,12 +203,52 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
       await buildService({ outboxOverride: failing });
 
       // The swallowing try/catch around the publish was removed; the failure
-      // propagates so the dataSource.transaction rolls back. The outer
-      // per-reading handler logs but does not re-throw, so this resolves.
-      await service.evaluateSensorReading(reading);
+      // propagates so the dataSource.transaction rolls back. Task 1.5: the
+      // service now RETHROWS so the NATS handler NAKs for redelivery —
+      // deterministic child ids + the (rule_id, source_event_id) unique key
+      // make that redelivery idempotent.
+      await expect(service.evaluateSensorReading(reading)).rejects.toThrow('NATS outbox down');
 
       expect(failing.enqueue).toHaveBeenCalledTimes(1);
       // Escalation must NOT start because the transaction did not commit.
+      expect(escalationManager.startEscalation).not.toHaveBeenCalled();
+    });
+
+    it('records the source event id on the alert history row (Task 1.5)', async () => {
+      await buildService();
+
+      await service.evaluateSensorReading({
+        ...reading,
+        sourceEventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      });
+
+      expect(manager.save).toHaveBeenCalledWith(
+        AlertHistory,
+        expect.objectContaining({
+          sourceEventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        }),
+      );
+    });
+
+    it('suppresses a duplicate (rule_id, source_event_id) idempotently — no re-fire, no event', async () => {
+      await buildService();
+      manager.save.mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            'duplicate key value violates unique constraint "uq_alert_history_rule_source_event"',
+          ),
+          { code: '23505' },
+        ),
+      );
+
+      await expect(
+        service.evaluateSensorReading({
+          ...reading,
+          sourceEventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(outbox.enqueue).not.toHaveBeenCalled();
       expect(escalationManager.startEscalation).not.toHaveBeenCalled();
     });
   });
@@ -236,6 +266,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
     const normalReading: SensorReadingData = {
       sensorId: 'sensor-1',
       tenantId: TENANT_ID,
+      sourceEventId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       readings: { dissolved_oxygen: 8 },
       timestamp: new Date('2026-06-24T01:00:00.000Z'),
     };

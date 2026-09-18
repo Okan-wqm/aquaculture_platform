@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { stub } from '@aquaculture/testing';
 import {
   ArgumentsHost,
   CallHandler,
@@ -80,11 +81,11 @@ describe('MessagingRateLimitInterceptor', () => {
       }),
     };
     (GqlExecutionContext.create as jest.Mock).mockReturnValue(mockGqlCtx);
-    return {
+    return stub<ExecutionContext>({
       getType: jest.fn().mockReturnValue('graphql'),
       getHandler: jest.fn(),
       getClass: jest.fn(),
-    } as unknown as ExecutionContext;
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -384,7 +385,7 @@ describe('MessagingRateLimitInterceptor', () => {
       const { GlobalExceptionFilter } = await import('../../../filters/global-exception.filter');
       // Class-based ArgumentsHost stand-in (same shape as the FAZ 0 filter
       // spec: the interface's generic signatures reject object literals,
-      // and the repo gate bans `as unknown as`).
+      // and the repo gate bans the unknown double cast).
       class FakeGqlHost implements ArgumentsHost {
         getType<TContext extends string = ContextType>(): TContext {
           return 'graphql' as TContext;

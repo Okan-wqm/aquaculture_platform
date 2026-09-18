@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import type { QueryRunner } from 'typeorm';
 import { AgentConfigService } from '../agent-config.service';
 import { TenantAgentConfig } from '../agent-config.entity';
@@ -12,30 +12,34 @@ import { TenantAgentConfig } from '../agent-config.entity';
  * pinned QueryRunner's manager to the SAME mocked repository functions, so the
  * London-school contract assertions stay unchanged.
  */
+import { stub, stubMember } from '@aquaculture/testing';
+
 jest.mock('@aquaculture/backend-common/database', () => ({
   runInTenantRead: (
     _ds: DataSource,
     _schema: string,
     _tenantId: string,
     work: (qr: QueryRunner) => Promise<unknown>,
-  ) => work({ manager: managerProxy } as unknown as QueryRunner),
+  ) => work(stub<QueryRunner>({ manager: managerProxy })),
   runInTenantTransaction: (
     _ds: DataSource,
     _schema: string,
     _tenantId: string,
     work: (qr: QueryRunner) => Promise<unknown>,
-  ) => work({ manager: managerProxy } as unknown as QueryRunner),
+  ) => work(stub<QueryRunner>({ manager: managerProxy })),
 }));
 
 const findOne = jest.fn();
 const saveMock = jest.fn();
 const createMock = jest.fn();
 
-const managerProxy = {
-  findOne: (...args: unknown[]) => findOne(...args),
-  save: (...args: unknown[]) => saveMock(...args),
-  create: (...args: unknown[]) => createMock(...args),
-};
+// The pinned QueryRunner's manager: only the three members the service calls,
+// each an overloaded EntityManager signature → stubMember (typed at the member).
+const managerProxy = stub<EntityManager>({
+  findOne: stubMember<EntityManager['findOne']>((...args: never[]) => findOne(...args)),
+  save: stubMember<EntityManager['save']>((...args: never[]) => saveMock(...args)),
+  create: stubMember<EntityManager['create']>((...args: never[]) => createMock(...args)),
+});
 
 /**
  * FAZ1-BYOK fail-closed enablement + cross-tenant isolation + credential resolution.
@@ -149,9 +153,7 @@ describe('AgentConfigService (BYOK)', () => {
     });
 
     it('returns null when the selected provider has no key', async () => {
-      findOne.mockResolvedValue(
-        configRow({ provider: 'openai', openaiApiKey: null }),
-      );
+      findOne.mockResolvedValue(configRow({ provider: 'openai', openaiApiKey: null }));
       await expect(service.resolveCredential('t1')).resolves.toBeNull();
     });
   });
@@ -162,10 +164,9 @@ describe('AgentConfigService (BYOK)', () => {
       await service.resolveCredential('tenant-A');
       // MSGFIX: the read is now tenant-pinned via queryRunner.manager.findOne
       // (EntityClass, options) — the where clause stays the tenant-scoped SSoT.
-      expect(findOne).toHaveBeenCalledWith(
-        expect.any(Function),
-        { where: { tenantId: 'tenant-A' } },
-      );
+      expect(findOne).toHaveBeenCalledWith(expect.any(Function), {
+        where: { tenantId: 'tenant-A' },
+      });
     });
 
     it('a tenant with no row gets defaults (no key), never another tenant’s data', async () => {

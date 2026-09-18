@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import inspect
 import os
 import subprocess
 import tempfile
@@ -32,6 +33,7 @@ from aria_kernel.ledger import (
 from aria_kernel.state_manifest import iter_surfaces
 from aria_kernel.state_snapshot import SnapshotError, compute_manifest_root
 from aria_kernel.state_store import (
+    STATE_BRANCH,
     BOOTSTRAP_ACK_ENV,
     StateStoreError,
     StateStoreRefusal,
@@ -91,6 +93,189 @@ def _snapshot_with_serialized_size(
             f"snapshot fixture size mismatch: {len(payload)} != {target_bytes}"
         )
     return candidate, payload
+
+
+class ScopedGitTransportTests(unittest.TestCase):
+    """Ordinary local Git output; no state publication or authority fixture."""
+
+    def setUp(self) -> None:
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.body = b"ordinary source content\n" * 256
+        self.repo = make_repo_with_initial_commit(
+            Path(scratch.name), {"source.txt": self.body.decode("utf-8")}
+        )
+
+    def _run(self, *, limit: int, deadline: float | None = None, strict: bool = True):
+        # Exercise the actual old Git transport before the optional capability
+        # exists: a missing invented keyword must not be the RED oracle.
+        parameters = inspect.signature(state_store._run_git_bytes_bounded).parameters
+        kwargs = {"stdout_limit": limit, "stderr_limit": 128, "budget_error": "scoped_fixture_budget"}
+        if "strict_read_limits" in parameters:
+            kwargs["strict_read_limits"] = strict
+        if "deadline_monotonic" in parameters:
+            kwargs["deadline_monotonic"] = deadline
+        return state_store._run_git_bytes_bounded(self.repo, ("show", "HEAD:source.txt"), **kwargs)
+
+    def test_strict_output_budget_bounds_actual_pipe_reads_and_reaps(self) -> None:
+        real_popen = subprocess.Popen
+        real_read = os.read
+        children = []
+        stdout_fds = set()
+        consumed = []
+
+        def start(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            stdout_fds.add(child.stdout.fileno())
+            return child
+
+        def read(fd, count):
+            payload = real_read(fd, count)
+            if fd in stdout_fds:
+                consumed.append(len(payload))
+            return payload
+
+        with mock.patch.object(state_store.subprocess, "Popen", side_effect=start), \
+                mock.patch.object(state_store.os, "read", side_effect=read):
+            with self.assertRaisesRegex(StateStoreError, "scoped_fixture_budget"):
+                self._run(limit=32)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode, "Acquired Git process must be reaped")
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+        self.assertGreater(sum(consumed), 0, "Exercise real stdout consumption")
+        self.assertLessEqual(sum(consumed), 32, "Checking a cap after a large read is not bounded consumption")
+
+    def test_expired_shared_deadline_does_not_acquire_a_child(self) -> None:
+        real_popen = subprocess.Popen
+        children = []
+
+        def start(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        with mock.patch.object(state_store.subprocess, "Popen", side_effect=start):
+            with self.assertRaisesRegex(StateStoreError, "state_store_git_timeout"):
+                self._run(limit=len(self.body) + 1, deadline=time.monotonic() - 1)
+        self.assertEqual(children, [])
+
+    def test_record_allowance_bounds_actual_git_membership_reads(self) -> None:
+        for index in range(12):
+            (self.repo / f"member-{index:02}.py").write_text("value = 1\n", encoding="utf-8")
+        real_popen, real_read = subprocess.Popen, os.read
+        children, stdout_fds, reads = [], set(), []
+
+        def start(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            stdout_fds.add(child.stdout.fileno())
+            return child
+
+        def read(fd, count):
+            data = real_read(fd, count)
+            if fd in stdout_fds:
+                reads.append(data)
+            return data
+
+        options = {"stdout_limit": 4096, "stderr_limit": 128, "budget_error": "membership_fixture_limit",
+                   "strict_read_limits": True}
+        if "stdout_records_limit" in inspect.signature(state_store._run_git_bytes_bounded).parameters:
+            options["stdout_records_limit"] = 3
+        error = None
+        with mock.patch.object(subprocess, "Popen", side_effect=start), mock.patch.object(os, "read", side_effect=read):
+            try:
+                state_store._run_git_bytes_bounded(
+                    self.repo, ("ls-files", "-z", "--cached", "--others", "--exclude-standard"), **options,
+                )
+            except StateStoreError as exc:
+                error = str(exc)
+        payload = b"".join(reads)
+        self.assertGreater(payload.count(b"\0"), 0)
+        self.assertLessEqual(payload.count(b"\0"), 3, "A byte cap alone cannot bound membership records")
+        self.assertEqual(error, "membership_fixture_limit")
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+
+    def test_strict_stderr_budget_bounds_actual_pipe_reads_and_reaps(self) -> None:
+        real_popen = subprocess.Popen
+        real_read = os.read
+        children = []
+        stderr_fds = set()
+        consumed = []
+
+        def start(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            stderr_fds.add(child.stderr.fileno())
+            return child
+
+        def read(fd, count):
+            payload = real_read(fd, count)
+            if fd in stderr_fds:
+                consumed.append(len(payload))
+            return payload
+
+        kwargs = {"stdout_limit": 32, "stderr_limit": 16, "budget_error": "scoped_fixture_budget"}
+        if "strict_read_limits" in inspect.signature(state_store._run_git_bytes_bounded).parameters:
+            kwargs["strict_read_limits"] = True
+        with mock.patch.object(state_store.subprocess, "Popen", side_effect=start), \
+                mock.patch.object(state_store.os, "read", side_effect=read):
+            with self.assertRaisesRegex(StateStoreError, "scoped_fixture_budget"):
+                state_store._run_git_bytes_bounded(
+                    self.repo, ("show", "HEAD:ordinary-missing-source.txt"), **kwargs,
+                )
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+        self.assertGreater(sum(consumed), 0)
+        self.assertLessEqual(sum(consumed), 16)
+
+    def test_deadline_expiry_after_actual_acquisition_closes_and_reaps(self) -> None:
+        real_popen = subprocess.Popen
+        deadline = time.monotonic() + 2
+        now = [deadline - 1]
+        children = []
+
+        def start(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            now[0] = deadline + 1
+            return child
+
+        with mock.patch.object(state_store.subprocess, "Popen", side_effect=start), \
+                mock.patch.object(state_store.time, "monotonic", side_effect=lambda: now[0]):
+            with self.assertRaisesRegex(StateStoreError, "state_store_git_timeout"):
+                self._run(limit=len(self.body) + 1, deadline=deadline)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdout.closed)
+        self.assertTrue(children[0].stderr.closed)
+
+    def test_strict_exhausted_boundary_is_unknown_without_an_eof_probe(self) -> None:
+        with self.assertRaisesRegex(StateStoreError, "scoped_fixture_budget"):
+            self._run(limit=len(self.body))
+
+    def test_strict_known_body_with_reserved_eof_byte_is_complete(self) -> None:
+        completed = self._run(limit=len(self.body) + 1, deadline=time.monotonic() + 2)
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, self.body)
+        self.assertEqual(completed.stderr, b"")
+
+    def test_omitted_options_preserve_legacy_exact_cap_output(self) -> None:
+        completed = state_store._run_git_bytes_bounded(
+            self.repo, ("show", "HEAD:source.txt"), stdout_limit=len(self.body),
+            stderr_limit=128, budget_error="scoped_fixture_budget",
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, self.body)
+        self.assertEqual(completed.stderr, b"")
 
 
 class StateStoreTestCase(unittest.TestCase):
@@ -732,10 +917,27 @@ class AncestryProof(StateStoreTestCase):
         to stage; publish must proceed and the fresh snapshot must stop
         declaring the phantom.
         """
-        import os as _os
+        from aria_kernel.tools_binding import bind_tools_root
 
+        # Bound, as the restore action leaves every lane's store: the
+        # acknowledged reduction is RECORDED on the governance ledger by the
+        # publish preamble, and that row needs a bound tools root.
         store = self._bootstrap()
-        surface = self._seed_surface(store, '{"row": 1}\n')
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            bind_tools_root(
+                tools_dir=str(tools_root(store)),
+                workspace_root=str(self.repo),
+                reason="bind the restored aria/state store to this checkout",
+            )
+        self._seed_surface(store, '{"row": 1}\n')
+        # A hot artifact, not a core ledger: `ensure_tools_dir` re-touches
+        # the core ledgers on every governance write, so a deleted
+        # runs.jsonl would come back empty (a reset, "changed") before the
+        # publish ever saw it missing. The 2026-08-31 phantoms were hot
+        # artifacts, and those stay gone.
+        surface = tools_root(store) / "pressure" / "phantom.json"
+        surface.parent.mkdir(parents=True, exist_ok=True)
+        surface.write_text("{}\n", encoding="utf-8")
         publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # Surgery: the surface vanishes from the worktree AND the index —
@@ -743,11 +945,23 @@ class AncestryProof(StateStoreTestCase):
         surface.unlink()
         _git(store.root, "rm", "--cached", "--", surface.relative_to(store.root).as_posix())
 
-        _os.environ["ARIA_STATE_BOOTSTRAP_ACK"] = "test-ack"
-        self.addCleanup(_os.environ.pop, "ARIA_STATE_BOOTSTRAP_ACK", None)
-        follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
-        result = publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
-        self.assertTrue(result.get("published") or result.get("commit") or True)
+        # The fixture's acknowledgment names this repository — the only
+        # value the gate accepts, exactly as the bootstrap accepts it — and
+        # the preamble records the acceptance before the snapshot is built.
+        phantom_key = "pressure_artifacts:pressure/phantom.json"
+        prepared = state_store.prepare_publishable_snapshot(
+            store, snapshot_id="snap-2", cycle_id="cycle-2", lane="test", repo_hash=REPO_HASH
+        )
+        self.assertEqual(prepared.accepted_losses_recorded, (phantom_key,))
+        result = publish_state(
+            store,
+            snapshot=prepared.snapshot,
+            cycle_id="cycle-2",
+            repo_hash=REPO_HASH,
+            expected_base_head=prepared.base_head,
+        )
+        self.assertTrue(result["published"])
+        self.assertEqual(result["continuity"]["ack_accepted_surfaces"], [phantom_key])
 
         # The fresh tip no longer declares the phantom surface, and a
         # follow-up publish on the healed branch needs no special casing.
@@ -874,7 +1088,7 @@ class ConcurrentPublishers(StateStoreTestCase):
 class ReCheckoutSafety(StateStoreTestCase):
     """ARIA's producer lane runs on a persistent runner: the store survives."""
 
-    def _temporary_state_refs(self) -> list[str]:
+    def _scratch_state_refs(self) -> list[str]:
         return _git(
             self.repo,
             "for-each-ref",
@@ -911,7 +1125,7 @@ class ReCheckoutSafety(StateStoreTestCase):
             )
 
         self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
-        self.assertEqual(self._temporary_state_refs(), [])
+        self.assertEqual(self._scratch_state_refs(), [])
 
     def test_checkout_rejects_noncanonical_remote_listings_without_ref_changes(
         self,
@@ -959,7 +1173,7 @@ class ReCheckoutSafety(StateStoreTestCase):
                     _git(self.repo, "rev-parse", tracking).strip(),
                     tracking_before,
                 )
-                self.assertEqual(self._temporary_state_refs(), [])
+                self.assertEqual(self._scratch_state_refs(), [])
 
     def test_checkout_fetch_failure_cleans_temporary_ref_and_preserves_tracking(
         self,
@@ -999,7 +1213,7 @@ class ReCheckoutSafety(StateStoreTestCase):
             )
 
         self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
-        self.assertEqual(self._temporary_state_refs(), [])
+        self.assertEqual(self._scratch_state_refs(), [])
 
     def test_a_clean_store_is_replaced_without_complaint(self) -> None:
         store = self._bootstrap()
@@ -1479,6 +1693,73 @@ class OpenVersusCheckout(StateStoreTestCase):
         self.assertIn("state_store_not_open", str(ctx.exception))
 
 
+class TheStoreKnowsItsOwnBranch(StateStoreTestCase):
+    """`open_state_store` reads the branch from the worktree it opens.
+
+    Every reader of "what is published" anchors on
+    `refs/remotes/<remote>/<branch>`; an assumed branch judged a store
+    checked out elsewhere against the wrong tip (trial eleven, 2026-09-12:
+    a store bootstrapped on `aria/state-trial-eleven-20260912` reported its
+    own genesis as "not at tip" and every `aria/state` surface as lost).
+    """
+
+    def _publish_on(self, branch: str, store_dir: Path, snapshot_id: str) -> None:
+        store = checkout_state_store(self.repo, branch=branch, store_dir=store_dir)
+        self._seed_surface(store, f'{{"branch": "{branch}"}}\n')
+        result = publish_state(
+            store, snapshot=self._snapshot(store, snapshot_id), cycle_id="cycle-1", repo_hash=REPO_HASH,
+        )
+        self.assertTrue(result["published"])
+
+    def test_a_store_on_another_branch_is_judged_against_its_own_tip(self) -> None:
+        # Two lineages, both published: the production branch and a trial's.
+        self._publish_on(STATE_BRANCH, self.repo.parent / "store-main", "snap-main")
+        trial_dir = self.repo.parent / "store-trial"
+        self._publish_on("aria/state-trial", trial_dir, "snap-trial")
+
+        opened = state_store.open_state_store(self.repo, store_dir=trial_dir)
+        self.assertEqual(opened.branch, "aria/state-trial")
+        published = read_published_snapshot(opened)
+        self.assertEqual(published["snapshot_id"], "snap-trial", published)
+        self.assertEqual(
+            state_store._publication_anchor(opened), "refs/remotes/origin/aria/state-trial",
+        )
+
+    def test_a_named_branch_is_checked_against_the_worktree(self) -> None:
+        trial_dir = self.repo.parent / "store-trial"
+        checkout_state_store(self.repo, branch="aria/state-trial", store_dir=trial_dir)
+        with self.assertRaises(StateStoreError) as ctx:
+            state_store.open_state_store(self.repo, branch=STATE_BRANCH, store_dir=trial_dir)
+        self.assertIn("state_store_branch_mismatch", str(ctx.exception))
+        self.assertIn("aria/state-trial", str(ctx.exception))
+        opened = state_store.open_state_store(self.repo, branch="aria/state-trial", store_dir=trial_dir)
+        self.assertEqual(opened.branch, "aria/state-trial")
+
+    def test_the_branch_is_read_from_the_lineage_root_not_from_head(self) -> None:
+        # The worktree is detached by design; the genesis record at the root
+        # commit is the identity, and it survives every publish on top.
+        store = self._bootstrap()
+        detached = subprocess.run(
+            ["git", "-C", str(store.root), "symbolic-ref", "--short", "--quiet", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(detached.returncode, 0, "the store worktree is detached by design")
+        self.assertEqual(state_store.store_lineage_branch(store.root), STATE_BRANCH)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        self.assertEqual(state_store.open_state_store(self.repo, store_dir=store.root).branch, STATE_BRANCH)
+
+    def test_a_lineage_without_a_genesis_record_is_refused_by_name(self) -> None:
+        store = self._bootstrap()
+        # A foreign tree registered as a worktree: its root commit carries
+        # no genesis record, so nothing says which branch it continues.
+        _git(store.root, "checkout", "--detach", "main")
+        self.assertIsNone(state_store.store_lineage_branch(store.root))
+        with self.assertRaises(StateStoreError) as ctx:
+            state_store.open_state_store(self.repo, store_dir=store.root)
+        self.assertIn("state_store_branch_unresolvable", str(ctx.exception))
+
+
 class DailyAnchorPinsTheStore(StateStoreTestCase):
     def test_the_anchor_carries_the_published_manifest_root(self) -> None:
         """`build_daily_anchor`'s snapshot parameter had no caller.
@@ -1779,7 +2060,9 @@ class RootsBindToTheStore(StateStoreTestCase):
         store = self._bootstrap()
         with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
             keys = _keys_dir(self.repo)
-        self.assertEqual(keys, self.repo / "aria-debts" / "keys")
+        # Resolved once by the factory (B7 round 2): the same absolute path
+        # whatever spelling of the root it was handed.
+        self.assertEqual(keys, self.repo.resolve() / "aria-debts" / "keys")
         self.assertNotIn(str(store.root), str(keys))
 
 
@@ -2583,6 +2866,280 @@ class ARestoredStoreIsNotYetAUsableToolsRoot(StateStoreTestCase):
             self.assertEqual(ensure_tools_dir(), tools_root(store))
 
 
+class LearnedConventionContinuity(StateStoreTestCase):
+    def test_pending_promotion_survives_publish_restore_and_prompt_retrieval(self) -> None:
+        """A restored tools root resumes its own learning without shadow state."""
+        from aria_kernel import knowledge_graph
+        from aria_kernel.agent_invocations import render_invocation_prompt
+        from aria_kernel.cycle_phases import MemoryHookImpl
+        from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
+        from aria_kernel.implementation_reconciler import reconcile_recorded_implementations
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.operator_approval import verify_operator_approval_ref
+        from aria_kernel.plan_convergence import (
+            fold_plan_state,
+            record_implementation_outcome,
+            record_implementation_started,
+            request_implementation,
+        )
+        from aria_kernel.tool_registry import append_tools_governance
+        from aria_kernel.tools_binding import bind_tools_root
+        from tests._helpers.declared_fixtures import seed_repo_verified_evidence
+        from tests._helpers.production_shaped import (
+            production_converged_plan,
+            production_request_without_anchor,
+        )
+
+        # An empty disposable CWD makes accidental ambient discovery observable.
+        isolated_cwd = Path(self._tmp.name) / "isolated-cwd"
+        isolated_cwd.mkdir()
+        original_cwd = Path.cwd()
+        self.addCleanup(os.chdir, original_cwd)
+        os.chdir(isolated_cwd)
+        evidence_path = "docs/aria/SPEC.md"
+        evidence_refs = [f"{evidence_path}:{line}" for line in range(1, 6)]
+        anti_ref = f"{evidence_path}:6"
+        source_sha = seed_repo_verified_evidence(
+            self.repo,
+            {evidence_path: "".join(f"Learning evidence line {line}.\n" for line in range(1, 7))},
+        )
+        store = self._bootstrap()
+        tools = tools_root(store)
+        shadow_roots = [self.repo, store.root, tools, isolated_cwd]
+
+        def assert_no_shadow_tools() -> None:
+            for root in shadow_roots:
+                self.assertFalse((root / "aria-tools").exists(), str(root))
+
+        cycle_id = "cycle-store-learning"
+        plan_id = "plan-store-learning"
+        anti_id = "anti-store-learning"
+        convention_path = tools / "knowledge-graph/conventions.jsonl"
+        learning_paths = {
+            "plan_convergence_events:plans/events.jsonl": Path("plans/events.jsonl"),
+            "kg_conventions": Path("knowledge-graph/conventions.jsonl"),
+            "kg_anti_patterns": Path("knowledge-graph/anti-patterns.jsonl"),
+        }
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            bind_tools_root(
+                tools_dir=tools, workspace_root=self.repo,
+                reason="bind the learning continuity fixture",
+            )
+            plan = production_converged_plan(
+                tools_dir=tools, workspace_root=self.repo, plan_id=plan_id,
+                affected_paths=[evidence_path], evidence_refs=evidence_refs,
+            )
+            key = mint_signing_key(cycle_id=cycle_id, workspace_root=self.repo)
+            try:
+                # The cycle seam registers the public half before it hands
+                # the fingerprint out (B7); promotion verifies against it.
+                knowledge_graph.register_convention_signer(
+                    cycle_id=cycle_id, signer_key_fp=key.fingerprint,
+                    public_key=key.public_key_path.read_text(encoding="utf-8"),
+                    base_dir=tools,
+                )
+                observation = MemoryHookImpl().record(
+                    cycle_id=cycle_id, plan_id=plan_id,
+                    workspace_root=self.repo, base_dir=tools,
+                    plan_envelope_metadata={}, profile="standard",
+                    signer_key_fp=key.fingerprint,
+                )
+            finally:
+                revoke_signing_key(cycle_id=cycle_id, workspace_root=self.repo)
+            self.assertEqual(observation["status"], "memory_hook_recorded", observation)
+            self.assertTrue(observation["chain_verified"], observation)
+            assert_no_shadow_tools()
+            hypotheses = load_declared_jsonl(convention_path, expected_surface="kg_conventions")
+            self.assertEqual(
+                [(row["plan_id"], row["outcome_status"]) for row in hypotheses],
+                [(plan_id, "hypothesis")],
+            )
+            hypothesis_id = hypotheses[0]["pattern_id"]
+            self.assertEqual(hypotheses[0]["evidence_refs"], evidence_refs)
+            hypothesis_bytes = convention_path.read_bytes()
+
+            approval = append_tools_governance(
+                tools, "operator_action",
+                {"action": "approve", "pattern_id": anti_id, "reason": "fixture operator review"},
+            )
+            approval_ref = f"gov:{approval['event_id']}"
+            anti_path = knowledge_graph.record_anti_pattern(
+                knowledge_graph.Pattern(
+                    pattern_id=anti_id, pattern_type="anti_pattern", confidence=0.9,
+                    evidence_refs=(anti_ref,), discovered_by_cycle_id=cycle_id,
+                    observed_at="2026-09-10T00:00:00Z",
+                ),
+                base_dir=tools, workspace_root=self.repo,
+                reason_class="tool_design", operator_signature=approval_ref,
+            )
+            self.assertEqual(anti_path, tools / learning_paths["kg_anti_patterns"])
+            request_implementation(
+                plan_id=plan_id, implementer_agent="aria-implementer",
+                converged_plan_revision_id=plan.revision_id,
+                converged_plan_content_hash=plan.content_hash, base_dir=tools,
+            )
+            record_implementation_started(
+                plan_id=plan_id, claim_id="claim-store-learning",
+                implementer_agent="aria-implementer",
+                started_at="2026-09-10T00:10:00Z", base_dir=tools,
+            )
+            record_implementation_outcome(
+                plan_id=plan_id, claim_id="claim-store-learning",
+                pr_url="https://github.com/o/r/pull/4242",
+                diff_hash="sha256:" + "c" * 64,
+                branch_tip_sha=source_sha, base_branch_sha=source_sha,
+                validation_results=[], signer_key_fp=key.fingerprint,
+                completed_at="2026-09-10T00:20:00Z", base_dir=tools,
+            )
+
+            class MergedReader:
+                def readable(self) -> tuple[bool, str]:
+                    return True, "fixture merge available"
+
+                def pr_merge_state(self, pr_number: int) -> dict:
+                    if pr_number != 4242:
+                        raise AssertionError(f"unexpected PR: {pr_number}")
+                    return {
+                        "state": "MERGED", "mergedAt": "2026-09-10T00:30:00Z",
+                        "mergeCommit": {"oid": source_sha},
+                    }
+
+            def fail_promotion(transaction, path, row, surface, previous) -> None:
+                self.assertEqual(path, convention_path)
+                self.assertEqual(row["outcome_status"], "verified")
+                self.assertEqual(
+                    fold_plan_state(plan_id=plan_id, base_dir=tools)["state"],
+                    "IMPLEMENTATION_MERGED",
+                )
+                raise OSError("fixture promotion append unavailable")
+
+            with mock.patch.object(knowledge_graph, "_append_row_locked", side_effect=fail_promotion) as append:
+                first = reconcile_recorded_implementations(base_dir=tools, reader=MergedReader())
+            append.assert_called_once()
+            self.assertEqual([row["plan_id"] for row in first["merged"]], [plan_id])
+            self.assertEqual(first["promotions"][0]["status"], "retryable_error")
+            self.assertEqual(convention_path.read_bytes(), hypothesis_bytes)
+            assert_no_shadow_tools()
+            carried_bytes = {
+                name: (tools / relative).read_bytes()
+                for name, relative in learning_paths.items()
+            }
+            snapshot = self._snapshot(store, "snap-learning-pending", cycle_id=cycle_id)
+            for name, payload in carried_bytes.items():
+                self.assertEqual(snapshot["surfaces"][name]["sha256"], hashlib.sha256(payload).hexdigest())
+            published = publish_state(
+                store, snapshot=snapshot, cycle_id=cycle_id, repo_hash=REPO_HASH,
+            )
+            self.assertTrue(published["published"], published)
+            self.assertTrue(published["pushed"], published)
+
+        fresh = checkout_state_store(self.repo, store_dir=self.repo.parent / "store-fresh")
+        restored_tools = tools_root(fresh)
+        shadow_roots.extend([fresh.root, restored_tools])
+        self.assertFalse(fresh.bootstrapped)
+        self.assertFalse((restored_tools / "repo_identity.json").exists())
+        for name, relative in learning_paths.items():
+            self.assertEqual((restored_tools / relative).read_bytes(), carried_bytes[name])
+        with _EnvPatch(state_store.store_environment(fresh, REPO_HASH)):
+            bind_tools_root(
+                tools_dir=restored_tools, workspace_root=self.repo,
+                reason="bind restored learning without rewriting learning history",
+            )
+            for name, relative in learning_paths.items():
+                self.assertEqual((restored_tools / relative).read_bytes(), carried_bytes[name])
+            self.assertEqual(
+                verify_operator_approval_ref(
+                    approval_ref, base_dir=restored_tools, surface="knowledge_graph_anti_pattern",
+                )["event_id"],
+                approval["event_id"],
+            )
+
+            class OfflineReader:
+                def readable(self) -> tuple[bool, str]:
+                    return False, "offline continuity fixture"
+
+                def pr_merge_state(self, pr_number: int) -> dict:
+                    raise AssertionError("persisted merge retry must not query a PR")
+
+            restored_conventions = restored_tools / learning_paths["kg_conventions"]
+            recovery = reconcile_recorded_implementations(base_dir=restored_tools, reader=OfflineReader())
+            verified_id = f"{hypothesis_id}-verified"
+            self.assertEqual(recovery["merged"], [])
+            self.assertEqual(recovery["checked"], 0)
+            self.assertEqual(recovery["promotions"], [
+                {"plan_id": plan_id, "status": "promoted", "pattern_id": verified_id},
+            ])
+            rows = load_declared_jsonl(restored_conventions, expected_surface="kg_conventions")
+            self.assertEqual(
+                [(row["pattern_id"], row["outcome_status"]) for row in rows],
+                [(hypothesis_id, "hypothesis"), (verified_id, "verified")],
+            )
+            self.assertEqual(rows[1]["supersedes_pattern_id"], hypothesis_id)
+            promoted_bytes = restored_conventions.read_bytes()
+            again = reconcile_recorded_implementations(base_dir=restored_tools, reader=OfflineReader())
+            self.assertEqual(again["merged"], [])
+            self.assertEqual(again["promotions"], [
+                {"plan_id": plan_id, "status": "already_verified", "pattern_id": verified_id},
+            ])
+            self.assertEqual(restored_conventions.read_bytes(), promoted_bytes)
+            events = load_declared_jsonl(
+                restored_tools / "plans/events.jsonl", expected_surface="plan_convergence_events",
+            )
+            self.assertEqual(
+                [row["plan_id"] for row in events if row["event_type"] == "implementation_merged"],
+                [plan_id],
+            )
+            assert_no_shadow_tools()
+
+            request = production_request_without_anchor(
+                base_dir=restored_tools, context_repo_root=self.repo,
+                evidence_refs=[evidence_refs[0], anti_ref], allowed_scope=[evidence_path],
+                suggested_prompt="Review this area using its restored learning context.",
+            )
+            knowledge = request["established_knowledge"]
+            conventions = {row["pattern_id"]: row for row in knowledge["conventions"]}
+            self.assertIn(verified_id, conventions)
+            self.assertEqual(conventions[verified_id]["outcome_status"], "verified")
+            self.assertEqual(conventions[verified_id]["evidence_refs"], evidence_refs[:3])
+            self.assertEqual(
+                [(row["pattern_id"], row["evidence_refs"]) for row in knowledge["anti_patterns"]],
+                [(anti_id, [anti_ref])],
+            )
+            prompt = render_invocation_prompt(request)
+            self.assertIn(f"- convention `{verified_id}`", prompt)
+            self.assertIn(
+                f"- operator-adjudicated anti-pattern `{anti_id}` (tool_design); "
+                "scoped prior context, not a verdict for this task",
+                prompt,
+            )
+            self.assertIn("  - source refs: " + json.dumps(evidence_refs[:3], ensure_ascii=False), prompt)
+            self.assertIn("  - source refs: " + json.dumps([anti_ref], ensure_ascii=False), prompt)
+            stored_prompts = load_declared_jsonl(
+                restored_tools / "agent-invocations/prompts.jsonl",
+                expected_surface="agent_invocation_prompts",
+            )
+            self.assertEqual(
+                [row["prompt_text"] for row in stored_prompts if row["request_id"] == request["request_id"]],
+                [prompt],
+            )
+            self.assertEqual(restored_conventions.read_bytes(), promoted_bytes)
+            self.assertEqual(
+                (restored_tools / learning_paths["kg_anti_patterns"]).read_bytes(),
+                carried_bytes["kg_anti_patterns"],
+            )
+            assert_no_shadow_tools()
+            successor = self._snapshot(fresh, "snap-learning-recovered", cycle_id="cycle-store-recovered")
+            self.assertEqual(successor["prev_manifest_root"], snapshot["manifest_root"])
+            published_recovery = publish_state(
+                fresh, snapshot=successor, cycle_id="cycle-store-recovered", repo_hash=REPO_HASH,
+            )
+            self.assertTrue(published_recovery["published"], published_recovery)
+            self.assertTrue(published_recovery["pushed"], published_recovery)
+            verdict = verify_state_store(fresh, repo_hash=REPO_HASH)
+            self.assertTrue(verdict["valid"], verdict)
+        assert_no_shadow_tools()
+
+
 class SurfaceGrowthIsMeasured(StateStoreTestCase):
     def test_the_snapshot_records_each_surface_size(self) -> None:
         """PLAN §2.2b's archival trigger needs a series to fire on.
@@ -2666,7 +3223,9 @@ class ForceIsNotReachable(unittest.TestCase):
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
-            if node.func.id not in {"_git", "_git_succeeds", "_run_git"}:
+            # `_run_git_step` / `_git_step` are the runners for the registered
+            # lifecycle steps (state_store_lifecycle_arcs); the push is one.
+            if node.func.id not in {"_git", "_git_succeeds", "_run_git", "_run_git_step", "_git_step"}:
                 continue
             literals = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
             # `_run_git` takes its argv as a tuple; unpack that shape too.
@@ -2721,5 +3280,429 @@ class _EnvPatch:
         self.stop()
 
 
+class PortableValidationContinuity(StateStoreTestCase):
+    """Real native validation continuity through publication and live log reads."""
+
+    def test_portable_validation_verifier_uses_restored_root_after_source_teardown(self) -> None:
+        import sys
+
+        from aria_kernel.change_ledger import (
+            emit_change_committed,
+            emit_change_planned,
+            get_change_chain,
+        )
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from aria_kernel.tools_binding import bind_tools_root
+        from aria_kernel.validation import run_validation_commands
+        from aria_kernel.validation_runs_ledger import (
+            list_validation_runs_for_change,
+            verify_validation_run,
+        )
+        from aria_kernel.workspace import canonical_identity
+
+        selector = "test_paths.PathTests.test_normalized_case_sensitive_deduplication"
+        command = "python3 -m unittest -v " + selector
+        contents = {
+            "paths.py": (
+                "def unique_paths(paths):\n"
+                "    return sorted({path.removeprefix('./') for path in paths})\n"
+            ),
+            "test_paths.py": (
+                "import unittest\nfrom paths import unique_paths\n"
+                "class PathTests(unittest.TestCase):\n"
+                "    def test_normalized_case_sensitive_deduplication(self):\n"
+                "        self.assertEqual(unique_paths(['./src/A.py', 'src/a.py', 'src/A.py']),\n"
+                "                         ['src/A.py', 'src/a.py'])\n"
+            ),
+            ".gitignore": "__pycache__/\n",
+        }
+        scope = {"schema_version": 1, "files": {
+            "source": ["paths.py"], "test": ["test_paths.py"],
+            "config": [], "dependency": [],
+        }}
+        # The remote belongs to the class fixture, outside this producer lifetime.
+        with tempfile.TemporaryDirectory(dir=self._tmp.name, prefix="producer-") as scratch:
+            producer_base = Path(scratch)
+            producer_repo = producer_base / "checkout"
+            _git(Path(self._tmp.name), "clone", str(self.remote), str(producer_repo))
+            _git(producer_repo, "config", "user.email", "aria@example.invalid")
+            _git(producer_repo, "config", "user.name", "ARIA Test")
+            _git(producer_repo, "config", "commit.gpgsign", "false")
+            repo_identity = canonical_identity(producer_repo)
+            self.assertEqual(repo_identity, canonical_identity(self.repo))
+            store = checkout_state_store(producer_repo, store_dir=producer_base / "store")
+            self.assertTrue(store.bootstrapped)
+            original_store_root = store.root
+            original_tools = tools_root(store)
+            with _EnvPatch(state_store.store_environment(store, repo_identity)):
+                set_profile("standard", operator_approval_ref="t", base_dir=original_tools)
+                ensure_tools_binding(original_tools, workspace_root=producer_repo)
+                for name, content in contents.items():
+                    (producer_repo / name).write_text(content, encoding="utf-8")
+                planned = emit_change_planned(
+                    plan_id="plan-portable-validation", finding_id="F-portable-validation",
+                    intended_affected_files=sorted(contents), intended_validation_refs=[command],
+                    architectural_tier=1, base_dir=original_tools,
+                )
+                _git(producer_repo, "add", "--", *sorted(contents))
+                _git(producer_repo, "commit", "--no-gpg-sign", "-m", "ordinary portable path validation")
+                commit_sha = _git(producer_repo, "rev-parse", "HEAD").strip()
+                _git(producer_repo, "push", "origin", "main")
+                committed = emit_change_committed(
+                    change_id=planned["change_id"], commit_sha=commit_sha,
+                    actual_affected_files=sorted(contents), base_dir=original_tools,
+                )
+                self.assertEqual(_git(producer_repo, "status", "--porcelain"), "")
+                plan = run_validation_commands(
+                    commands=[command], workspace_root=producer_repo,
+                    change_id=planned["change_id"], commit_sha=commit_sha,
+                    runner_identity="ci-executor:portable-validation",
+                    change_author_identity="agent:portable-validation-planner",
+                    base_dir=original_tools, cycle_id="cycle-portable-validation",
+                    input_scope=scope,
+                )
+                self.assertEqual(plan["status"], "ok")
+                rows = list_validation_runs_for_change(planned["change_id"], base_dir=original_tools)
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                self.assertEqual((row["cmd"], row["commit_sha"], row["change_id"], row["exit_code"], row["timed_out"]),
+                                 (command, commit_sha, planned["change_id"], 0, False))
+                self.assertEqual(plan["validation_run_ids"], [row["validation_run_id"]])
+                self.assertEqual(plan["run_refs"], [row["ledger_hash"]])
+                self.assertEqual(get_change_chain(change_id=planned["change_id"], base_dir=original_tools)["committed"], committed)
+                original_log_path = Path(row["log_path"])
+                log_bytes = original_log_path.read_bytes()
+                for marker in (selector.rsplit(".", 1)[-1].encode(), b"Ran 1 test", b"\nOK\n"):
+                    self.assertIn(marker, log_bytes)
+                self.assertEqual(verify_validation_run(row["validation_run_id"], base_dir=original_tools), row)
+                self.assertEqual(_git(producer_repo, "status", "--porcelain"), "")
+                self.assertFalse((producer_repo / "aria-tools").exists())
+                binding = row["input_binding"]
+                self.assertEqual((binding["repo_identity"], binding["base_commit_sha"], binding["source_stability"]),
+                                 (repo_identity, commit_sha, "unchanged"))
+                self.assertEqual(binding["scope_paths"], ["paths.py", "test_paths.py"])
+                self.assertEqual(binding["availability"]["runner_environment"]["status"], "unknown")
+                log_ref = row["log_ref"]
+                self.assertEqual(log_ref, {
+                    "schema_version": 2, "artifact_id": "validation-log:" + row["validation_run_id"],
+                    "uri": original_log_path.relative_to(original_tools).as_posix(),
+                    "sha256": "sha256:" + hashlib.sha256(log_bytes).hexdigest(),
+                    "content_type": "text/plain; charset=utf-8",
+                    "produced_by_workflow_run_id": row["validation_run_id"],
+                    "source_surface": "validation_run_logs",
+                })
+                self.assertEqual(row["log_hash"], log_ref["sha256"])
+                relative_paths = (
+                    "change-ledger/planned.jsonl", "change-ledger/committed.jsonl",
+                    "validation/validation-plans.jsonl", "validation/validation-runs.jsonl",
+                    log_ref["uri"],
+                )
+                original_bytes = {relative: (original_tools / relative).read_bytes() for relative in relative_paths}
+                base_head = _git(store.root, "rev-parse", "HEAD").strip()
+                previous = state_store.read_snapshot_at_worktree_head(store, expected_head=base_head)
+                snapshot = build_publishable_snapshot(
+                    store, snapshot_id="snapshot-portable-validation", cycle_id="cycle-portable-validation",
+                    lane="ordinary-portable-validation", repo_hash=repo_identity,
+                    parent_commit=base_head, previous=previous,
+                )
+                for relative, original in original_bytes.items():
+                    entries = [entry for entry in snapshot["surfaces"].values()
+                               if entry["root_kind"] == "tools" and entry["path"] == relative]
+                    self.assertEqual(len(entries), 1, relative)
+                    self.assertEqual(entries[0]["sha256"], hashlib.sha256(original).hexdigest())
+                    self.assertEqual(entries[0]["size_bytes"], len(original))
+                    if relative == log_ref["uri"]:
+                        self.assertEqual(entries[0]["storage"], "artifact_only")
+                publication = publish_state(
+                    store, snapshot=snapshot, cycle_id="cycle-portable-validation",
+                    repo_hash=repo_identity, expected_base_head=base_head,
+                )
+                self.assertTrue(publication["published"])
+                self.assertTrue(publication["pushed"])
+
+        # Tear down source and its state worktree before creating the receiving clone.
+        self.assertFalse(producer_repo.exists())
+        self.assertFalse(original_store_root.exists())
+        self.assertFalse(original_log_path.exists())
+        fresh_repo = Path(self._tmp.name) / "receiving-checkout"
+        _git(Path(self._tmp.name), "clone", str(self.remote), str(fresh_repo))
+        self.assertEqual(_git(fresh_repo, "rev-parse", "HEAD").strip(), commit_sha)
+        self.assertEqual(canonical_identity(fresh_repo), repo_identity)
+        fresh = checkout_state_store(fresh_repo, store_dir=Path(self._tmp.name) / "receiving-store")
+        self.assertFalse(fresh.bootstrapped)
+        fresh_tools = tools_root(fresh)
+        self.assertFalse((fresh_tools / "repo_identity.json").exists())
+        for relative, original in original_bytes.items():
+            self.assertEqual((fresh_tools / relative).read_bytes(), original, relative)
+        with _EnvPatch(state_store.store_environment(fresh, repo_identity)):
+            bound = bind_tools_root(
+                tools_dir=fresh_tools, workspace_root=fresh_repo,
+                reason="bind ordinary restored validation evidence",
+            )
+            self.assertEqual((bound["contract_version"], bound["migrated"]), (3, False))
+            for relative, original in original_bytes.items():
+                self.assertEqual((fresh_tools / relative).read_bytes(), original, relative)
+            candidate_root = Path(__file__).resolve().parents[1]
+            candidate_modules = {
+                "aria_kernel": "aria_kernel/__init__.py",
+                "aria_kernel.validation_runs_ledger": "aria_kernel/validation_runs_ledger.py",
+                "aria_kernel.runtime_artifacts": "aria_kernel/runtime_artifacts.py",
+                "aria_kernel.ledger": "aria_kernel/ledger.py",
+                "aria_kernel.state_manifest": "aria_kernel/state_manifest.py",
+                "aria_kernel.tool_registry": "aria_kernel/tool_registry.py",
+            }
+            expected_origins = {
+                name: {"path": str((candidate_root / relative).resolve()),
+                       "sha256": hashlib.sha256((candidate_root / relative).read_bytes()).hexdigest()}
+                for name, relative in candidate_modules.items()
+            }
+            child_environment = dict(os.environ)
+            child_environment.update({
+                "PYTHONDONTWRITEBYTECODE": "1",
+                # Replace an inherited path; never append a main-checkout path.
+                "PYTHONPATH": str(candidate_root),
+            })
+            child_script = (
+                "import hashlib,importlib,json,sys\n"
+                "from pathlib import Path\n"
+                "expected=json.loads(sys.argv[3]); observed={}\n"
+                "for name, record in expected.items():\n"
+                "    module=importlib.import_module(name)\n"
+                "    origin=Path(module.__file__).resolve()\n"
+                "    actual={'path':str(origin),'sha256':hashlib.sha256(origin.read_bytes()).hexdigest()}\n"
+                "    if actual != record: raise AssertionError((name,actual,record))\n"
+                "    observed[name]=actual\n"
+                "sys.stderr.write('candidate_origin_receipt:'+json.dumps(observed,sort_keys=True)+'\\n')\n"
+                "from aria_kernel.validation_runs_ledger import verify_validation_run\n"
+                "print(json.dumps([verify_validation_run(sys.argv[2],base_dir=Path(sys.argv[1])) "
+                "for _ in range(2)],sort_keys=True))\n"
+            )
+            child = subprocess.run(
+                [sys.executable, "-B", "-c", child_script,
+                 str(fresh_tools), row["validation_run_id"], json.dumps(expected_origins, sort_keys=True)],
+                cwd=fresh_repo, env=child_environment, capture_output=True, text=True, timeout=60,
+            )
+            origin_receipts = [line.removeprefix("candidate_origin_receipt:")
+                               for line in child.stderr.splitlines()
+                               if line.startswith("candidate_origin_receipt:")]
+            self.assertEqual(len(origin_receipts), 1, child.stdout + child.stderr)
+            self.assertEqual(json.loads(origin_receipts[0]), expected_origins)
+            # This is the decisive existing-consumer oracle. On current source,
+            # old absolute log_path is missing despite the carried native log.
+            self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+            self.assertEqual(json.loads(child.stdout), [row, row])
+            for relative, original in original_bytes.items():
+                self.assertEqual((fresh_tools / relative).read_bytes(), original, relative)
+        self.assertFalse(original_log_path.exists())
+        self.assertFalse((fresh_repo / "aria-tools").exists())
+
+    def test_large_live_validation_logs_preserve_scoped_and_legacy_verification(self) -> None:
+        from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from aria_kernel.validation import run_validation_commands
+        from aria_kernel.validation_runs_ledger import (
+            list_validation_runs_for_change,
+            validation_runs_path,
+            verify_validation_run,
+        )
+        from aria_kernel.workspace import canonical_identity
+
+        selector = "test_paths.PathTests.test_large_normalized_deduplicated_listing"
+        command = "python3 -m unittest -v " + selector
+        contents = {
+            "paths.py": (
+                "def unique_paths(paths):\n"
+                "    return sorted({path.removeprefix('./') for path in paths})\n"
+            ),
+            "test_paths.py": (
+                "import unittest\nfrom paths import unique_paths\n"
+                "class PathTests(unittest.TestCase):\n"
+                "    def test_large_normalized_deduplicated_listing(self):\n"
+                "        expected = [f'src/{index:05d}/' + 'segment/' * 14 + 'Record.py'\n"
+                "                    for index in range(17000)]\n"
+                "        inputs = ['./' + value for value in reversed(expected)]\n"
+                "        actual = unique_paths(inputs + inputs)\n"
+                "        self.assertEqual(actual, expected)\n"
+                "        self.assertEqual(len(actual), 17000)\n"
+                "        print('VALIDATED-PATHS-BEGIN')\n"
+                "        for value in actual:\n"
+                "            print(value)\n"
+                "        print('VALIDATED-PATHS-END')\n"
+            ),
+            ".gitignore": "__pycache__/\n",
+        }
+        # Independently construct/count the specified stdout bytes. This does
+        # not call the fixture's normalization implementation or a log helper.
+        listing = b"".join(
+            b"src/" + str(index).zfill(5).encode("ascii") + b"/"
+            + b"segment/" * 14 + b"Record.py\n"
+            for index in range(17000)
+        )
+        self.assertEqual(listing.count(b"\n"), 17000)
+        self.assertEqual(len(listing), 17000 * 132)
+        self.assertGreater(len(listing), 2 * 1024 * 1024)
+        expected_stdout = b"VALIDATED-PATHS-BEGIN\n" + listing + b"VALIDATED-PATHS-END\n"
+        scope = {"schema_version": 1, "files": {
+            "source": ["paths.py"], "test": ["test_paths.py"],
+            "config": [], "dependency": [],
+        }}
+
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                label = "scoped" if scoped else "legacy"
+                case = Path(self._tmp.name) / ("large-hot-" + label)
+                case.mkdir()
+                repo = case / "checkout"
+                _git(case, "clone", str(self.remote), str(repo))
+                _git(repo, "config", "user.email", "aria@example.invalid")
+                _git(repo, "config", "user.name", "ARIA Test")
+                _git(repo, "config", "commit.gpgsign", "false")
+                tools = case / "store" / "tools"
+                with _EnvPatch({
+                    "ARIA_TOOLS_DIR": str(tools),
+                    "ARIA_WORKSPACE_BASE": str(case / "workspaces"),
+                    "ARIA_REPO_STATE_ROOT": str(case / "repo-state"),
+                    "ARIA_STATE_STORE_ROOT": None,
+                }):
+                    set_profile("standard", operator_approval_ref="t", base_dir=tools)
+                    ensure_tools_binding(tools, workspace_root=repo)
+                    for name, content in contents.items():
+                        (repo / name).write_text(content, encoding="utf-8")
+                    planned = emit_change_planned(
+                        plan_id="plan-large-hot-" + label, finding_id="F-large-hot-" + label,
+                        intended_affected_files=sorted(contents), intended_validation_refs=[command],
+                        architectural_tier=1, base_dir=tools,
+                    )
+                    _git(repo, "add", "--", *sorted(contents))
+                    _git(repo, "commit", "--no-gpg-sign", "-m", "ordinary large validated path listing")
+                    commit_sha = _git(repo, "rev-parse", "HEAD").strip()
+                    emit_change_committed(
+                        change_id=planned["change_id"], commit_sha=commit_sha,
+                        actual_affected_files=sorted(contents), base_dir=tools,
+                    )
+                    self.assertEqual(_git(repo, "status", "--porcelain"), "")
+                    options = {"input_scope": scope} if scoped else {}
+                    plan = run_validation_commands(
+                        commands=[command], workspace_root=repo,
+                        change_id=planned["change_id"], commit_sha=commit_sha,
+                        runner_identity="ci-executor:large-hot-" + label,
+                        change_author_identity="agent:large-hot-planner",
+                        base_dir=tools, cycle_id="cycle-large-hot-" + label,
+                        **options,
+                    )
+                    self.assertEqual(plan["status"], "ok")
+                    rows = list_validation_runs_for_change(planned["change_id"], base_dir=tools)
+                    self.assertEqual(len(rows), 1)
+                    row = rows[0]
+                    self.assertEqual((row["cmd"], row["commit_sha"], row["change_id"], row["exit_code"], row["timed_out"]),
+                                     (command, commit_sha, planned["change_id"], 0, False))
+                    self.assertEqual(plan["validation_run_ids"], [row["validation_run_id"]])
+                    self.assertEqual(plan["run_refs"], [row["ledger_hash"]])
+                    log_path = Path(row["log_path"])
+                    self.assertTrue(log_path.is_file())
+                    self.assertEqual(log_path.parent, tools / "validation" / "logs")
+                    raw = log_path.read_bytes()
+                    actual_stdout = raw.split(b"--- stdout ---\n", 1)[1].split(b"\n--- stderr ---\n", 1)[0]
+                    # Keep a failing oracle bounded rather than dumping2MiB.
+                    self.assertEqual(len(actual_stdout), len(expected_stdout))
+                    self.assertEqual(hashlib.sha256(actual_stdout).hexdigest(), hashlib.sha256(expected_stdout).hexdigest())
+                    self.assertEqual(actual_stdout.count(b"Record.py\n"), 17000)
+                    self.assertGreater(len(raw), 2 * 1024 * 1024)
+                    self.assertIn(selector.rsplit(".", 1)[-1].encode("ascii"), raw)
+                    self.assertIn(b"Ran 1 test", raw)
+                    self.assertIn(b"\nOK\n", raw)
+                    expected_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+                    self.assertEqual(row["log_hash"], expected_hash)
+                    if scoped:
+                        self.assertEqual(row["input_binding"]["repo_identity"], canonical_identity(repo))
+                        self.assertEqual(row["input_binding"]["base_commit_sha"], commit_sha)
+                        self.assertEqual(row["input_binding"]["source_stability"], "unchanged")
+                        self.assertEqual(row["log_ref"], {
+                            "schema_version": 2,
+                            "artifact_id": "validation-log:" + row["validation_run_id"],
+                            "uri": log_path.relative_to(tools).as_posix(),
+                            "sha256": expected_hash,
+                            "content_type": "text/plain; charset=utf-8",
+                            "produced_by_workflow_run_id": row["validation_run_id"],
+                            "source_surface": "validation_run_logs",
+                        })
+                    else:
+                        self.assertNotIn("input_binding", row)
+                        self.assertNotIn("log_ref", row)
+                    native_path = validation_runs_path(tools)
+                    before = native_path.read_bytes()
+                    self.assertEqual(verify_validation_run(row["validation_run_id"], base_dir=tools), row)
+                    self.assertEqual(native_path.read_bytes(), before)
+                    self.assertEqual(hashlib.sha256(log_path.read_bytes()).hexdigest(), hashlib.sha256(raw).hexdigest())
+                    self.assertEqual(_git(repo, "status", "--porcelain"), "")
+                    self.assertFalse((repo / "aria-tools").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
+    """ARIA-HIGH-155 — the store directory is there, its worktree registered,
+    its ``.git`` link gone (``git clean -ffdx`` between two jobs on the
+    persistent runner), and ``tools/`` re-created by a later step. git run
+    inside resolves the ENCLOSING repository: on 2026-09-18 the executor lane
+    read the workspace's ``main`` as 6450 unpushed store commits and refused
+    (run 35339272100). A tree without ``.git`` holds no commit."""
+
+    def _hollow_store_inside_the_repo(self):
+        root = self.repo / ".aria-state-store"
+        store = checkout_state_store(self.repo, store_dir=root)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        # The sweep: the link goes, the registration stays, a later step
+        # writes into the same path.
+        (root / ".git").unlink()
+        (root / "tools").mkdir(exist_ok=True)
+        (root / "tools" / "stray.txt").write_text("bytes a later step wrote\n", encoding="utf-8")
+        self.assertTrue(state_store._worktree_registered(self.repo, root))
+        # And git inside answers for the enclosing repository, not the store.
+        self.assertEqual(
+            _git(root, "rev-parse", "--show-toplevel").strip(),
+            _git(self.repo, "rev-parse", "--show-toplevel").strip(),
+        )
+        return root
+
+    def test_the_checkout_sets_the_bytes_aside_and_restores_the_tip(self) -> None:
+        root = self._hollow_store_inside_the_repo()
+
+        store = checkout_state_store(self.repo, store_dir=root)
+
+        self.assertEqual(store.root, root)
+        self.assertTrue((root / ".git").exists())
+        self.assertEqual(_git(root, "rev-parse", "--show-toplevel").strip(), str(root.resolve()))
+        aside = sorted(self.repo.glob(".aria-state-store.hollow-*"))
+        self.assertEqual(len(aside), 1, aside)
+        self.assertEqual(
+            (aside[0] / "tools" / "stray.txt").read_text(encoding="utf-8"),
+            "bytes a later step wrote\n",
+        )
+        self.assertFalse((root / "tools" / "stray.txt").exists())
+        rows = [
+            json.loads(line)
+            for line in (tools_root(store) / "governance.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        disclosed = [row for row in rows if row.get("kind") == "state_store_rematerialized_after_missing"]
+        self.assertEqual(len(disclosed), 1)
+        self.assertEqual(disclosed[0]["details"]["hollow_set_aside"], aside[0].as_posix())
+        self.assertIn("hollow", disclosed[0]["details"]["note"])
+
+    def test_a_real_worktree_with_an_unpushed_commit_is_still_refused(self) -> None:
+        root = self.repo / ".aria-state-store"
+        store = checkout_state_store(self.repo, store_dir=root)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        self._seed_surface(store, '{"row": "committed-never-pushed"}\n')
+        self._commit_in_store(store, "local commit the remote does not have")
+        with self.assertRaises(StateStoreRefusal) as ctx:
+            checkout_state_store(self.repo, store_dir=root)
+        self.assertIn("state_store_unpushed_commits", str(ctx.exception))
+        self.assertFalse(sorted(self.repo.glob(".aria-state-store.hollow-*")))

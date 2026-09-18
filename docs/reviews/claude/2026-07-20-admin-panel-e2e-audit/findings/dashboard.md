@@ -1,0 +1,990 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Dashboard (/admin) — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## AdminDashboard — `/admin (index)` — verdict: **PARTIAL**
+
+**Chain:** The page fires 5 parallel calls every 30s (AdminDashboard.tsx:399-405, 457-459) via
+apiFetch (base '/api', http-client.ts:23). Nginx rewrites /api/_ -> /api/v1/_ to admin-api-service
+(infrastructure/nginx/droplet.conf:377-383) and /api/health/_ -> /health/_ (droplet.conf:309-319);
+admin-api uses globalPrefix 'api/v1' with health excluded and VERSION_NEUTRAL URI versioning
+(libs/backend-common/src/bootstrap/create-service-app.ts:610,807-810;
+apps/admin-api-service/src/main.ts:16-19), so all paths resolve. Every endpoint is protected by the
+global APP_GUARD PlatformAdminGuard (RS256 JWT + SUPER_ADMIN role, app.module.ts:283-290,
+guards/platform-admin.guard.ts:59,151-177) — no unguarded routes found. The ResponseInterceptor
+envelope ({success,data,meta}, shared/response.interceptor.ts:44-74, /health skipped at :24) matches
+the FE unwrap (http-client.ts:341-351). Data sources are REAL: /system/metrics runs live SQL against
+pg_stat_activity, information_schema, auth.tenants, auth.users, shared.audit_logs
+(metrics/system-metrics.service.ts:141-173, 395-434, 461-472); /users/stats runs 6 real aggregate
+queries on auth.users + auth.tenants (users/users.service.ts:233-294; columns verified in
+auth-service user.entity.ts:59,103,137,257); /audit-logs reads admin.audit_logs via TypeORM
+repository (audit/audit.service.ts:113-198), entity declares schema 'admin'
+(audit/audit.entity.ts:83) and the table + severity enum are created by migration
+src/migrations/1800000000000-Baseline.ts:7-14 — entity/migration parity confirmed;
+/system/services/health performs real HTTP probes of 12 services through a circuit breaker
+(system-metrics.service.ts:262-357); /health/circuit-breakers returns the real (but SMTP-only)
+breaker state (health/health.service.ts:53-57) and the reset POST works for 'smtp'
+(health.controller.ts:159-167). No Math.random or hardcoded metric values found. Verdict PARTIAL
+because a rendered KPI is a mislabeled proxy, the audit-severity contract drifts, the
+recent-activity feed self-pollutes via meta-audit writes, and the cache card is unreachable dead UI.
+
+**Endpoints exercised:**
+`GET /api/system/metrics -> SystemMetricsController.getSystemMetrics (metrics/system-metrics.controller.ts:15-18)`;
+`GET /api/users/stats -> UsersController.getUserStats (users/users.controller.ts:233-236; declared before ':id' at :267, no shadowing)`;
+`GET /api/system/services/health -> SystemMetricsController.getServicesHealth (system-metrics.controller.ts:35-38)`;
+`GET /api/audit-logs?limit=10 -> AuditLogController.queryAuditLogs (audit/audit.controller.ts:42-76)`;
+`GET /api/health/circuit-breakers -> HealthController.getCircuitBreakers (health/health.controller.ts:151-154, auth required, envelope-skipped)`;
+`POST /api/health/circuit-breakers/:name/reset -> HealthController.resetCircuitBreaker (health/health.controller.ts:159-167)`;
+`POST /api/debug/cache/invalidate + GET /api/debug/cache/stats -> DebugToolsController (impersonation/controllers/debug-tools.controller.ts:555,589) — 404 unless ENABLE_DEBUG_TOOLS=true, and unreachable from this page's UI`
+
+**DB tables:** `admin.audit_logs (real, migration-backed)`, `auth.users (cross-schema read)`,
+`auth.tenants (cross-schema read; UPPER(status)='ACTIVE' matches entity CHECK values, auth tenant.entity.ts:47)`,
+`shared.audit_logs (24h event count; libs/backend-common/src/audit/audit-log.entity.ts:26)`,
+`pg_stat_activity / pg_database_size / information_schema.tables (DB stats card)`,
+`farm.farms, sensor.sensors, alert.alert_rules (QUERIED BUT DO NOT EXIST — counts always 0)`
+
+### APA-001 [MEDIUM] KPI card 'API Calls (24h)' silently displays audit-log row count, not API calls
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** getPlatformMetrics assigns apiCallsLast24h = eventsLast24h with the comment 'Using
+  audit logs as proxy' — both are the count of shared.audit_logs rows in the last 24h. The dashboard
+  renders this number under the label 'API Calls (24h)', so a SUPER_ADMIN reads a
+  fabricated-by-relabeling metric. There is no API-call counter behind it (the real HTTP metrics
+  live in ServiceMetricsModule/Prometheus, which this endpoint never consults,
+  app.module.ts:215-218).
+- **Evidence:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:216 — apiCallsLast24h: results[8], // Using audit logs as proxy`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:461-472 — countAuditLogsLast24h queries shared.audit_logs`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:574-576 — MetricCard title='API Calls (24h)' value=platformMetrics.apiCallsLast24h`
+- **Verification:** Prior verdict confirmed against current code:
+  apps/admin-api-service/src/metrics/system-metrics.service.ts:203-216 assigns both eventsLast24h
+  and apiCallsLast24h from the same Promise.all slot (results[8] = countAuditLogsLast24h(), lines
+  461-472, a COUNT over shared.audit_logs), with the literal comment 'Using audit logs as proxy'.
+  The FE renders it under 'API Calls (24h)' (AdminDashboard.tsx:574-582 via formatMetricNumber).
+  audit_logs rows are written only for @AuditLog()-decorated semantic actions, so the number is
+  neither an upper nor lower bound on HTTP traffic — it is a relabeled unrelated count. The real
+  per-request counter exists (http_requests_total in
+  libs/backend-common/src/metrics/metrics.service.ts:99-106, recorded by MetricsMiddleware, scraped
+  by the aqua-prometheus TSDB per infrastructure/monitoring/droplet/prometheus.yml job aqua-services
+  with an 'app' label from file_sd/aqua-services.json) but is never consulted. This is an instance
+  of a systemic class 'metric field in an admin contract with no measured source, silently filled
+  with a proxy or zero': observability-service does the same with totalApiCalls24h: 0
+  (metrics-aggregator.service.ts:478, 'Would require centralized request logging') and
+  getTenantMetrics().apiCalls24h: 0 (line 220). MEDIUM (not HIGH) stands: misleading admin-only KPI,
+  no security or data-integrity impact.
+- **Root cause:** The broken link is BE service-layer data-source binding, not FE or DB. The
+  platform has two disjoint metrics planes with no bridge: (1) Postgres-derived analytics
+  (SystemMetricsModule JSON endpoint, admin dashboard's source) and (2) per-request Prometheus
+  counters (ServiceMetricsModule's http_requests_total, scraped into the aqua-prometheus TSDB — the
+  only store that can answer 'requests in the last 24h', since in-process counters reset on
+  restart). When the dashboard contract demanded an API-traffic number, the author could only reach
+  plane (1), so the nearest queryable count (shared.audit_logs rows) was aliased under the API-call
+  label. The drift was possible because the contract makes 'unmeasured' unrepresentable:
+  PlatformMetrics.apiCallsLast24h is a bare number, so the type system happily accepted results[8]
+  being fanned into two semantically different fields, and nothing at build/test time asserts the
+  two KPIs have independent sources. The same contract flaw produced the sibling zero-stubs in
+  observability-service.
+- **Fix design:** Pattern-level fix (systemic class: fabricated/proxy metric fields) plus local
+  application.
+
+PATTERN: (a) Nullable measured-metric contract — any traffic/latency KPI field that can lack a
+measured source becomes `number | null` where null means 'not measured / metrics backend
+unreachable' and a number is only ever a real measurement (tier 1: the type forces every producer to
+decide measured-vs-not and every consumer to render absence; repo precedent is the C-3 'no
+fabricated data' rule already in this file). (b) One canonical TSDB bridge — a new
+PrometheusQueryService in libs/backend-common/src/metrics/ (exported via the existing metrics
+barrel, src/index.ts:100 re-exports it) that issues instant queries to the Prometheus HTTP API
+(`GET {PROMETHEUS_URL}/api/v1/query`), parses the vector/scalar result to a number, and returns null
+when PROMETHEUS_URL is unset (dev without the monitoring stack), on non-2xx, non-'success' status,
+empty result, or timeout. Wrap the fetch in the canonical CircuitBreakerService with failureMode
+'fail-open-degraded', exactly like the sibling health-check fetches in system-metrics.service.ts
+(CIRCUIT-LOW-001 pattern). This becomes the only sanctioned way any service turns TSDB data into an
+admin-facing number, preventing each service from growing its own drifting client.
+
+LOCAL APPLICATION (admin-api): (1) PlatformMetrics.apiCallsLast24h: number | null. (2)
+getPlatformMetrics() sources it from prometheusQueryService with the expression
+`sum(increase(http_requests_total{app=~"gateway-api|admin-api-service"}[24h]))` — the two edge
+surfaces (gateway-api = tenant traffic, admin-api = admin traffic; 'app' is the catalog label from
+file_sd/aqua-services.json) so each external API call is counted exactly once with no internal
+fan-out double-counting; round and floor at 0. eventsLast24h keeps its audit-log source — that label
+is honest. Delete the `results[8] // Using audit logs as proxy` alias; the catch-block fallback sets
+apiCallsLast24h: null (0 is also a fabricated measurement for this field). (3) SystemMetricsModule
+imports/provides the shared service. (4) Deployment wiring: add
+PROMETHEUS_URL=http://prometheus:9090 to admin-api-service env in docker-compose.droplet.yml
+(prometheus and admin-api-service are both on aqua-internal; docker-compose.monitoring.yml's
+prometheus joins the app network as external with the same DNS name). Dev without Prometheus → null
+→ honest em dash.
+
+FE: services/types/system.ts platform.apiCallsLast24h: number | null; AdminDashboard.tsx fallback
+object (line 494-500) uses null, and the MetricCard renders '—' when null (the em-dash precedent
+already used by the Active Tenants card) else formatMetricNumber. The tsc gate then makes rendering
+a null as a number impossible.
+
+PATTERN APPLICATION AT SIBLINGS (same PR — no untracked deferral): observability-service
+metrics-aggregator.service.ts changes SystemMetrics.totalApiCalls24h and
+getTenantMetrics().apiCalls24h to number | null and emits null instead of 0-as-measured (its
+per-tenant number stays null until a tenant-labeled source exists — do NOT fake it; the
+http_requests_total family deliberately has no tenant label per the cardinality/enumeration note in
+metrics.service.ts:87-93). TenantUsageDto.apiCallsLast24h (tenant.dto.ts:555) is already optional
+and unpopulated — leave omitted, which is the honest state under the same contract.
+
+- **Files to change:**
+  - `libs/backend-common/src/metrics/prometheus-query.service.ts`
+  - `libs/backend-common/src/metrics/metrics.module.ts`
+  - `libs/backend-common/src/metrics/index.ts`
+  - `libs/backend-common/src/metrics/__tests__/prometheus-query.service.spec.ts`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/metrics/system-metrics.module.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+  - `apps/observability-service/src/metrics/metrics-aggregator.service.ts`
+  - `web/modules/admin-panel/src/services/types/system.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `docker-compose.droplet.yml`
+- **Proof of fix:** (1) NEW
+  apps/admin-api-service/src/metrics/**tests**/system-metrics.service.spec.ts — the direct
+  regression gate for this finding: mock countAuditLogsLast24h→7 and PrometheusQueryService→1234;
+  assert getPlatformMetrics() returns eventsLast24h===7 AND apiCallsLast24h===1234 (distinct
+  sentinels prove the two KPIs are independently sourced — the exact failure mode of the proxy alias
+  can never silently return); mock Prometheus client→null and assert apiCallsLast24h===null while
+  eventsLast24h stays 7; assert the catch-path fallback yields apiCallsLast24h===null, not 0. (2)
+  NEW libs/backend-common/src/metrics/**tests**/prometheus-query.service.spec.ts — PROMETHEUS_URL
+  unset returns null with zero fetch calls; non-2xx, status!=='success', empty result, and
+  abort/timeout each return null; a valid instant-query vector parses to the expected number;
+  breaker-open path returns null. (3) Compile-time gate: npm run type-check — the number|null
+  contract forces AdminDashboard.tsx (and any future consumer) to handle the unmeasured state;
+  passing tsc IS the tier-1 proof. (4) End-to-end on the droplet stack: GET /api/v1/system/metrics
+  platform.apiCallsLast24h matches
+  `sum(increase(http_requests_total{app=~"gateway-api|admin-api-service"}[24h]))` evaluated in the
+  Prometheus UI within one scrape interval; with the monitoring stack down the dashboard card shows
+  the em dash, never a number. Run nx affected --target=test and --target=lint green per repo law.
+- **Effort:** M
+
+### APA-002 [MEDIUM] Recent Activity feed self-pollutes: every 30s dashboard poll writes an AUDIT_LOG_ACCESSED row into the same feed it displays
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** AuditLogController.queryAuditLogs calls writeMetaAudit on EVERY query
+  (ADMIN-MEDIUM-003), inserting an 'AUDIT_LOG_ACCESSED' row into admin.audit_logs. The dashboard
+  polls this endpoint every 30 seconds, so an idle open dashboard writes ~2,880 rows/day/admin, and
+  — because the widget shows the 10 newest rows of that same table — the feed rapidly becomes a wall
+  of AUDIT_LOG_ACCESSED entries generated by its own polling, drowning real admin actions. The table
+  is append-only with in-process purge explicitly disabled (purgeOldLogs is a no-op) and a DB
+  trigger refusing DELETE, so growth from polling is unbounded at the application layer.
+- **Evidence:**
+  - `apps/admin-api-service/src/audit/audit.controller.ts:28-40,69 — writeMetaAudit(...) on queryAuditLogs`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:403,455-459 — auditApi.query({limit:10}) inside a 30s setTimeout refresh loop`
+  - `apps/admin-api-service/src/audit/audit.service.ts:469-475 — purgeOldLogs returns 0 (immutable, never purged in-process)`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:257-263 — BEFORE UPDATE OR DELETE trigger refuses deletion`
+- **Verification:** Prior adversarial verification confirmed every link:
+  AuditLogController.queryAuditLogs (apps/admin-api-service/src/audit/audit.controller.ts:69)
+  unconditionally writes an AUDIT_LOG_ACCESSED row per request; AdminDashboard.tsx polls
+  auditApi.query({limit:10}) on a self-rescheduling 30s setTimeout (lines 399-405, 448-472) with no
+  visibility gating; AuditLogService.query has no default exclusion, so the feed
+  (RecentActivityCard, line 624) displays the rows its own polling creates; purgeOldLogs is a
+  deliberate no-op and the Baseline migration's BEFORE UPDATE OR DELETE trigger (lines 257-261)
+  makes growth unbounded in-process. Re-reading the code adds two facts that shape the fix: (1)
+  there is a SECOND independent meta-audit writer,
+  security/controllers/audit-trail.controller.ts:323-342, using the same 'AUDIT_LOG_ACCESSED' string
+  literal (the action is not even in the AuditAction enum), and (2)
+  tests/invariants/admin-security-runtime-contract.spec.ts:62 pins the meta-audit's existence, so
+  the remediation must preserve the ADMIN-MEDIUM-003 control while changing its granularity —
+  deleting the meta-audit is not an option. MEDIUM stands: no data loss or security bypass, but a
+  degraded primary admin observability surface plus unbounded append-only table growth (~2,880
+  rows/day/admin/tab).
+- **Root cause:** The broken link is the BE data contract: admin.audit_logs conflates two
+  semantically distinct event classes — admin ACTIONS (what the Recent Activity feed and audit pages
+  exist to show) and the ACCESS TRAIL meta-audit (ADMIN-MEDIUM-003: who read the audit logs) — in
+  one undifferentiated stream with nothing in the schema, the AuditLogInput type, or the query
+  contract to tell them apart. It drifted because three individually-correct fixes composed without
+  a shared contract: (a) ADMIN-MEDIUM-003 bolted a per-HTTP-request write side-effect onto the read
+  path, duplicated as private writeMetaAudit helpers in two controllers using a raw string literal
+  ('AUDIT_LOG_ACCESSED' is absent from the AuditAction enum — classic drift); (b) Faz 3.5 /
+  AUDITTRAIL-HIGH-006 made the table append-only with purge disabled, so the write amplification is
+  permanent; (c) the FE independently adopted GET /audit-logs?limit=10 as a cheap 30s-polled
+  activity feed, unaware the read has a write side-effect. Because query() cannot express what the
+  schema cannot represent, the observation events pollute the observed stream — the textbook
+  self-polluting-audit systemic class. Secondary root cause: the ADMIN-MEDIUM-003 control's unit of
+  record was implemented as 'per HTTP request' when its security intent is 'per access session',
+  making row volume a function of client poll frequency — an unbounded external input.
+- **Fix design:** SYSTEMIC CLASS: self-polluting audit. Pattern-level fix: segregate observation
+  events from observed events at the schema level, and make the access-trail's unit of record a
+  session window owned by one service — then apply locally to both meta-audit callsites.
+
+(1) Tier-1, schema expresses the class: add `AuditLogCategory` enum ('action' | 'access') to
+audit.entity.ts as a NOT NULL `category` column, `default: 'action'`, indexed; add
+`AUDIT_LOG_ACCESSED` to the AuditAction enum (kill the string-literal drift). New migration
+`1801600000000-AuditLogCategorySegregation.ts`: CREATE TYPE admin.audit_logs_category_enum; ADD
+COLUMN category NOT NULL DEFAULT 'action' (metadata-only in PG11+, blue-green safe); CREATE INDEX on
+(category, "createdAt"); then a one-time reclassification backfill
+`UPDATE admin.audit_logs SET category='access' WHERE action='AUDIT_LOG_ACCESSED'` bracketed by
+`ALTER TABLE ... DISABLE TRIGGER trg_audit_logs_prevent_update` / `ENABLE TRIGGER` inside the
+migration transaction (the Baseline trigger refuses UPDATE; this touches only the new classification
+column, no evidentiary fields — document that in the migration). No allowlist predicate like
+`action != 'AUDIT_LOG_ACCESSED'` anywhere — the column is the single source of truth.
+
+(2) Tier-1, sole writer: new `AuditAccessTrailService` (audit/ domain dir, provided+exported by
+AuditLogModule) with `recordAccess(ctx: AuditAccessContext)` where AuditAccessContext is a typed
+shape (performedBy, performedByEmail, ipAddress, userAgent, subAction, filterSummary) with NO
+free-form action field — it is structurally impossible for a caller to mislabel or forge an access
+row, and `AuditLogService.log()` continues to accept only real actions and always stamps category
+via `determineCategory(action)` (mirror of determineSeverity), so an access action arriving through
+the public path can never land as category='action'. Delete both duplicated private writeMetaAudit
+helpers in audit.controller.ts and security/controllers/audit-trail.controller.ts and inject
+AuditAccessTrailService instead.
+
+(3) Root-cause of unbounded growth — redefine the control's unit of record: `recordAccess` coalesces
+to ONE row per (performedBy, subAction, filterHash) per time-bucket window
+(ADMIN_AUDIT_ACCESS_TRAIL_WINDOW_MS, default 15 min) via a bounded in-memory bucket map keyed on the
+window index (deterministic, no timers; multi-instance worst case = rows x instance count, still
+bounded). The row's details record windowStartedAt so the trail reads 'admin X had audit logs open
+during window T with filter F' — which is ADMIN-MEDIUM-003's actual intent, preserved and documented
+in the service JSDoc. Idle dashboard drops from ~2,880 to <=96 rows/day/admin, independent of poll
+frequency.
+
+(4) Tier-2, correct read automatic: `AuditLogFilter` gains `category?: AuditLogCategory`; `query()`,
+`getStatistics()`, and `getUserActivity()` default to `category = 'action'` unless the caller
+explicitly passes 'access' (compliance review of the access trail stays fully served;
+getSecurityLogs is already action-allowlisted and unaffected). Both controllers expose a validated
+`category` query param (enum-validated: ParseEnumPipe on audit.controller.ts, @IsEnum on
+QueryAuditTrailDto). The dashboard feed and statistics then structurally cannot show or count access
+rows — zero FE behavior change required for the fix to take effect.
+
+(5) Contract propagation to FE (entity+migration+DTO+FE type together): add
+`category: 'action' | 'access'` to the AuditLog type and `category?` to auditApi.query params
+(services/types/audit.ts, services/api/audit.ts); AuditLogPage.tsx gains an 'Access trail' filter
+option so the meta-audit remains reviewable in the UI.
+
+(6) Tier-3 gates: unit spec for coalescing/classification, plus extend the existing runtime-contract
+invariant so both controllers MUST route through AuditAccessTrailService (not raw
+log({action:'AUDIT_LOG_ACCESSED'})) and audit.service.ts MUST carry the category default —
+regression back to the self-polluting pattern fails CI. The existing SchemaDriftModule cold-start
+validator plus schema-invariants spec automatically enforce entity/migration parity for the new
+column.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.entity.ts`
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/audit/audit-access-trail.service.ts`
+  - `apps/admin-api-service/src/audit/audit.module.ts`
+  - `apps/admin-api-service/src/audit/audit.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/migrations/1801600000000-AuditLogCategorySegregation.ts`
+  - `web/modules/admin-panel/src/services/types/audit.ts`
+  - `web/modules/admin-panel/src/services/api/audit.ts`
+  - `web/modules/admin-panel/src/pages/AuditLogPage.tsx`
+  - `apps/admin-api-service/src/audit/__tests__/audit-access-trail.spec.ts`
+  - `tests/invariants/admin-security-runtime-contract.spec.ts`
+- **Proof of fix:** New spec apps/admin-api-service/src/audit/**tests**/audit-access-trail.spec.ts
+  (London-style, mocked repository): (a) two recordAccess calls with identical (performedBy,
+  subAction, filterHash) inside one window produce exactly ONE repository.save — the 30s-poll
+  scenario; a new window, admin, or filter hash produces a new row; (b) every recordAccess row
+  carries category='access' and action=AUDIT_LOG_ACCESSED; (c) AuditLogService.log() stamps
+  category='action' for normal actions and 'access' for AUDIT_LOG_ACCESSED via determineCategory;
+  (d) query()/getStatistics()/getUserActivity() with no category filter apply category='action'
+  (assert the QueryBuilder predicate), and query({category:'access'}) returns the trail — i.e.,
+  seeded access rows never appear in the default feed the dashboard consumes. Extend
+  tests/invariants/admin-security-runtime-contract.spec.ts ('/security/audit reads immutable audit
+  logs' block): replace the bare AUDIT_LOG_ACCESSED string pin with assertions that BOTH
+  audit.controller.ts and audit-trail.controller.ts contain 'auditAccessTrail.recordAccess(' and do
+  NOT contain a local writeMetaAudit or log({ action: 'AUDIT_LOG_ACCESSED', and that
+  audit.service.ts contains the category default predicate — regression to per-request raw
+  meta-writes or removal of the default exclusion fails CI. Migration correctness: existing
+  SchemaDriftModule cold-start validation + e2e/tests/integration/schema-invariants.spec.ts prove
+  entity/migration parity for the category column; the new migration's down() is exercised by the
+  standard migration-runner revert path. Full gate: nx affected --target=test and --target=lint
+  green.
+- **Effort:** M
+
+### APA-003 [MEDIUM] Platform metrics farm/sensor/alert-rule counts are structurally always 0 — the queried tables cannot exist
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** COUNT*TARGETS queries farm.farms, sensor.sensors and alert.alert_rules, but
+  farm/sensor/alert are schema-per-tenant services whose entities omit schema: — those tables exist
+  only inside tenant*<uuid> schemas, never as static farm.farms etc. tableExists() therefore returns
+  false and countEntities silently returns 0 (with only a logger.warn), so
+  totalFarms/totalSensors/activeSensors/totalAlertRules/activeAlertRules in GET /system/metrics are
+  permanently zero. This dashboard page does not render those five fields, but they are part of the
+  response this page fetches and are typed as real numbers in the FE (types/system.ts:18-22) for
+  other consumers.
+- **Evidence:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:395-404 — COUNT_TARGETS uses schema 'farm'/'sensor'/'alert'`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:420-423 — missing table -> warn + return 0`
+  - `apps/farm-service/src/farm/entities/farm.entity.ts:35 — @Entity('farms') with no schema (tenant-routed)`
+  - `apps/sensor-service/src/database/entities/sensor.entity.ts:145 and apps/alert-engine/src/database/entities/alert-rule.entity.ts:74 — same pattern`
+- **Verification:** Confirmed against current code.
+  apps/admin-api-service/src/metrics/system-metrics.service.ts:395-404 declares COUNT*TARGETS
+  farms={schema:'farm',table:'farms'}, sensors/activeSensors={schema:'sensor',table:'sensors'},
+  alertRules/activeAlertRules={schema:'alert',table:'alert_rules'}. Those source-schema tables exist
+  only as EMPTY templates: MODULE_SCHEMAS
+  (libs/backend-common/src/database/schema-manager.service.ts) declares them with sourceSchema
+  'farm'/'sensor'/'alert' ("will be copied to tenant schema"), and
+  source-schema-write-guard-reconciler.ts installs guard_source_write BEFORE-triggers (ERRCODE
+  P0999) on exactly these data tables so they can never hold rows — real rows live only in
+  tenant*<uuid16> clones. A second, independent guarantee of zero: admin-api connects as
+  admin*service (docker-compose.droplet.yml:959, SEC-015), whose grants in
+  apps/db-migrate/src/sql/platform-bootstrap/004-schema-grants.sql:321-333 cover only admin (DML) +
+  auth/billing (SELECT) + shared/compliance — no privilege on farm/sensor/alert or tenant*\*
+  schemas, so the SELECT is denied (or the table is invisible to information_schema, firing the
+  tableExists()->0 path at lines 420-423). Whichever branch fires, the triple silent-zero fallback
+  (tableExists->0, countEntities catch->0 at line 431-433, getPlatformMetrics catch->all-zero at
+  218-232) fabricates 0 for totalFarms/totalSensors/activeSensors/totalAlertRules/activeAlertRules
+  in GET /system/metrics and /system/metrics/platform, which the FE types as real numbers
+  (web/modules/admin-panel/src/services/types/system.ts:18-22, fetched via
+  services/api/system.ts:9-11). Severity stays MEDIUM per the prior verdict: the AdminDashboard page
+  itself does not render these five fields; the damage is a permanently false platform-inventory
+  contract for other consumers, not a broken primary flow.
+- **Root cause:** The BE->DB link broke, in two layers, and silent-zero fabrication hid both. (1)
+  Topology drift: COUNT*TARGETS encodes the pre-ADR-011 world where farm.farms / sensor.sensors /
+  alert.alert_rules were singleton platform tables. ADR-011 made farm/sensor/alert
+  schema-per-tenant: the source-schema copies became empty, DB-write-guarded templates
+  (guard_source_write, source-schema-write-guard-reconciler.ts) and all rows moved to
+  tenant*<uuid16> clones — nobody migrated the admin metrics reader when the topology changed. (2)
+  Privilege drift: SEC-015 least-privilege deliberately scoped admin_service to admin+auth+billing
+  (+shared/compliance) in 004-schema-grants.sql, so admin-api cannot even SELECT the templates —
+  direct cross-schema counting from admin-api was never a legal access path. The reason this shipped
+  and survived: system-metrics.service.ts converts every failure mode to 0 (tableExists miss ->
+  warn+0; countEntities catch -> 0; getPlatformMetrics catch -> all-zero object), so no test, log
+  severity, or contract check could distinguish "empty platform" from "structurally broken metric".
+  This is an instance of two systemic classes: (a) platform service reading per-tenant inventory
+  from static source schemas (config-era topology assumption), and (b) silent-zero metric
+  fabrication masking contract drift — the same class the file's own C-3 fix already purged once
+  (Math.random() trend data).
+- **Fix design:** Pattern-level fix (tier 1: make the wrong access path impossible; tier 3: make
+  drift detectable), using the platform's existing controlled cross-boundary mechanism instead of
+  widening grants. (A) New platform-bootstrap stage
+  apps/db-migrate/src/sql/platform-bootstrap/012-platform-inventory-metrics.sql: CREATE OR REPLACE
+  FUNCTION platform.tenant*inventory_counts() RETURNS TABLE(metric TEXT, value BIGINT), SECURITY
+  DEFINER with pinned search_path (SET search_path = pg_catalog, pg_temp — same hardening as
+  009-tenant-schema-provisioner.sql), body iterates information_schema.schemata matching
+  '^tenant*[a-f0-9]{16}$' (the same regex as TENANT*SCHEMA_NAME_RE and
+  tenant_schema_jobs_schema_name_chk), skips schemas where to_regclass(schema||'.'||table) IS NULL
+  (provisioning window), and SUMs COUNT(*) for the fixed metric set: totalFarms (farms),
+  totalSensors (sensors), activeSensors (sensors WHERE is*active), totalAlertRules (alert_rules),
+  activeAlertRules (alert_rules WHERE is_active). REVOKE ALL FROM PUBLIC; GRANT EXECUTE TO
+  admin_service — exactly the 009 pattern (platform.request_tenant_schema_provisioning) already
+  pinned by tests/invariants/tenant-provisioning-ssot.spec.ts. This preserves SEC-015: admin_service
+  never gains SELECT on tenant data; only aggregate counts cross the boundary. The bootstrap runner
+  (platform-bootstrap.service.ts) auto-discovers numbered .sql stages, so the stage lands with only
+  a header-comment/stage-doc update. (B) Local application in
+  apps/admin-api-service/src/metrics/system-metrics.service.ts: split CountTarget into a
+  discriminated union — { scope: 'platform'; schema; table; condition? } (kept for auth.tenants /
+  auth.users) and tenant-inventory metrics resolved EXCLUSIVELY via SELECT * FROM
+  platform.tenant_inventory_counts(). Add a module-init assertion importing TENANT_AWARE_SCHEMAS
+  (libs/backend-common/src/database/tenant-aware-schemas.ts — the SSoT, no hardcoded copy) that
+  throws if any platform-scope target names a tenant-aware schema, so re-declaring farm/sensor/alert
+  as a static count target fails at boot and in unit tests. Delete the
+  tableExists()/tableExistsCache machinery for these metrics and REMOVE the silent-zero fabrication:
+  countEntities no longer catches-and-returns-0, getPlatformMetrics no longer returns an all-zero
+  object on error, and a missing function or missing metric key throws — failures surface as 5xx
+  through the platform exception filter so the admin UI shows an error state instead of plausible
+  zeros (same honesty discipline as the prior C-3 fix in this file). (C) FE: no shape change —
+  web/modules/admin-panel/src/services/types/system.ts PlatformMetrics fields stay numbers and now
+  become truthful; no defensive typing added.
+- **Files to change:**
+  - `apps/db-migrate/src/sql/platform-bootstrap/012-platform-inventory-metrics.sql`
+  - `apps/db-migrate/src/platform-bootstrap.service.ts`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/db-migrate/src/__tests__/platform-inventory-metrics.contract.spec.ts`
+  - `apps/db-migrate/src/__tests__/platform-bootstrap.integration.spec.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+- **Proof of fix:** (1) New contract spec
+  apps/db-migrate/src/**tests**/platform-inventory-metrics.contract.spec.ts (mirroring
+  tenant-schema-provisioner.contract.spec.ts): pins that 012-platform-inventory-metrics.sql contains
+  SECURITY DEFINER, the pinned search*path, REVOKE ALL ... FROM PUBLIC, and GRANT EXECUTE ... TO
+  admin_service; and asserts the metric-name set emitted by the SQL equals the TS metric enum
+  consumed by SystemMetricsService (parse both files) — build-time drift gate between SQL and
+  service. (2) Extend apps/db-migrate/src/**tests**/platform-bootstrap.integration.spec.ts: after
+  bootstrap + provisioning a tenant schema, seed rows into tenant*<x>.farms/sensors/alert_rules
+  (with is_active variance), SET ROLE admin_service, and assert platform.tenant_inventory_counts()
+  returns exactly the seeded counts — proves both the aggregation and the EXECUTE-only privilege
+  path. (3) New unit spec
+  apps/admin-api-service/src/metrics/**tests**/system-metrics.service.spec.ts: asserts (a) no
+  platform-scope COUNT_TARGET schema is a member of TENANT_AWARE_SCHEMAS (imported SSoT — makes
+  reintroducing the drift a red test), (b) getPlatformMetrics maps function rows onto
+  PlatformMetrics fields, and (c) a missing function / missing metric key / query error THROWS
+  instead of returning zeros (the silent-zero class is dead). Manual: GET
+  /api/v1/system/metrics/platform as SUPER_ADMIN on a seeded stack returns non-zero
+  totalFarms/totalSensors/activeSensors/totalAlertRules/activeAlertRules matching seeded fixtures.
+- **Effort:** M
+
+### APA-004 [MEDIUM] Audit severity vocabulary drift: FE expects low/medium/high, backend emits info/warning/critical — warning badges misrender
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** FE type AuditLog.severity is 'low' | 'medium' | 'high' | 'critical' but the backend
+  enum is 'info' | 'warning' | 'critical' (enforced by the DB enum admin.audit_logs_severity_enum).
+  The dashboard's getSeverityColor maps 'high'->warning and 'medium'->info — values the backend
+  never produces — while real 'warning' and 'info' rows fall through to the 'default' badge variant.
+  Result: WARNING-severity admin events (impersonation, password reset, tier change per
+  determineSeverity) render with no warning styling in Recent Activity; only 'critical' maps
+  correctly.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/audit.ts:13 — severity: 'low' | 'medium' | 'high' | 'critical'`
+  - `apps/admin-api-service/src/audit/audit.entity.ts:54-58 — AuditSeverity = info | warning | critical`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:7 — CREATE TYPE audit_logs_severity_enum AS ENUM('info','warning','critical')`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:158-168 — switch on 'critical'/'high'/'medium', default for everything else`
+- **Verification:** Prior verdict (real, LOW) confirmed for the dashboard badge symptom, but
+  re-grounding surfaced hard evidence of broader functional impact from the identical drift:
+  web/modules/admin-panel/src/pages/AuditLogPage.tsx:69-75 offers SEVERITY_LEVELS
+  low/medium/high/critical as filter values; auditApi.query passes severity verbatim
+  (services/api/audit.ts:19,25); AuditLogController forwards it (audit.controller.ts:50,62) and
+  AuditLogService binds it into `WHERE audit.severity = :severity` (audit.service.ts:159-163)
+  against the PG enum column admin.audit_logs_severity_enum — 'low'/'medium'/'high' are invalid enum
+  inputs (22P02), so the audit page's severity filter errors/returns nothing for 3 of its 4 options.
+  That is a broken SUPER_ADMIN audit-review capability, not only cosmetic badge styling, hence
+  MEDIUM. This is an instance of the systemic FE-type-drift class: the admin-panel holds THREE
+  hand-written declarations of the same backend vocabulary — services/types/security.ts:38
+  ('info'|'warning'|'critical', correct), pages/security/AuditTrailPage.tsx:34 (correct),
+  services/types/audit.ts:13 (wrong) — and the wrong one drove AdminDashboard.getSeverityColor
+  (severity: string param, so the union was never load-bearing) plus AuditLogPage's maps. No shared
+  contract, no codegen, no contract test covers the audit vocabulary, and AuditLog's
+  `[key: string]: unknown` index signature further weakens compile-time detection.
+- **Root cause:** The FE type layer is the broken link; DB and BE agree and are correct
+  (admin.audit_logs_severity_enum = info|warning|critical in migrations/1800000000000-Baseline.ts;
+  AuditSeverity enum in audit.entity.ts:54-58; determineSeverity in audit.service.ts:477-509). The
+  drift mechanism: admin-panel API types are hand-written per file with no single source —
+  services/types/audit.ts:13 declared severity as 'low'|'medium'|'high'|'critical', evidently copied
+  from the adjacent SecurityEventSeverity vocabulary (services/types/security.ts:5, a genuinely
+  low/medium/high domain) rather than from the backend enum, while two OTHER hand-written copies of
+  the same audit vocabulary in the same FE module (security.ts:38, AuditTrailPage.tsx:34) are
+  correct — proving there is no SSoT and each author re-derived the contract. Nothing could catch
+  it: getSeverityColor takes `severity: string` (AdminDashboard.tsx:158), AuditLog carries an index
+  signature (audit.ts:18), and no invariant spec covers the audit severity contract (the sibling
+  admin-security-runtime-contract.spec.ts fenced the security-monitoring vocabulary after an
+  identical incident, but not audit). Backend boundary compounds it: audit.controller.ts:50 accepts
+  `@Query('severity') severity?: AuditSeverity` as an unvalidated cast, so FE-sent junk reaches the
+  SQL enum comparison as a PG error instead of a 400.
+- **Fix design:** Systemic class: FE-type drift across the admin-panel/admin-api HTTP boundary via
+  duplicated hand-written vocabularies. Fix at the pattern level using the repo's designed slot,
+  then bind both sides so drift is a compile error.
+
+PATTERN (Tier 1 — make drift impossible): Add the vocabulary to libs/shared-contracts
+(@aquaculture/shared-contracts), the charter-built cross-stack constant lib (zero-dep values
+byte-identical on the backend trust boundary and FE bundles; precedent:
+MESSAGING_MEDIA_MIME_ALLOWLIST shared by messaging-service and aquamobil). New module
+src/enums/admin-audit-severity.ts:
+`export const ADMIN_AUDIT_SEVERITIES = ['info','warning','critical'] as const; export type AdminAuditSeverity = (typeof ADMIN_AUDIT_SEVERITIES)[number];`.
+This is a const tuple + derived union, NOT `export enum`, so it complies with the ORPHAN-087 guard;
+it is not a duplicate of any @platform/event-contracts enum (verified — event-contracts has no audit
+severity; this is an admin-api-local HTTP contract, not a cross-service event enum). Export from the
+barrel and consciously extend the barrel-restriction list in
+tests/invariants/shared-contracts-no-enum-drift.spec.ts (that spec is the SSoT allowlist by design —
+extending it with a rationale comment is the sanctioned process, not allowlist drift).
+
+BACKEND BINDING (Tier 1): In apps/admin-api-service/src/audit/audit.entity.ts keep the AuditSeverity
+TS enum (10+ internal call sites across impersonation/backup/explorer stay untouched) but add a
+bidirectional compile-time equality assertion against the contract (template-literal widening:
+assert `${AuditSeverity}` extends AdminAuditSeverity AND AdminAuditSeverity extends
+`${AuditSeverity}` via an AssertTrue helper type) so any future divergence fails tsc. No migration —
+the DB already matches the contract. Trust boundary: in audit.controller.ts validate the query param
+(`@Query('severity', new ParseEnumPipe(AuditSeverity, { optional: true }))`) so out-of-vocabulary
+filter values become 400s at the boundary instead of PG 22P02 → 500 (fixes the currently reachable
+failure).
+
+FRONTEND BINDING (Tier 1+2): Wire @aquaculture/shared-contracts into admin-panel exactly as
+aquamobil does — tsconfig.json `paths` + vite.config.ts `resolve.alias` →
+../../../libs/shared-contracts/src (pure types/consts; no federation shared-dep implications, so no
+federationSharedConfig change). Then collapse all three FE declarations to imports: (1)
+services/types/audit.ts — `severity: AdminAuditSeverity`; (2) services/types/security.ts:38 —
+replace the local `export type AuditSeverity` with a re-export of AdminAuditSeverity (keeps existing
+importers compiling); (3) pages/security/AuditTrailPage.tsx:34 — delete the local alias, import the
+shared type. Consumers become correct by construction: AdminDashboard.tsx replaces the string-switch
+with an exhaustive
+`const SEVERITY_BADGE: Record<AdminAuditSeverity, 'error'|'warning'|'info'> = { critical:'error', warning:'warning', info:'info' }`
+and types the lookup param AdminAuditSeverity — Record makes a missing or phantom key
+('high','medium') a compile error and the unreachable 'default' branch disappears. AuditLogPage.tsx
+derives SEVERITY_LEVELS from the tuple (`ADMIN_AUDIT_SEVERITIES.map(...)` plus the 'All' option) so
+the filter can only offer backend-valid values, replaces getSeverityBadgeVariant's low/medium/high
+record with `Record<AdminAuditSeverity, Variant>` (info:'info', warning:'warning',
+critical:'error'), and types filter state `severity: '' | AdminAuditSeverity`.
+
+DETECTION GATE (Tier 3): New tests/invariants/admin-audit-severity-contract.spec.ts following the
+established readRepoFile pattern of admin-security-runtime-contract.spec.ts: (a)
+services/types/audit.ts and services/types/security.ts import the severity type from
+@aquaculture/shared-contracts and contain no re-declared severity union; (b) audit.entity.ts
+references ADMIN_AUDIT_SEVERITIES/AdminAuditSeverity (the compile-time assertion is present); (c)
+the Baseline migration's `ENUM('info','warning','critical')` literal equals the imported
+ADMIN_AUDIT_SEVERITIES tuple (import the tuple into the spec — no hardcoded copy); (d)
+AdminDashboard.tsx and AuditLogPage.tsx contain `Record<AdminAuditSeverity` and none of the stale
+'low'/'medium'/'high' audit-severity literals. Primary ongoing enforcement is `npm run type-check`
+once the types flow; entity↔DB remains covered by the existing schema-drift validator.
+
+- **Files to change:**
+  - `libs/shared-contracts/src/enums/admin-audit-severity.ts`
+  - `libs/shared-contracts/src/index.ts`
+  - `tests/invariants/shared-contracts-no-enum-drift.spec.ts`
+  - `apps/admin-api-service/src/audit/audit.entity.ts`
+  - `apps/admin-api-service/src/audit/audit.controller.ts`
+  - `web/modules/admin-panel/tsconfig.json`
+  - `web/modules/admin-panel/vite.config.ts`
+  - `web/modules/admin-panel/src/services/types/audit.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `web/modules/admin-panel/src/pages/AuditLogPage.tsx`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `tests/invariants/admin-audit-severity-contract.spec.ts`
+- **Proof of fix:** Add tests/invariants/admin-audit-severity-contract.spec.ts (assertions a-d in
+  fixDesign: FE imports SSoT + no re-declared unions; entity compile-time assertion present;
+  Baseline migration ENUM literal equals imported ADMIN_AUDIT_SEVERITIES; dashboard/audit pages use
+  Record<AdminAuditSeverity,...> with no stale low/medium/high literals). Extend
+  tests/invariants/shared-contracts-no-enum-drift.spec.ts barrel allowlist to include
+  ./enums/admin-audit-severity (still asserting zero `export enum`). Mutation proof:
+  `npm run type-check` must fail if any value is added/removed/renamed in ADMIN_AUDIT_SEVERITIES, in
+  the AuditSeverity enum, or in either badge Record (Record exhaustiveness + bidirectional entity
+  assertion). Behavioral proof: component test in
+  web/modules/admin-panel/src/pages/**tests**/AdminDashboard.spec.tsx rendering RecentActivityCard
+  with severity 'warning' and 'info' logs and asserting Badge variants 'warning'/'info'; controller
+  test in apps/admin-api-service/src/audit/**tests** asserting GET /audit-logs?severity=low returns
+  400 (ParseEnumPipe) and severity=warning passes through to the query filter.
+- **Effort:** M
+
+### APA-005 [MEDIUM] Service Status card can never show 'unhealthy' for remote services — a dead service renders as 'degraded'
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** checkServicesHealth maps every non-OK/unreachable remote probe to status 'degraded'
+  (response?.ok ? 'healthy' : 'degraded'); 'unhealthy' is only ever emitted for the local database
+  check. The FE's red 'Unhealthy' counter and red styling (AdminDashboard.tsx:69,78,91) are dead
+  branches for the 12 remote services, understating outages. Additionally the probe list omits
+  ai-service and event-store-service entirely, so those runtime services are invisible on the
+  dashboard.
+- **Evidence:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:340 — status: response?.ok ? 'healthy' : 'degraded'`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:345-353 — catch branch also 'degraded'`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:273-286 — endpoint list lacks ai-service and event-store-service`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:69,78 — unhealthyCount rendering`
+- **Root cause:** checkServicesHealth collapses three distinct probe outcomes (HTTP non-2xx, network
+  unreachable/timeout, breaker-open) into the single literal 'degraded' — the breaker fallback
+  returns null and the mapping is response?.ok ? 'healthy' : 'degraded', so the 'unhealthy' member
+  of the ServiceHealth union is only reachable from the local DB check. Separately, the probe roster
+  is a hand-maintained inline array that has drifted from the runtime service set (missing
+  ai-service and event-store-service) — an instance of the roster-nobody-verifies drift class.
+- **Fix design:** (1) Encode outcome as a discriminated result instead of Response|null: probe fn
+  resolves {kind:'http', response} and throws on network error/timeout; breaker fallback returns
+  {kind:'breaker-open'}. Map 2xx->healthy, non-2xx->degraded, throw/timeout->unhealthy
+  (details.error), breaker-open->unhealthy (details: circuit open). FE already renders 'unhealthy' —
+  no FE change. (2) Extract the roster to a typed const module (service-health-roster.ts) adding
+  ai-service + event-store-service, and add a roster-parity invariant spec that derives the expected
+  runtime HTTP-service set (parse docker-compose service definitions) and fails on drift — tier-3
+  detectability for the systemic class.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/metrics/service-health-roster.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/service-health-roster.spec.ts`
+- **Effort:** M
+
+### APA-006 [MEDIUM] Total backend failure renders as an all-zero dashboard with no error message
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page uses Promise.allSettled and maps every rejection to null/[] — the catch
+  block that sets data.error is effectively unreachable (allSettled never rejects), so 401/500 on
+  all five calls shows '—' tenants, 0 users, 'No activity found' with no Alert. The backend
+  compounds this: getPlatformMetrics/getDatabaseMetrics catch errors and return zeros ('unknown'
+  size), and AuditLogService.query catches errors and returns an empty page, so even a DB outage
+  yields HTTP 200 with zeros. An operator cannot distinguish 'platform empty' from 'metrics pipeline
+  broken'.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:399-419 — allSettled with fulfilled-only mapping; error stays null`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:175-185,218-232,431-433 — catch -> zeros/'unknown'`
+  - `apps/admin-api-service/src/audit/audit.service.ts:199-211 — catch -> {data: [], total: 0}`
+- **Root cause:** Two stacked error-masking layers (systemic catch-returns-zeros class): backend
+  getDatabaseMetrics/getPlatformMetrics and AuditLogService.query catch DB failures and return
+  zero/empty success payloads as HTTP 200; the FE maps every Promise.allSettled rejection to null/[]
+  and never sets data.error (its catch is unreachable — allSettled never rejects). Total outage is
+  therefore indistinguishable from an empty platform.
+- **Fix design:** Fix each layer at the source. Backend: delete the catch-return-zeros blocks in
+  getDatabaseMetrics/getPlatformMetrics and catch-return-empty-page in AuditLogService.query — let
+  exceptions propagate to the global exception filter so outages produce 5xx envelopes (errors are
+  errors; any sub-metric allowed to degrade must say so explicitly in the contract, not silently
+  zero). Frontend: after allSettled, derive data.error from the rejected entries (first rejection
+  message + failed-call count) while keeping fulfilled partial data, so the existing Alert renders
+  automatically on any failure. Specs: BE tests asserting DB failure -> throws (not zeros) for
+  metrics and audit query; FE dashboard spec asserting a rejected call surfaces the Alert.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/AdminDashboard.spec.tsx`
+- **Effort:** M
+
+### APA-007 [MEDIUM] Cache card and 'Clear Cache' button are unreachable dead UI; backing /debug endpoints are 404 by default
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** cacheStats is initialized/reset to null on every fetch (line 416) and is only ever
+  set inside handleClearCache — but the only button that invokes handleClearCache lives inside
+  CacheStatsCard, which renders only when cacheStats is truthy (line 606). The card therefore can
+  never appear and the handler is dead code. Even if reached, GET /debug/cache/stats and POST
+  /debug/cache/invalidate exist only when DebugToolsModule.forRoot() is enabled via
+  ENABLE_DEBUG_TOOLS=true (disabled by default in ALL environments), and the FE swallows the failure
+  with an empty catch.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:416 — cacheStats: null on every fetch`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:606-614 — {cacheStats && <CacheStatsCard .../>} gates the only trigger`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:478-489 — handleClearCache with silent empty catch`
+  - `apps/admin-api-service/src/debug-tools/debug-tools.module.ts:53-61 — empty module unless ENABLE_DEBUG_TOOLS='true'`
+- **Root cause:** The cache card is an orphan left behind when cache management moved to the
+  env-gated Debug Tools page (the comment at AdminDashboard.tsx:476 states this): cacheStats is
+  reset to null on every fetch and only ever set inside handleClearCache, whose sole trigger renders
+  behind {cacheStats && ...} — mutually unreachable dead UI. The backing /debug endpoints are 404
+  unless ENABLE_DEBUG_TOOLS=true regardless.
+- **Fix design:** Delete the dead surface at the root: remove CacheStatsCard, the CacheStats
+  interface, the cacheStats field of DashboardData, handleClearCache, clearingCache state, and the
+  debugApi import from AdminDashboard. Cache management stays solely on the Debug Tools page, which
+  is its deliberate env-gated home — the dashboard must not render controls for endpoints the
+  deployment does not expose. Verification: lint (unused imports/vars) plus a dashboard spec
+  assertion that the page renders with no debugApi reference and no Cache card.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/AdminDashboard.spec.tsx`
+- **Effort:** S
+
+### APA-008 [MEDIUM] Circuit Breakers panel shows only the SMTP breaker — the platform's real cross-service breakers are not surfaced
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** HealthService.getCircuitBreakers returns a single hardcoded entry {smtp} from
+  EmailSenderService. The canonical CircuitBreakerService (CircuitBreakerModule, used for the 12
+  health-probe breakers named 'admin-api-health-check:\*' and other cross-service fetches) is never
+  exposed, so the panel titled 'Circuit Breakers' materially under-reports breaker state. Reset
+  likewise only supports 'smtp'. State literals do match the FE ('closed'/'open'/'half_open'), and
+  the chain itself works.
+- **Evidence:**
+  - `apps/admin-api-service/src/health/health.service.ts:53-57 — return { smtp: ... } only`
+  - `apps/admin-api-service/src/health/health.service.ts:60-66 — reset supports only 'smtp'`
+  - `apps/admin-api-service/src/settings/services/email-sender.service.ts:30-34,69-75 — state enum closed/open/half_open`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:298-306 — real breakers exist in CircuitBreakerService but are not queryable`
+- **Root cause:** HealthService.getCircuitBreakers hardcodes the legacy ad-hoc SMTP breaker and
+  predates the canonical CircuitBreakerService, which already exposes getAllStats() explicitly for
+  health endpoints; the status/reset contract was never unified across the two breaker
+  implementations (an instance of the tracked five-ad-hoc-breakers class the resilience library was
+  built to eliminate — see the W3 note in circuit-breaker.types.ts). resetCircuitBreaker only knows
+  'smtp'; the FE CircuitBreakerInfo shape (lowercase states, consecutiveFailures, lastFailureTime)
+  diverges from canonical CircuitStats.
+- **Fix design:** Unify on the canonical contract: (1) add per-breaker reset(serviceName, tenantKey)
+  to CircuitBreakerService alongside resetAll(); (2) migrate EmailSenderService's hand-rolled SMTP
+  state machine onto circuitBreaker.execute (removes the special case instead of adapting it — this
+  is the tracked W3 migration applied locally); (3) HealthService.getCircuitBreakers returns
+  CircuitBreakerService.getAllStats() mapped into one shared status DTO keyed by breaker name, and
+  reset delegates per name; (4) update the FE contract: CircuitBreakerInfo in types/system.ts
+  becomes the CircuitStats-derived shape ('CLOSED'|'OPEN'|'HALF_OPEN', window counts, ISO
+  timestamps) and AdminDashboard stateStyles/reset wiring follow. Spec: health service/controller
+  test asserting all active breakers (admin-api-health-check:\* included) appear and per-name reset
+  round-trips; email-sender spec updated for the canonical breaker.
+- **Files to change:**
+  - `libs/backend-common/src/resilience/circuit-breaker/circuit-breaker.service.ts`
+  - `apps/admin-api-service/src/health/health.service.ts`
+  - `apps/admin-api-service/src/health/health.controller.ts`
+  - `apps/admin-api-service/src/settings/services/email-sender.service.ts`
+  - `web/modules/admin-panel/src/services/types/system.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `apps/admin-api-service/src/health/__tests__/health.service.spec.ts`
+- **Effort:** M
+
+### APA-009 [MEDIUM] GET /system/services/health probes 12 services sequentially with 3s timeouts — worst case ~36s response
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The probe loop awaits each circuit-breaker-wrapped fetch in series (for...of with
+  await). With multiple services unreachable before breakers open, the endpoint can take tens of
+  seconds; the FE has no request timeout and refreshes every 30s (no pile-up since the next refresh
+  is scheduled after completion, but the Service Status card lags far behind reality during
+  incidents — exactly when it matters).
+- **Evidence:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:290-336 — sequential for-loop, AbortController 3000ms per probe`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:452-463 — 30s reschedule after await`
+- **Root cause:** The probe loop serializes 12 independent network calls (for...of with await on
+  each breaker-wrapped fetch), so worst-case endpoint latency is additive (~12 x 3s AbortController
+  timeout) instead of bounded by the slowest single probe — worst during incidents, exactly when the
+  card matters.
+- **Fix design:** Run all probes concurrently: map the roster to promises and await Promise.all,
+  preserving roster order in the output (with i4's discriminated-result design each probe resolves
+  rather than rejects, so allSettled is unnecessary; each probe keeps its own 3s timeout and
+  breaker). Worst case drops to ~3s + DB check. Spec: mocked-fetch test asserting every probe is
+  started before any completes (capture fetch invocation order under fake timers) and that total
+  elapsed time is bounded by one timeout, not the sum.
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `apps/admin-api-service/src/metrics/__tests__/system-metrics.service.spec.ts`
+- **Effort:** S
+
+### APA-010 [LOW] 'System Resources' card shows only admin-api-service's own process stats, labeled as system-wide
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Heap/RSS/uptime/node version come from process.memoryUsage()/process.uptime() of
+  admin-api-service itself, not any platform aggregate; 'Uptime' is the admin-api container's
+  uptime. Misleading label, correct data.
+- **Evidence:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts:238-257 — process.* only`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:647-683 — rendered as 'System Resources'`
+- **Root cause:** Label/contract mismatch: ResourceMetrics is genuinely admin-api-service's own
+  process.memoryUsage()/process.uptime() output, but the FE card titles it 'System Resources',
+  implying a platform-wide aggregate. Data correct, provenance absent from the contract.
+- **Fix design:** Make provenance part of the wire contract, then label truthfully: add a literal
+  provenance field to ResourceMetrics (e.g. scope: 'process', service: 'admin-api-service') in the
+  backend interface and mirror it in the FE SystemMetrics type; retitle the card 'Admin API Process'
+  with 'Process uptime'. Encoding scope in the type prevents any future consumer from re-mislabeling
+  the same data (tier-1 for the class, not just a caption edit).
+- **Files to change:**
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `web/modules/admin-panel/src/services/types/system.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+- **Effort:** S
+
+### APA-011 [LOW] 'Logins (Last 24h)' counts users with a recent lastLoginAt, not login events
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The query counts auth.users rows whose lastLoginAt is within 24h — a user who logged
+  in five times counts once, and an active session refreshing tokens may or may not bump
+  lastLoginAt. Real data, imprecise label (actual login events exist in audit logs as
+  LOGIN_SUCCESS).
+- **Evidence:**
+  - `apps/admin-api-service/src/users/users.service.ts:267-271 — COUNT users WHERE lastLoginAt >= NOW() - 24h`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:565-567 — MetricCard 'Logins (Last 24h)'`
+- **Root cause:** The metric counts distinct auth.users rows with lastLoginAt in the last 24h
+  (users-who-logged-in) while the field name and card label promise login events. Actual per-login
+  LOGIN_SUCCESS events are recorded in auth.audit_logs by AuthenticationService.logSecurityEvent
+  (authentication.service.ts:489), so the correct source exists and is unused.
+- **Fix design:** Fix the data source, not the label: change getUserStats' loginsLast24Hours query
+  to COUNT(_) FROM auth.audit_logs WHERE action = 'LOGIN_SUCCESS' AND createdAt >= NOW() - INTERVAL
+  '24 hours' — admin-api already reads auth._ cross-schema for every other stat in this method, so
+  this follows the established pattern and makes the existing field name and FE label true with zero
+  FE change. Check the query plan against existing indexes (IDX_audit_tenant_created leads with
+  tenantId); if measurable, add an (action, createdAt) index via a new auth-service migration. Spec:
+  users.service test asserting the logins stat is sourced from auth.audit_logs LOGIN_SUCCESS events,
+  not lastLoginAt.
+- **Files to change:**
+  - `apps/admin-api-service/src/users/users.service.ts`
+  - `apps/admin-api-service/src/users/__tests__/users.service.spec.ts`
+- **Effort:** S
+
+### APA-012 [LOW] AbortController is never wired to fetch — in-flight requests survive unmount and stale-abort
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** fetchDashboardData creates AbortControllers only to gate setState
+  (controller.signal.aborted checks); the signal is never passed into apiFetch/fetch, so aborted
+  requests still complete on the network, and the unmount cleanup aborts the effect's controller but
+  not the latest fetch controller held in the ref — a late response can call setData after unmount
+  (harmless no-op in React 18, but the abort machinery gives false confidence).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:387-429 — controller created, signal never passed to systemApi/usersApi/auditApi calls`
+  - `web/modules/admin-panel/src/services/http-client.ts:215-274 — apiFetch has no signal parameter`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx:465-471 — cleanup aborts only the effect's own controller`
+- **Root cause:** The api-layer wrapper functions (services/api/\*.ts) accept no AbortSignal, so
+  page controllers can only gate setState. Note one evidence correction: apiFetch itself CAN carry a
+  signal (ApiFetchOptions extends RequestInit and fetchOptions is spread into fetch) — the gap is
+  the wrapper layer never exposes it and AdminDashboard never passes one, making the abort machinery
+  decorative. Systemic across all 18 api modules.
+- **Fix design:** Establish the convention at the layer boundary: every api function gains a
+  trailing optional options?: { signal?: AbortSignal } forwarded into apiFetch (RequestInit.signal
+  already reaches fetch); additionally make apiFetch abort-aware in its retry loop (bail before
+  sleep/retry when signal.aborted so a cancelled request cannot burn the backoff budget). Apply to
+  the five dashboard calls (systemApi.getMetrics/getServicesHealth/getCircuitBreakers,
+  usersApi.getStats, auditApi.query), pass controller.signal in fetchDashboardData, and treat
+  AbortError as silent return; roll the same signature across the remaining api modules as the
+  pattern application. Specs: http-client test asserting an aborted signal cancels the in-flight
+  fetch and suppresses retries; dashboard spec asserting unmount aborts the in-flight cycle.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/api/system.ts`
+  - `web/modules/admin-panel/src/services/api/users.ts`
+  - `web/modules/admin-panel/src/services/api/audit.ts`
+  - `web/modules/admin-panel/src/pages/AdminDashboard.tsx`
+  - `web/modules/admin-panel/src/services/__tests__/http-client.spec.ts`
+- **Effort:** M
+
+## Cross-cutting findings
+
+### APA-013 [HIGH] GET /audit-logs rejects every filter parameter with 400 due to forbidNonWhitelisted + mixed @Query pattern
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The global ValidationPipe runs with whitelist:true AND forbidNonWhitelisted:true.
+  AuditLogController.queryAuditLogs combines nine named @Query('action'|'entityType'|...) primitives
+  with a bare @Query() pagination: PaginationQueryDto — NestJS validates the ENTIRE query object
+  against PaginationQueryDto for that parameter, and the DTO whitelists only
+  page/limit/sortBy/sortOrder. Any request carrying action, entityType, entityId, tenantId,
+  performedBy, severity, startDate, endDate or search (all of which auditApi.query sends from the
+  Audit Logs page) fails validation with 'property X should not exist' -> 400. The dashboard is
+  unaffected only because it sends limit alone ({ limit: 10 }), but the endpoint's documented filter
+  contract is broken for every other consumer.
+- **Evidence:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-460 — defaults whitelist:true, forbidNonWhitelisted:true (admin-api main.ts passes no validationPipeOverrides)`
+  - `apps/admin-api-service/src/audit/audit.controller.ts:42-55 — named @Query params + @Query() pagination?: PaginationQueryDto on the same handler`
+  - `apps/admin-api-service/src/shared/pagination-query.dto.ts:4-25 — DTO contains only page/limit/sortBy/sortOrder`
+  - `web/modules/admin-panel/src/services/api/audit.ts:12-25 — FE sends action/entityType/severity/search/etc. as query params`
+- **Verification:** Prior adversarial verdict upheld and re-verified against current HEAD: global
+  ValidationPipe defaults whitelist:true + forbidNonWhitelisted:true (create-service-app.ts:458-461,
+  no admin-api override), audit.controller.ts:42-55 mixes nine named @Query primitives with bare
+  @Query() PaginationQueryDto (which NestJS binds to the FULL req.query), and
+  pagination-query.dto.ts whitelists only page/limit/sortBy/sortOrder — so every FE filter key
+  (auditApi.query sends
+  action/entityType/entityId/tenantId/performedBy/severity/startDate/endDate/search) triggers a
+  whitelistValidation 400. AuditLogService.query supports all nine filters, so the break is purely
+  at the controller parameter-binding layer. This is confirmed SYSTEMIC: the identical mixed @Query
+  pattern also breaks billing.controller.ts listCustomPlans (L532-538) and ticket.controller.ts
+  getAllTickets/getTicketsForTenant/getAssignedTickets/getComments/getReplies (L162-170, 231-236,
+  245-249, 352-357, 392-397) — every named filter on those routes 400s when sent. HIGH stands: the
+  Audit Logs page (a security/compliance surface) has zero working filters, and the class silently
+  degrades support and billing list screens too.
+- **Root cause:** Broken link: BE controller parameter binding (FE and service layer both honor the
+  contract). The HTTP query contract was never reified as a single validated class — filter params
+  were declared as named @Query('x') primitives, which the ValidationPipe skips entirely (toValidate
+  skips String metatypes), while pagination was later factored into the shared PaginationQueryDto
+  and bolted on as bare @Query(). NestJS resolves bare @Query() to the WHOLE req.query object and
+  validates it against PaginationQueryDto, so the global forbidNonWhitelisted default rejects the
+  very filter keys the same handler declares one line above. It drifted because one HTTP query
+  object is encoded as two disjoint parameter contracts the framework cannot union, and nothing at
+  build/test time (a) forbids the mixed-binding shape or (b) exercises the endpoint with the full FE
+  parameter set — the dashboard's limit-only call kept the smoke tests green while every filtered
+  request 400s.
+- **Fix design:** SYSTEMIC CLASS (mixed named-@Query + bare-@Query()-DTO under forbidNonWhitelisted)
+  — fix at pattern level plus local application. (1) Tier 1/2, reify the contract as ONE DTO per
+  handler: add QueryAuditLogsDto extends PaginationQueryDto
+  (apps/admin-api-service/src/audit/dto/query-audit-logs.dto.ts) with
+  action/entityType/entityId/tenantId/performedBy/search as @IsOptional() @IsString()
+  @Length(1,256); severity as @IsEnum(AuditSeverity); startDate/endDate as @IsOptional()
+  @IsISO8601(). Controller signature becomes a single `@Query() query: QueryAuditLogsDto`; build
+  AuditLogFilter from it (Date conversion stays in the handler as today) and pass
+  query.page/query.limit — service untouched. Apply the identical refactor to the sibling instances
+  in the same change: ListCustomPlansQueryDto
+  (tenantId/status:@IsEnum(CustomPlanStatus)/tier:@IsEnum(PlanTier)/search) for billing
+  listCustomPlans, and ticket query DTOs extending PaginationQueryDto for getAllTickets
+  (status/priority/category as @IsEnum, assignedTo/tenantId/search as @IsString),
+  getTicketsForTenant, getAssignedTickets, getComments/getReplies (includeInternal as
+  @IsIn(['true','false'])). Pagination-only bare @Query() handlers remain valid and unchanged. (2)
+  Tier 3, pattern gate: new architecture spec that iterates every controller registered in
+  admin-api-service and, via Nest's ROUTE_ARGS_METADATA, asserts no handler combines a bare @Query()
+  (data===undefined, class metatype) with named @Query('x') entries — the exact shape
+  forbidNonWhitelisted breaks. The spec fails on today's code (proving detection) and permanently
+  blocks reintroduction. (3) FE->BE contract closure: integration spec boots the audit module with
+  the REAL configureValidationPipe defaults from create-service-app and asserts GET /audit-logs
+  carrying the exact key set auditApi.query sends returns 200 with filters applied, and that a
+  genuinely unknown key still 400s (security default preserved). Explicitly REJECTED as workarounds:
+  relaxing forbidNonWhitelisted via validationPipeOverrides (weakens the platform security default
+  to accommodate a malformed handler) and adding filter keys to PaginationQueryDto (pollutes the
+  shared pagination contract).
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/dto/query-audit-logs.dto.ts`
+  - `apps/admin-api-service/src/audit/audit.controller.ts`
+  - `apps/admin-api-service/src/billing/dto/billing.dto.ts`
+  - `apps/admin-api-service/src/billing/billing.controller.ts`
+  - `apps/admin-api-service/src/support/dto/ticket-query.dto.ts`
+  - `apps/admin-api-service/src/support/controllers/ticket.controller.ts`
+  - `apps/admin-api-service/src/__tests__/query-contract.architecture.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/audit-logs.query-contract.spec.ts`
+- **Proof of fix:** (a) New
+  apps/admin-api-service/src/**tests**/query-contract.architecture.spec.ts: reflects
+  ROUTE_ARGS_METADATA over all admin-api controllers and fails any handler mixing bare @Query()
+  (class metatype) with named @Query('x') params — must FAIL against pre-fix HEAD (audit, billing
+  listCustomPlans, five ticket handlers) and PASS after. (b) New
+  apps/admin-api-service/src/**tests**/integration/audit-logs.query-contract.spec.ts: Nest testing
+  app wired with the actual configureValidationPipe defaults (whitelist+forbidNonWhitelisted); GET
+  /audit-logs?action=X&entityType=Y&entityId=Z&tenantId=T&performedBy=U&severity=critical&startDate=2026-01-01T00:00:00Z&endDate=2026-01-02T00:00:00Z&search=s&page=1&limit=20
+  (mirror of auditApi.query's key set in web/modules/admin-panel/src/services/api/audit.ts) returns
+  200 with the filter forwarded to AuditLogService.query, while ?bogus=1 still returns 400 — proving
+  the fix without weakening the whitelist. (c) Extend the same integration spec with one 200-case
+  each for /billing/custom-plans and /support/tickets filtered queries. Run nx affected
+  --target=test and --target=lint green.
+- **Effort:** M
+
+### APA-014 [LOW] Frontend double-submit CSRF is a no-op: admin-api never issues nor validates the XSRF-TOKEN cookie
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** http-client.ts reads an XSRF-TOKEN cookie and attaches X-CSRF-Token on
+  POST/PUT/PATCH/DELETE, with comments claiming 'server rejects on mismatch'. No code in
+  admin-api-service or the shared bootstrap sets that cookie or validates the header (the only
+  'csrf' references are a security-event type string and a test comment; the bootstrap mentions
+  X-CSRF-Token solely as a CORS header example). The cookie is never present, the header is never
+  sent, and nothing would check it. Actual mutation protection rests entirely on the Bearer token
+  (held in JS memory, not a cookie), which does mitigate classic CSRF — but the FE's security
+  comments describe a control that does not exist, and credentials:'include' is set on every
+  request.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:96-106,256-263 — cookie read + conditional header, with 'server rejects on mismatch' claim`
+  - `apps/admin-api-service/src (grep 'csrf') — only security/entities/security.entity.ts:47 ('csrf_attempt' event type) and a test comment; no middleware`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:558 — X-CSRF-Token appears only as a CORS-header doc example`
+- **Root cause:** The FE ships only the client half of the double-submit CSRF pattern: no backend
+  code issues the XSRF-TOKEN cookie or validates X-CSRF-Token (grep of admin-api-service yields only
+  a security-event type string and a test comment), yet http-client comments assert 'server rejects
+  on mismatch'. Actual CSRF resistance comes from Bearer-token-in-JS-memory auth, which is sound —
+  the defect is dead machinery, false security comments, and blanket credentials:'include'. The same
+  client-only half exists in blob-client.ts and web/shared-ui/src/utils/api-client.ts (systemic).
+- **Fix design:** Make the documented control the real one: remove getCsrfTokenFromCookie, the
+  CSRF_PROTECTED_METHODS header logic, and 'x-csrf-token' from RESERVED_SECURITY_HEADERS in
+  admin-panel http-client and blob-client; rewrite the security comment to state the actual control
+  (Authorization: Bearer held in JS memory — non-cookie auth is CSRF-immune by construction). Audit
+  credentials:'include': no admin-api endpoint reads cookies, so drop it from apiFetch unless
+  verification shows the refresh flow depends on it (silentRefresh runs outside apiFetch). For
+  shared-ui api-client apply the same removal — or, if any surface genuinely uses cookie auth,
+  implement issuance + validation once server-side in backend-common; never leave a client-only
+  half. Guard: invariant spec asserting no XSRF-TOKEN reference exists in FE clients without a
+  matching server-side setter (prevents the theater from returning).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/blob-client.ts`
+  - `web/shared-ui/src/utils/api-client.ts`
+  - `web/modules/admin-panel/src/services/__tests__/http-client.spec.ts`
+  - `tests/invariants/fe-csrf-theater.spec.ts`
+- **Effort:** M
+
+### APA-015 [LOW] Auth/envelope/routing chain verified sound for the dashboard (informational)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Adversarial checks that came back clean, recorded for the audit trail: (1) every
+  dashboard endpoint is behind the global APP_GUARD PlatformAdminGuard enforcing RS256-verified
+  JWT + SUPER_ADMIN (decorators can only narrow, never widen, roles filtered to SUPER_ADMIN);
+  /health/live|ready|startup and GET /health are the only @Public routes and expose no sensitive
+  data; the circuit-breaker GET/POST are NOT public. (2) The {success,data,meta} envelope contract
+  matches the FE unwrap in both directions, including the /health skip-prefix (raw JSON) which the
+  FE handles by returning non-envelope JSON as-is. (3) Nginx path rewrites align FE '/api' paths
+  with the 'api/v1' global prefix and the prefix-excluded /health controller — no method/path
+  mismatches found on this page. (4) admin.audit_logs entity, columns, severity enum and indexes
+  exactly match the Baseline migration.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:283-290 — APP_GUARD PlatformAdminGuard + ThrottlerGuard`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:59,151-177 — SUPER_ADMIN-only, roles can only narrow`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:24,44-74 + web/modules/admin-panel/src/services/http-client.ts:341-351 — envelope parity`
+  - `infrastructure/nginx/droplet.conf:305-319,375-383 — /api/health strip + /api -> /api/v1 rewrite`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:7-14 vs apps/admin-api-service/src/audit/audit.entity.ts:83-158 — schema parity`
+- **Root cause:** Not a defect — informational record of adversarial checks that came back clean:
+  global PlatformAdminGuard coverage, envelope parity both directions (including /health raw-JSON
+  passthrough), nginx /api -> /api/v1 rewrite alignment, and admin.audit_logs entity/migration
+  parity. All consistent with the code re-read in this pass.
+- **Fix design:** No change required. Retain in the audit trail as the clean-chain baseline for the
+  dashboard section; future findings in these areas should be diffed against this record.
+- **Effort:** S
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-HIGH-026** — Phase-1 RC-3 mixed-`@Query` class: `queryAuditLogs` (GET /audit-logs) and
+  `listCustomPlans` (GET /billing/custom-plans) mixed named `@Query('x')` filter params with a bare
+  `@Query() PaginationQueryDto`, so `forbidNonWhitelisted` 400'd every filtered request.
+  Consolidated each to one `@Query()` DTO extending `PaginationQueryDto` (`AuditLogQueryDto`,
+  `CustomPlanQueryDto`) and added the no-allowlist `query-dto-single-source` architecture gate
+  (fail-red on both pre-fix, green after). Closes APA-013 / APA-114; covers APA-356 / APA-362 (the
+  audit page consumes the now-consolidated `/audit-logs`); APA-188 resolved-by-consolidation
+  (APA-213). Adjacent APA-087/319/244 tracked as a separate slice.
+- **ADMIN-MEDIUM-031** — Phase-1 RC-5 severity-vocabulary drift (APA-004 / APA-358): the admin-panel
+  hand-declared `AuditLog.severity` as `low|medium|high|critical` while the backend `AuditSeverity`
+  enum (DB `admin.audit_logs_severity_enum`) is `info|warning|critical`, so WARNING/INFO rows
+  rendered with the default badge on the dashboard + Audit Log and three of four filter options
+  never matched. Bound the FE vocabulary to the backend SSoT (federated remote can't import the
+  enum) — corrected `types/audit.ts`, `AuditLogPage` filter/badge maps, and `AdminDashboard`
+  `getSeverityColor` — plus a new no-allowlist parity gate `admin-audit-severity-vocab.spec.ts` (FE
+  union + filter must equal the backend enum; red proven). `libs/shared-contracts` was correctly NOT
+  used (it is enum-free by design). Action/status vocab drifts (APA-224/236/162) remain as separate
+  RC-5 slices.

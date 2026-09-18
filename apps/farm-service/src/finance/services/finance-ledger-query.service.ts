@@ -81,10 +81,7 @@ const clampGranularity = (
   range: { from: Date; to: Date },
   requested: FinanceGranularity,
 ): FinanceGranularity => {
-  const spanDays = Math.max(
-    1,
-    (range.to.getTime() - range.from.getTime()) / 86_400_000,
-  );
+  const spanDays = Math.max(1, (range.to.getTime() - range.from.getTime()) / 86_400_000);
   let chosen = requested;
   for (const [gran, days] of GRANULARITY_DAYS) {
     if (days < (GRANULARITY_DAYS.find(([g]) => g === requested)?.[1] ?? 1)) continue;
@@ -280,9 +277,17 @@ export function buildBatchAggregationQuery(
 const toMoney = (value: Decimal): number =>
   value.toDecimalPlaces(2, Decimal.ROUND_HALF_EVEN).toNumber();
 
-/** Exact 2dp rounding of a single source amount string (derived line items). */
-const round2 = (value: string | number): number =>
-  toMoney(new Decimal(value));
+/**
+ * Exact 2dp rounding of a single source amount (derived line items).
+ *
+ * Named apart from the shared `round2` deliberately. This rounds through
+ * `Decimal` with ROUND_HALF_EVEN because a ledger amount must never be rounded
+ * by float arithmetic; the shared helper is float and is correct for kg and
+ * temperatures, not money. Carrying the same NAME for two different operations
+ * is what invited a consolidation that would have quietly moved currency onto
+ * floats.
+ */
+const toMoneyAmount = (value: string | number): number => toMoney(new Decimal(value));
 
 @Injectable()
 export class FinanceLedgerQueryService {
@@ -315,13 +320,28 @@ export class FinanceLedgerQueryService {
 
       let derived: FinanceLineItemShape[] = [];
       if (filter.includeDerived && !filter.categoryId) {
-        derived = await this.fetchDerivedLineItems(manager, tenantId, filter, byCode, defaultCurrency, window);
+        derived = await this.fetchDerivedLineItems(
+          manager,
+          tenantId,
+          filter,
+          byCode,
+          defaultCurrency,
+          window,
+        );
       } else if (filter.includeDerived && filter.categoryId) {
         const category = categories.find((c) => c.id === filter.categoryId);
         const source = category?.code
           ? DERIVED_COST_SOURCES.filter((s) => s.systemCode === category.code)
           : [];
-        derived = await this.fetchDerivedLineItems(manager, tenantId, filter, byCode, defaultCurrency, window, source);
+        derived = await this.fetchDerivedLineItems(
+          manager,
+          tenantId,
+          filter,
+          byCode,
+          defaultCurrency,
+          window,
+          source,
+        );
       }
 
       return [...manual, ...derived]
@@ -358,7 +378,10 @@ export class FinanceLedgerQueryService {
       const bucketTotals = new Map<string, Map<string, Decimal>>();
 
       const record = (categoryId: string, bucketKey: string, amount: Decimal): void => {
-        categoryTotals.set(categoryId, (categoryTotals.get(categoryId) ?? new Decimal(0)).plus(amount));
+        categoryTotals.set(
+          categoryId,
+          (categoryTotals.get(categoryId) ?? new Decimal(0)).plus(amount),
+        );
         let perCategory = bucketTotals.get(bucketKey);
         if (!perCategory) {
           perCategory = new Map<string, Decimal>();
@@ -457,7 +480,10 @@ export class FinanceLedgerQueryService {
   // Per-batch totals (batch cost chart)
   // ==========================================================================
 
-  async getBatchTotals(tenantId: string, range: { from: Date; to: Date }): Promise<BatchTotalShape[]> {
+  async getBatchTotals(
+    tenantId: string,
+    range: { from: Date; to: Date },
+  ): Promise<BatchTotalShape[]> {
     await this.seedService.ensureDefaults(this.dataSource, tenantId);
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
@@ -477,13 +503,22 @@ export class FinanceLedgerQueryService {
 
       // Manual + batch-bearing derived sources in ONE round-trip (PERF-009).
       const derivedBranches = this.derivedBranchSpecs(byCode);
-      const { sql, params } = buildBatchAggregationQuery(tenantId, range.from, range.to, derivedBranches);
+      const { sql, params } = buildBatchAggregationQuery(
+        tenantId,
+        range.from,
+        range.to,
+        derivedBranches,
+      );
       const rows = (await manager.query(sql, params)) as UnionAggRow[];
 
       const kindOf = new Map(categories.map((c) => [c.id, c.kind]));
       for (const row of rows) {
         if (!row.batch_id) continue;
-        record(row.batch_id, kindOf.get(row.category_id) ?? FinanceCategoryKind.EXPENSE, new Decimal(row.total));
+        record(
+          row.batch_id,
+          kindOf.get(row.category_id) ?? FinanceCategoryKind.EXPENSE,
+          new Decimal(row.total),
+        );
       }
 
       const ranked = [...totals.entries()]
@@ -514,7 +549,10 @@ export class FinanceLedgerQueryService {
   // Internals
   // ==========================================================================
 
-  private async loadCategories(manager: EntityManager, tenantId: string): Promise<FinanceCategory[]> {
+  private async loadCategories(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<FinanceCategory[]> {
     return manager.find(FinanceCategory, {
       where: { tenantId },
       order: { displayOrder: 'ASC' },
@@ -549,7 +587,8 @@ export class FinanceLedgerQueryService {
 
     if (filter.from) qb.andWhere('e."entryDate" >= :from', { from: filter.from });
     if (filter.to) qb.andWhere('e."entryDate" <= :to', { to: filter.to });
-    if (filter.categoryId) qb.andWhere('e."categoryId" = :categoryId', { categoryId: filter.categoryId });
+    if (filter.categoryId)
+      qb.andWhere('e."categoryId" = :categoryId', { categoryId: filter.categoryId });
     if (filter.batchId) qb.andWhere('e."batchId" = :batchId', { batchId: filter.batchId });
     if (filter.siteId) qb.andWhere('e."siteId" = :siteId', { siteId: filter.siteId });
     if (filter.scope) {
@@ -644,7 +683,7 @@ export class FinanceLedgerQueryService {
           categoryCode: category.code ?? null,
           categoryName: category.name,
           kind: source.kind,
-          amount: round2(row.amount),
+          amount: toMoneyAmount(row.amount),
           currency: row.currency ?? defaultCurrency,
           entryDate: new Date(row.entryDate),
           batchId: row.batchId,

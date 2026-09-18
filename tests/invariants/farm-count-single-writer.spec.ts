@@ -15,9 +15,12 @@
  * legitimately mention the removed pattern) are stripped before scanning.
  *
  * Scope: the handlers that mutate a tank's stock and route through applyBatchDelta.
- * allocate-to-tank / create-batch derive currentCount = totalQuantity directly at
- * initial stocking (not a drift, not compute-then-write) and are intentionally not
- * in scope; their consolidation is tracked separately.
+ * create-batch joined that set when initial stocking stopped hand-mutating the
+ * tank_batches row (FARM-HIGH-139) — it now writes composition and the container
+ * count through the same single writer as every other stock path, so a regression
+ * to its own count write fails here. allocate-to-tank still writes currentCount,
+ * but from the totals applyBatchDelta returned in the same transaction rather than
+ * from local arithmetic, so it cannot diverge; it stays out of scope.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -27,6 +30,7 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 // Stock-mutation handlers that route the count change through applyBatchDelta —
 // they must NOT also write Tank/Equipment.currentCount themselves.
 const SINGLE_WRITER_HANDLERS = [
+  'apps/farm-service/src/batch/handlers/create-batch.handler.ts',
   'apps/farm-service/src/batch/handlers/record-mortality.handler.ts',
   'apps/farm-service/src/batch/handlers/record-cull.handler.ts',
   'apps/farm-service/src/batch/handlers/transfer-batch.handler.ts',

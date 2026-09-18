@@ -88,11 +88,15 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
       // cast. The cast lives once, in one util, with a narrow
       // PgPoolLike interface — no leakage of TypeORM driver
       // internals into the bootstrap.
-      const pool = getPgPoolFromDataSource(this.dataSource);
-      if (!pool) {
-        this.logger.error('Cannot patch connection pool — pg Pool not found on DataSource driver');
-        return;
-      }
+      // Throws when the driver has no usable pool. It used to log-and-return,
+      // which let a schema-per-tenant service boot with search_path routing
+      // inactive — every query then runs against the connection's default
+      // search_path instead of tenant_<uuid>, which is the failure this
+      // bootstrap exists to make impossible.
+      const pool = getPgPoolFromDataSource(
+        this.dataSource,
+        `TenantConnectionBootstrap[${sourceSchema}]`,
+      );
 
       const originalConnect = pool.connect.bind(pool);
       const src = sourceSchema;

@@ -6,6 +6,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Invitation } from '../../../authentication/entities/invitation.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { Tenant, TenantStatus } from '../../entities/tenant.entity';
+import { AuditLogService } from '../../../../audit/audit-log.service';
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
 
 /**
@@ -49,7 +50,9 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     return tenant;
   };
 
-  const command = (reason?: string): {
+  const command = (
+    reason?: string,
+  ): {
     operationId: string;
     tenantId: string;
     actor: { id: string; type: 'user' };
@@ -72,8 +75,8 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
       save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
     };
     const dataSource = {
-      transaction: jest.fn(
-        async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => work(manager),
+      transaction: jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) =>
+        work(manager),
       ),
     };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
@@ -96,6 +99,9 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
             isTokenValid: jest.fn().mockResolvedValue(true),
           },
         },
+        // W5: lokalizasyon komutunun fail-CLOSED denetim izi (lifecycle
+        // yolunda çağrılmaz, ancak DI grafiği için sağlanmalıdır).
+        { provide: AuditLogService, useValue: { log: jest.fn() } },
       ],
     }).compile();
 

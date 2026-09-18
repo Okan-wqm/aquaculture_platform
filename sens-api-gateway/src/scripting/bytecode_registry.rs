@@ -63,7 +63,13 @@ pub struct ProgramEntry {
     /// tag (`fish_feeder_alert`, `ph_guard`, …).
     pub program_id: String,
     /// Signed + verified bytecode artifact.
-    pub bytecode: Bytecode,
+    ///
+    /// EDGE-HIGH-021: wrapped in `Arc` so `list_enabled()` (called every
+    /// scan tick) clones only an atomic refcount bump instead of deep-
+    /// copying the full opcode vector + owned strings for every enabled
+    /// program on every tick. The bytecode is immutable once deployed, so
+    /// sharing it is safe; a new deploy replaces the whole entry.
+    pub bytecode: Arc<Bytecode>,
     /// Tenant that owns this program. `None` indicates a
     /// platform-scoped program (rare; used for factory
     /// default alarms). Tenant-scoped programs reject
@@ -109,6 +115,18 @@ pub enum RegistryError {
         existing: Option<String>,
         incoming: Option<String>,
     },
+    /// EDGE-HIGH-016: `insert` received an entry whose
+    /// `bytecode.max_gas_per_tick` exceeds the hard VM
+    /// ceiling. Accepting it would let a program declare a
+    /// budget the VM cannot honour, so the deploy is
+    /// rejected loudly here rather than being silently
+    /// throttled at runtime. Operator-visible defense in
+    /// depth over the VM-side clamp.
+    GasCeilingExceeded {
+        program_id: String,
+        requested: u32,
+        ceiling: u32,
+    },
 }
 
 impl std::fmt::Display for RegistryError {
@@ -134,6 +152,15 @@ impl std::fmt::Display for RegistryError {
                 f,
                 "registry: program `{}` tenant mismatch (existing={:?}, incoming={:?})",
                 program_id, existing, incoming
+            ),
+            Self::GasCeilingExceeded {
+                program_id,
+                requested,
+                ceiling,
+            } => write!(
+                f,
+                "registry: program `{}` max_gas_per_tick {} exceeds hard VM ceiling {}",
+                program_id, requested, ceiling
             ),
         }
     }
@@ -168,6 +195,18 @@ impl BytecodeProgramRegistry {
     /// 3. Otherwise the insert succeeds; stored entry is
     ///    the incoming one.
     pub async fn insert(&self, entry: ProgramEntry) -> Result<(), RegistryError> {
+        // EDGE-HIGH-016: reject a program whose declared per-tick gas budget
+        // exceeds the hard VM ceiling. Every deploy path funnels through
+        // insert, so this is the single operator-visible chokepoint; the
+        // VM-side clamp (ScriptVm::new) is the last-resort backstop for any
+        // entry that reaches the runtime without passing through here.
+        if entry.bytecode.max_gas_per_tick > crate::scripting::bytecode_vm::MAX_GAS_CEIL {
+            return Err(RegistryError::GasCeilingExceeded {
+                program_id: entry.program_id.clone(),
+                requested: entry.bytecode.max_gas_per_tick,
+                ceiling: crate::scripting::bytecode_vm::MAX_GAS_CEIL,
+            });
+        }
         let mut inner = self.inner.write().await;
         if let Some(existing) = inner.get(&entry.program_id) {
             if existing.tenant_id != entry.tenant_id {
@@ -305,7 +344,7 @@ mod tests {
     fn mk_entry(program_id: &str, tenant: Option<&str>, version: u64) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
-            bytecode: mk_bc(program_id),
+            bytecode: std::sync::Arc::new(mk_bc(program_id)),
             tenant_id: tenant.map(|s| s.to_string()),
             policy_version: version,
             enabled: true,
@@ -342,6 +381,50 @@ mod tests {
             .await
             .expect("replace ok");
         assert_eq!(reg.get("p1").await.expect("exists").policy_version, 2);
+    }
+
+    // EDGE-HIGH-016: the deploy chokepoint rejects an over-ceiling gas budget
+    // loudly instead of letting the VM silently throttle it at runtime.
+    // EDGE-HIGH-021: list_enabled / get clone only an Arc bump — the opcode
+    // vector is shared, not deep-copied per tick.
+    #[tokio::test]
+    async fn list_enabled_shares_bytecode_via_arc() {
+        let reg = BytecodeProgramRegistry::new();
+        reg.insert(mk_entry("p1", Some("tenant-a"), 1))
+            .await
+            .expect("insert ok");
+        let a = reg.list_enabled().await;
+        let b = reg.list_enabled().await;
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+        // Two independent list_enabled() results point at the SAME bytecode
+        // allocation — no opcode-vector copy occurred.
+        assert!(
+            std::sync::Arc::ptr_eq(&a[0].bytecode, &b[0].bytecode),
+            "bytecode must be shared via Arc across list_enabled() calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn insert_rejects_gas_above_ceiling() {
+        let reg = BytecodeProgramRegistry::new();
+        let mut entry = mk_entry("p-gas", Some("tenant-a"), 1);
+        std::sync::Arc::make_mut(&mut entry.bytecode).max_gas_per_tick =
+            crate::scripting::bytecode_vm::MAX_GAS_CEIL + 1;
+        let err = reg.insert(entry).await.expect_err("over-ceiling rejected");
+        assert!(matches!(err, RegistryError::GasCeilingExceeded { .. }));
+        // The rejected program must not be stored.
+        assert!(reg.get("p-gas").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_accepts_gas_at_ceiling_boundary() {
+        let reg = BytecodeProgramRegistry::new();
+        let mut entry = mk_entry("p-gas-ok", Some("tenant-a"), 1);
+        std::sync::Arc::make_mut(&mut entry.bytecode).max_gas_per_tick =
+            crate::scripting::bytecode_vm::MAX_GAS_CEIL;
+        reg.insert(entry).await.expect("at-ceiling accepted");
+        assert!(reg.get("p-gas-ok").await.is_some());
     }
 
     #[tokio::test]
@@ -540,7 +623,7 @@ mod tests {
             .collect();
         ProgramEntry {
             program_id: program_id.to_string(),
-            bytecode: bc,
+            bytecode: std::sync::Arc::new(bc),
             tenant_id: tenant.map(|s| s.to_string()),
             policy_version: 1,
             enabled: true,

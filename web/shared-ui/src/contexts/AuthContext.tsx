@@ -146,7 +146,24 @@ export interface MfaChallengeResult {
 /**
  * Login result — either a redirect path (normal login) or MFA challenge
  */
-export type LoginResult = { redirectPath: string } | MfaChallengeResult;
+/**
+ * MFA-setup-required result (ADR-046) — returned when the tenant ENFORCES MFA
+ * but this user has no second factor enrolled. NO session tokens are issued;
+ * the short-lived `mfaSetupToken` authorizes ONLY setupMfa + verifyMfaSetup so
+ * the user can enroll and then sign in again. A completable path, not a
+ * lockout.
+ */
+export interface MfaSetupRequiredResult {
+  mfaSetupRequired: true;
+  mfaSetupToken: string;
+}
+
+/**
+ * Login result — a redirect path (normal login), an MFA challenge (the user has
+ * MFA and must verify), or an MFA-setup requirement (the tenant enforces MFA
+ * and the user must enroll first).
+ */
+export type LoginResult = { redirectPath: string } | MfaChallengeResult | MfaSetupRequiredResult;
 
 /**
  * Verify MFA login payload
@@ -454,6 +471,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
             redirectUrl
             mfaRequired
             mfaToken
+            mfaSetupRequired
+            mfaSetupToken
             user {
               id
               email
@@ -475,6 +494,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
             redirectUrl: string;
             mfaRequired?: boolean;
             mfaToken?: string;
+            mfaSetupRequired?: boolean;
+            mfaSetupToken?: string;
             user: AuthUser;
           };
         }>(LOGIN_MUTATION, {
@@ -496,6 +517,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
           return {
             mfaRequired: true,
             mfaToken: response.login.mfaToken,
+          };
+        }
+
+        // ADR-046: the tenant enforces MFA and this user has no second factor.
+        // No tokens were issued — hand back the setup credential so the UI can
+        // drive enrollment (setupMfa + verifyMfaSetup) and then send the user
+        // back to sign in on the single audited token-issuance path.
+        if (response.login.mfaSetupRequired && response.login.mfaSetupToken) {
+          dispatch({ type: 'SET_LOADING', payload: false });
+          return {
+            mfaSetupRequired: true,
+            mfaSetupToken: response.login.mfaSetupToken,
           };
         }
 

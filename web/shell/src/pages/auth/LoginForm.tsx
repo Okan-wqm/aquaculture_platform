@@ -9,6 +9,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Button,
   Input,
   PasswordInput,
@@ -21,9 +22,10 @@ import {
   validateField,
   validateNavigationUrl,
 } from '@aquaculture/shared-ui';
-import type { MfaChallengeResult } from '@aquaculture/shared-ui';
+import type { MfaChallengeResult, MfaSetupRequiredResult } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
+import MfaSetupScreen from './MfaSetupScreen';
 
 const LockIcon: React.FC = () => (
   <svg
@@ -96,6 +98,12 @@ const LoginForm: React.FC = () => {
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const mfaInputRef = useRef<HTMLInputElement>(null);
 
+  // ADR-046: the tenant enforces MFA but this user has no second factor. Login
+  // returns a setup token and NO session, so drive enrollment before the login
+  // can complete.
+  const [mfaSetup, setMfaSetup] = useState<MfaSetupRequiredResult | null>(null);
+  const [postSetupNotice, setPostSetupNotice] = useState('');
+
   useEffect(() => {
     if (mfaChallenge && mfaInputRef.current) {
       mfaInputRef.current.focus();
@@ -140,6 +148,12 @@ const LoginForm: React.FC = () => {
           setMfaCode('');
           setMfaError('');
           setUseRecoveryCode(false);
+          return;
+        }
+
+        if ('mfaSetupRequired' in result && result.mfaSetupRequired) {
+          setMfaSetup(result);
+          setPostSetupNotice('');
           return;
         }
 
@@ -196,6 +210,20 @@ const LoginForm: React.FC = () => {
     [mfaChallenge, mfaCode, useRecoveryCode, verifyMfaLogin, navigate, clearError, t],
   );
 
+  const handleBackFromSetup = useCallback(
+    (options?: { enrolled: boolean }) => {
+      setMfaSetup(null);
+      // Clear the password so the user re-enters it on the fresh sign-in that
+      // now flows through the normal MFA challenge.
+      setFormData((prev) => ({ ...prev, password: '' }));
+      setPostSetupNotice(
+        options?.enrolled ? 'MFA is set up. Please sign in again to continue.' : '',
+      );
+      clearError();
+    },
+    [clearError],
+  );
+
   const handleBackToLogin = useCallback(() => {
     setMfaChallenge(null);
     setMfaCode('');
@@ -208,6 +236,11 @@ const LoginForm: React.FC = () => {
   const isMfaCodeReady = useRecoveryCode
     ? normalizedMfaCode.length >= 6 && normalizedMfaCode.length <= 12
     : /^\d{6}$/.test(normalizedMfaCode);
+
+  // ── MFA Setup Screen (ADR-046 — the tenant enforces MFA, user must enroll) ──
+  if (mfaSetup) {
+    return <MfaSetupScreen challenge={mfaSetup} onBackToLogin={handleBackFromSetup} />;
+  }
 
   // ── MFA Challenge Screen ──────────────────────────────────────────────────
   if (mfaChallenge) {
@@ -308,6 +341,12 @@ const LoginForm: React.FC = () => {
         onSubmit={handleSubmit}
         className="industrial-login-form"
       >
+        {postSetupNotice && (
+          <Alert type="success" dismissible onDismiss={() => setPostSetupNotice('')}>
+            {postSetupNotice}
+          </Alert>
+        )}
+
         <Input
           surface="glass"
           className="industrial-auth-field"

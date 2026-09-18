@@ -16,6 +16,8 @@ import { InventoryCountItem } from './entities/inventory-count-item.entity';
 import { StorageLotMix } from './entities/storage-lot-mix.entity';
 import { LotMixService } from './services/lot-mix.service';
 import { StockMovementService } from './services/stock-movement.service';
+import { FeedAllocationService } from './services/feed-allocation.service';
+import { StockMutationLockAuthority } from './services/stock-mutation-lock.authority';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -117,15 +119,22 @@ const QueryHandlers = [
     // Exported so FeedingModule can deduct feed stock INSIDE the feeding
     // transaction (fail-closed, atomic) — see StockMovementService header.
     StockMovementService,
+    // Çok-lotlu FEFO tahsis motoru. SAĞLANIR ama DIŞA AKTARILMAZ: yemlemenin
+    // depoya tek girişi `StockMovementService.resolveFeedDeductionLocation`
+    // sözleşmesidir (FARM-CRITICAL-237) ve motor onun ARKASINDA durur. Export
+    // edilseydi başka bir modül motoru doğrudan enjekte edip fail-closed
+    // sözleşmenin ETRAFINDAN dolaşabilirdi — W2'de tam olarak bu oldu. Nest
+    // provider görünürlüğü bunu artık yapısal olarak imkânsız kılar.
+    FeedAllocationService,
+    // Fiziksel stok mutasyonlarının TEK kilit protokolü — satır kilidi olmayan
+    // (henüz var olmayan) fiziksel anahtarı da kapsar.
+    StockMutationLockAuthority,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [
-    TypeOrmModule,
-    StockMovementService,
-  ],
+  exports: [TypeOrmModule, StockMovementService, StockMutationLockAuthority],
 })
 export class InventoryModule {}

@@ -37,5 +37,14 @@ export declare const rules: {
     'no-unpinned-ssrf-fetch': import("@typescript-eslint/utils/ts-eslint").RuleModule<"bareFetchInSensitiveZone" | "removedGetSafeFetchOptions", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
         name: string;
     };
+    'no-unsandboxed-html-frame': import("@typescript-eslint/utils/ts-eslint").RuleModule<"frameWithoutSandbox" | "srcDocOutsideSandboxedPreview", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
+        name: string;
+    };
+    'no-actor-in-input-dto': import("@typescript-eslint/utils/ts-eslint").RuleModule<"actorFromClient", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
+        name: string;
+    };
+    'no-unverified-tenant-param': import("@typescript-eslint/utils/ts-eslint").RuleModule<"rawTenantParam" | "tenantInInputDto", [], unknown, import("@typescript-eslint/utils/ts-eslint").RuleListener> & {
+        name: string;
+    };
 };
 //# sourceMappingURL=index.d.ts.map

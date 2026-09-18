@@ -81,7 +81,7 @@ export class FeedingProtocolResolver {
   async feedingProtocolsBySpecies(
     @Args('species') species: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeedingProtocolResponse[]> {
+  ): Promise<readonly FeedingProtocolResponse[]> {
     this.logger.debug(`Getting feeding protocols for species "${species}" for tenant ${tenantId}`);
     const query = new ListFeedingProtocolsQuery(
       tenantId,

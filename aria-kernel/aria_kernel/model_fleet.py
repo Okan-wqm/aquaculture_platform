@@ -14,6 +14,10 @@ function of the probe results plus the role order. No network calls happen
 here — probing "is the credential present" is an env/PATH fact; whether the
 credential WORKS is the runtime's own auth-failure contract (and, since
 ARIA-HIGH-023, its cross-provider fallback).
+
+The native admission — the per-dispatch fleet decision that probes each
+provider's status to a three-valued verdict and walks the ladder — lives in
+`aria_kernel.native_admission`; this module holds the fleet it walks.
 """
 
 from __future__ import annotations
@@ -44,7 +48,39 @@ class Provider:
     """
 
     runtime_hint: str
-    """Which executor runtime serves this provider ('claude' | 'codex')."""
+    """Which executor runtime serves this provider ('claude' | 'codex' | 'zai').
+
+    'claude' and 'codex' are the vendors' managed-subscription CLIs; 'zai' is
+    the kernel's own HTTP transport (tools/aria-poc/zai_runtime.py). The
+    operator policy of 2026-09-11 admits Z.ai ONLY through that transport and
+    never as a credential handed to either CLI, so no provider may name a CLI
+    runtime together with a Z.ai credential.
+    """
+
+    admits_writes: bool
+    """Whether this provider's runtime can host a WRITE-SCOPE profile.
+
+    The managed Claude CLI runs under the write-containment sandbox and can
+    edit a bound workspace; the Codex route runs `--sandbox read-only` and
+    the Z.ai transport is a single chat completion — neither can execute an
+    implementer or a worker. This row is the one place that fact lives: the
+    native admission refuses a read-only runtime for a write-capable profile
+    by name (`provider_readonly_runtime`), and the auth failover ladder in
+    claude_runtime skips such a rung for the same profile. Operator decision
+    2026-09-12: a write-scope request whose provider is exhausted waits for
+    that provider; it is never handed to a runtime that cannot write.
+    """
+
+    credential_file_env: str | None = None
+    """The env var naming a root-only FILE that holds the credential.
+
+    The file boundary is the preferred one on a host (no value in the process
+    environment, nothing for an env dump or a child to copy); `credential_env`
+    remains for CI-secret injection. Presence of either is the cheap signal.
+    """
+
+    model_env: str | None = None
+    """An operator override of `default_model` for this provider, if any."""
 
 
 # The fleet, in preference order for mixed assignment (strongest-authoring
@@ -56,18 +92,23 @@ _FLEET: tuple[Provider, ...] = (
         default_model="opus",
         credential_env=None,
         runtime_hint="claude",
+        admits_writes=True,
     ),
     Provider(
         key="zai",
         default_model="glm-5.3",
         credential_env="ARIA_ZAI_API_KEY",
-        runtime_hint="claude",
+        runtime_hint="zai",
+        admits_writes=False,
+        credential_file_env="ARIA_ZAI_API_KEY_FILE",
+        model_env="ARIA_ZAI_MODEL",
     ),
     Provider(
         key="openai",
         default_model="gpt-5.2-codex",
         credential_env="OPENAI_API_KEY",
         runtime_hint="codex",
+        admits_writes=False,
     ),
 )
 
@@ -77,6 +118,33 @@ _FLEET: tuple[Provider, ...] = (
 # availability signal is the session file's existence under the EFFECTIVE
 # user's codex home; OPENAI_API_KEY remains the alternative credential.
 _CODEX_AUTH_FILE = "auth.json"
+_MODEL_PROVIDER_ALIASES: dict[str, str] = {"gpt-6-astra": "openai"}
+
+
+# The CLI a runtime hint spawns, or None for the kernel's own transport.
+_RUNTIME_BINARIES: dict[str, str | None] = {"claude": "claude", "codex": "codex", "zai": None}
+
+
+def _credential_named(provider: Provider, env: dict[str, str]) -> bool:
+    """A credential boundary is NAMED for the provider: a file path or a value.
+
+    Presence only, in either boundary; whether it works is the runtime's
+    probe. Both at once is not "more configured" — the runtime refuses that
+    as ambiguous — but it is still named, so availability says yes and the
+    probe says why not.
+    """
+    if provider.credential_file_env and env.get(provider.credential_file_env, "").strip():
+        return True
+    return bool(provider.credential_env and env.get(provider.credential_env, "").strip())
+
+
+def provider_model(provider: Provider, env: dict[str, str]) -> str:
+    """The model a provider's routes run on: the operator override, else the default."""
+    if provider.model_env:
+        override = env.get(provider.model_env, "").strip()
+        if override:
+            return override
+    return provider.default_model
 
 
 def _codex_session_present(env: dict[str, str]) -> bool:
@@ -85,7 +153,9 @@ def _codex_session_present(env: dict[str, str]) -> bool:
     Fail-closed: absence means the runner user has not logged in — the
     remedy is `codex login` as that user, never a silent provider claim.
     """
-    home = env.get("CODEX_HOME") or str(Path.home())
+    home = env.get("CODEX_HOME") or (
+        Path(env.get("HOME") or Path.home()) / ".codex"
+    )
     return (Path(home) / _CODEX_AUTH_FILE).is_file()
 
 
@@ -101,7 +171,7 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
     env = dict(os.environ if environ is None else environ)
     # Binary probes honor the CALLER'S PATH (the passed environ when given):
     # a test isolating PATH must be able to make the runtimes invisible.
-    search_path = env.get("PATH") or os.environ.get("PATH")
+    search_path = env.get("PATH", os.environ.get("PATH"))
     out: list[Provider] = []
     for provider in _FLEET:
         if provider.runtime_hint == "codex":
@@ -110,6 +180,12 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
                 env.get(provider.credential_env or "", "").strip()
             )
             if codex_on_path and has_credential:
+                out.append(provider)
+            continue
+        if provider.runtime_hint == "zai":
+            # The kernel's own transport: no binary to find. A named
+            # credential boundary is the whole cheap signal.
+            if _credential_named(provider, env):
                 out.append(provider)
             continue
         if provider.credential_env is None:
@@ -141,10 +217,16 @@ def assign_mixed_models(
     providers = available_providers(environ)
     if not providers:
         return {}
+    env = dict(os.environ if environ is None else environ)
     assignment: dict[str, str] = {}
     for index, role in enumerate(roles):
-        assignment[role] = providers[index % len(providers)].default_model
+        assignment[role] = provider_model(providers[index % len(providers)], env)
     return assignment
+
+
+def zai_provider() -> Provider:
+    """The Z.ai fleet row — the SSoT the HTTP transport binds its variable names to."""
+    return next(provider for provider in _FLEET if provider.key == "zai")
 
 
 def provider_for_model(model: str) -> str | None:
@@ -152,4 +234,32 @@ def provider_for_model(model: str) -> str | None:
     for provider in _FLEET:
         if model == provider.default_model:
             return provider.key
-    return None
+    return _MODEL_PROVIDER_ALIASES.get(model)
+
+
+# The provider whose runtime dispatches a tier the fleet does not list by
+# name (`sonnet`, `haiku`, `fable`): the managed Anthropic session. One
+# constant, read by every route resolver, so the convention cannot drift
+# between the executors and the kernel's own dispatch hooks.
+DEFAULT_DISPATCHING_PROVIDER = "anthropic"
+
+
+def dispatching_provider_for_model(model: str | None) -> str:
+    """The provider a dispatch on `model` runs through — never None.
+
+    `provider_for_model` answers "which fleet row lists this model"; this
+    answers the routing question the executors, the dispatch-failure
+    classifier and the worker dispatch hook all ask: which provider's
+    quota, credential and cooldown does a spawn on this tier live under.
+    Unlisted tiers are the managed Anthropic session's.
+    """
+    return provider_for_model(str(model or "")) or DEFAULT_DISPATCHING_PROVIDER
+
+
+def provider_admits_writes(provider_key: str) -> bool:
+    """Whether the named provider's runtime can host a write-scope profile.
+
+    Fail-closed: a provider the fleet does not list admits nothing, so a
+    typo or a future row cannot silently become a write-capable route.
+    """
+    return any(provider.key == provider_key and provider.admits_writes for provider in _FLEET)

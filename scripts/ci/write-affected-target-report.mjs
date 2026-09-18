@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
+import { validateReviewedException } from './lib/reviewed-exception.mjs';
+
 function parseArgs(argv) {
   const args = {
     dryRun: false,
@@ -27,7 +29,17 @@ function parseArgs(argv) {
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  for (const key of ['target', 'base', 'head', 'policy', 'changedFiles', 'affectedProjects', 'explicitExcludes', 'strictProjects', 'report']) {
+  for (const key of [
+    'target',
+    'base',
+    'head',
+    'policy',
+    'changedFiles',
+    'affectedProjects',
+    'explicitExcludes',
+    'strictProjects',
+    'report',
+  ]) {
     if (!args[key]) throw new Error(`${key} is required`);
   }
 
@@ -42,10 +54,50 @@ function lines(path) {
     .filter(Boolean);
 }
 
+// One Nx project name per line — nothing else may reach the strict list. A JSON
+// array that leaked through as a single "name" (`["a","b"]`) is matched by no
+// quarantine key and by no Nx project, so the lane would run nothing and pass.
+const NX_PROJECT_NAME = /^[A-Za-z0-9@/._-]+$/;
+
+function projectNames(path) {
+  const names = lines(path);
+  const malformed = names.filter((name) => !NX_PROJECT_NAME.test(name));
+  if (malformed.length > 0) {
+    throw new Error(`Affected project list carries non-project lines: ${malformed.join(' | ')}`);
+  }
+  return names;
+}
+
+// A quarantine entry is tracked debt, and tracked debt has an owner, a reason,
+// an expiry and a finding. That shape is shared with every other reviewed
+// exception in the repository (dormant invariants, npm advisories) and lives in
+// scripts/ci/lib/reviewed-exception.mjs — a bare reason string was the previous
+// shape here, and 19 `test` entries carried one with no owner, no clock and no
+// finding for four months (PROC-MEDIUM-025). The policy file is refused whole
+// when any entry of any target is malformed or expired, so the lane fails
+// closed instead of warning about debt nobody owns.
+const POLICY_VERSION = 2;
+
+function validateQuarantine(policy, today) {
+  if (policy.version !== POLICY_VERSION) {
+    throw new Error(`affected-target policy version ${policy.version} is not ${POLICY_VERSION}`);
+  }
+  const problems = [];
+  for (const [target, config] of Object.entries(policy.targets ?? {})) {
+    for (const [project, entry] of Object.entries(config.knownUnstableProjects ?? {})) {
+      problems.push(...validateReviewedException(entry, `${target}/${project}`, today));
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`affected-target policy quarantine is invalid:\n  ${problems.join('\n  ')}`);
+  }
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const policy = JSON.parse(readFileSync(args.policy, 'utf8'));
-  const affectedProjects = lines(args.affectedProjects);
+  validateQuarantine(policy, new Date().toISOString().slice(0, 10));
+  const affectedProjects = projectNames(args.affectedProjects);
   const explicitExcludes = new Set(lines(args.explicitExcludes));
   const knownUnstable = policy.targets?.[args.target]?.knownUnstableProjects ?? {};
   const strictProjects = [];
@@ -56,13 +108,17 @@ function main() {
     if (explicitExcludes.has(project)) {
       explicitlyExcludedProjects.push(project);
     } else if (Object.prototype.hasOwnProperty.call(knownUnstable, project)) {
-      quarantinedProjects.push({ project, reason: knownUnstable[project] });
+      quarantinedProjects.push({ project, ...knownUnstable[project] });
     } else {
       strictProjects.push(project);
     }
   }
 
-  writeFileSync(args.strictProjects, `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`, 'utf8');
+  writeFileSync(
+    args.strictProjects,
+    `${strictProjects.join('\n')}${strictProjects.length ? '\n' : ''}`,
+    'utf8',
+  );
 
   const report = {
     target: args.target,
@@ -88,8 +144,11 @@ function main() {
   if (quarantinedProjects.length > 0) {
     console.log('Known-unstable project target quarantine:');
     for (const entry of quarantinedProjects) {
-      console.log(`  - ${entry.project}: ${entry.reason}`);
-      console.log(`::warning title=CI affected ${args.target} baseline debt::${entry.project}: ${entry.reason}`);
+      const tracked = `${entry.finding_id}, owner ${entry.owner}, expires ${entry.expires_on}`;
+      console.log(`  - ${entry.project}: ${entry.reason} [${tracked}]`);
+      console.log(
+        `::warning title=CI affected ${args.target} quarantine (${tracked})::${entry.project}: ${entry.reason}`,
+      );
     }
   }
 

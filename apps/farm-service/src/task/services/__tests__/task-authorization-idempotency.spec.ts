@@ -26,6 +26,10 @@ import { RecurringTemplate } from '../../entities/recurring-template.entity';
 import { UpdateTaskInput } from '../../dto/update-task.dto';
 import { CreateTaskInput } from '../../dto/create-task.dto';
 import { TaskService } from '../task.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const TENANT = 'tenant-1';
 const OWNER = 'user-owner';
@@ -107,6 +111,7 @@ async function buildHarness(
       { provide: DataSource, useValue: dataSource },
       { provide: OutboxPublisher, useValue: outbox },
       { provide: MobileCommandReceiptService, useClass: MobileCommandReceiptService },
+      { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
     ],
   }).compile();
 

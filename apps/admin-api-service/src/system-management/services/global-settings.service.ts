@@ -1,7 +1,20 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
-import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
+import { safeRegex } from '@aquaculture/backend-common/security';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 
@@ -11,7 +24,6 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -24,6 +36,10 @@ import {
   ReleaseStatus,
   ChangelogEntry,
 } from '../entities/system-version.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -54,7 +70,6 @@ export interface SystemHealthStatus {
   environment: string;
   maintenanceMode: boolean;
   featureToggles: number;
-  activeConfigs: number;
 }
 
 // ============================================================================
@@ -75,6 +90,7 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly maintenanceModeRepo: Repository<MaintenanceMode>,
     @InjectRepository(SystemVersion)
     private readonly systemVersionRepo: Repository<SystemVersion>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -170,7 +186,7 @@ export class GlobalSettingsService implements OnModuleInit {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureToggle[]; total: number }> {
+  }): Promise<PaginationResultV1<FeatureToggle>> {
     const query = this.featureToggleRepo.createQueryBuilder('toggle');
 
     if (params.scope) {
@@ -196,7 +212,7 @@ export class GlobalSettingsService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<FeatureToggle>(items, total, page, limit);
   }
 
   async evaluateFeatureToggle(
@@ -320,12 +336,20 @@ export class GlobalSettingsService implements OnModuleInit {
             this.conditionValueToString(condition.value),
           );
         case 'in':
-          return Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue)
+          );
         case 'not_in':
-          return Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue)
+          );
         case 'regex':
-          return new RegExp(this.conditionValueToString(condition.value)).test(
-            this.conditionValueToString(contextValue),
+          // SEC-LOW №11 (2026-08-23 scan): shared ReDoS gate; unsafe patterns
+          // fail closed.
+          return (
+            safeRegex(this.conditionValueToString(condition.value))?.test(
+              this.conditionValueToString(contextValue),
+            ) === true
           );
         default:
           return false;
@@ -340,11 +364,7 @@ export class GlobalSettingsService implements OnModuleInit {
     if (typeof value === 'string') {
       return value;
     }
-    if (
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
       return value.toString();
     }
     return '';
@@ -380,7 +400,11 @@ export class GlobalSettingsService implements OnModuleInit {
     type?: MaintenanceType;
     tenantId?: string;
     affectedTenants?: string[];
-    affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+    affectedServices?: Array<{
+      name: string;
+      status: 'unavailable' | 'degraded' | 'read_only';
+      message?: string;
+    }>;
     scheduledStart: Date;
     scheduledEnd?: Date;
     estimatedDurationMinutes?: number;
@@ -477,10 +501,10 @@ export class GlobalSettingsService implements OnModuleInit {
     const query = this.maintenanceModeRepo
       .createQueryBuilder('m')
       .where('m.status = :status', { status: MaintenanceStatus.IN_PROGRESS })
-      .orWhere(
-        'm.status = :scheduled AND m.scheduledStart <= :now',
-        { scheduled: MaintenanceStatus.SCHEDULED, now },
-      );
+      .orWhere('m.status = :scheduled AND m.scheduledStart <= :now', {
+        scheduled: MaintenanceStatus.SCHEDULED,
+        now,
+      });
 
     const activeMaintenance = await query.getMany();
 
@@ -548,7 +572,7 @@ export class GlobalSettingsService implements OnModuleInit {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: MaintenanceMode[]; total: number }> {
+  }): Promise<PaginationResultV1<MaintenanceMode>> {
     const query = this.maintenanceModeRepo.createQueryBuilder('m');
 
     if (params.scope) {
@@ -561,10 +585,10 @@ export class GlobalSettingsService implements OnModuleInit {
       query.andWhere('m.type = :type', { type: params.type });
     }
     if (params.tenantId) {
-      query.andWhere(
-        '(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)',
-        { tenantId: params.tenantId, tenantArray: JSON.stringify([params.tenantId]) },
-      );
+      query.andWhere('(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)', {
+        tenantId: params.tenantId,
+        tenantArray: JSON.stringify([params.tenantId]),
+      });
     }
     if (params.startDate) {
       query.andWhere('m.scheduledStart >= :startDate', { startDate: params.startDate });
@@ -580,7 +604,7 @@ export class GlobalSettingsService implements OnModuleInit {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult<MaintenanceMode>(items, total, page, limit);
   }
 
   // ============================================================================
@@ -632,10 +656,7 @@ export class GlobalSettingsService implements OnModuleInit {
     }
 
     // Mark previous current version as not current
-    await this.systemVersionRepo.update(
-      { isCurrentVersion: true },
-      { isCurrentVersion: false },
-    );
+    await this.systemVersionRepo.update({ isCurrentVersion: true }, { isCurrentVersion: false });
 
     // Update this version
     version.status = ReleaseStatus.DEPLOYED;
@@ -694,7 +715,7 @@ export class GlobalSettingsService implements OnModuleInit {
     status?: ReleaseStatus;
     page?: number;
     limit?: number;
-  }): Promise<{ items: SystemVersion[]; total: number }> {
+  }): Promise<PaginationResultV1<SystemVersion>> {
     const query = this.systemVersionRepo.createQueryBuilder('v');
 
     if (params.releaseType) {
@@ -707,88 +728,14 @@ export class GlobalSettingsService implements OnModuleInit {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
-    query.orderBy('v.majorVersion', 'DESC')
+    query
+      .orderBy('v.majorVersion', 'DESC')
       .addOrderBy('v.minorVersion', 'DESC')
       .addOrderBy('v.patchVersion', 'DESC');
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
-  }
-
-  // ============================================================================
-  // Global Configuration Management
-  // ============================================================================
-
-  createConfig(data: {
-    key: string;
-    name: string;
-    description?: string;
-    category?: ConfigCategory;
-    valueType?: ConfigValueType;
-    value: unknown;
-    defaultValue?: unknown;
-    validation?: {
-      required?: boolean;
-      min?: number;
-      max?: number;
-      minLength?: number;
-      maxLength?: number;
-      pattern?: string;
-      allowedValues?: unknown[];
-    };
-    isSecret?: boolean;
-    isReadOnly?: boolean;
-    requiresRestart?: boolean;
-    helpText?: string;
-    createdBy?: string;
-  }): never {
-    void data;
-    this.throwGlobalConfigGone();
-  }
-
-  updateConfig(
-    id: string,
-    value: unknown,
-    updatedBy: string,
-    reason?: string,
-  ): never {
-    void id;
-    void value;
-    void updatedBy;
-    void reason;
-    this.throwGlobalConfigGone();
-  }
-
-  getConfig(key: string): unknown {
-    return this.provisioningDefault(key);
-  }
-
-  getConfigEntity(id: string): never {
-    void id;
-    this.throwGlobalConfigGone();
-  }
-
-  queryConfigs(params: {
-    category?: ConfigCategory;
-    isSecret?: boolean;
-    search?: string;
-    page?: number;
-    limit?: number;
-    // Return type is `never[]`: the global_configs surface is retired, so this
-    // always yields an empty page (the GlobalConfig entity no longer exists).
-  }): { items: never[]; total: number } {
-    void params;
-    return { items: [], total: 0 };
-  }
-
-  bulkUpdateConfigs(
-    updates: Array<{ key: string; value: unknown }>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
+    return createStandardPaginatedResult<SystemVersion>(items, total, page, limit);
   }
 
   // ============================================================================
@@ -816,7 +763,7 @@ export class GlobalSettingsService implements OnModuleInit {
   // Scheduled Tasks
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'maintenance.start-scheduled', cron: CronExpression.EVERY_MINUTE })
   async handleScheduledMaintenanceStart(): Promise<void> {
     const now = new Date();
     const upcoming = await this.maintenanceModeRepo.find({
@@ -832,7 +779,10 @@ export class GlobalSettingsService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({
+    name: 'feature-toggles.scheduled-rollouts',
+    cron: CronExpression.EVERY_5_MINUTES,
+  })
   async handleScheduledFeatureRollouts(): Promise<void> {
     const now = new Date();
     const scheduled = await this.featureToggleRepo.find({
@@ -847,7 +797,8 @@ export class GlobalSettingsService implements OnModuleInit {
             (now.getTime() - toggle.rolloutSchedule.startDate.getTime()) / (24 * 60 * 60 * 1000),
           );
           const newPercentage = Math.min(
-            toggle.rolloutSchedule.percentage + daysSinceStart * toggle.rolloutSchedule.incrementPerDay,
+            toggle.rolloutSchedule.percentage +
+              daysSinceStart * toggle.rolloutSchedule.incrementPerDay,
             toggle.rolloutSchedule.targetPercentage,
           );
 
@@ -869,7 +820,7 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   // ============================================================================
-  // System Status
+  // Provisioning Configuration (env-backed read; sensor-service installer scripts)
   // ============================================================================
 
   /**
@@ -887,23 +838,14 @@ export class GlobalSettingsService implements OnModuleInit {
     return {
       provisioningApiUrl: this.provisioningDefault('provisioning.api_url'),
       mqttBrokerHost: this.provisioningDefault('provisioning.mqtt_broker_host'),
-      mqttBrokerPort: Number.parseInt(this.provisioningDefault('provisioning.mqtt_broker_port'), 10),
+      mqttBrokerPort: Number.parseInt(
+        this.provisioningDefault('provisioning.mqtt_broker_port'),
+        10,
+      ),
       githubReleaseUrl: this.provisioningDefault('provisioning.github_release_url'),
       agentDefaultVersion: this.provisioningDefault('provisioning.agent_default_version'),
       githubRepo: this.provisioningDefault('provisioning.github_repo'),
     };
-  }
-
-  /**
-   * Update provisioning configuration
-   */
-  updateProvisioningConfig(
-    updates: Record<string, string>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
   }
 
   // ============================================================================
@@ -923,7 +865,6 @@ export class GlobalSettingsService implements OnModuleInit {
       environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
-      activeConfigs: 0,
     };
   }
 
@@ -941,11 +882,5 @@ export class GlobalSettingsService implements OnModuleInit {
         process.env['PROVISIONING_GITHUB_REPO'] ?? 'Okan-wqm/aquaculture_platform',
     };
     return defaults[key] ?? '';
-  }
-
-  private throwGlobalConfigGone(): never {
-    throw new GoneException(
-      'admin-api direct global_configs writes are retired; use config-service effective configuration APIs',
-    );
   }
 }

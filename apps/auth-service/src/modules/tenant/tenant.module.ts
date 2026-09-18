@@ -11,6 +11,7 @@ import { User } from '../authentication/entities/user.entity';
 import { Module as SystemModule } from '../system-module/entities/module.entity';
 
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
+import { PlatformCapabilityGrant } from './entities/platform-capability-grant.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
 import { TenantRolePermission } from './entities/tenant-role-permission.entity';
 import { TenantRole } from './entities/tenant-role.entity';
@@ -26,6 +27,7 @@ import { TenantResolver } from './resolvers/tenant.resolver';
 import { CapabilityAuthorityService } from './services/capability-authority';
 import { FarmSiteAssignmentValidator } from './services/farm-site-assignment-validator.service';
 import { MobileSettingsService } from './services/mobile-settings.service';
+import { PlatformCapabilityService } from './services/platform-capability.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
 import { TenantRoleService } from './services/tenant-role.service';
@@ -33,6 +35,7 @@ import { TenantUserCountReconcileService } from './services/tenant-user-count-re
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
 import { UserLifecycleService } from './services/user-lifecycle.service';
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
 
 @Module({
   imports: [
@@ -52,6 +55,8 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       TenantRole,
       TenantRolePermission,
       UserRoleAssignment,
+      // ADR-0016: platform-operator capability grants, projected into the JWT.
+      PlatformCapabilityGrant,
     ]),
   ],
   // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
@@ -71,6 +76,8 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     UserLifecycleService,
     TenantProvisioningCommandService,
     MobileSettingsService,
+    // ADR-0016: single writer of auth.platform_capability_grants.
+    PlatformCapabilityService,
     TenantResolver,
     TenantAdminResolver,
     TenantRoleResolver,
@@ -86,11 +93,20 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     // DATA-LOW-001: projects billing.subscriptions state (the SSoT) onto the
     // auth.tenants subscription columns via the TenantSubscriptionChanged event.
     TenantSubscriptionProjectionHandler,
+    EventDedupService,
   ],
   // SEC-HIGH-052: export MobileSettingsService so TokenService (authentication
   // module) can inject the SINGLE mobile-feature read path. No DI cycle —
   // no tenant provider injects an authentication provider.
-  exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, MobileSettingsService, TypeOrmModule],
+  exports: [
+    TenantService,
+    TenantAdminService,
+    TenantRoleService,
+    UserLifecycleService,
+    MobileSettingsService,
+    PlatformCapabilityService,
+    TypeOrmModule,
+  ],
 })
 export class TenantModule {
   private readonly moduleClass = TenantModule.name;

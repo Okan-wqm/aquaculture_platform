@@ -14,7 +14,7 @@
  * intermediary that stripped/forged the tenant header (without the bound
  * assertion) was a larger surface than necessary.
  *
- * # Source-level, same rationale as strip-internal-headers-mounted.spec.ts:
+ * # Source-level, same rationale as public-service-edge-hardening.spec.ts:
  * one grep+position pass over every service fires on every PR — fastest
  * feedback for a class of regression that would otherwise ship as a silently
  * weaker trust boundary.
@@ -113,12 +113,12 @@ describe('INVARIANT (SEC-HIGH-156): VerifiedUserAssertionMiddleware mounted in e
    * carrying no gateway service identity) MUST `.exclude()` that surface from
    * VerifiedUserAssertionMiddleware — otherwise it 400s "requires service
    * identity" in production. These are the surfaces a prior revision missed
-   * (sensor /install + /api/devices, ai /api/v2/ai), so they are pinned here.
+   * (sensor /install + /api/devices), so they are pinned here. The ai /api/v2/ai
+   * REST proxy never existed on the gateway and its exclusion was retired.
    */
   const REQUIRED_EXCLUSIONS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
     ['sensor-service', ['mqtt', 'install', 'api/devices']],
     ['billing-service', ['webhooks']],
-    ['ai-service', ['api/v2/ai']],
   ];
 
   it.each(REQUIRED_EXCLUSIONS)(

@@ -1,12 +1,11 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
+import client from 'prom-client';
+
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
 /**
  * MQTT subscription callback type
@@ -57,8 +56,55 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   private readonly circuitResetDelayMs = 300000; // 5 minutes circuit breaker reset
   private isShuttingDown = false;
   private connectCallbacks: Array<() => void | Promise<void>> = [];
+  /** Per-message settle budget before the ack gate force-reconnects. */
+  private static readonly HANDLER_SETTLE_DEADLINE_MS = 10_000;
 
-  constructor(private readonly configService: ConfigService) {}
+  /**
+   * SENSOR-MEDIUM-123: the Grafana MQTT panels historically queried metric
+   * names that were registered nowhere. These counters make the ingestion
+   * pipeline observable: connection state, per-filter subscription health,
+   * and received-message volume.
+   */
+  private readonly mqttRegistry = new client.Registry();
+  private readonly messagesReceived = new client.Counter({
+    name: 'sensor_mqtt_messages_received_total',
+    help: 'MQTT messages received by the sensor-service listener',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsGranted = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_granted',
+    help: 'Topic filters currently broker-acknowledged (denied filters are not counted)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsDenied = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_denied',
+    help: 'Topic filters the broker denied (SUBACK 0x80) on the last subscribe',
+    registers: [this.mqttRegistry],
+  });
+  private readonly connected = new client.Gauge({
+    name: 'sensor_mqtt_connected',
+    help: '1 when the MQTT broker connection is established, 0 otherwise',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesProcessed = new client.Counter({
+    name: 'sensor_mqtt_messages_processed_total',
+    help: 'MQTT messages the listener finished handling (regardless of match outcome)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesFailed = new client.Counter({
+    name: 'sensor_mqtt_messages_failed_total',
+    help: 'MQTT message handling attempts that threw',
+    registers: [this.mqttRegistry],
+  });
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly serviceMetrics?: ServiceMetricsService,
+  ) {
+    if (this.serviceMetrics) {
+      this.serviceMetrics.registerContributor('sensor-mqtt', this.mqttRegistry);
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
@@ -68,15 +114,24 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // SENSOR-CRITICAL-086: fail closed at boot. A missing stable identity
+    // would silently degrade to per-process clientIds, discarding the
+    // broker-side session (and its unacked QoS1 backlog) on every restart.
+    this.requireClientIdPrefix();
+
     // Delay MQTT connection to allow HTTP server to fully start first.
     // go-auth calls back to our /mqtt/auth endpoint during CONNECT,
     // so the HTTP server must be listening before we attempt MQTT connection.
     const startupDelayMs = 5000;
-    this.logger.log(`Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`);
+    this.logger.log(
+      `Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`,
+    );
     setTimeout(() => {
       if (this.isShuttingDown) return;
       this.connect().catch((error) => {
-        this.logger.warn(`MQTT broker unavailable at startup: ${error.message}. Will retry in background.`);
+        this.logger.warn(
+          `MQTT broker unavailable at startup: ${error.message}. Will retry in background.`,
+        );
         this.scheduleReconnect();
       });
     }, startupDelayMs);
@@ -122,14 +177,21 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
     const username = this.configService.get<string>('MQTT_USERNAME');
     const password = this.configService.get<string>('MQTT_PASSWORD');
-    const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
+    // Stable identity: MQTT_CLIENT_ID prefix + fixed suffix. The old
+    // PID/timestamp clientId made every restart a NEW client, so the broker
+    // dropped the persistent session — and with it every unacked QoS1
+    // message — each time the process recycled (SENSOR-CRITICAL-086).
+    const clientId = `${this.requireClientIdPrefix()}-main`;
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
     this.connectionState = MqttConnectionState.CONNECTING;
 
     const options: mqtt.IClientOptions = {
       clientId,
-      clean: true,
+      // Persistent session: the broker retains subscriptions and the unacked
+      // QoS1 backlog across reconnects — the redelivery leg of the
+      // ack-after-commit contract.
+      clean: false,
       keepalive: 60,
       reconnectPeriod: 0, // Disable auto-reconnect, we handle it manually
       connectTimeout: 30000,
@@ -142,6 +204,21 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     return new Promise((resolve, reject) => {
       this.client = mqtt.connect(brokerUrl, options);
+
+      // SENSOR-CRITICAL-086 (Task 1 Step 1.2): own the QoS ack gate. For
+      // QoS 1 the library sends PUBACK only when handleMessage invokes its
+      // callback (build/lib/handlers/publish.js case 1). Dispatching here —
+      // instead of via the 'message' event, which fires BEFORE
+      // handleMessage — makes this the SINGLE dispatch point: the broker
+      // keeps the message in this persistent session until every registered
+      // handler settled durably; a failure or deadline force-reconnects
+      // without acking so the session redelivers.
+      this.client.handleMessage = (
+        packet: mqtt.IPublishPacket,
+        done: (error?: Error) => void,
+      ): void => {
+        this.dispatchDurable(packet, done);
+      };
 
       this.client.on('connect', () => {
         this.connectionState = MqttConnectionState.CONNECTED;
@@ -172,6 +249,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       this.client.on('close', () => {
         const wasConnected = this.connectionState === MqttConnectionState.CONNECTED;
         this.connectionState = MqttConnectionState.DISCONNECTED;
+        this.recordDisconnected();
         this.logger.warn('MQTT connection closed');
 
         // Trigger reconnection for any unexpected close (not just after successful connection)
@@ -184,12 +262,6 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn('MQTT client is offline');
         if (!this.isShuttingDown) {
           this.scheduleReconnect();
-        }
-      });
-
-      this.client.on('message', (topic, message) => {
-        if (!this.isShuttingDown) {
-          this.handleMessage(topic, message);
         }
       });
     });
@@ -206,7 +278,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     this.reconnectAttempts++;
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`);
+      this.logger.error(
+        `Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`,
+      );
       this.openCircuitBreaker();
       return;
     }
@@ -219,7 +293,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
     const delay = Math.floor(exponentialDelay + jitter);
 
-    this.logger.log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    this.logger.log(
+      `Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`,
+    );
     this.connectionState = MqttConnectionState.RECONNECTING;
 
     setTimeout(() => {
@@ -284,9 +360,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const callbacks = [...this.connectCallbacks];
     this.connectCallbacks = [];
     for (const cb of callbacks) {
-      Promise.resolve(cb()).catch((err) =>
-        this.logger.error(`Connect callback error: ${err}`),
-      );
+      Promise.resolve(cb()).catch((err) => this.logger.error(`Connect callback error: ${err}`));
     }
   }
 
@@ -314,16 +388,56 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Whether a topic filter is currently subscribed (broker-acknowledged).
+   * Denied filters (SUBACK 0x80) are never tracked — see subscribe().
+   */
+  isSubscribed(topic: string): boolean {
+    return this.subscribedTopics.has(topic);
+  }
+
+  /**
    * Get the underlying MQTT client (for advanced use cases)
    */
+  /**
+   * Increment the received-message counter — called by the listener for
+   * every broker message (SENSOR-MEDIUM-123).
+   */
+  recordMessageReceived(): void {
+    this.messagesReceived.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler finished without throwing. */
+  recordMessageProcessed(): void {
+    this.messagesProcessed.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler threw — surfaced on the Failed panel. */
+  recordMessageFailed(): void {
+    this.messagesFailed.inc();
+  }
+
+  /** Connected gauge reset — call on connection loss. */
+  recordDisconnected(): void {
+    this.connected.set(0);
+  }
+
   getClient(): MqttClient | null {
     return this.client;
   }
 
   /**
-   * Subscribe to topics.
-   * LOW-003: Sends a single SUBSCRIBE packet for all topics using the object form
-   * of mqtt.Client.subscribe(), instead of N sequential SUBSCRIBE packets.
+   * Subscribe to topics — one SUBSCRIBE packet PER TOPIC.
+   *
+   * SENSOR-HIGH-118: the previous single-packet object form made the whole
+   * call fail when the broker denied ANY filter (SUBACK 0x80 — e.g. one ACL
+   * miss on a wildcard filter), leaving the listener connected but subscribed
+   * to NOTHING while the error surfaced only as a warning. Per-topic packets
+   * isolate the denial: a rejected filter logs an error (visible + alertable)
+   * while every other filter still subscribes.
+   *
+   * LOW-003 (single packet for N topics) is deliberately traded away: the
+   * filter set is ~17 entries at boot and on reconnect — the extra packets
+   * are negligible next to a silently dead ingestion pipeline.
    */
   async subscribe(topics: string | string[], qos: 0 | 1 | 2 = 1): Promise<void> {
     if (!this.client || !this.isConnectedToBroker()) {
@@ -334,26 +448,44 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     if (topicList.length === 0) return;
 
-    // Build topic → QoS map for a single SUBSCRIBE packet
-    const topicsMap: Record<string, { qos: 0 | 1 | 2 }> = {};
+    let denied = 0;
     for (const topic of topicList) {
-      topicsMap[topic] = { qos };
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      this.client!.subscribe(topicsMap, (err) => {
-        if (err) {
-          this.logger.error(`Failed to subscribe to topics: ${err.message}`);
-          reject(err);
-        } else {
-          for (const topic of topicList) {
+      await new Promise<void>((resolve) => {
+        this.client!.subscribe(topic, { qos }, (err, granted) => {
+          // mqtt.js invokes the callback with an error when ANY granted QoS
+          // is 0x80 ("Unspecified error"); the per-topic packet means this
+          // failure is isolated to THIS filter.
+          const qosGranted = granted?.[0]?.qos ?? 0;
+          if (err || qosGranted === 128) {
+            denied++;
+            this.logger.error(
+              `MQTT SUBSCRIBE denied for filter "${topic}" (broker SUBACK 0x80 / ${err?.message ?? 'no error object'}) — ` +
+                'this filter will NOT receive messages; check the sensor_service ACL grants ' +
+                '(SENSOR_SERVICE_SUBSCRIPTION_FILTERS is the SSoT).',
+            );
+          } else {
             this.subscribedTopics.add(topic);
           }
-          this.logger.log(`Subscribed to ${topicList.length} topic(s) in single SUBSCRIBE packet`);
           resolve();
-        }
+        });
       });
-    });
+    }
+
+    this.subscriptionsGranted.set(topicList.length - denied);
+    this.subscriptionsDenied.set(denied);
+    if (denied > 0) {
+      this.logger.error(
+        `Subscribed to ${topicList.length - denied}/${topicList.length} topic filters; ${denied} DENIED by broker`,
+      );
+    } else {
+      // SENSOR-MEDIUM-123: canonical boot signal — the deploy gate watches
+      // this line so a connected-but-unsubscribed listener can never deploy
+      // green again. Emitted through the structured helper so the signal
+      // library, the emitter source and required-signals.yaml stay in lockstep.
+      emitBootInvariantSignal(this.logger, 'mqtt_subscribed_topics', {
+        filterCount: topicList.length,
+      });
+    }
   }
 
   /**
@@ -414,21 +546,83 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Handle incoming MQTT message - dispatch to all registered handlers
+   * Handle one incoming PUBLISH with the ack gate held open. The library's
+   * done-callback releases PUBACK (QoS 1); it is invoked ONLY after every
+   * registered handler settled. A handler failure or the settle deadline
+   * never acks and instead force-reconnects, so the broker's persistent
+   * session redelivers the message.
    */
-  private handleMessage(topic: string, message: Buffer): void {
-    for (const handler of this.messageHandlers) {
-      try {
-        const result = handler(topic, message);
-        if (result instanceof Promise) {
-          result.catch((error: Error) => {
-            this.logger.error(`Error in message handler for topic ${topic}: ${error.message}`, error.stack);
-          });
-        }
-      } catch (error) {
-        this.logger.error(`Sync error in message handler for topic ${topic}: ${(error as Error).message}`);
-      }
+  private dispatchDurable(packet: mqtt.IPublishPacket, done: (error?: Error) => void): void {
+    if (this.isShuttingDown) {
+      // No dispatch, no ack: an in-flight message at shutdown must be
+      // redelivered from the persistent session after the restart, not
+      // silently consumed.
+      return;
     }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      done();
+    };
+    const fail = (reason: string, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      this.logger.error(
+        `MQTT message not settled (${reason}) on topic ${packet.topic}` +
+          `${error ? `: ${error.message}` : ''} — left unacked for persistent-session redelivery`,
+      );
+      this.forceRedelivery();
+    };
+
+    timer = setTimeout(
+      () => fail('handler deadline exceeded'),
+      MqttClientService.HANDLER_SETTLE_DEADLINE_MS,
+    );
+
+    // mqtt-packet types payload as string | Buffer; without a custom
+    // parsePayload it is always the raw Buffer, but normalize so the handler
+    // contract (Buffer) holds either way.
+    const payload = Buffer.isBuffer(packet.payload) ? packet.payload : Buffer.from(packet.payload);
+
+    Promise.all(
+      this.messageHandlers.map((handler) =>
+        Promise.resolve().then(() => handler(packet.topic, payload)),
+      ),
+    ).then(settle, (error: Error) => fail('handler failure', error));
+  }
+
+  /**
+   * Tear the connection down WITHOUT acking in-flight messages. The 'close'
+   * handler schedules the reconnect; the persistent session (clean:false,
+   * stable clientId) makes the broker redeliver everything unacked.
+   */
+  private forceRedelivery(): void {
+    if (!this.client || this.isShuttingDown) return;
+    this.logger.warn(
+      'MQTT force-reconnect: unacked QoS1 messages stay queued in the persistent session',
+    );
+    this.client.end(true);
+  }
+
+  /**
+   * The stable client-identity prefix (SENSOR-CRITICAL-086). Required:
+   * without it the clientId degenerates to per-process randomness and the
+   * broker-side session is destroyed on every restart.
+   */
+  private requireClientIdPrefix(): string {
+    const prefix = this.configService.get<string>('MQTT_CLIENT_ID');
+    if (!prefix || prefix.trim().length === 0) {
+      throw new Error(
+        'MQTT_CLIENT_ID is required: persistent QoS1 sessions need a stable client identity ' +
+          '(SENSOR-CRITICAL-086). Set e.g. MQTT_CLIENT_ID=aqua-sensor-service in the service environment.',
+      );
+    }
+    return prefix.trim();
   }
 
   /**

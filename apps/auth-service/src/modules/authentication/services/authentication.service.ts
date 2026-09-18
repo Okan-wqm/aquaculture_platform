@@ -31,8 +31,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
-import type { UserAccountLockedEvent } from '@platform/event-contracts';
+import { createBaseEvent, isLoginAllowed, tenantScopeOf } from '@platform/event-contracts';
+import type {
+  PasswordResetRequestedEvent,
+  UserAccountLockedEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import * as bcrypt from 'bcryptjs';
 import {
   DataSource,
@@ -58,7 +62,9 @@ import {
 } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
+import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolver.service';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -120,6 +126,57 @@ export function decodeRefreshTokenTransport(token: string): string {
   }
 }
 
+/**
+ * SEC-MEDIUM-113 (2026-08-23 scan №58): a benign two-tab refresh race (both
+ * tabs fire refresh with the same pre-rotation cookie) previously landed in
+ * reuse CONTAINMENT — all-session logout plus a false CRITICAL alert. A
+ * short tolerance window lets the loser re-mint from the same family once;
+ * the re-mint flips the reason to 'Token refreshed (grace)' so a second
+ * presentation of the same row still contains. A stolen-token replay inside
+ * the window gains exactly one mint — the inherent, bounded cost of grace.
+ */
+const REFRESH_ROTATION_GRACE_MS = 60_000;
+
+/**
+ * The `security.events.*` signal each audited auth action carries (ADR-0018).
+ *
+ * `null` is a DECISION, not an omission:
+ *
+ *  - `LOGIN_MFA_REQUIRED` / `LOGIN_MFA_SETUP_REQUIRED` — the password was
+ *    right and the login is not
+ *    finished. Publishing it as a success would let a half-authenticated
+ *    attempt establish the "normal location" baseline the geo-anomaly detector
+ *    compares against; publishing it as a failure would trip brute-force
+ *    counters on a correct password.
+ *  - `ACCOUNT_LOCKED` — a consequence of the attempt that already published
+ *    `LOGIN_FAILED_INVALID_PASSWORD`. Emitting both would double-count the
+ *    same failure. The lockout has its own `UserAccountLocked` domain event.
+ *  - `INVITATION_ACCEPTED` — account creation, not an authentication attempt.
+ *
+ * Keyed by the action union, so a new audited action does not compile until it
+ * states which signal it carries.
+ */
+const AUTH_SECURITY_SIGNAL = {
+  LOGIN_FAILED: 'login-failed',
+  LOGIN_BLOCKED_ACCOUNT_LOCKED: 'login-failed',
+  LOGIN_BLOCKED_TENANT_INACTIVE: 'login-failed',
+  LOGIN_FAILED_INVALID_PASSWORD: 'login-failed',
+  LOGIN_BLOCKED_MFA_UNAVAILABLE: 'login-failed',
+  LOGIN_MFA_REQUIRED: null,
+  // Same decision, same reason: the password was right and the login is
+  // not finished — this branch hands back an MFA SETUP token because the
+  // tenant enforces MFA and the user has enrolled no factor yet.
+  LOGIN_MFA_SETUP_REQUIRED: null,
+  LOGIN_SUCCESS: 'login-success',
+  INVITATION_ACCEPTED: null,
+  ACCOUNT_LOCKED: null,
+  PASSWORD_RESET_REQUESTED: 'password-reset',
+  PASSWORD_RESET_SUCCESS: 'password-reset',
+} as const satisfies Record<string, 'login-failed' | 'login-success' | 'password-reset' | null>;
+
+/** Every action `logSecurityEvent` accepts. Adding one forces a signal decision above. */
+export type AuthSecurityAction = keyof typeof AUTH_SECURITY_SIGNAL;
+
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
@@ -150,6 +207,11 @@ export class AuthenticationService {
     private readonly actionTokenRepository: Repository<ActionToken>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    // ADR-046: the MFA-enrollment gate treats a registered WebAuthn credential
+    // as satisfying tenant MFA enforcement, so the gate must be able to count
+    // the user's passkeys / security keys.
+    @InjectRepository(WebAuthnCredential)
+    private readonly webAuthnCredentialRepository: Repository<WebAuthnCredential>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -158,6 +220,10 @@ export class AuthenticationService {
     // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
     // allowlisted best-effort path rather than the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
+    // SEC-HIGH-159: PasswordResetRequested is the only signal that delivers a
+    // recovery e-mail; it commits with the token row through the outbox.
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
@@ -281,11 +347,28 @@ export class AuthenticationService {
   }
 
   /**
-   * Log security events for audit trail
-   * @private
+   * Record a security event: the `auth.audit_logs` ledger row AND the
+   * `security.events.*` NATS signal, from one call (ADMIN-HIGH-014, ADR-0018).
+   *
+   * The signal used to have no producer. `SecurityEventService.publishLoginFailed`
+   * and `publishLoginSuccess` existed, `observability-service` held a durable
+   * subscription to `events.security.events.>`, and **nothing ever published** —
+   * so every downstream consumer of login facts was reading an empty stream.
+   * admin-api's five anomaly detectors counted rows in a table that stream was
+   * meant to fill, found 0 every time, and its security health score returned a
+   * perfect 100 by construction.
+   *
+   * Publishing here rather than at the eleven call sites is what makes it total:
+   * the ledger row and the signal are the same fact, so they leave from the same
+   * place. `AUTH_SECURITY_SIGNAL` maps every action to the signal it carries —
+   * `null` is an explicit "this is not one of those facts", not an omission, and
+   * the compiler requires a new action to state which it is.
+   *
+   * The publish is best-effort and comes second: a NATS outage must not fail a
+   * login, and it must never cost the audit row, which is the system of record.
    */
   private async logSecurityEvent(
-    action: string,
+    action: AuthSecurityAction,
     details: {
       userId?: string;
       email?: string;
@@ -294,6 +377,8 @@ export class AuthenticationService {
       userAgent?: string;
       success: boolean;
       reason?: string;
+      /** Consecutive failures including this one — carried on the signal so a detector need not parse `reason`. */
+      failedAttempts?: number;
     },
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
   ): Promise<void> {
@@ -317,6 +402,68 @@ export class AuthenticationService {
     } catch (error) {
       // Don't fail the main operation if audit logging fails
       this.logger.error(`Failed to log security event: ${action}`, error);
+    }
+
+    await this.publishAuthSecuritySignal(action, details);
+  }
+
+  /**
+   * Emit the `security.events.*` signal this action carries, if any.
+   *
+   * Best-effort HERE, not merely by the collaborator's grace.
+   * `SecurityEventService.publish` does swallow its own errors today, but a
+   * login must not depend on that staying true: a broker outage turning a 401
+   * into a 500 would be a worse defect than the missing signal this fixes. The
+   * guarantee is local and symmetric with the audit write above, which has
+   * carried its own try/catch for the same reason.
+   *
+   * The service is also `@Optional()`, so a local-dev process without the
+   * security infrastructure behaves exactly as before.
+   */
+  private async publishAuthSecuritySignal(
+    action: AuthSecurityAction,
+    details: {
+      userId?: string;
+      email?: string;
+      tenantId?: string | null;
+      ipAddress?: string;
+      userAgent?: string;
+      reason?: string;
+      failedAttempts?: number;
+    },
+  ): Promise<void> {
+    const signal = AUTH_SECURITY_SIGNAL[action];
+    if (signal === null || !this.securityEventService) {
+      return;
+    }
+
+    const opts = {
+      tenantId: details.tenantId ?? undefined,
+      userId: details.userId,
+      ip: details.ipAddress,
+      userAgent: details.userAgent,
+      email: details.email,
+      correlationId: getRequestContext().correlationId,
+    };
+
+    try {
+      switch (signal) {
+        case 'login-failed':
+          await this.securityEventService.publishLoginFailed({
+            ...opts,
+            reason: details.reason ?? action,
+            failedAttempts: details.failedAttempts,
+          });
+          return;
+        case 'login-success':
+          await this.securityEventService.publishLoginSuccess(opts);
+          return;
+        case 'password-reset':
+          await this.securityEventService.publishPasswordReset(opts);
+          return;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to publish security signal for ${action}`, error);
     }
   }
 
@@ -460,8 +607,11 @@ export class AuthenticationService {
       // allow-list (ACTIVE only) owned by the tenant-status machine — a new
       // non-operational status is blocked by default, not by remembering to
       // add it here. SUPER_ADMIN users (tenantId null) are exempt.
+      // The row is hoisted out of this block because it also drives the
+      // ADR-046 enforcement point below: the MFA-enrollment login gate.
+      let tenant: Tenant | null = null;
       if (user.tenantId) {
-        const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+        tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
         if (tenant && !isLoginAllowed(tenant.status)) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
@@ -507,6 +657,9 @@ export class AuthenticationService {
             userAgent,
             success: false,
             reason: `Invalid password (attempt ${updatedAttempts})`,
+            // Carried on the signal so a brute-force detector reads a number
+            // instead of parsing it back out of the reason string.
+            failedAttempts: updatedAttempts,
           },
           AuditLogSeverity.WARNING,
         );
@@ -575,6 +728,31 @@ export class AuthenticationService {
         };
       }
 
+      // ----------------------------------------------------------------
+      // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014):
+      // the tenant requires MFA but this user has NEITHER TOTP nor a
+      // registered WebAuthn credential. resolveMfaEnrollmentGate is the single
+      // shared assertion every password-backed token-minting caller funnels
+      // through (login / acceptInvitation / resetPassword): it hands back a
+      // completable enrollment outcome (mfaSetupRequired + a 10-minute
+      // mfa_setup token, no access/refresh) instead of a lockout, and FAILS
+      // CLOSED (throw + CRITICAL audit) when MFA is unavailable so enforcement
+      // never depends on a boot-time env heuristic. A user who ALREADY
+      // satisfies enforcement (TOTP above, or a WebAuthn passkey) returns null
+      // here and proceeds to a full session.
+      // ----------------------------------------------------------------
+      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
+        ipAddress,
+        userAgent,
+      });
+      if (enrollmentGate) {
+        // Persist the reset failed-attempt counters, but NOT lastLoginAt —
+        // like the MFA-challenge branch, this is not yet a completed login.
+        await this.userRepository.save(user);
+        await this.ensureMinDuration(startTime);
+        return enrollmentGate;
+      }
+
       // No MFA — proceed with full login.
       //
       // Login bookkeeping only (lastLoginAt/lastLoginIp/failedLoginAttempts):
@@ -600,7 +778,7 @@ export class AuthenticationService {
           success: true,
         }),
         this.bestEffort.publish(
-          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+          createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
             aggregateId: user.id,
             aggregateType: 'User',
             userId: user.id,
@@ -739,44 +917,19 @@ export class AuthenticationService {
     lastName?: string,
     ipAddress?: string,
   ): Promise<AuthPayload> {
-    // SECURITY: Hash token with SHA-256 for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
     // Execute all reads + validation + writes inside a single transaction
     const result = await this.dataSource.transaction(async (manager) => {
-      const actionToken = await this.preTenantAuthRepository(manager, ActionToken)
-        .createQueryBuilder('actionToken')
-        .setLock('pessimistic_write')
-        .where('actionToken.id = :token', { token })
-        .andWhere('actionToken.purpose = :purpose', { purpose: ActionTokenPurpose.INVITATION })
-        .getOne();
+      // SEC-HIGH-158: the URL segment is resolved through the ONE resolver
+      // (ActionToken row id first, legacy raw token second) — the same path
+      // validateInvitation reads, so the two can no longer disagree.
+      const { actionToken, invitation } = await this.loadInvitationForSegment(
+        manager,
+        token,
+        'pessimistic_write',
+      );
 
       if (actionToken && !actionToken.isActive()) {
         throw new BadRequestException('Invalid invitation token');
-      }
-
-      const lookupTokenHash = actionToken?.tokenHash ?? tokenHash;
-
-      // SECURITY: Lock the invitation row to prevent concurrent acceptance
-      // Try hashed token first, then fall back to plaintext for backward compatibility
-      // Invitation redemption runs BEFORE tenant context is established
-      // — the invitation token IS the pre-tenant credential, so the
-      // lookup must scan across all tenants by construction. auth-
-      // service is the one service where cross-tenant auth flows are
-      // first-class; tenantManagerRepo cannot be used here.
-      let invitation = await this.preTenantAuthRepository(manager, Invitation)
-        .createQueryBuilder('invitation')
-        .setLock('pessimistic_write')
-        .where('invitation.token = :tokenHash', { tokenHash: lookupTokenHash })
-        .getOne();
-
-      if (!invitation && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration invitations
-        invitation = await this.preTenantAuthRepository(manager, Invitation)
-          .createQueryBuilder('invitation')
-          .setLock('pessimistic_write')
-          .where('invitation.token = :token', { token })
-          .getOne();
       }
 
       if (!invitation) {
@@ -790,18 +943,14 @@ export class AuthenticationService {
         throw new BadRequestException('Invitation cannot be accepted');
       }
 
-      // Find user by invitation token hash (within transaction).
-      // Same cross-tenant-before-tenant-resolved rationale as above.
-      let user = await this.preTenantAuthRepository(manager, User).findOne({
-        where: { invitationToken: lookupTokenHash },
+      // Find user by invitation token hash (within transaction). Invitation
+      // redemption runs BEFORE tenant context is established — the token IS
+      // the pre-tenant credential, so the lookup scans across all tenants by
+      // construction (auth-service is the one service where cross-tenant auth
+      // flows are first-class; tenantManagerRepo cannot be used here).
+      const user = await this.preTenantAuthRepository(manager, User).findOne({
+        where: { invitationToken: invitation.token },
       });
-
-      if (!user && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration users
-        user = await this.preTenantAuthRepository(manager, User).findOne({
-          where: { invitationToken: token },
-        });
-      }
 
       if (!user) {
         // SECURITY: Generic message to prevent token enumeration
@@ -850,13 +999,28 @@ export class AuthenticationService {
       }),
       // Publish event (outside transaction - events can be retried)
       this.bestEffort.publish(
-        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', {
+        createBaseEvent('InvitationAccepted', tenantScopeOf(result.tenantId), {
           aggregateId: result.id,
           aggregateType: 'User',
           userId: result.id,
         }),
       ),
     ]);
+
+    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
+    // enrollment through the same shared assertion login uses. The invitation
+    // is already accepted and the password committed above — only issuance is
+    // gated. A freshly-onboarded user has no factor, so an enforcing tenant
+    // gets the completable mfaSetupRequired outcome instead of a full session;
+    // a user who satisfies enforcement mints normally (the session-TTL clamp
+    // is applied inside generateTokens either way).
+    const invitationTenant = await this.resolveTenantForUser(result.tenantId);
+    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(result, invitationTenant, {
+      ipAddress,
+    });
+    if (invitationEnrollmentGate) {
+      return invitationEnrollmentGate;
+    }
 
     return this.tokenService.generateTokens(result, ipAddress);
   }
@@ -872,39 +1036,77 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    // SECURITY: Hash token for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    // SEC-HIGH-158: read through the SAME resolution acceptInvitation uses.
+    // The e-mailed segment is the ActionToken row id; hashing it and looking
+    // it up as an invitation token (the old body) could never match, so every
+    // invitation rendered the generic "invalid" screen while accept would have
+    // succeeded. The gate is canBeAccepted() (PENDING or RESENT, not expired)
+    // for the same reason: a resent invitation that accept admits must not be
+    // reported invalid by the pre-check that fronts it.
+    return this.dataSource.transaction(async (manager) => {
+      const { actionToken, invitation } = await this.loadInvitationForSegment(
+        manager,
+        token,
+        'none',
+      );
 
-    // Try hashed token first, then fall back to plaintext for backward compatibility
-    let invitation = await this.invitationRepository.findOne({
-      where: { token: tokenHash },
+      if (actionToken && !actionToken.isActive()) {
+        return { valid: false, expired: actionToken.expiresAt <= new Date() };
+      }
+
+      if (!invitation) {
+        return { valid: false };
+      }
+
+      if (!invitation.canBeAccepted()) {
+        return { valid: false, expired: invitation.isExpired() };
+      }
+
+      return {
+        valid: true,
+        email: invitation.email,
+        role: invitation.role,
+        firstName: invitation.firstName ?? undefined,
+        lastName: invitation.lastName ?? undefined,
+      };
     });
+  }
 
-    if (!invitation) {
-      // Backward compatibility: try plaintext token for pre-migration invitations
-      invitation = await this.invitationRepository.findOne({
-        where: { token },
-      });
+  /**
+   * Resolve an invitation link segment to its ActionToken row (when the link
+   * carries one) and the Invitation row it points at. Shared by
+   * validateInvitation (read, no lock) and acceptInvitation (pessimistic
+   * lock) so the pre-check and the redemption cannot diverge.
+   */
+  private async loadInvitationForSegment(
+    manager: EntityManager,
+    segment: string,
+    lock: ActionLinkLock,
+  ): Promise<{ actionToken: ActionToken | null; invitation: Invitation | null }> {
+    const resolution = await this.actionTokenResolver.resolve(
+      segment,
+      ActionTokenPurpose.INVITATION,
+      manager,
+      lock,
+    );
+    if (resolution.kind === 'unresolvable') {
+      return { actionToken: null, invitation: null };
     }
 
-    if (!invitation) {
-      return { valid: false };
+    const tokenHash =
+      resolution.kind === 'action-token' ? resolution.actionToken.tokenHash : resolution.tokenHash;
+    const query = this.preTenantAuthRepository(manager, Invitation)
+      .createQueryBuilder('invitation')
+      .where('invitation.token = :tokenHash', { tokenHash });
+    if (lock === 'pessimistic_write') {
+      // SECURITY: lock the invitation row to prevent concurrent acceptance.
+      query.setLock('pessimistic_write');
     }
-
-    if (invitation.isExpired()) {
-      return { valid: false, expired: true };
-    }
-
-    if (!invitation.isPending()) {
-      return { valid: false };
-    }
+    const invitation = await query.getOne();
 
     return {
-      valid: true,
-      email: invitation.email,
-      role: invitation.role,
-      firstName: invitation.firstName ?? undefined,
-      lastName: invitation.lastName ?? undefined,
+      actionToken: resolution.kind === 'action-token' ? resolution.actionToken : null,
+      invitation,
     };
   }
 
@@ -1142,6 +1344,46 @@ export class AuthenticationService {
     if (token.isRevoked) {
       if (token.expiresAt.getTime() <= Date.now()) {
         return {};
+      }
+      // SEC-MEDIUM-113 (№58): one grace re-mint for a JUST-rotated token
+      // (reason 'Token refreshed', within the window). The re-mint flips the
+      // reason to the grace marker, so a second presentation of the SAME row
+      // falls through to containment below.
+      const revokedAtMs = token.revokedAt?.getTime();
+      const rotatedWithinGrace =
+        token.revokedReason === 'Token refreshed' &&
+        revokedAtMs !== undefined &&
+        Date.now() - revokedAtMs <= REFRESH_ROTATION_GRACE_MS;
+      if (rotatedWithinGrace) {
+        const claimed = await this.preTenantAuthRepository(manager, RefreshToken).update(
+          { id: token.id, revokedReason: 'Token refreshed' },
+          { revokedReason: 'Token refreshed (grace)' },
+        );
+        if (claimed.affected === 1) {
+          this.logger.warn(
+            JSON.stringify({
+              event: 'refresh_token_grace_replay',
+              tokenId: token.id,
+              familyId: token.familyId ?? undefined,
+            }),
+          );
+          if (!user.isActive) {
+            throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+          }
+          await this.assertTenantOperationalForRefresh(manager, user);
+          const payload = await this.tokenService.generateTokens(
+            user,
+            token.ipAddress ?? undefined,
+            token.userAgent ?? undefined,
+            {
+              familyId: token.familyId ?? undefined,
+              rememberMe: token.rememberMe,
+              manager,
+              establishSession: false,
+            },
+          );
+          return { payload };
+        }
       }
       const containment = await this.containRefreshTokenReuse(manager, token);
       return containment ? { containment } : {};
@@ -1536,11 +1778,15 @@ export class AuthenticationService {
       // only mails tenant-scoped users — operator visibility for platform
       // accounts comes from the CRITICAL audit event.
       const lockEvent: UserAccountLockedEvent = {
-        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', user.tenantId ?? 'system', {
-          aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-        }),
+        ...createBaseEvent<UserAccountLockedEvent>(
+          'UserAccountLocked',
+          tenantScopeOf(user.tenantId),
+          {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          },
+        ),
         userId: user.id,
         failedAttempts: updatedAttempts,
         lockedUntil: lockoutUntil.toISOString(),
@@ -1559,7 +1805,9 @@ export class AuthenticationService {
    * - Stores SHA-256 hash of token (not plaintext) in the database
    * - Token expires after 1 hour
    * - If user not found, performs dummy hash to match timing and returns silently
-   * - Publishes PasswordResetRequestedEvent for notification service to send email
+   * - Enqueues PasswordResetRequestedEvent through the durable outbox, in the
+   *   same transaction as the token row, for the notification service to send
+   *   the e-mail (platform-scoped for a super admin — SEC-HIGH-159)
    */
   async initiatePasswordReset(email: string, ipAddress?: string): Promise<void> {
     const startTime = Date.now();
@@ -1590,43 +1838,61 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Set token and expiry (1 hour)
-      user.passwordResetToken = resetTokenHash;
-      user.passwordResetExpires = expiresAt;
-      await this.userRepository.save(user);
+      // SEC-HIGH-159: the scope is derived from the principal, never spelled
+      // here. A super admin (tenantId NULL) is a platform-scoped event that
+      // routes on the reserved segment; the notification consumer branches on
+      // that scope instead of dropping it.
+      const scope = tenantScopeOf(user.tenantId);
 
-      const actionToken = await this.actionTokenRepository.save(
-        this.actionTokenRepository.create({
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          tenantId: user.tenantId ?? null,
+      // The user row, the ActionToken row and the delivery trigger commit
+      // together. PasswordResetRequested is the ONLY signal that produces the
+      // recovery e-mail, so it rides the durable outbox (system-routed for a
+      // platform principal) rather than the lossy best-effort path — a lost
+      // event here is a user locked out of their own account, not telemetry.
+      await this.dataSource.transaction(async (manager) => {
+        // Set token and expiry (1 hour)
+        user.passwordResetToken = resetTokenHash;
+        user.passwordResetExpires = expiresAt;
+        await this.preTenantAuthRepository(manager, User).save(user);
+
+        const actionTokens = this.preTenantAuthRepository(manager, ActionToken);
+        const actionToken = await actionTokens.save(
+          actionTokens.create({
+            purpose: ActionTokenPurpose.PASSWORD_RESET,
+            tenantId: user.tenantId ?? null,
+            userId: user.id,
+            tokenHash: resetTokenHash,
+            status: ActionTokenStatus.ACTIVE,
+            expiresAt,
+            auditMetadata: {
+              source: 'password-reset-request',
+              ipAddress,
+            },
+          }),
+        );
+
+        // SECURITY (CRITICAL-001/002): opaque references ONLY. PII (email,
+        // firstName) and secret URLs are NEVER placed on the immutable event
+        // bus. actionTokenId is the auth.action_tokens ROW ID; the notification
+        // service resolves the user and builds the reset URL at delivery time
+        // through the authenticated internal API, so the raw token never
+        // touches the bus.
+        const event: PasswordResetRequestedEvent = {
+          ...createBaseEvent<PasswordResetRequestedEvent>('PasswordResetRequested', scope, {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+            version: 2,
+          }),
           userId: user.id,
-          tokenHash: resetTokenHash,
-          status: ActionTokenStatus.ACTIVE,
-          expiresAt,
-          auditMetadata: {
-            source: 'password-reset-request',
-            ipAddress,
-          },
-        }),
-      );
-
-      // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
-      // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
-      // The notification service resolves user details and builds the reset URL at delivery
-      // time via authenticated internal API calls using userId and actionTokenId.
-      //
-      // actionTokenId is the opaque auth.action_tokens row id. The notification
-      // service calls auth-service's internal API with this ID to get the action URL
-      // without the raw token ever touching the event bus.
-      await this.bestEffort.publish({
-        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', {
+          actionTokenId: actionToken.id,
+          cryptoShredKeyId: user.id,
+        };
+        await this.outboxPublisher.enqueue(event, manager, {
           aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-          version: 2,
-        }),
-        actionTokenId: actionToken.id,
-        cryptoShredKeyId: user.id,
+          idempotencyKey: `password-reset-requested:${actionToken.id}`,
+          ...(scope.kind === 'platform' ? { routingScope: 'system' as const } : {}),
+        });
       });
 
       // Audit log
@@ -1664,35 +1930,36 @@ export class AuthenticationService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const transactionResult = await this.dataSource.transaction(async (manager) => {
       const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
       const userRepository = this.preTenantAuthRepository(manager, User);
       const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
-      const actionToken = await actionTokenRepository.findOne({
-        where: {
-          id: token,
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          status: ActionTokenStatus.ACTIVE,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
+      // SEC-HIGH-158: one resolver for every emailed link segment.
+      const resolution = await this.actionTokenResolver.resolve(
+        token,
+        ActionTokenPurpose.PASSWORD_RESET,
+        manager,
+        'pessimistic_write',
+      );
+      if (resolution.kind === 'unresolvable') {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+      const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
       if (actionToken && !actionToken.isActive()) {
         throw new BadRequestException('Invalid or expired password reset token');
       }
+      const tokenHash =
+        resolution.kind === 'action-token'
+          ? resolution.actionToken.tokenHash
+          : resolution.tokenHash;
 
       const userQuery = userRepository
         .createQueryBuilder('user')
         .setLock('pessimistic_write')
-        .where('user.passwordResetExpires > :now', { now: new Date() });
+        .where('user.passwordResetExpires > :now', { now: new Date() })
+        .andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
       if (actionToken) {
-        userQuery
-          .andWhere('user.id = :userId', { userId: actionToken.userId })
-          .andWhere('user.passwordResetToken = :tokenHash', {
-            tokenHash: actionToken.tokenHash,
-          });
-      } else {
-        userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
+        userQuery.andWhere('user.id = :userId', { userId: actionToken.userId });
       }
       const user = await userQuery.getOne();
       if (!user?.isActive) {
@@ -1711,6 +1978,14 @@ export class AuthenticationService {
         actionToken.consumedAt = new Date();
         await actionTokenRepository.save(actionToken);
       }
+
+      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
+      // every second factor bound to the previous credential set. WebAuthn
+      // credentials deleted here cannot survive the victim rotating their
+      // password, closing the "biometric backdoor outlives reset" chain.
+      // Same transaction as the password write — no window where the new
+      // password is live while old biometric credentials still authenticate.
+      await manager.delete(WebAuthnCredential, { userId: user.id });
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(
@@ -1761,7 +2036,7 @@ export class AuthenticationService {
         success: true,
       }),
       this.bestEffort.publish(
-        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', {
+        createBaseEvent('PasswordResetCompleted', tenantScopeOf(user.tenantId), {
           aggregateId: user.id,
           aggregateType: 'User',
           userId: user.id,
@@ -1769,7 +2044,145 @@ export class AuthenticationService {
       ),
     ]);
 
+    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
+    // enrollment through the same shared assertion login/acceptInvitation use.
+    // The password reset AND the session revocation above have already
+    // committed; if the tenant enforces MFA and this user has neither TOTP nor
+    // a WebAuthn credential, hand back the completable mfaSetupRequired
+    // outcome instead of a session. Without this gate a signed-out user could
+    // self-serve a reset back into an MFA-free session, durably defeating the
+    // revocation-on-flip.
+    const resetTenant = await this.resolveTenantForUser(user.tenantId);
+    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(user, resetTenant, {
+      ipAddress,
+      userAgent,
+    });
+    if (resetEnrollmentGate) {
+      return resetEnrollmentGate;
+    }
+
     // Generate new tokens so user is immediately logged in
     return this.tokenService.generateTokens(user, ipAddress, userAgent);
+  }
+
+  // ==========================================================================
+  // ADR-046 — tenant MFA enforcement (ADMIN-HIGH-014)
+  // ==========================================================================
+
+  /**
+   * Load the user's tenant row for the MFA-enrollment gate on the
+   * password-backed token-minting paths (acceptInvitation, resetPassword).
+   * `auth.tenants` is cross-tenant by design (D14) and readable without a
+   * tenant context — the same direct read login performs for its tenant-status
+   * gate. Platform users (tenantId NULL) have no tenant.
+   */
+  private async resolveTenantForUser(tenantId: string | null | undefined): Promise<Tenant | null> {
+    if (!tenantId) {
+      return null;
+    }
+    return this.tenantRepository.findOne({ where: { id: tenantId } });
+  }
+
+  /**
+   * ADR-046: a user SATISFIES tenant MFA enforcement when they have TOTP MFA
+   * enrolled (`mfaEnabled`) OR at least one registered WebAuthn credential.
+   * WebAuthn is a first-class second factor, so a passkey / security-key user
+   * must NOT be forced onto TOTP as well — and, symmetrically, a WebAuthn-only
+   * user does not bypass the gate. The credential read only runs for non-TOTP
+   * users (short-circuit) and only the gate calls it, so a tenant that does not
+   * enforce MFA never pays for it.
+   */
+  private async userSatisfiesMfaEnforcement(user: User): Promise<boolean> {
+    if (user.mfaEnabled) {
+      return true;
+    }
+    const credentialCount = await this.webAuthnCredentialRepository.count({
+      where: { userId: user.id },
+    });
+    return credentialCount > 0;
+  }
+
+  /**
+   * ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — the single shared
+   * assertion every password-backed token-minting caller funnels through
+   * (login, acceptInvitation, resetPassword). Returns:
+   *
+   *   - `null` → the caller MAY mint a full session: the tenant does not
+   *     enforce MFA, or the user already satisfies enforcement (TOTP OR a
+   *     WebAuthn credential).
+   *   - an `AuthPayload` carrying `mfaSetupRequired` + a 10-minute `mfa_setup`
+   *     token (no access/refresh) → the tenant enforces MFA, the user has
+   *     NEITHER factor, and MFA is available: a completable enrollment path,
+   *     not a lockout.
+   *
+   * THROWS (fail-closed) when the tenant enforces MFA, the user is unenrolled
+   * AND the MFA service is unavailable: enrollment is impossible, so a full
+   * session must NEVER be issued, and a CRITICAL security-audit event records
+   * it. Enforcement therefore never depends on a boot-time env heuristic.
+   *
+   * WHY the assertion lives here and NOT inside the generateTokens clamp
+   * chokepoint: producing the graceful `mfaSetupRequired` outcome requires
+   * minting an `mfa_setup` token via MfaService, and TokenService cannot
+   * depend on MfaService without reintroducing the exact
+   * TokenService ↔ MfaService cycle TokenService was extracted to break. So
+   * enforcement is one shared, greppable helper rather than an in-chokepoint
+   * throw. The session-TTL clamp — which needs no MfaService — DOES live in
+   * the chokepoint.
+   */
+  private async resolveMfaEnrollmentGate(
+    user: User,
+    tenant: Tenant | null,
+    audit: { ipAddress?: string; userAgent?: string },
+  ): Promise<AuthPayload | null> {
+    if (!tenant || tenant.enforceMfa !== true) {
+      return null;
+    }
+    if (await this.userSatisfiesMfaEnforcement(user)) {
+      return null;
+    }
+
+    if (!this.mfaService?.isMfaAvailable()) {
+      // Fail closed: no MFA key → the user CANNOT enroll, so a full session
+      // must not be issued. Deny + CRITICAL audit — mirrors the
+      // enrolled-but-unavailable branch in login().
+      await this.logSecurityEvent(
+        'LOGIN_BLOCKED_MFA_UNAVAILABLE',
+        {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress: audit.ipAddress,
+          userAgent: audit.userAgent,
+          success: false,
+          reason:
+            'Tenant enforces MFA, user has no factor enrolled, and the MFA service is unavailable',
+        },
+        AuditLogSeverity.CRITICAL,
+      );
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+
+    const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
+
+    await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent,
+      success: true,
+      reason: 'Password valid; tenant enforces MFA and the user has no factor enrolled',
+    });
+
+    return {
+      accessToken: '',
+      refreshToken: '',
+      user,
+      expiresIn: 0,
+      tokenType: 'Bearer',
+      redirectUrl: '',
+      mfaSetupRequired: true,
+      mfaSetupToken,
+    };
   }
 }

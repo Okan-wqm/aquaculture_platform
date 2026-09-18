@@ -24,6 +24,7 @@ import {
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
@@ -602,7 +603,14 @@ export async function setupTenantSchemas(
     // the canonical runtime partition service once schemas exist.
   }
 
-  await new PartitionManagerService(dataSource).onApplicationBootstrap();
+  // The fixture constructs the service directly rather than through DI, so it
+  // supplies the runner the same way the unit specs do. The executor runs the
+  // body inline: this call IS the bootstrap the fixture is asking for, and a
+  // lease would only be meaningful across replicas, of which a test has one.
+  await new PartitionManagerService(
+    dataSource,
+    createScheduledJobTestExecutor().executor,
+  ).onApplicationBootstrap();
 }
 
 async function backfillTenantMigrationLedger(

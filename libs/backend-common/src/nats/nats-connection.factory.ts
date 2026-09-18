@@ -156,6 +156,16 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   reconnectTimeWait: number;
   tls?: NatsTlsOptions;
   authMode: NatsAuthMode;
+  /**
+   * SEC-HIGH-098 (2026-08-23 scan №43): scoped reply-inbox prefix.
+   * When a serviceName is given, request-reply replies land on
+   * `_INBOX<service>_...` instead of the platform-wide `_INBOX.>` — a
+   * compromised service cert can no longer subscribe every other
+   * service's reply stream (verifyPassword results, message bodies,
+   * billing admin output). Omitted when no serviceName is known (test
+   * clients), preserving the default shape.
+   */
+  inboxPrefix?: string;
 } {
   const natsUrl = process.env['NATS_URL'] || DEFAULT_NATS_URL;
   const authUser = process.env['NATS_AUTH_USER'];
@@ -219,6 +229,12 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     reconnectTimeWait: parseInt(process.env['NATS_RECONNECT_TIME_WAIT_MS'] || '2000', 10),
     authMode,
     ...(serviceName ? { name: serviceName } : {}),
+    // SEC-HIGH-098 (№43): replies return on this service's scoped inbox.
+    // nats-core appends a per-connection unique suffix after the prefix,
+    // so replicas of the same service do NOT cross-talk.
+    ...(serviceName
+      ? { inboxPrefix: `_INBOX${serviceName.toUpperCase().replace(/-/g, '_')}.` }
+      : {}),
   };
 
   // ── Inject auth fields based on chosen mode ───────────────────────────

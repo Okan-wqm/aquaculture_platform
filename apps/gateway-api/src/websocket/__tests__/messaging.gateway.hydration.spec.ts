@@ -5,6 +5,7 @@ import type { ClientProxy } from '@nestjs/microservices';
 import type { Server } from 'socket.io';
 
 import { MessagingGateway } from '../messaging.gateway';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /**
  * broadcastHydratedMessage hydration-failure recovery (MSG-HIGH-063).
@@ -34,7 +35,21 @@ describe('MessagingGateway.broadcastHydratedMessage — hydration failure recove
     } as Partial<ConfigService> as ConfigService;
     const natsClient = { send: natsSend } as Partial<ClientProxy> as ClientProxy;
 
-    gateway = new MessagingGateway(jwtService, configService, undefined, natsClient);
+    // SEC-MEDIUM-073/082: guard doubles (register/no-op semantics suffice
+    // for hydration-broadcast tests).
+    const limiter = new TenantConnectionLimiter();
+    const revalidator = new WsTokenRevalidator({
+      intervalMs: 3_600_000,
+      isStillValid: async () => true,
+    });
+    gateway = new MessagingGateway(
+      jwtService,
+      configService,
+      limiter,
+      revalidator,
+      undefined,
+      natsClient,
+    );
     gateway.server = { to } as Partial<Server> as Server;
   });
 

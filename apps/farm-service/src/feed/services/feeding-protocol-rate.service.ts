@@ -27,6 +27,7 @@ import type {
   GrowthStageProtocol,
   TemperatureRange,
 } from '../entities/feeding-protocol.entity';
+import { round2 } from '../../common/utils/rounding.util';
 
 export interface ProtocolRateResult {
   /** Final rate: base × temperature multiplier, rounded to 2 dp. */
@@ -39,10 +40,6 @@ export interface ProtocolRateResult {
   weightBandExact: boolean;
   /** True when a temperature band actually matched the supplied temperature. */
   temperatureBandMatched: boolean;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 function toGrams(weight: number, unit: GrowthStageProtocol['weightUnit']): number {

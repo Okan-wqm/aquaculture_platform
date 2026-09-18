@@ -6,9 +6,11 @@
  * `computedAt` tazelik göstergesi, `mortalityAssumption` açık varsayım
  * işareti (K-17). Seriler grafik-hazırdır (P-16 — cap yok).
  *
- * GraphQL adları 'ProtocolFeedForecast*' önekiyle ayrışır: legacy forecast
- * yığını (feeding.resolver.ts, Faz 8'de emekli) 'FeedForecastAlert' adını
- * hâlâ taşıyor — süpergraf tip adları benzersiz olmak zorunda.
+ * GraphQL adları 'ProtocolFeedForecast*' önekini taşır: bu önek, v1 forecast
+ * yığını süpergrafta önek'siz adları işgal ettiği için gerekliydi (tip adları
+ * benzersiz olmak zorunda). v1 yığını Faz 8'de silindi; önek KORUNUYOR çünkü
+ * artık FE operasyonlarının ve generated istemci tiplerinin sözleşmesidir —
+ * onu kaldırmak kırıcı bir şema değişikliği olurdu, kazanç ise kozmetik.
  *
  * @module FeedingProtocol/DTO
  */
@@ -47,17 +49,23 @@ export class FeedForecastPerUnitView {
   @Field(() => ID) unitId!: string;
   @Field() unitName!: string;
   @Field() unitCode!: string;
+  /** Ünitenin BUGÜNKÜ yemi (gün-0 bandı) — FARM-LOW-265. */
   @Field(() => ID, { nullable: true }) currentFeedId!: string | null;
+  /** Ufuk sonunda ulaşılan yem (simülasyonun SON bandı). */
+  @Field(() => ID, { nullable: true }) terminalFeedId!: string | null;
   @Field(() => [FeedForecastTransitionView]) transitions!: FeedForecastTransitionView[];
 }
 
 @ObjectType('ProtocolFeedForecastAlert')
 export class FeedForecastAlertView {
-  /** STOCKOUT_FORECAST | TRANSITION_COVERAGE_GAP | REORDER_NOW */
+  /** STOCKOUT_FORECAST | TRANSITION_COVERAGE_GAP | REORDER_NOW | SITE_TRANSFER_NEEDED */
   @Field() type!: string;
   @Field(() => ID) feedId!: string;
   @Field(() => ID, { nullable: true }) unitId?: string;
+  /** Tipe özgü büyüklük (kapsama günü / eksik gün / yerel kapsama). */
   @Field(() => Int) days!: number;
+  /** Alarmın işaret ettiği gün indeksi — dilimleme birimi (FARM-LOW-266). */
+  @Field(() => Int) atDay!: number;
 }
 
 @ObjectType('ProtocolFeedForecastMortalityAssumption')
@@ -71,6 +79,13 @@ export class FeedForecastMortalityAssumptionView {
 export class ProtocolFeedForecastView {
   /** Site UUID'si ya da belgeli tenant-geneli fallback için 'tenant' (D-9). */
   @Field() siteScopeKey!: string;
+  /**
+   * 'TENANT' = kapsama/alarm OTORİTESİ (havuz kararı, kullanıcı kararı 1);
+   * 'SITE' = bilgilendirici kapsam, yalnız SITE_TRANSFER_NEEDED üretir.
+   */
+  @Field() poolScope!: string;
+  /** Snapshot 26 saatten eskiyse true — UI bayatlığı gizlemez (W6). */
+  @Field() stale!: boolean;
   @Field(() => Int) horizonDays!: number;
   /** Snapshot tazeliği — UI'da "şu an itibarıyla" damgası (D-6). */
   @Field() computedAt!: Date;

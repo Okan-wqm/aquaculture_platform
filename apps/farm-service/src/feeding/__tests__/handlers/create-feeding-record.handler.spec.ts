@@ -35,6 +35,10 @@ import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import {
+  InsufficientFeedStockError,
+  type FeedAllocationResult,
+} from '../../../storage/services/feed-allocation.service';
 import { FeedingLedgerService } from '../../services/feeding-ledger.service';
 import {
   BiomassGrowthApplierService,
@@ -43,6 +47,7 @@ import {
 import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -56,10 +61,6 @@ const SITE = '88888888-8888-4888-8888-888888888888';
  * Build a fully-typed partial double for an interface T. Every accessed
  * member is supplied; the single `as T` keeps the double assignable.
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 interface HarnessOpts {
   batch?: Batch | null;
   /** resolveFeedDeductionLocation result. */
@@ -71,7 +72,7 @@ interface HarnessOpts {
 }
 
 function makeFeedableBatch(over: Partial<Batch> = {}): Batch {
-  return mock<Batch>({
+  return stub<Batch>({
     id: BATCH,
     tenantId: TENANT,
     isActive: true,
@@ -98,7 +99,7 @@ interface Harness {
 
 function makeHarness(opts: HarnessOpts = {}): Harness {
   const batch = opts.batch === undefined ? makeFeedableBatch() : opts.batch;
-  const feed = mock<Feed>({ id: FEED, name: 'Grower', unit: 'kg', pricePerKg: 2 });
+  const feed = stub<Feed>({ id: FEED, name: 'Grower', unit: 'kg', pricePerKg: 2 });
   // EntityManager.findOne / save / create are heavily overloaded. The doubles
   // are left UN-annotated (jest.fn() → Mock<any>) so they remain structurally
   // assignable to the overloaded EntityManager members with no cast at all;
@@ -139,7 +140,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const managerCreateQueryBuilder = jest.fn();
   managerCreateQueryBuilder.mockImplementation(() => queryBuilder);
 
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
     create: managerCreate,
@@ -147,7 +148,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     createQueryBuilder: managerCreateQueryBuilder,
   });
 
-  const queryRunner = mock<QueryRunner>({
+  const queryRunner = stub<QueryRunner>({
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
     commitTransaction: commit,
@@ -160,44 +161,73 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     manager,
   });
 
-  const dataSource = mock<DataSource>({
+  const dataSource = stub<DataSource>({
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   });
 
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: jest.fn().mockResolvedValue(undefined) });
-  const backdatePolicy = mock<BackdatePolicyService>({ validate: jest.fn() });
+  const outboxPublisher = stub<OutboxPublisher>({
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  });
+  const backdatePolicy = stub<BackdatePolicyService>({ validate: jest.fn() });
 
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
 
-  const resolveFeedDeductionLocation = jest.fn().mockResolvedValue(
-    opts.resolveLocation === undefined ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' } : opts.resolveLocation,
-  );
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
-      saved: mock<StockMovement>({ id: 'mv-1' }),
+      saved: stub<StockMovement>({ id: 'mv-1' }),
       currentTotal: 0,
       idempotentHit: false,
       lowStock: null,
       warnings: [],
     };
   });
-  const stockMovementService = mock<StockMovementService>({
+  // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
+  // rollback) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  // FARM-CRITICAL-245 + FARM-CRITICAL-237: yemlemenin depoya TEK girişi
+  // `resolveFeedDeductionLocation`; çok-lotlu FEFO motoru onun ARKASINDA. Bu
+  // double o tek girişi taklit eder: yetersizlikte fail-closed atar, aksi hâlde
+  // tek dilimlik tahsis döner (eski tek-satır davranışıyla aynı gözlem).
+  const resolveFeedDeductionLocation = jest.fn();
+  resolveFeedDeductionLocation.mockImplementation(
+    async (
+      _m: unknown,
+      _t: unknown,
+      feedId: string,
+      quantityKg: number,
+    ): Promise<FeedAllocationResult> => {
+      if (opts.resolveLocation === null) {
+        throw new InsufficientFeedStockError(feedId, quantityKg, 0);
+      }
+      return {
+        slices: [
+          {
+            storageLocationId: opts.resolveLocation?.storageLocationId ?? LOCATION,
+            lotNumber: opts.resolveLocation?.lotNumber ?? 'LOT-A',
+            quantityKg,
+          },
+        ],
+        usedSiteFallback: false,
+        poolTotalKg: quantityKg,
+      };
+    },
+  );
+  const stockMovementService = stub<StockMovementService>({
     resolveFeedDeductionLocation,
     recordMovement,
   });
 
-  const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
+  const repo = <T extends ObjectLiteral>(): Repository<T> => stub<Repository<T>>({});
 
   // Currency SSoT double — the handler resolves the tenant default
   // currency through FinanceSettingsService when the payload omits it.
-  const financeSettings = mock<FinanceSettingsService>({
+  const financeSettings = stub<FinanceSettingsService>({
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue('NOK'),
   });
 
-  // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
-  // rollback) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  // Tahsis motoru ledger'a DEĞİL, `StockMovementService`e bağlı: yemlemenin
+  // depoya tek girişi `resolveFeedDeductionLocation` ve motor onun arkasında.
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
@@ -209,15 +239,30 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   lockUnitForGrowth.mockImplementation(async (): Promise<LockedUnit | null> => {
     if (!batch) return null;
     return {
-      tankBatch: mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: batch.id }),
+      tankBatch: stub<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: batch.id }),
       batches: new Map([[batch.id, batch]]),
       details: [],
     };
   });
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
   const recalcForUnit = jest.fn().mockResolvedValue(null);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+  // Gerçek servisin semantiği: önce token'a sor (ünite kilidi bu batch'i
+  // kapsıyor mu), kapsamıyorsa satırı kilitleyerek oku. Double bunu taklit
+  // etmezse spec, üretimde olmayan bir davranışı doğrulamış olur.
+  const lockBatchForWrite = jest.fn().mockImplementation(
+    async (manager, tenantId: string, batchId: string, locked) =>
+      locked?.batches.get(batchId) ??
+      manager.findOne(Batch, {
+        where: { id: batchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      }),
+  );
+  const growthApplier = stub<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    applyGrowth,
+    lockBatchForWrite,
+  });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit });
 
   const handler = new CreateFeedingRecordHandler(
     repo<FeedingRecord>(),
@@ -300,7 +345,9 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
 
   it('fail-closed: storage deduction throws (insufficient stock) → rollback', async () => {
     const { handler, rollback, commit } = makeHarness({
-      recordMovementThrows: new BadRequestException('Insufficient stock. Available: 5 kg, Requested: 50 kg'),
+      recordMovementThrows: new BadRequestException(
+        'Insufficient stock. Available: 5 kg, Requested: 50 kg',
+      ),
     });
 
     await expect(handler.execute(makeCommand())).rejects.toThrow('Insufficient stock');
@@ -310,10 +357,14 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
   });
 
   it('happy path: deducts storage IN-TX (OUT) and commits', async () => {
-    const { handler, recordMovement, resolveFeedDeductionLocation, commit, rollback } = makeHarness();
+    const { handler, recordMovement, resolveFeedDeductionLocation, commit, rollback } =
+      makeHarness();
 
     const result = await handler.execute(makeCommand(50));
 
+    // Lot çözümü çok-lotlu tahsis motorunun işi (FARM-CRITICAL-245) ve o motor
+    // `resolveFeedDeductionLocation`ın ARKASINDA yaşıyor (FARM-CRITICAL-237):
+    // yemleme depoya bu tek girişten geçer, motora doğrudan değil.
     expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
     expect(recordMovement).toHaveBeenCalledTimes(1);
     // The deduction is issued on the SAME manager as the feeding write
@@ -338,10 +389,12 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
 });
 
 describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
-  const DAY_PLAN = mock<FeedingDayPlan>({
+  const DAY_PLAN = stub<FeedingDayPlan>({
     id: 'dp-1',
     siteId: SITE,
-    snapshot: mock<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+    snapshot: stub<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+    // W3: büyüme CANLI çözümden okunur (donuk snapshot değil).
+    resolution: stub<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
   });
 
   it('aktif gün planına bağlar: kayıt dayPlanId taşır, unplannedActualKg artar, growth + recalc AYNI tx', async () => {
@@ -366,9 +419,12 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
       String(call[0]).includes('unplannedActualKg'),
     );
     expect(updateCall).toBeDefined();
-    expect(updateCall![1]).toEqual([50, 'dp-1']);
+    // tenantId predikatı ZORUNLU (FARM-MEDIUM-292): plan id'si tenant
+    // sorgusundan gelse de yazım search_path'e güvenemez.
+    expect(String(updateCall![0])).toContain('"tenantId" = $2');
+    expect(updateCall![1]).toEqual([50, TENANT, 'dp-1']);
 
-    // (2) Büyüme snapshot FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
+    // (2) Büyüme CANLI çözümün FCR'ıyla uygulandı: 50kg / 1.25 = 40kg.
     expect(applyGrowth).toHaveBeenCalledTimes(1);
     expect(applyGrowth.mock.calls[0]![3]).toBe(40);
     expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);

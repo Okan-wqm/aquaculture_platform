@@ -264,6 +264,12 @@ export class AiChatBridgeService {
       userRoles: capabilities.roles,
       resourcePermissions: capabilities.resourcePermissions,
       contextMessages,
+      // SEC-LOW-090 (2026-08-23 scan №35) asked for userRoles/resourcePermissions
+      // on this request so ai-service's persona authorization is not dead
+      // end-to-end; the Faz 2.3 resolution above (request.auth.user.
+      // resolveCallerCapabilities — the sender's REAL roles and capabilities,
+      // fail-closed when unresolvable) supersedes its CHANNEL_MEMBER /
+      // MODULE_USER fallback.
     };
 
     // MSG-HIGH-060: AI always runs through ai-service over NATS with the

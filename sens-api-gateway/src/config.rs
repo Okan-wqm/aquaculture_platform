@@ -620,8 +620,13 @@ impl Default for HealthServerConfig {
 // that silently isn't running would hide data-loss from operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfflineQueueConfig {
-    /// Master toggle.
-    #[serde(default)]
+    /// Master toggle. DEFAULT TRUE since Task 1.7 of the 100-tenant
+    /// readiness plan: the edge is the outermost durability layer of the
+    /// ack-after-commit chain, so shipping with it off re-introduces
+    /// drop-on-disconnect by default. Operators can still opt out
+    /// explicitly (`offline_queue.enabled: false`) for constrained
+    /// deployments.
+    #[serde(default = "default_offline_enabled")]
     pub enabled: bool,
 
     /// Optional path override. None → `${SUDERRA_DATA_DIR}/offline_queue.db`.
@@ -639,6 +644,54 @@ pub struct OfflineQueueConfig {
     /// Maximum disk footprint in bytes. 0 = no limit (not recommended).
     #[serde(default = "default_offline_max_disk_bytes")]
     pub max_disk_bytes: u64,
+
+    /// Task 1.7: provisioned ingress ENTITLEMENT (messages/second). When
+    /// set, row and disk caps are DERIVED instead of using the static
+    /// defaults: rows = msgs_per_sec × 3600 (a 60-minute outage buffer),
+    /// disk = rows × capacity_avg_msg_bytes × 1.2 (headroom for SQLCipher
+    /// + index overhead). This is the edge-side half of the platform
+    /// formula "entitlement × 60 minutes × measured bytes × 1.2"; the
+    /// avg-bytes placeholder is replaced by the Task 0.4 measurement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_msgs_per_sec: Option<u64>,
+
+    /// Average telemetry message size in bytes used by the capacity
+    /// formula (placeholder 1 KiB until the Task 0.4 measurement).
+    #[serde(default = "default_capacity_avg_msg_bytes")]
+    pub capacity_avg_msg_bytes: u64,
+}
+
+impl OfflineQueueConfig {
+    /// Effective row cap: the entitlement-derived 60-minute buffer when
+    /// provisioned, else the static `max_size`.
+    pub fn effective_max_size(&self) -> usize {
+        match self.capacity_msgs_per_sec {
+            Some(msgs_per_sec) => msgs_per_sec.saturating_mul(3600) as usize,
+            None => self.max_size,
+        }
+    }
+
+    /// Effective disk cap: entitlement-derived buffer × avg bytes × 1.2
+    /// when provisioned, else the static `max_disk_bytes`.
+    pub fn effective_max_disk_bytes(&self) -> u64 {
+        match self.capacity_msgs_per_sec {
+            Some(msgs_per_sec) => {
+                let rows = msgs_per_sec.saturating_mul(3600);
+                rows.saturating_mul(self.capacity_avg_msg_bytes)
+                    .saturating_mul(12)
+                    / 10
+            }
+            None => self.max_disk_bytes,
+        }
+    }
+}
+
+fn default_offline_enabled() -> bool {
+    true
+}
+
+fn default_capacity_avg_msg_bytes() -> u64 {
+    1024
 }
 
 fn default_offline_max_size() -> usize {
@@ -656,11 +709,13 @@ fn default_offline_max_disk_bytes() -> u64 {
 impl Default for OfflineQueueConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: default_offline_enabled(),
             db_path_override: None,
             max_size: default_offline_max_size(),
             max_age_secs: default_offline_max_age_secs(),
             max_disk_bytes: default_offline_max_disk_bytes(),
+            capacity_msgs_per_sec: None,
+            capacity_avg_msg_bytes: default_capacity_avg_msg_bytes(),
         }
     }
 }
@@ -1870,6 +1925,20 @@ pub struct KeystoreConfig {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub acceptance_path: Option<std::path::PathBuf>,
 
+    /// Acceptance-ceremony ed25519 verifying key, 64-char hex
+    /// (EDGE-HIGH-011). The acceptance token is signed by the
+    /// central PLATFORM_KEY_CEREMONY authority (ADR-018 §5); this is
+    /// the trust anchor that keeps the weaker FileBacked master-key
+    /// tier unavailable unless the ceremony signed off. REQUIRED in
+    /// FileBacked mode — boot fails closed when absent. The enforcement
+    /// lives in the keystore bootstrap (`keystore/bootstrap.rs`
+    /// `build_production_keystore_from_config`, which injects the real
+    /// verify_strict closure and refuses to construct FileBacked acceptance
+    /// without this key), NOT in `validate_faz2_security_coherence`
+    /// (PR935-LOW-008: the prior cross-reference was wrong).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub acceptance_pubkey_hex: Option<String>,
+
     /// Argon2id memory cost (KiB). Default: 65536 (64 MiB).
     /// Must be >= 19456 (OWASP 2024 floor).
     #[serde(default = "default_argon2_memory_kib")]
@@ -1901,6 +1970,7 @@ impl Default for KeystoreConfig {
             passphrase_path: None,
             salt_path: None,
             acceptance_path: None,
+            acceptance_pubkey_hex: None,
             argon2_memory_kib: default_argon2_memory_kib(),
             argon2_iterations: default_argon2_iterations(),
             argon2_parallelism: default_argon2_parallelism(),
@@ -2801,6 +2871,15 @@ pub struct ModbusRegisterConfig {
 
     /// Poll interval in milliseconds (overrides device default)
     pub poll_interval_ms: Option<u64>,
+
+    /// Fail-safe value driven on safe-state (EDGE-HIGH-012). For a
+    /// `coil` output, non-zero = energize (e.g. a life-support aerator
+    /// that must fail-ON, not de-energize to OFF); for a `holding`
+    /// output, the raw register value. `None` defaults to de-energize
+    /// (coil=false / register=0), preserving the pre-EDGE-HIGH-012
+    /// behavior for unclassified outputs.
+    #[serde(default)]
+    pub safe_state_value: Option<u16>,
 }
 
 /// GPIO pin configuration
@@ -2825,6 +2904,12 @@ pub struct GpioConfig {
 
     /// Debounce time in milliseconds (input only)
     pub debounce_ms: Option<u64>,
+
+    /// Fail-safe level driven on safe-state (EDGE-HIGH-012).
+    /// `Some(true)` = HIGH (fail-ON), `Some(false)` = LOW. `None`
+    /// defaults to LOW, preserving pre-EDGE-HIGH-012 behavior.
+    #[serde(default)]
+    pub safe_state_level: Option<bool>,
 }
 
 // Default value functions
@@ -3686,6 +3771,41 @@ impl AgentConfig {
             );
         }
 
+        // EDGE-HIGH-010: release builds MUST NOT run a fail-open
+        // command-authentication or TLS-pinning posture.
+        // `signature_mode=disabled` accepts any command with no
+        // signature check (FR1/FR2) and `mtls.mode=legacy` makes
+        // cert pinning log-only (FR4). Both are intentional
+        // debug/dev-rollout defaults (HC-1 / Batch-27 backward
+        // compat) — the enums keep those `#[default]`s so debug
+        // builds and staged rollouts still work — but shipping them
+        // in a RELEASE build silently disables the controls the
+        // product asserts. Fail closed; mirror the api_url release
+        // gate above. Operators stage a rollout via a debug build or
+        // an explicit `permissive`/`warn` step, never Disabled/Legacy
+        // in release.
+        #[cfg(not(debug_assertions))]
+        {
+            if matches!(
+                self.signature_mode,
+                crate::command_envelope::envelope::SignatureMode::Disabled
+            ) {
+                anyhow::bail!(
+                    "Config coherence: signature_mode=disabled is not allowed in release \
+                     builds (unsigned commands accepted — IEC 62443 FR1/FR2). Set \
+                     signature_mode to `permissive` or `enforcing`; use a debug build for \
+                     local development."
+                );
+            }
+            if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) {
+                anyhow::bail!(
+                    "Config coherence: mtls.mode=legacy is not allowed in release builds \
+                     (cert pinning is log-only — IEC 62443 FR4). Set mtls.mode to `warn` \
+                     or `strict`; use a debug build for local development."
+                );
+            }
+        }
+
         // Rule 2: max_command_skew_secs should be reasonable
         // relative to max_command_age_secs. A skew larger than
         // age would mean the agent accepts future-dated
@@ -4183,6 +4303,37 @@ impl AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ====================================================================
+    // Task 1.7 (100-tenant readiness plan) — offline queue default + caps
+    // ====================================================================
+
+    #[test]
+    fn offline_queue_defaults_to_enabled() {
+        // The edge is the outermost durability layer: shipping disabled
+        // re-introduces drop-on-disconnect by default.
+        assert!(OfflineQueueConfig::default().enabled);
+    }
+
+    #[test]
+    fn offline_queue_capacity_formula_derives_caps_from_entitlement() {
+        // entitlement × 60 minutes × measured bytes × 1.2:
+        // 2 msg/s → 7_200 rows; 7_200 × 750 B × 1.2 = 6_480_000 bytes.
+        let cfg = OfflineQueueConfig {
+            capacity_msgs_per_sec: Some(2),
+            capacity_avg_msg_bytes: 750,
+            ..OfflineQueueConfig::default()
+        };
+        assert_eq!(cfg.effective_max_size(), 7_200);
+        assert_eq!(cfg.effective_max_disk_bytes(), 6_480_000);
+    }
+
+    #[test]
+    fn offline_queue_static_caps_win_without_entitlement() {
+        let cfg = OfflineQueueConfig::default();
+        assert_eq!(cfg.effective_max_size(), cfg.max_size);
+        assert_eq!(cfg.effective_max_disk_bytes(), cfg.max_disk_bytes);
+    }
 
     // ====================================================================
     // Batch 192 Faz 4 — ScriptingConfig.tasks schema round-trip

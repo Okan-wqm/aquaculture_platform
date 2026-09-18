@@ -56,7 +56,9 @@ import type { HelmetOptions } from 'helmet';
 import { bootstrapSecrets } from '../config/secrets.provider';
 import { StructuredLoggerService } from '../logging';
 import { NatsV3Server } from '../nats/nats-v3-server.strategy';
+import { ErrorCaptureInterceptor, type ErrorCapturePublisher } from '../observability';
 
+import { mountEdgeHardening, resolveTrustProxy, type ServiceVisibility } from './edge-hardening';
 import { logBootstrapError } from './safe-error-logger';
 
 // ---------------------------------------------------------------------------
@@ -183,27 +185,24 @@ export interface ServiceBootstrapOptions {
   globalGuards?: CanActivate[];
 
   /**
-   * Service reachability classification — drives the CORS policy.
+   * Service reachability — REQUIRED (ADR-0006). The compiler refuses a boot
+   * site that does not state it, and
+   * `tests/invariants/public-service-edge-hardening.spec.ts` refuses a
+   * declaration that disagrees with `infrastructure/nginx/droplet.conf`.
    *
-   * - `'public'` (default): the service is reachable by browsers (directly
-   *   or through the API gateway). `configureCors()` runs and the
-   *   `CORS_ORIGINS` env var is REQUIRED in production. This is the safe
-   *   default for any HTTP-exposed service.
+   * - `'public'`: nginx proxies internet traffic to this service. The factory
+   *   applies the edge-hardening bundle (`./edge-hardening.ts`): `TRUST_PROXY`
+   *   is mandatory in production and `AccessLogMiddleware` is mounted ahead of
+   *   every Nest middleware (the AppModule must import
+   *   `AccessLogModule.forRoot()`). `configureCors()` runs and `CORS_ORIGINS`
+   *   is REQUIRED in production.
    *
-   * - `'internal'`: the service is only reachable from within the cluster
-   *   (e.g. Prometheus scraping `observability-service`, service-to-service
-   *   NATS RPC, internal admin tooling). CORS is conceptually meaningless
-   *   for an internal service because no browser ever sends a preflight to
-   *   it — `configureCors()` is SKIPPED entirely. Setting a fake
-   *   `CORS_ORIGINS` env var to bypass the production hard-fail would be a
-   *   patch hiding the real architectural fact: this service does not
-   *   participate in CORS at all.
-   *
-   * Defaults to `'public'` so existing services remain backward compatible
-   * without code changes. New services should declare their visibility
-   * explicitly so the architectural intent is captured at the boot site.
+   * - `'internal'`: only the Docker network reaches the service (gateway
+   *   federation, NATS RPC, Prometheus scraping). No browser ever sends a
+   *   preflight to it, so `configureCors()` is SKIPPED, and no edge bundle is
+   *   mounted — the edge already logged the request.
    */
-  serviceVisibility?: 'public' | 'internal';
+  serviceVisibility: ServiceVisibility;
 
   /**
    * Additional env var names to resolve via file-mounted secrets before
@@ -235,6 +234,11 @@ const DEFAULT_CORS_HEADERS: string[] = [
   'X-Tenant-Id',
   'X-Correlation-Id',
   'X-Request-Id',
+  // ADR-0007: SUPER_ADMIN act-as intent + justification, validated by the
+  // kernel EffectiveTenantMiddleware on every browser-authenticating ingress.
+  'X-Act-As-Tenant',
+  'X-Act-As-Reason',
+  'X-Act-As-Ticket',
 ];
 
 /** Standard CORS allowed methods for the aquaculture platform. */
@@ -263,29 +267,33 @@ interface ExpressTrustProxyApp {
 // ---------------------------------------------------------------------------
 
 /**
- * Configures Express trust proxy based on the TRUST_PROXY environment variable.
- *
- * Supports the following values:
- * - 'true' or '1': trusts the first hop (integer 1)
- * - 'false' or '0': no trust proxy (default)
- * - numeric string: trusts N hops
- * - CIDR/IP string: passed verbatim to Express
+ * Applies the Express `trust proxy` setting resolved by `resolveTrustProxy`
+ * (`./edge-hardening.ts`): a public service in production refuses to boot
+ * without a trusted hop, because behind nginx an untrusted proxy makes
+ * `req.ip` the proxy address and collapses every per-IP rate-limit bucket
+ * into one (AUTH-010).
  */
 function configureTrustProxy(
   app: INestApplication,
   configService: ConfigService,
   logger: Logger,
+  serviceName: string,
+  serviceVisibility: ServiceVisibility,
+  isProduction: boolean,
 ): void {
-  const trustProxy = configService.get<string>('TRUST_PROXY', 'false');
-  const expressApp = app.getHttpAdapter().getInstance() as ExpressTrustProxyApp;
-
-  if (trustProxy === 'true' || trustProxy === '1') {
-    expressApp.set('trust proxy', 1);
-    logger.log('Trust proxy enabled (trusting first proxy)');
-  } else if (trustProxy && trustProxy !== 'false' && trustProxy !== '0') {
-    expressApp.set('trust proxy', trustProxy);
-    logger.log(`Trust proxy configured: ${trustProxy}`);
+  const setting = resolveTrustProxy({
+    serviceName,
+    visibility: serviceVisibility,
+    isProduction,
+    rawValue: configService.get<string>('TRUST_PROXY'),
+  });
+  if (setting === false) {
+    logger.log('Trust proxy disabled (no reverse proxy trusted)');
+    return;
   }
+  const expressApp = app.getHttpAdapter().getInstance() as ExpressTrustProxyApp;
+  expressApp.set('trust proxy', setting);
+  logger.log(`Trust proxy configured: ${String(setting)}`);
 }
 
 /**
@@ -555,7 +563,7 @@ function resolvePort(
  *   enableTelemetry: true,
  *   hasGraphQL: true,
  *   helmetOptions: { contentSecurityPolicy: false },
- *   additionalCorsHeaders: ['X-CSRF-Token', 'X-Requested-With'],
+ *   additionalCorsHeaders: ['X-Requested-With'],
  *   onBeforeListen: async (app) => {
  *     app.use(cookieParser());
  *   },
@@ -600,6 +608,26 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'OBSERVABILITY_INTERNAL_API_KEY',
 ];
 
+/**
+ * The event bus, if this service registered one.
+ *
+ * `app.get` throws for an unregistered token rather than returning undefined,
+ * and `gateway-api` deliberately has no `EventBusModule`. Capture must degrade
+ * to a no-op there instead of failing the boot of a service whose only defect
+ * is not publishing events.
+ */
+function resolveErrorCapturePublisher(
+  app: INestApplication,
+  logger: Logger,
+): ErrorCapturePublisher | undefined {
+  try {
+    return app.get<ErrorCapturePublisher>('EVENT_BUS', { strict: false });
+  } catch {
+    logger.log('No EVENT_BUS registered; error capture is inert for this service');
+    return undefined;
+  }
+}
+
 export async function createServiceApp(
   appModule: Type<unknown>,
   options: ServiceBootstrapOptions,
@@ -623,7 +651,7 @@ export async function createServiceApp(
     swagger,
     versioning,
     globalGuards = [],
-    serviceVisibility = 'public',
+    serviceVisibility,
     secrets: secretsOverride,
   } = options;
 
@@ -747,9 +775,16 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
-  // 3. Trust proxy (for req.ip behind nginx/cloudflare)
+  // 3. Trust proxy (for req.ip behind nginx) + edge-hardening bundle
+  //
+  // ADR-0006: a service that declares itself internet-reachable gets the
+  // kernel's edge controls here, ahead of helmet/CORS and of every Nest
+  // middleware, so no service can be an edge without them.
   // -----------------------------------------------------------------------
-  configureTrustProxy(app, configService, logger);
+  configureTrustProxy(app, configService, logger, serviceName, serviceVisibility, isProduction);
+  if (serviceVisibility === 'public') {
+    mountEdgeHardening(app, serviceName, logger);
+  }
 
   // -----------------------------------------------------------------------
   // 4. Helmet security headers — properly typed via HelmetOptions, no cast needed
@@ -817,6 +852,30 @@ export async function createServiceApp(
   }
 
   // -----------------------------------------------------------------------
+  // 7b. Error capture (ADMIN-HIGH-014 / OBS-CRITICAL-003)
+  //
+  // Registered here, once, for every service — the same shape
+  // `ServiceMetricsModule` uses for `/metrics`. Before this, the ONLY route
+  // into `ErrorTrackingService.reportError` was a platform-admin HTTP endpoint
+  // that nothing has ever called, so `admin.error_groups` was a page with no
+  // producer. Per-service wiring was not an option: 7 of the 15 services
+  // register no exception filter at all and the other 8 are divergent
+  // hand-copies, so anything that hooked "the service's filter" would have
+  // left half the fleet invisible.
+  //
+  // The interceptor re-throws untouched — whatever each service does with the
+  // response is unchanged — and degrades to a no-op when the service has no
+  // event bus (gateway-api today). See its docblock for what it deliberately
+  // does not capture.
+  // -----------------------------------------------------------------------
+  app.useGlobalInterceptors(
+    new ErrorCaptureInterceptor(serviceName, resolveErrorCapturePublisher(app, logger), {
+      environment: configService.get<string>('AQUA_ENV') ?? configService.get<string>('NODE_ENV'),
+      release: configService.get<string>('RELEASE_VERSION'),
+    }),
+  );
+
+  // -----------------------------------------------------------------------
   // 8. Graceful shutdown hooks (SIGTERM + SIGINT)
   // -----------------------------------------------------------------------
   app.enableShutdownHooks();
@@ -851,18 +910,12 @@ export async function createServiceApp(
   // -----------------------------------------------------------------------
   if (swagger && !isProduction) {
     try {
-      const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
-      const swaggerConfig = new DocumentBuilder()
-        .setTitle(swagger.title)
-        .setDescription(swagger.description)
-        .setVersion(swagger.version)
-        .addBearerAuth(
-          { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-          'JWT',
-        )
-        .build();
+      const { SwaggerModule } = await import('@nestjs/swagger');
+      // CONTRACT-CRITICAL-003: the served document and the committed
+      // openapi.json artifact are built by the same function.
+      const { buildOpenApiConfig } = await import('./openapi-config');
 
-      const document = SwaggerModule.createDocument(app, swaggerConfig);
+      const document = SwaggerModule.createDocument(app, buildOpenApiConfig(swagger));
       const swaggerPath = swagger.path ?? 'docs';
       SwaggerModule.setup(swaggerPath, app, document, {
         swaggerOptions: {

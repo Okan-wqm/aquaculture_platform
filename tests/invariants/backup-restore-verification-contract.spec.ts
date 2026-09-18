@@ -4,8 +4,8 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -19,6 +19,7 @@ import {
   renderDatabaseVerificationSql,
 } from '../../tools/scripts/database/generate-database-verification-sql';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const BACKUP_SCRIPT_PATH = join(REPO_ROOT, 'tools/scripts/database/backup-databases.sh');
 const RESTORE_SCRIPT_PATH = join(REPO_ROOT, 'tools/scripts/database/restore-databases.sh');
@@ -87,6 +88,19 @@ function runFixtureGit(root: string, args: readonly string[]): string {
       LC_ALL: 'C',
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',
+      // `git commit` finishes by running `git maintenance run --auto --quiet`
+      // (visible under GIT_TRACE=1), and `gc.autoDetach` defaults to true, so
+      // the gc task daemonises and keeps writing under `.git` after spawnSync
+      // has returned. The fixture root is deleted moments later, which is how
+      // teardown reached `ENOTEMPTY: rmdir '.../.git'` on a green assertion
+      // run (INFRA-HIGH-172). Supplying the two knobs through the environment
+      // rather than per-invocation `-c` flags means every git call this helper
+      // ever makes inherits them, including ones added later.
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'gc.auto',
+      GIT_CONFIG_VALUE_0: '0',
+      GIT_CONFIG_KEY_1: 'maintenance.auto',
+      GIT_CONFIG_VALUE_1: 'false',
     },
   });
   if (result.status !== 0) {
@@ -385,7 +399,7 @@ describe('backup and isolated restore verification contract', () => {
       expect(archivedContent.status).toBe(0);
       expect(archivedContent.stdout).toBe(protectedContent);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -420,7 +434,70 @@ describe('backup and isolated restore verification contract', () => {
         'protected runtime tree entry is not a regular file',
       );
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
+  });
+});
+
+/**
+ * ADR-0009 — WAL-G is the SOLE backup and restore authority.
+ *
+ * admin-api carried a second one until 2026-09-05: an in-process pg_dump
+ * subsystem with three ledger tables, three crons and a restore executor that
+ * rejected unconditionally. Two authorities for one invariant meant the UI
+ * asserted a recovery capability the platform did not have. Nothing outside
+ * `tools/scripts/database/` (and the DR workflows that call it) may spawn
+ * `pg_dump`/`pg_restore` or schedule a backup job.
+ */
+describe('single backup authority (ADR-0009)', () => {
+  const SOURCE_ROOTS = ['apps', 'libs', 'platform/libs', 'scripts'];
+  const SPAWN_RE =
+    /\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\s*\([^)]*pg_(?:dump|restore)/;
+  const BACKUP_CRON_RE = /@(?:Cron|Interval|Timeout)\([^)]*\)\s*(?:async\s+)?\w*[Bb]ackup\w*\s*\(/;
+
+  function walkSources(dir: string, out: string[]): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === '.archive' ||
+        entry.name === '__tests__' ||
+        entry.name === 'dist'
+      )
+        continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walkSources(full, out);
+      else if (/\.(?:ts|mjs|js)$/.test(entry.name) && !/\.(?:spec|test)\.ts$/.test(entry.name))
+        out.push(full);
+    }
+    return out;
+  }
+
+  it('no service, library or script outside tools/scripts/database spawns pg_dump or pg_restore', () => {
+    const offenders: string[] = [];
+    for (const root of SOURCE_ROOTS) {
+      for (const file of walkSources(join(REPO_ROOT, root), [])) {
+        if (SPAWN_RE.test(read(file))) offenders.push(file.slice(REPO_ROOT.length + 1));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('no Nest service schedules a backup job', () => {
+    const offenders: string[] = [];
+    for (const file of walkSources(join(REPO_ROOT, 'apps'), [])) {
+      if (BACKUP_CRON_RE.test(read(file))) offenders.push(file.slice(REPO_ROOT.length + 1));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('admin-api keeps no backup ledger of its own — the drop evidence is a WAL-G recovery point', () => {
+    const schemaManager = read(
+      join(REPO_ROOT, 'libs/backend-common/src/database/schema-manager.service.ts'),
+    );
+    for (const retired of ['schema_backups', 'schema_restores', 'retired_schema_backups']) {
+      expect(schemaManager).not.toMatch(new RegExp(`'${retired}'`));
+    }
+    expect(schemaManager).toContain("'retired_backup_ledger'");
+    expect(schemaManager).toContain("readonly authority: 'wal-g'");
   });
 });

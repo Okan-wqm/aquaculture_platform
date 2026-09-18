@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -7,6 +7,10 @@ import {
   isValidUUID,
 } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
 import { TenantListItemDto } from '../dto/tenant-detail.dto';
@@ -18,7 +22,6 @@ import {
   ListTenantsQuery,
   GetTenantStatsQuery,
   GetTenantUsageQuery,
-  GetTenantsApproachingLimitsQuery,
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from '../queries/tenant.queries';
@@ -71,13 +74,11 @@ export class GetTenantBySlugHandler
   }
 }
 
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+/**
+ * Re-exported from the platform authority so the admin tenant list and every
+ * other paginated surface hold the same contract.
+ */
+export type PaginatedResult<T> = PaginationResultV1<T>;
 
 /** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
 interface TenantResourceCounts {
@@ -158,15 +159,14 @@ export class ListTenantsHandler
     // pair for the whole page, never per-tenant queries.
     const counts = await this.countTenantResources(tenants.map((tenant) => tenant.id));
 
-    return {
-      data: tenants.map((tenant) =>
+    return createStandardPaginatedResult<TenantListItemDto>(
+      tenants.map((tenant) =>
         this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
       ),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    );
   }
 
   private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {
@@ -184,6 +184,10 @@ export class ListTenantsHandler
       userCount: tenant.userCount,
       farmCount: resources.farmCount,
       sensorCount: resources.sensorCount,
+      // Same derivation as TenantDetailService (MT-MEDIUM-001) — the column is
+      // gone, trialEndsAt is the SSoT. The entity is already loaded here, so
+      // this adds no query.
+      isTrialActive: tenant.trialEndsAt != null && tenant.trialEndsAt > new Date(),
       createdAt: tenant.createdAt,
     };
   }
@@ -399,25 +403,6 @@ export class GetTenantUsageHandler
       currentUserCount,
       usagePercentage: calculatePercentage(currentUserCount, tenant.maxUsers),
     };
-  }
-}
-
-@Injectable()
-@QueryHandler(GetTenantsApproachingLimitsQuery)
-export class GetTenantsApproachingLimitsHandler
-  implements IQueryHandler<GetTenantsApproachingLimitsQuery, Tenant[]>
-{
-  constructor(
-    @InjectRepository(Tenant)
-    private readonly tenantRepository: Repository<Tenant>,
-  ) {}
-
-  async execute(_query: GetTenantsApproachingLimitsQuery): Promise<Tenant[]> {
-    // C-9 fix: Block endpoint with 501 until actual limit checking is implemented.
-    // Previous implementation returned ALL active tenants unconditionally.
-    throw new NotImplementedException(
-      'Tenants approaching limits endpoint is not yet implemented. Requires JOIN against users table for actual limit checking.',
-    );
   }
 }
 

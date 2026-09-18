@@ -186,7 +186,10 @@ describe('audit-log mandatory shape (AUDITTRAIL-CRITICAL-004)', () => {
     const match = auditEntryBlock.exec(src);
     expect(match).not.toBeNull();
     const body = match![1] ?? '';
-    expect(body).toMatch(/actorHomeTenantId\s*:\s*ctx\.tenantId/);
+    // ADR-0007: the actor's HOME tenant is not the tenant acted on. The
+    // interceptor used to write the acted-on tenant into both columns,
+    // which made an act-as write indistinguishable from a native one.
+    expect(body).toMatch(/actorHomeTenantId\s*:\s*ctx\.actorHomeTenantId/);
     expect(body).toMatch(/actedOnTenantId\s*:\s*ctx\.tenantId/);
     expect(body).toMatch(/method\s*:\s*ctx\.method/);
     expect(body).toMatch(/mfaVerified\s*:\s*ctx\.mfaVerified/);

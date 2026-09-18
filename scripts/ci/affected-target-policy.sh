@@ -69,6 +69,20 @@ if [[ ! "$PARALLEL" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
+# A target that NO project declares must fail the lane, never pass it.
+# `nx show projects --with-target=<phantom>` resolves to an empty set, and an
+# empty set used to fall through to "no strict projects remain … exit 0": the
+# lane over `test:invariant` was green for months without running a single
+# spec (INFRA-HIGH-152). Resolved before the diff so it fires on every
+# invocation — no-change PRs and --dry-run included.
+DECLARING_PROJECTS_JSON="$(NX_DAEMON="${NX_DAEMON:-false}" NX_NO_CLOUD="${NX_NO_CLOUD:-true}" \
+  node tools/toolchain/run.mjs npx nx show projects "--with-target=$TARGET" --json)"
+DECLARING_COUNT="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).length))' "$DECLARING_PROJECTS_JSON")"
+if [[ "$DECLARING_COUNT" == "0" ]]; then
+  echo "No project in the workspace declares target '$TARGET'; refusing to run a lane that can only be green." >&2
+  exit 2
+fi
+
 mkdir -p "$ARTIFACT_DIR"
 CHANGED_FILE_LIST="$ARTIFACT_DIR/$TARGET.changed-files.txt"
 AFFECTED_PROJECT_LIST="$ARTIFACT_DIR/$TARGET.affected-projects.txt"
@@ -101,7 +115,13 @@ if [[ ! -s "$CHANGED_FILE_LIST" ]]; then
   exit 0
 fi
 
-node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" \
+# --json, then one name per line. Without --json the shape of this output is
+# environment-dependent: newline-separated names on a GitHub runner, a single
+# JSON array (`["a","b"]`) when piped elsewhere — and a JSON array read as one
+# "project name" turns the strict list into a value Nx matches to nothing
+# (`nx run-many --projects=["a","b"]` reports "No tasks were run" and exits 0).
+node tools/toolchain/run.mjs npx nx show projects --affected "--base=$BASE_REF" "--head=$HEAD_REF" "--with-target=$TARGET" --json \
+  | node -e 'const names = JSON.parse(require("fs").readFileSync(0, "utf8")); if (!Array.isArray(names)) throw new Error("nx show projects --json did not return an array"); for (const name of names) process.stdout.write(`${name}\n`);' \
   | sort > "$AFFECTED_PROJECT_LIST"
 
 node scripts/ci/write-affected-target-report.mjs \

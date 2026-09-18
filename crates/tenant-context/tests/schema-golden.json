@@ -1,0 +1,26 @@
+[
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-000000000000",
+    "schema_name": "tenant_550e8400e29b41d4"
+  },
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-111111111111",
+    "schema_name": "tenant_550e8400e29b41d4"
+  },
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-222222222222",
+    "schema_name": "tenant_550e8400e29b41d4"
+  },
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-333333333333",
+    "schema_name": "tenant_550e8400e29b41d4"
+  },
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-444444444444",
+    "schema_name": "tenant_550e8400e29b41d4"
+  },
+  {
+    "tenant_id": "550e8400-e29b-41d4-a716-555555555555",
+    "schema_name": "tenant_550e8400e29b41d4"
+  }
+]

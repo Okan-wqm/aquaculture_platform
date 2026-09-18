@@ -1,3 +1,4 @@
+import { AccessLogModule, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AdminBypassRlsInterceptor,
@@ -8,7 +9,9 @@ import {
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import {
@@ -23,7 +26,7 @@ import {
   type ITokenBlacklist,
   type IUserTokenRevocation,
 } from '@aquaculture/backend-common/security';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -33,7 +36,11 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import {
+  EventBusModule,
+  EventHandlerRegistryModule,
+  buildEventBusConfig,
+} from '@platform/event-bus';
 import { StorageModule } from '@platform/storage';
 
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -41,13 +48,12 @@ import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
-// SECURITY (NEW-03): DebugToolsModule uses forRoot() pattern — disabled by default in all
-// environments. Only enabled when ENABLE_DEBUG_TOOLS=true. See debug-tools.module.ts for details.
-import { DebugToolsModule } from './debug-tools/debug-tools.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { PlatformCapabilityGuard } from '@aquaculture/backend-common/guards';
+
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
+import { TenantLookupModule } from './tenant/tenant-lookup.module';
 import { HealthModule } from './health/health.module';
-import { ImpersonationModule } from './impersonation/impersonation.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
 import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
@@ -98,6 +104,18 @@ const getAdminStoragePort = (configService: ConfigService): number => {
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
+    // ADMIN-CRITICAL-102: every admin mutation handler carries
+    // @AuditedOperation; this registers the awaited, transaction-aware
+    // interceptor that turns the decorator into a shared.audit_logs row and
+    // aborts the operation when the row cannot be written. Enforced by
+    // tests/invariants/admin-mutation-audit-coverage.spec.ts.
+    AuditedOperationModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
@@ -187,12 +205,27 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     CircuitBreakerModule,
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick takes a per-(service, job)
+    // advisory lock and reports a heartbeat through this runner.
+    ScheduledJobModule.forRoot({ serviceName: 'admin-api-service' }),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+    // ADMIN-HIGH-014 / ADR-0018: the INBOUND half. admin-api declares no
+    // `natsTransport` in main.ts, so every @EventPattern in this service bound
+    // to nothing — the security projection and the tenant-onboarding ACK
+    // ledger both shipped and never received a message. This registry binds
+    // @SubscribeTo over the JetStream event bus and is fail-closed: a
+    // subscription it cannot register aborts the boot instead of leaving a
+    // reader watching a table nobody writes. (A bus that is not connected yet
+    // queues the registration and drains it on connect — that is a reconnect
+    // path, not a silent no-binding.)
+    // `tests/invariants/nats-inbound-binding.spec.ts` keeps the two mechanisms
+    // from being mixed again.
+    EventHandlerRegistryModule,
     LoggingModule,
     ThrottlerModule,
     // APA-367: token-revocation primitives for PlatformAdminGuard. admin-api is a
@@ -250,12 +283,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     SupportModule,
     SecurityModule,
     SystemManagementModule,
-    ImpersonationModule,
     MessagingAdminModule,
     PasswordResetModule,
-    // SECURITY (NEW-03): forRoot() returns empty module when ENABLE_DEBUG_TOOLS != 'true'.
-    // No controllers, providers, or entities are registered in the disabled state.
-    DebugToolsModule.forRoot(),
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. admin-api-service is a token CONSUMER, not an issuer.
     // Replaced the per-service JwtModule.registerAsync block (WS2.B,
@@ -284,6 +313,9 @@ const getAdminStoragePort = (configService: ConfigService): number => {
      * See ADR-012 + docs/runbooks/schema-drift-response.md.
      */
     SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
+    // ADMIN-CRITICAL-009: binds the kernel TENANT_ACTIVE_CHECK port so every
+    // @TenantParam() resolves against auth.tenants before a handler runs.
+    TenantLookupModule,
   ],
   providers: [
     AdminSchemaVersionGate,
@@ -343,6 +375,15 @@ const getAdminStoragePort = (configService: ConfigService): number => {
       provide: APP_GUARD,
       useExisting: ThrottlerGuard,
     },
+    // ADR-0016: the third guard. It runs only on requests PlatformAdminGuard
+    // has admitted and ANDs the route's @RequiresCapability against the
+    // platformCapabilities claim, so a grant can narrow but never widen what
+    // the SUPER_ADMIN role admits. Registered AFTER the throttler so a
+    // capability refusal still counts against the operator's bucket.
+    {
+      provide: APP_GUARD,
+      useClass: PlatformCapabilityGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
@@ -360,6 +401,19 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     GracefulShutdownService,
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
   readonly moduleName = AppModule.name;
+
+  /**
+   * SEC-CRITICAL-002 / ADR-0006: strip the spoofable internal trust headers
+   * (x-user-payload, x-user-id, x-user-roles, x-tenant-id, …) from every
+   * request that does not carry a verified service-identity signature. nginx
+   * proxies /api/ straight here, so an unauthenticated caller could otherwise
+   * plant SUPER_ADMIN context on a public path. Every bootstrapped service
+   * mounts this first; enforced by
+   * tests/invariants/public-service-edge-hardening.spec.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+  }
 }

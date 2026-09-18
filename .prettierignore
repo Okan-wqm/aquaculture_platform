@@ -28,3 +28,9 @@ CHANGELOG.md
 /.nx/workspace-data
 # Generated wasm-bindgen bindings (protocol-codec) — do not reformat
 libs/**/src/generated/
+
+# Generated OpenAPI artifact (CONTRACT-CRITICAL-003, ADR-0015)
+# Written by `nx run admin-api-service:openapi` and asserted byte-for-byte by
+# tests/invariants/admin-openapi-artifact-parity.spec.ts. Reformatting it would
+# make the committed bytes differ from what the generator produces.
+apps/admin-api-service/openapi.json

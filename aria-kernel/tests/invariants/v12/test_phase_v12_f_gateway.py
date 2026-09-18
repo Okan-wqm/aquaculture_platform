@@ -37,7 +37,7 @@ import unittest
 from unittest import mock
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
@@ -165,6 +165,303 @@ class NormalizeAndInbox(_Store):
 class Routing(_Store):
     def _ingest(self, event) -> None:
         self.assertIsNotNone(gi.record_event(event, base_dir=self.tools))
+
+    def _assert_mission_attempts(self, event, expected_count: int, *, tools: Path | None = None) -> list[dict]:
+        from aria_kernel.mission import mission_id_for
+        from aria_kernel.workspace import canonical_identity
+
+        root = tools if tools is not None else self.tools
+        history = gi.read_inbox(root)
+        accepted = [row for row in history if row["event"] == "accepted" and row["delivery_id"] == event.delivery_id]
+        self.assertEqual(len(accepted), 1)
+        attempts = [row for row in history if row["event"] == "mission_route_attempt" and row["delivery_id"] == event.delivery_id]
+        self.assertEqual(len(attempts), expected_count)
+        repo_hash = canonical_identity(self.ws)
+        source_id = f"issue-{event.subject['number']}"
+        for index, row in enumerate(attempts, start=1):
+            binding = row["mission_route"]
+            self.assertEqual(row["action"], "mission_open")
+            self.assertEqual(
+                (binding["schema_version"], binding["owner"], binding["accepted_ledger_hash"],
+                 binding["payload_digest"], binding["event_kind"], binding["source_kind"],
+                 binding["source_id"], binding["repo_hash"], binding["mission_id"], binding["attempt"]),
+                (1, "gateway.github_issue_mission.v1", accepted[0]["ledger_hash"],
+                 event.payload_digest, event.kind, "github_issue", source_id, repo_hash,
+                 mission_id_for("github_issue", source_id, repo_hash), index),
+            )
+        return attempts
+
+    def test_issue_mission_recovers_on_later_tick_after_pre_effect_io_failure(self) -> None:
+        event = gn.normalize_github("issues", "issue-47-delivery", _issue_payload(47, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        self.assertEqual(gs.fold_schedules(self.tools), {})
+
+        # The first mission call fails before it writes anything. Later ticks
+        # use the real mission owner, with the original accepted delivery.
+        with mock.patch("aria_kernel.mission.open_mission", side_effect=OSError("mission storage temporarily unavailable")) as first_open:
+            first = gs.tick(base_dir=self.tools, workspace_root=self.ws,
+                            now=datetime(2026, 9, 11, 1, 0, tzinfo=timezone.utc))
+        first_open.assert_called_once()
+        self.assertEqual(first_open.call_args.kwargs["base_dir"], self.tools)
+        self.assertEqual((first_open.call_args.kwargs["source_kind"], first_open.call_args.kwargs["source_id"]),
+                         ("github_issue", "issue-47"))
+        self.assertEqual(first["ran"], [])
+        self.assertEqual([row["delivery_id"] for row in first["routed"]], ["issue-47-delivery"])
+        self.assertEqual(first["routed"][0]["error"], "OSError: mission storage temporarily unavailable")
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        first_history = gi.read_inbox(self.tools)
+        self.assertEqual([row["event"] for row in first_history], ["accepted", "mission_route_attempt", "routed"])
+        self.assertEqual(first_history[-1]["error"], first["routed"][0]["error"])
+        attempts = self._assert_mission_attempts(event, 1)
+        self.assertEqual(first_history[-1]["refs"]["mission_route"]["attempt_ledger_hash"], attempts[0]["ledger_hash"])
+        self.assertEqual(first_history[-1]["refs"]["mission_route"]["status"], "retryable_error")
+        self.assertEqual(gi.inbox_summary(self.tools)["pending"], 1)
+        before_due = gs.tick(base_dir=self.tools, workspace_root=self.ws,
+                             now=datetime(2026, 9, 11, 1, 0, 59, tzinfo=timezone.utc))
+        self.assertEqual(before_due["routed"], [])
+        self.assertEqual(gi.read_inbox(self.tools), first_history)
+
+        second = gs.tick(base_dir=self.tools, workspace_root=self.ws,
+                         now=datetime(2026, 9, 11, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(
+            [(row["delivery_id"], row["action"], row["error"]) for row in second["routed"]],
+            [("issue-47-delivery", "mission_open", None)],
+        )
+        missions = list_open_missions(base_dir=self.tools)
+        self.assertEqual(len(missions), 1)
+        self.assertEqual(
+            (missions[0]["source_kind"], missions[0]["source_id"], missions[0]["title"],
+             missions[0]["next_action"], missions[0]["wake_condition"]),
+            ("github_issue", "issue-47", "GitHub issue #47: Issue 47", "triage_github_issue",
+             {"kind": "timer", "key": "github_issue:47"}),
+        )
+        self.assertEqual(second["routed"][0]["refs"]["mission_id"], missions[0]["mission_id"])
+        history = gi.read_inbox(self.tools)
+        self.assertEqual(sum(row["event"] == "accepted" for row in history), 1)
+        successful = [row for row in history if row["event"] == "routed" and row.get("error") is None]
+        self.assertEqual([(row["delivery_id"], row["refs"]["mission_id"]) for row in successful],
+                         [("issue-47-delivery", missions[0]["mission_id"])])
+
+        third = gs.tick(base_dir=self.tools, workspace_root=self.ws,
+                        now=datetime(2026, 9, 11, 1, 2, tzinfo=timezone.utc))
+        self.assertEqual(third["routed"], [])
+        self.assertEqual(list_open_missions(base_dir=self.tools), missions)
+        self.assertEqual(gi.read_inbox(self.tools), history)
+        self.assertEqual(gi.pending_events(self.tools), [])
+
+    def test_issue_mission_backoff_exhausts_three_durable_attempts(self) -> None:
+        event = gn.normalize_github("issues", "issue-48-delivery", _issue_payload(48, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        start = datetime(2026, 9, 11, 2, 0, tzinfo=timezone.utc)
+        with mock.patch("aria_kernel.mission.open_mission", side_effect=OSError("mission storage temporarily unavailable")) as opening:
+            for seconds, expected_calls in ((0, 1), (59, 1), (60, 2), (179, 2), (180, 3), (240, 3), (420, 3)):
+                outcome = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(seconds=seconds))
+                self.assertEqual(opening.call_count, expected_calls, f"tick at +{seconds}s")
+                if seconds in (59, 179, 420):
+                    self.assertEqual(outcome["routed"], [])
+        attempts = self._assert_mission_attempts(event, 3)
+        self.assertEqual([row["mission_route"]["attempted_at"] for row in attempts],
+                         [(start + timedelta(seconds=offset)).isoformat() for offset in (0, 60, 180)])
+        self.assertEqual([row["mission_route"]["next_attempt_not_before"] for row in attempts],
+                         [(start + timedelta(seconds=60)).isoformat(), (start + timedelta(seconds=180)).isoformat(), None])
+        final = gi.read_inbox(self.tools)[-1]
+        self.assertEqual(final["refs"]["mission_route"]["status"], "exhausted")
+        self.assertEqual(final["refs"]["mission_route"]["attempt_ledger_hash"], attempts[-1]["ledger_hash"])
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        self.assertEqual(gi.pending_events(self.tools), [])
+        self.assertEqual(gi.inbox_summary(self.tools)["pending"], 0)
+
+    def test_issue_mission_permanent_failure_is_not_retried(self) -> None:
+        event = gn.normalize_github("issues", "issue-49-delivery", _issue_payload(49, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        start = datetime(2026, 9, 11, 3, 0, tzinfo=timezone.utc)
+        with mock.patch("aria_kernel.mission.open_mission", side_effect=ValueError("invalid mission input")) as opening:
+            first = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start)
+            self.assertEqual(first["routed"][0]["error"], "ValueError: invalid mission input")
+            history = gi.read_inbox(self.tools)
+            later = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(hours=1))
+        opening.assert_called_once()
+        self.assertEqual(later["routed"], [])
+        self.assertEqual(gi.read_inbox(self.tools), history)
+        attempts = self._assert_mission_attempts(event, 1)
+        self.assertEqual(history[-1]["refs"]["mission_route"]["status"], "permanent_error")
+        self.assertEqual(history[-1]["refs"]["mission_route"]["attempt_ledger_hash"], attempts[0]["ledger_hash"])
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        self.assertEqual(gi.inbox_summary(self.tools)["pending"], 0)
+
+    def test_issue_mission_does_not_dispatch_without_durable_reservation(self) -> None:
+        from aria_kernel import mission
+
+        event = gn.normalize_github("issues", "issue-50-delivery", _issue_payload(50, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        accepted_bytes = gi.inbox_path(self.tools).read_bytes()
+        append = gi._append
+        rejected_attempts: list[dict] = []
+
+        def unavailable_reservation(base_dir, row):
+            if row.get("event") == "mission_route_attempt":
+                rejected_attempts.append(row)
+                raise OSError("inbox reservation storage temporarily unavailable")
+            return append(base_dir, row)
+
+        start = datetime(2026, 9, 11, 4, 0, tzinfo=timezone.utc)
+        with mock.patch.object(gi, "_append", side_effect=unavailable_reservation), \
+                mock.patch.object(mission, "open_mission", wraps=mission.open_mission) as opening:
+            with self.assertRaisesRegex(OSError, "inbox reservation storage temporarily unavailable"):
+                gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start)
+        self.assertEqual(len(rejected_attempts), 1)
+        opening.assert_not_called()
+        self.assertEqual(gi.inbox_path(self.tools).read_bytes(), accepted_bytes)
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        recovered = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(minutes=1))
+        self.assertEqual([(row["action"], row["error"]) for row in recovered["routed"]], [("mission_open", None)])
+        attempts = self._assert_mission_attempts(event, 1)
+        self.assertEqual(list_open_missions(base_dir=self.tools)[0]["mission_id"], attempts[0]["mission_route"]["mission_id"])
+
+    def test_issue_mission_dispatch_stays_bounded_when_outcome_writes_fail(self) -> None:
+        from aria_kernel import mission
+
+        event = gn.normalize_github("issues", "issue-51-delivery", _issue_payload(51, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        start = datetime(2026, 9, 11, 5, 0, tzinfo=timezone.utc)
+        with mock.patch("aria_kernel.mission.open_mission", side_effect=OSError("mission storage temporarily unavailable")) as opening, \
+                mock.patch.object(gr, "mark_routed", side_effect=OSError("inbox outcome storage temporarily unavailable")) as recording:
+            for seconds in (0, 60, 180, 240, 420):
+                with self.assertRaisesRegex(OSError, "inbox outcome storage temporarily unavailable"):
+                    gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(seconds=seconds))
+            self.assertEqual(recording.call_count, 5)
+            self.assertEqual(opening.call_count, 3, "A lost outcome cannot authorize an unreserved fourth mission call.")
+        attempts = self._assert_mission_attempts(event, 3)
+        self.assertEqual([row["event"] for row in gi.read_inbox(self.tools)],
+                         ["accepted", "mission_route_attempt", "mission_route_attempt", "mission_route_attempt"])
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        with mock.patch.object(mission, "open_mission", wraps=mission.open_mission) as fourth:
+            recovered = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(minutes=10))
+        fourth.assert_not_called()
+        self.assertEqual(len(recovered["routed"]), 1)
+        final = gi.read_inbox(self.tools)[-1]
+        self.assertEqual(final["refs"]["mission_route"]["status"], "exhausted")
+        self.assertEqual(final["refs"]["mission_route"]["attempt_ledger_hash"], attempts[-1]["ledger_hash"])
+        self.assertEqual(gi.inbox_summary(self.tools)["pending"], 0)
+
+    def test_issue_mission_reconciles_created_state_without_another_dispatch(self) -> None:
+        from aria_kernel import mission
+
+        start = datetime(2026, 9, 11, 6, 0, tzinfo=timezone.utc)
+        for number, state in enumerate(("DISCOVERED", "HUMAN_REQUIRED", "CANCELLED_BY_CONSTITUTION"), start=52):
+            with self.subTest(state=state):
+                tools = ensure_tools_dir(self.root / f"case-{state}" / "aria-tools")
+                event = gn.normalize_github("issues", f"issue-{number}-delivery", _issue_payload(number, ["aria"]))
+                assert event is not None
+                self.assertIsNotNone(gi.record_event(event, base_dir=tools))
+                with mock.patch.object(mission, "open_mission", wraps=mission.open_mission) as opening, \
+                        mock.patch.object(gr, "mark_routed", side_effect=OSError("inbox outcome storage temporarily unavailable")) as recording:
+                    with self.assertRaisesRegex(OSError, "inbox outcome storage temporarily unavailable"):
+                        gs.tick(base_dir=tools, workspace_root=self.ws, now=start)
+                opening.assert_called_once()
+                recording.assert_called_once()
+                self.assertEqual(len(list_open_missions(base_dir=tools)), 1)
+                mission_id = list_open_missions(base_dir=tools)[0]["mission_id"]
+                if state != "DISCOVERED":
+                    mission.transition_mission(
+                        mission_id=mission_id, to_state=state, reason_code="ordinary_lifecycle_before_inbox_recovery",
+                        step_id=f"gateway-recovery-{state}",
+                        next_action="await_operator" if state == "HUMAN_REQUIRED" else None,
+                        wake_condition={"kind": "evidence", "key": "operator-issue-review"} if state == "HUMAN_REQUIRED" else None,
+                        base_dir=tools,
+                    )
+                before_state = mission.fold_mission(mission_id=mission_id, base_dir=tools)
+                self.assertEqual(before_state["state"], state)
+                before_mission_bytes = mission.events_path(tools).read_bytes()
+                with mock.patch.object(mission, "open_mission", wraps=mission.open_mission) as replay:
+                    recovered = gs.tick(base_dir=tools, workspace_root=self.ws, now=start + timedelta(minutes=1))
+                replay.assert_not_called()
+                self.assertEqual([(row["action"], row["error"]) for row in recovered["routed"]], [("mission_open", None)])
+                self.assertEqual(recovered["routed"][0]["refs"]["mission_id"], mission_id)
+                self.assertEqual(recovered["routed"][0]["refs"]["mission_route"]["status"], "reconciled")
+                attempts = self._assert_mission_attempts(event, 1, tools=tools)
+                self.assertEqual(recovered["routed"][0]["refs"]["mission_route"]["attempt_ledger_hash"], attempts[0]["ledger_hash"])
+                self.assertEqual(mission.fold_mission(mission_id=mission_id, base_dir=tools), before_state)
+                self.assertEqual(mission.events_path(tools).read_bytes(), before_mission_bytes)
+                history = gi.read_inbox(tools)
+                self.assertEqual(gs.tick(base_dir=tools, workspace_root=self.ws,
+                                         now=start + timedelta(minutes=2))["routed"], [])
+                self.assertEqual(gi.read_inbox(tools), history)
+                self.assertEqual(mission.events_path(tools).read_bytes(), before_mission_bytes)
+                self.assertEqual(gi.inbox_summary(tools)["pending"], 0)
+
+    def test_scheduled_inbox_action_uses_tick_clock_for_mission_retry(self) -> None:
+        from aria_kernel import mission
+
+        event = gn.normalize_github("issues", "issue-54-scheduled", _issue_payload(54, ["aria"]))
+        assert event is not None
+        self._ingest(event)
+        gs.add_schedule(name="mission-inbox", action="inbox_drain", cron="* * * * *", base_dir=self.tools)
+        start = datetime(2026, 9, 11, 2, 0, 30, tzinfo=timezone.utc)
+        external_runner = mock.Mock(side_effect=AssertionError("local inbox schedule must not invoke a workflow"))
+
+        with mock.patch("aria_kernel.mission.open_mission", side_effect=OSError("scheduled mission storage unavailable")) as first_open:
+            first = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start,
+                            runner=external_runner, drain_inbox_first=False)
+        self.assertEqual(first["routed"], [])
+        self.assertEqual([(row["action"], row["status"], row["detail"]) for row in first["ran"]],
+                         [("inbox_drain", "ran", {"routed": 1, "errors": 1})])
+        first_attempt = self._assert_mission_attempts(event, 1)[0]
+        first_open.assert_called_once_with(
+            source_kind="github_issue", source_id="issue-54", repo_hash=first_attempt["mission_route"]["repo_hash"],
+            title="GitHub issue #54: Issue 54", next_action="triage_github_issue",
+            wake_condition={"kind": "timer", "key": "github_issue:54"}, priority=1, base_dir=self.tools,
+        )
+        self.assertEqual(first_attempt["mission_route"]["attempted_at"], start.isoformat())
+        self.assertEqual(first_attempt["mission_route"]["next_attempt_not_before"], (start + timedelta(seconds=60)).isoformat())
+        self.assertEqual(gs.fold_schedules(self.tools)["mission-inbox"].last_ran_at, start.isoformat())
+        self.assertEqual(list_open_missions(base_dir=self.tools), [])
+        first_history = gi.read_inbox(self.tools)
+        self.assertEqual(first_history[-1]["error"], "OSError: scheduled mission storage unavailable")
+
+        with mock.patch("aria_kernel.mission.open_mission", wraps=mission.open_mission) as subsequent_open:
+            # The next cron minute is only30s later, before the retry is due.
+            early = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=start + timedelta(seconds=30),
+                            runner=external_runner, drain_inbox_first=False)
+            self.assertEqual(early["routed"], [])
+            self.assertEqual([row["detail"] for row in early["ran"]], [{"routed": 0, "errors": 0}])
+            subsequent_open.assert_not_called()
+            self.assertEqual(gi.read_inbox(self.tools), first_history)
+
+            due = start + timedelta(seconds=90)
+            recovered = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=due,
+                                runner=external_runner, drain_inbox_first=False)
+            self.assertEqual(recovered["routed"], [])
+            self.assertEqual([row["detail"] for row in recovered["ran"]], [{"routed": 1, "errors": 0}])
+            subsequent_open.assert_called_once_with(**first_open.call_args.kwargs)
+            attempts = self._assert_mission_attempts(event, 2)
+            self.assertEqual(attempts[1]["mission_route"]["attempted_at"], due.isoformat())
+            self.assertEqual(gs.fold_schedules(self.tools)["mission-inbox"].last_ran_at, due.isoformat())
+            history = gi.read_inbox(self.tools)
+            missions = list_open_missions(base_dir=self.tools)
+            self.assertEqual(len(missions), 1)
+            self.assertEqual(history[-1]["refs"]["mission_id"], missions[0]["mission_id"])
+            self.assertEqual(history[-1]["refs"]["mission_route"]["status"], "succeeded")
+            self.assertEqual(history[-1]["refs"]["mission_route"]["attempt_ledger_hash"], attempts[1]["ledger_hash"])
+            mission_bytes = mission.events_path(self.tools).read_bytes()
+
+            same_minute = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=due + timedelta(seconds=1),
+                                  runner=external_runner, drain_inbox_first=False)
+            self.assertEqual((same_minute["routed"], same_minute["ran"]), ([], []))
+            later = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=due + timedelta(seconds=60),
+                            runner=external_runner, drain_inbox_first=False)
+            self.assertEqual(later["routed"], [])
+            self.assertEqual([row["detail"] for row in later["ran"]], [{"routed": 0, "errors": 0}])
+            subsequent_open.assert_called_once()
+            self.assertEqual(gi.read_inbox(self.tools), history)
+            self.assertEqual(mission.events_path(self.tools).read_bytes(), mission_bytes)
+        external_runner.assert_not_called()
+        self.assertEqual(gi.inbox_summary(self.tools)["pending"], 0)
 
     def test_I_V12_GW_03_deterministic_closed_routes(self) -> None:
         self._ingest(gn.normalize_github("issues", "i-7", _issue_payload(7, ["aria"])))

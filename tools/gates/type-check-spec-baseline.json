@@ -106,6 +106,10 @@
     },
     "tests/invariants": {
       "errors": 0
+    },
+    "web/modules/admin-panel": {
+      "errors": 0,
+      "notes": "Entered the gate in W8b (ADMIN-HIGH-105). admin-panel had NO tsconfig.spec.json, and its tsconfig.json explicitly EXCLUDES *.spec.ts(x) — vitest transpiles without checking types, so no gate anywhere read a spec in this package. The compiler's first pass over them found real drift, not cosmetics: TenantManagementPage.spec set `updatedAt` and `lastActivityAt` on a contract `Tenant` that has neither, omitted the required `isTrialActive` from all four fixtures, and hand-wrote a PaginatedResult missing `hasNextPage`/`hasPreviousPage`; the new page specs claimed an ActivityLogCategory of 'AUTH' and a severity of 'high', neither of which exists in the union. All fixed by using the real types plus derivePaginationMetadataV1 as the pagination SSoT. Locked at 0."
     }
   }
 }

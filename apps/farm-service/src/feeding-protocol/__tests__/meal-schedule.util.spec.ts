@@ -112,9 +112,9 @@ describe('suspensionFor (D-12)', () => {
   ];
 
   it('matches inclusive date bounds and misses outside days', () => {
-    expect(suspensionFor(suspensions, '2026-07-20')?.type).toBe('fasting');
-    expect(suspensionFor(suspensions, '2026-07-22')?.type).toBe('fasting');
-    expect(suspensionFor(suspensions, '2026-07-23')).toBeUndefined();
+    expect(suspensionFor(suspensions, '2026-07-20', 'UTC')?.type).toBe('fasting');
+    expect(suspensionFor(suspensions, '2026-07-22', 'UTC')?.type).toBe('fasting');
+    expect(suspensionFor(suspensions, '2026-07-23', 'UTC')).toBeUndefined();
   });
 });
 

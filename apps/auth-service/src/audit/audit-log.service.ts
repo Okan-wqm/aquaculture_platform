@@ -3,13 +3,18 @@ import {
   type CreateAuditEntryDto,
   type IAuditLogService,
 } from '@aquaculture/backend-common/audit';
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 
 export interface CreateAuditLogDto {
   tenantId?: string;
@@ -37,6 +42,7 @@ export class AuditLogService implements IAuditLogService {
     private readonly auditLogRepository: Repository<AuditLog>,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
@@ -261,7 +267,7 @@ export class AuditLogService implements IAuditLogService {
    */
   private static readonly DEFAULT_RETENTION_DAYS = 7 * 365;
 
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  @ScheduledJob({ name: 'audit-log.cleanup', cron: CronExpression.EVERY_DAY_AT_2AM })
   async scheduledLogCleanup(): Promise<void> {
     const retentionDays = this.configService.get<number>(
       'AUDIT_LOG_RETENTION_DAYS',

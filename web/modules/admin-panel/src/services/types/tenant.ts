@@ -2,6 +2,8 @@
  * Tenant domain types
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // Tenant Enums (Backend uyumlu)
 // ============================================================================
@@ -34,143 +36,46 @@ export enum TenantTier {
 // Tenant Interfaces
 // ============================================================================
 
-export interface TenantLimits {
-  maxUsers: number;
-  maxFarms: number;
-  maxPonds: number;
-  maxSensors: number;
-  maxAlertRules: number;
-  dataRetentionDays: number;
-  apiRateLimit: number;
-  storageGb: number;
-}
+export type TenantLimits = ApiSchema<'TenantLimitsDto'>;
 
-export interface TenantSettings {
-  timezone: string;
-  locale: string;
-  currency: string;
-  dateFormat: string;
-  measurementSystem: string;
-  notificationPreferences: {
-    email: boolean;
-    sms: boolean;
-    push: boolean;
-    slack: boolean;
-  };
-  features: string[];
-}
+export type TenantSettings = ApiSchema<'TenantSettingsDto'>;
 
-export interface TenantContact {
-  name: string;
-  email: string;
-  phone?: string;
-  role: string;
-}
+export type TenantContact = ApiSchema<'TenantContactDto'>;
 
-export interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  domain?: string;
-  tier: TenantTier;
-  status: TenantStatus;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  limits?: TenantLimits;
-  settings?: TenantSettings;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  trialEndsAt?: string;
-  suspendedAt?: string;
-  suspendedReason?: string;
-  suspendedBy?: string;
-  lastActivityAt?: string;
-  createdBy?: string;
-  maxStorage?: number;
-  isTrialActive?: boolean;
-  createdAt: string;
-  updatedAt: string;
-  version?: number;
-  availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
-}
+/**
+ * One row of `GET /admin/tenants`, as `TenantListItemDto` describes it.
+ *
+ * Hand-declared until now, and it drifted the way ADMIN-HIGH-110 drifted: it
+ * carried `lastActivityAt`, which the backend REMOVED under DB-ADMIN-HIGH-003
+ * because no `auth.tenants` column ever backed it, so the value was always
+ * `undefined`. The tenant list and detail page both rendered it.
+ *
+ * The DTO could not be sourced from the contract before because it was declared
+ * as an `interface`, and the `@nestjs/swagger` plugin emits schemas for CLASSES
+ * ONLY — the exact root cause found in ADMIN-HIGH-110. It is a class now, so
+ * this is an alias and a backend rename is a compile error here.
+ */
+export type Tenant = ApiSchema<'TenantListItemDto'>;
 
-export interface TenantStats {
-  totalTenants: number;
-  activeTenants: number;
-  suspendedTenants: number;
-  pendingTenants: number;
-  byTier?: Record<TenantTier, number>;
-  byPlan?: Record<string, number>;
-  newTenantsLast30Days: number;
-  churnedTenantsLast30Days: number;
-}
+export type TenantStats = ApiSchema<'TenantStatsDto'>;
 
-export interface TenantActivity {
-  id: string;
-  tenantId: string;
-  activityType: string;
-  title: string;
-  description?: string;
-  metadata?: Record<string, unknown>;
-  previousValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
-  performedBy?: string;
-  performedByEmail?: string;
-  createdAt: string;
-}
+/**
+ * One `admin.tenant_activities` row. The hand-written copy typed
+ * `activityType` as a bare `string`; the contract carries the seventeen-member
+ * enum and a `legalHold` flag the copy omitted entirely.
+ */
+export type TenantActivity = ApiSchema<'TenantActivity'>;
 
-export interface TenantNote {
-  id: string;
-  tenantId: string;
-  content: string;
-  category: string;
-  isPinned: boolean;
-  createdBy: string;
-  createdByEmail?: string;
-  createdAt: string;
-}
+export type TenantNote = ApiSchema<'TenantNote'>;
 
-export interface TenantDetail extends Tenant {
-  userStats?: {
-    total: number;
-    active: number;
-    inactive: number;
-    byRole: Record<string, number>;
-    recentlyActive: number;
-    newUsersLast30Days: number;
-  };
-  resourceUsage?: {
-    storage: { usedGb: number; limitGb: number; percentage: number };
-    users: { count: number; limit: number; percentage: number };
-    farms: { count: number; limit: number; percentage: number };
-    sensors: { count: number; limit: number; percentage: number };
-    apiCalls: { last24h: number; last7d: number; limit: number };
-  };
-  modules?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    isActive: boolean;
-    assignedAt: string;
-  }>;
-  recentActivities?: TenantActivity[];
-  notes?: TenantNote[];
-  billing?: {
-    currentPlan: string;
-    monthlyAmount: number;
-    currency: string;
-    billingCycle: string;
-    paymentStatus: string;
-    nextBillingDate: string | null;
-    lastPaymentDate: string | null;
-    lastPaymentAmount: number | null;
-  };
-}
+/**
+ * `GET /admin/tenants/:id/detail`, as `TenantDetailDto` describes it.
+ *
+ * NOT `Tenant & extras`: the detail response is a different projection, not a
+ * superset of the list row, and writing it as an extension of the list type is
+ * what let both carry `lastActivityAt` from one hand-written declaration.
+ */
+export type TenantDetail = ApiSchema<'TenantDetailDto'>;
 
 /**
  * Module quantity configuration for pricing calculation
@@ -190,81 +95,47 @@ export interface ModuleQuantityConfig {
   integrations?: number;
 }
 
-export interface CreateTenantDto {
-  name: string;
-  slug?: string;
-  tier?: TenantTier;
-  description?: string;
-  domain?: string;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  trialDays?: number;
-  maxUsers?: number;
-  maxStorage?: number;
-  limits?: Partial<TenantLimits>;
-  settings?: Partial<TenantSettings>;
-  /**
-   * Module IDs to assign to the tenant during creation
-   * Super Admin selects which modules the tenant will have access to
-   */
-  moduleIds?: string[];
-  /**
-   * Optional quantity configuration per module for pricing calculation
-   */
-  moduleQuantities?: ModuleQuantityConfig[];
-  /**
-   * Billing cycle preference: monthly, quarterly, semi_annual, annual
-   */
-  billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
-  catalogVersionId?: string;
-  quoteId?: string;
-  customPlanId?: string;
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateTenantDto = ApiSchema<'CreateTenantDto'>;
 
-export enum TenantProvisioningState {
-  QUEUED = 'QUEUED',
-  RESERVING = 'RESERVING',
-  RUNNING = 'RUNNING',
-  SUCCEEDED = 'SUCCEEDED',
-  FAILED = 'FAILED',
-}
+/**
+ * Generated from the backend contract (CONTRACT-CRITICAL-003). A TypeScript
+ * `enum` was nominal: its members were not assignable to the states the API
+ * actually returns, so the mismatch stayed invisible until the contract landed.
+ */
+export type TenantProvisioningState = ApiSchema<'CreateTenantAcceptedResponse'>['status'];
+export const TenantProvisioningState = {
+  QUEUED: 'QUEUED',
+  RESERVING: 'RESERVING',
+  RUNNING: 'RUNNING',
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+} as const satisfies Record<string, TenantProvisioningState>;
 
-export interface TenantProvisioningStep {
-  name: string;
-  state: TenantProvisioningState;
-  attempts: number;
-  lastError?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
+export type TenantProvisioningStep = ApiSchema<'TenantProvisioningStepDto'>;
 
-export interface CreateTenantAcceptedResponse {
-  status: TenantProvisioningState;
-  tenantStatus?: TenantStatus;
-  statusUrl: string;
-  retryAfterMs: number;
-  availableActions: Array<'retryProvisioning'>;
-  /**
-   * Per-step detail mirroring CreateTenantAcceptedResponse.steps in
-   * apps/admin-api-service/src/tenant/dto/tenant.dto.ts. Always an array — it is
-   * the only place the operator can read WHICH step failed and WHY.
-   */
-  steps: TenantProvisioningStep[];
-}
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type CreateTenantAcceptedResponse = ApiSchema<'CreateTenantAcceptedResponse'>;
 
-export interface UpdateTenantDto {
-  name?: string;
-  description?: string;
-  domain?: string;
-  tier?: TenantTier;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  limits?: Partial<TenantLimits>;
-  settings?: Partial<TenantSettings>;
+/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+export type UpdateTenantDto = ApiSchema<'UpdateTenantDto'>;
+
+/**
+ * The tiers a tenant can be MOVED to through the admin API
+ * (CONTRACT-CRITICAL-003). A tenant record's own tier can be `custom` — a
+ * negotiated plan built in the custom-plan builder — but `PUT /tenants/:id`
+ * does not accept it, so a form that offered it could only ever produce a 400.
+ */
+export type EditableTenantTier = NonNullable<UpdateTenantDto['tier']>;
+
+export const EDITABLE_TENANT_TIERS: readonly EditableTenantTier[] = [
+  'free',
+  'trial',
+  'starter',
+  'professional',
+  'enterprise',
+];
+
+export function isEditableTenantTier(value: string | undefined): value is EditableTenantTier {
+  return value !== undefined && (EDITABLE_TENANT_TIERS as readonly string[]).includes(value);
 }

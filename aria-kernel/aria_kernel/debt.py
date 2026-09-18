@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
+from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .finding import (
     SEVERITIES,
@@ -125,7 +126,11 @@ def _validate_short_term_action(
     action: dict[str, Any],
     *,
     repo_root: Path | None = None,
+    probe_session: GitProbeSession | None = None,
 ) -> dict[str, Any]:
+    """``probe_session`` is the emitting decision's one git-probe session
+    (evidence_probe); the ref is graded through it so the debt's baseline
+    resolution and probe clock belong to the decision, not to this call."""
     kind = action.get("kind")
     if kind not in SHORT_TERM_ACTION_KINDS:
         raise GovernanceError(f"unknown short_term_action kind: {kind!r}")
@@ -145,6 +150,7 @@ def _validate_short_term_action(
                 source_hint="repo_source",
                 context="debt_short_term_action",
                 target_sha=target_sha,
+                probe_session=probe_session,
             )
             if target_sha is not None and envelope.trust_grade != "repo_verified":
                 raise GovernanceError(
@@ -260,7 +266,11 @@ def emit_debt(
     now = _utc_now()
     due = _validate_due_date(severity, due_date, now=now)
     _validate_owner(permanent_fix_owner)
-    short_term_action = _validate_short_term_action(short_term_action, repo_root=repo_path)
+    # One probe session per emitted debt — the decision's, threaded into
+    # every evidence grade it makes (one ref today; the shape holds for N).
+    short_term_action = _validate_short_term_action(
+        short_term_action, repo_root=repo_path, probe_session=GitProbeSession(),
+    )
 
     debts_dir = _debts_dir(repo_path)
     debts_dir.mkdir(parents=True, exist_ok=True)

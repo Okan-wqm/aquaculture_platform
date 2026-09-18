@@ -12,12 +12,10 @@ import {
   IsOptional,
   IsString,
   IsEnum,
-  IsPositive,
   IsNumber,
   IsBoolean,
   IsDateString,
   Min,
-  Max,
   MaxLength,
 } from 'class-validator';
 import { HarvestRecordStatus, QualityClass } from '../entities/harvest-record.entity';
@@ -34,28 +32,6 @@ export class UpdateHarvestRecordInput {
   @IsOptional()
   @IsEnum(HarvestRecordStatus)
   status?: HarvestRecordStatus;
-
-  @Field(() => Int, { nullable: true, description: 'Update quantity harvested' })
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  @Min(1)
-  quantityHarvested?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Update total biomass (kg)' })
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  @Min(0.01)
-  totalBiomass?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Update average weight (grams)' })
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  @Min(0.01)
-  @Max(100000)
-  averageWeight?: number;
 
   @Field(() => QualityClass, {
     nullable: true,

@@ -128,6 +128,9 @@ function signalEmitterSources(key: string): readonly string[] {
   if (key === 'db_migrate_complete') {
     return ['apps/db-migrate/src/main.ts'];
   }
+  if (key === 'mqtt_subscribed_topics') {
+    return ['apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts'];
+  }
   throw new Error(`No emitter source mapping for boot signal ${key}`);
 }
 
@@ -331,7 +334,12 @@ function catalogGeneratedArtifact(): Artifact {
         (entry) => entry.composeServiceName,
       ),
       imageBuildTargets: activeDropletServices()
-        .filter((entry) => entry.imageTarget && entry.buildKind !== 'infra')
+        // Match imageBuildTargets(): rust-sidecar images ship prebuilt
+        // from GHCR; the deploy shell never builds them locally.
+        .filter(
+          (entry) =>
+            entry.imageTarget && entry.buildKind !== 'infra' && entry.buildKind !== 'rust-sidecar',
+        )
         .map((entry) => entry.imageTarget),
       deploy: {
         backendImageTargets: backendImageBuildTargets(),

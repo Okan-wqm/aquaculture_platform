@@ -224,10 +224,13 @@ where
         }
 
         // Enqueue path — broker known down OR disconnect race.
-        self.enqueue(topic, payload, priority, qos, retain)
+        self.enqueue(topic, payload, priority, qos, retain).await
     }
 
-    fn enqueue(
+    /// EDGE-HIGH-014: the SQLCipher enqueue is blocking I/O; it runs on the
+    /// blocking thread pool (`spawn_blocking`) so a broker outage cannot stall
+    /// a tokio worker while telemetry backs up to disk.
+    async fn enqueue(
         &self,
         topic: &str,
         payload: &[u8],
@@ -235,12 +238,17 @@ where
         qos: u8,
         retain: bool,
     ) -> Result<PublishOutcome, OutboundError> {
-        let payload_str =
-            std::str::from_utf8(payload).map_err(|_| OutboundError::PayloadNotUtf8)?;
-        let message_id = self
-            .queue
-            .enqueue(topic, payload_str, priority, qos, retain)
-            .map_err(|e| OutboundError::QueueError(e.to_string()))?;
+        let payload_str = std::str::from_utf8(payload)
+            .map_err(|_| OutboundError::PayloadNotUtf8)?
+            .to_string();
+        let topic = topic.to_string();
+        let queue = Arc::clone(&self.queue);
+        let message_id = tokio::task::spawn_blocking(move || {
+            queue.enqueue(&topic, &payload_str, priority, qos, retain)
+        })
+        .await
+        .map_err(|e| OutboundError::QueueError(format!("spawn_blocking join: {}", e)))?
+        .map_err(|e| OutboundError::QueueError(e.to_string()))?;
         Ok(PublishOutcome::Queued { message_id })
     }
 }
@@ -343,9 +351,16 @@ where
             return DrainOutcome::Skipped;
         }
 
-        let batch = match self.queue.peek_batch(self.batch_size) {
-            Ok(b) => b,
-            Err(e) => return DrainOutcome::QueueError(e.to_string()),
+        // EDGE-HIGH-014: peek is blocking SQLCipher I/O — run it on the
+        // blocking pool so the drain loop never stalls a tokio worker.
+        let batch = {
+            let queue = Arc::clone(&self.queue);
+            let batch_size = self.batch_size;
+            match tokio::task::spawn_blocking(move || queue.peek_batch(batch_size)).await {
+                Ok(Ok(b)) => b,
+                Ok(Err(e)) => return DrainOutcome::QueueError(e.to_string()),
+                Err(e) => return DrainOutcome::QueueError(format!("spawn_blocking join: {}", e)),
+            }
         };
 
         if batch.is_empty() {
@@ -381,13 +396,22 @@ where
 
         let sent = to_ack.len();
         if sent > 0 {
-            if let Err(e) = self.queue.ack_batch(&to_ack) {
-                // Ack failure is annoying but safe: messages stay
-                // in the queue and will be re-published next tick.
-                // Idempotent at the broker side (QoS-1 dedup) for
-                // typical brokers; QoS-0 sees a dup but no
-                // correctness issue.
-                tracing::warn!("drain ack_batch failed for {} messages: {}", sent, e);
+            // EDGE-HIGH-014: ack is blocking SQLCipher I/O — offload it.
+            let queue = Arc::clone(&self.queue);
+            let ack_result = tokio::task::spawn_blocking(move || queue.ack_batch(&to_ack)).await;
+            match ack_result {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    // Ack failure is annoying but safe: messages stay
+                    // in the queue and will be re-published next tick.
+                    // Idempotent at the broker side (QoS-1 dedup) for
+                    // typical brokers; QoS-0 sees a dup but no
+                    // correctness issue.
+                    tracing::warn!("drain ack_batch failed for {} messages: {}", sent, e);
+                }
+                Err(e) => {
+                    tracing::warn!("drain ack_batch spawn_blocking join failed: {}", e);
+                }
             }
         }
 

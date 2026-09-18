@@ -8,6 +8,8 @@ import { KnowledgeEntry } from '../../entities/knowledge-entry.entity';
 import { KnowledgeExtractionService } from '../knowledge-extraction.service';
 import { MessageEntityReference } from '../../entities/message-entity-reference.entity';
 import { MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV } from '../../ai-trigger.config';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 /**
  * ORPHAN-MEDIUM-336 — the knowledge-extraction sweep must call the farm
@@ -93,6 +95,7 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
         { provide: DataSource, useValue: dataSource },
         { provide: 'NATS_SERVICE', useValue: { send } },
         { provide: AiPrivacyService, useValue: {} },
+        { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
     service = moduleRef.get(KnowledgeExtractionService);
@@ -129,6 +132,7 @@ describe('KnowledgeExtractionService — MSGFIX-FAZ0 cron ceasefire (default OFF
         { provide: DataSource, useValue: dataSource },
         { provide: 'NATS_SERVICE', useValue: { send } },
         { provide: AiPrivacyService, useValue: {} },
+        { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
     return moduleRef.get(KnowledgeExtractionService);

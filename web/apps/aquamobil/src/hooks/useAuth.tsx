@@ -36,8 +36,8 @@ interface AuthContextValue extends AuthState {
     user: {
       id: string;
       email: string;
-      firstName?: string;
-      lastName?: string;
+      firstName?: string | null;
+      lastName?: string | null;
       role: string;
       tenantId: string | null;
     },
@@ -405,8 +405,8 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       user: {
         id: string;
         email: string;
-        firstName?: string;
-        lastName?: string;
+        firstName?: string | null;
+        lastName?: string | null;
         role: string;
         tenantId: string | null;
       },

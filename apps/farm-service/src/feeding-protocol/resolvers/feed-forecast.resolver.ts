@@ -39,6 +39,7 @@ import {
 } from '../entities/feeding-forecast-snapshot.entity';
 import { ProtocolFeedForecastView } from '../dto/feed-forecast.results';
 import {
+  FORECAST_STALE_AFTER_MS,
   ProtocolFeedForecastService,
   TENANT_SCOPE_KEY,
 } from '../services/protocol-feed-forecast.service';
@@ -130,11 +131,17 @@ export function sliceSnapshotToHorizon(
     ...unit,
     transitions: unit.transitions.filter((t) => t.daysFromNow < horizon),
   }));
-  const alerts = snapshot.alerts.filter((alert) => alert.days < horizon);
+  // Dilimleme GÜN İNDEKSİ üzerinden (FARM-LOW-266): `days` tipe özgü bir
+  // BÜYÜKLÜK (geçiş açığında eksik gün sayısı), pencere sınırı değil.
+  const alerts = snapshot.alerts.filter((alert) => alert.atDay < horizon);
   return {
     siteScopeKey: snapshot.siteScopeKey,
+    poolScope: snapshot.poolScope,
     horizonDays: horizon,
     computedAt: snapshot.computedAt,
+    // Bayat satır silinmez, İŞARETLENİR: "veri yok" ile "veri eski"
+    // operatör için farklı kararlardır (W6).
+    stale: Date.now() - snapshot.computedAt.getTime() > FORECAST_STALE_AFTER_MS,
     perFeed,
     perUnit,
     alerts,

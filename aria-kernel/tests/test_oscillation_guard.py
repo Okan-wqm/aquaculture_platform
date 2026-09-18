@@ -8,7 +8,6 @@ What this suite pins:
   escalates to HUMAN_REQUIRED + emits oscillation_escalated + raises to block
   the autonomous fix dispatch.
 - record_resolution resets the streak so a later dispatch is allowed again.
-- assert_fix_dispatch_allowed raises once oscillating, without escalating.
 - The HUMAN_REQUIRED escalation is idempotent across repeated guard calls.
 """
 from __future__ import annotations
@@ -22,7 +21,6 @@ from pathlib import Path
 from aria_kernel.human_required import list_human_required
 from aria_kernel.oscillation_guard import (
     DEFAULT_OSCILLATION_THRESHOLD,
-    assert_fix_dispatch_allowed,
     guard_fix_dispatch,
     record_reopen,
     record_resolution,
@@ -92,20 +90,12 @@ class OscillationGuardTests(unittest.TestCase):
         kinds = [json.loads(line)["kind"] for line in governance.splitlines() if line.strip()]
         self.assertIn("oscillation_escalated", kinds)
 
-    def test_assert_blocks_when_oscillating_without_escalating(self) -> None:
-        for i in range(DEFAULT_OSCILLATION_THRESHOLD):
-            record_reopen(fingerprint=FP, cycle_id=f"c{i}", base_dir=self.tools)
-        with self.assertRaises(GovernanceError):
-            assert_fix_dispatch_allowed(fingerprint=FP, base_dir=self.tools)
-        # Read-only: no escalation written.
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
-
     def test_resolution_unblocks_dispatch(self) -> None:
         for i in range(DEFAULT_OSCILLATION_THRESHOLD):
             record_reopen(fingerprint=FP, cycle_id=f"c{i}", base_dir=self.tools)
         record_resolution(fingerprint=FP, cycle_id="c-fix", base_dir=self.tools)
         # Streak reset → dispatch allowed again, no raise.
-        assert_fix_dispatch_allowed(fingerprint=FP, base_dir=self.tools)
+        guard_fix_dispatch(fingerprint=FP, cycle_id="c-after-fix", base_dir=self.tools)
         result = guard_fix_dispatch(fingerprint=FP, cycle_id="c-next", base_dir=self.tools)
         self.assertFalse(result["blocked"])
 

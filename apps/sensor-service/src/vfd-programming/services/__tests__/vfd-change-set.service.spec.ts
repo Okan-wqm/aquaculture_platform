@@ -65,9 +65,7 @@ function createMockDefinition(
   return def;
 }
 
-function createMockItem(
-  overrides: Partial<VfdChangeSetItem> = {},
-): VfdChangeSetItem {
+function createMockItem(overrides: Partial<VfdChangeSetItem> = {}): VfdChangeSetItem {
   const item = new VfdChangeSetItem();
   item.id = overrides.id ?? 'item-001';
   item.changeSetId = overrides.changeSetId ?? 'cs-001';
@@ -80,9 +78,7 @@ function createMockItem(
   return item;
 }
 
-function createMockChangeSet(
-  overrides: Partial<VfdChangeSet> = {},
-): VfdChangeSet {
+function createMockChangeSet(overrides: Partial<VfdChangeSet> = {}): VfdChangeSet {
   const cs = new VfdChangeSet();
   cs.id = overrides.id ?? 'cs-001';
   cs.tenantId = overrides.tenantId ?? TENANT_ID;
@@ -102,9 +98,7 @@ function createMockChangeSet(
   return cs;
 }
 
-function createMockRiskResult(
-  overrides: Partial<RiskAssessmentResult> = {},
-): RiskAssessmentResult {
+function createMockRiskResult(overrides: Partial<RiskAssessmentResult> = {}): RiskAssessmentResult {
   return {
     riskLevel: overrides.riskLevel ?? (RiskLevel.MEDIUM as never),
     requiresMotorStop: overrides.requiresMotorStop ?? false,
@@ -123,6 +117,8 @@ interface MockRepository {
   find: jest.Mock;
   count: jest.Mock;
   remove: jest.Mock;
+  /** SEC-MEDIUM-083: conditional-UPDATE claims (affected: 1 by default) */
+  update: jest.Mock;
 }
 
 function createMockRepository(): MockRepository {
@@ -134,6 +130,7 @@ function createMockRepository(): MockRepository {
     find: jest.fn(),
     count: jest.fn(),
     remove: jest.fn(),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 }
 
@@ -199,10 +196,14 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.create!.mockReturnValue(draft);
       changeSetRepo.save!.mockResolvedValue(draft);
 
-      const result = await service.createChangeSet(TENANT_ID, {
-        vfdDeviceId: DEVICE_ID,
-        description: 'Test change set',
-      }, USER_MAKER);
+      const result = await service.createChangeSet(
+        TENANT_ID,
+        {
+          vfdDeviceId: DEVICE_ID,
+          description: 'Test change set',
+        },
+        USER_MAKER,
+      );
 
       expect(result.status).toBe(VfdChangeSetStatus.DRAFT);
       expect(result.createdBy).toBe(USER_MAKER);
@@ -229,11 +230,15 @@ describe('VfdChangeSetService', () => {
       itemRepo.create!.mockReturnValue(createMockItem());
       itemRepo.save!.mockResolvedValue([createMockItem()]);
 
-      const result = await service.createChangeSet(TENANT_ID, {
-        vfdDeviceId: DEVICE_ID,
-        description: 'Test',
-        items: [{ parameterName: 'accel_time_1', requestedValue: 5 }],
-      }, USER_MAKER);
+      const result = await service.createChangeSet(
+        TENANT_ID,
+        {
+          vfdDeviceId: DEVICE_ID,
+          description: 'Test',
+          items: [{ parameterName: 'accel_time_1', requestedValue: 5 }],
+        },
+        USER_MAKER,
+      );
 
       expect(result.items.length).toBe(1);
     });
@@ -248,8 +253,8 @@ describe('VfdChangeSetService', () => {
         items: [createMockItem()],
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draft)  // findByIdOrFail
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(draft) // findByIdOrFail
         .mockResolvedValueOnce(withItems); // return after save
       itemRepo.create!.mockReturnValue(createMockItem());
       itemRepo.save!.mockResolvedValue([createMockItem()]);
@@ -338,9 +343,7 @@ describe('VfdChangeSetService', () => {
       const draft = createMockChangeSet({ items: [item] });
       const afterRemove = createMockChangeSet({ items: [] });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draft)
-        .mockResolvedValueOnce(afterRemove);
+      changeSetRepo.findOne!.mockResolvedValueOnce(draft).mockResolvedValueOnce(afterRemove);
       itemRepo.findOne!.mockResolvedValue(item);
       itemRepo.remove!.mockResolvedValue(item);
 
@@ -355,9 +358,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(applied);
 
-      await expect(
-        service.removeItem('cs-001', 'item-001', TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.removeItem('cs-001', 'item-001', TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -374,9 +377,9 @@ describe('VfdChangeSetService', () => {
         items: [createMockItem()],
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draft)  // findByIdOrFail
-        .mockResolvedValueOnce(null);  // ensureNoActiveChangeSet
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(draft) // findByIdOrFail
+        .mockResolvedValueOnce(null); // ensureNoActiveChangeSet
       changeSetRepo.save!.mockResolvedValue(pending);
 
       const result = await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
@@ -395,9 +398,9 @@ describe('VfdChangeSetService', () => {
       const emptyDraft = createMockChangeSet({ items: [] });
       changeSetRepo.findOne!.mockResolvedValue(emptyDraft);
 
-      await expect(
-        service.submitForApproval('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.submitForApproval('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw when submitting non-DRAFT change set', async () => {
@@ -407,9 +410,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(approved);
 
-      await expect(
-        service.submitForApproval('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.submitForApproval('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should include risk summary in metadata after submission', async () => {
@@ -424,17 +427,13 @@ describe('VfdChangeSetService', () => {
         items: [createMockItem()],
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draft)
-        .mockResolvedValueOnce(null);
+      changeSetRepo.findOne!.mockResolvedValueOnce(draft).mockResolvedValueOnce(null);
 
       let savedMetadata: Record<string, unknown> | undefined;
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => {
-          savedMetadata = cs.metadata;
-          return Promise.resolve(cs);
-        },
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => {
+        savedMetadata = cs.metadata;
+        return Promise.resolve(cs);
+      });
 
       await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
 
@@ -455,12 +454,10 @@ describe('VfdChangeSetService', () => {
         items: [createMockItem()],
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pending)  // findByIdOrFail
-        .mockResolvedValueOnce(null);    // ensureNoActiveChangeSet
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(pending) // findByIdOrFail
+        .mockResolvedValueOnce(null); // ensureNoActiveChangeSet
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       const result = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
@@ -475,9 +472,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(pending);
 
-      await expect(
-        service.approveChangeSet('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.approveChangeSet('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should emit vfd.changeset.approved when no scheduledAt', async () => {
@@ -487,12 +484,8 @@ describe('VfdChangeSetService', () => {
         scheduledAt: undefined,
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pending)
-        .mockResolvedValueOnce(null);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.findOne!.mockResolvedValueOnce(pending).mockResolvedValueOnce(null);
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
@@ -512,12 +505,8 @@ describe('VfdChangeSetService', () => {
         scheduledAt: new Date('2026-04-01'),
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pending)
-        .mockResolvedValueOnce(null);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.findOne!.mockResolvedValueOnce(pending).mockResolvedValueOnce(null);
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
 
@@ -533,9 +522,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(draft);
 
-      await expect(
-        service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -555,13 +544,13 @@ describe('VfdChangeSetService', () => {
         status: VfdChangeSetStatus.APPROVED,
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pending)   // findByIdOrFail
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(pending) // findByIdOrFail
         .mockResolvedValueOnce(existingActive); // ensureNoActiveChangeSet
 
-      await expect(
-        service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('should allow approval when no other active change set exists', async () => {
@@ -570,12 +559,8 @@ describe('VfdChangeSetService', () => {
         createdBy: USER_MAKER,
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pending)
-        .mockResolvedValueOnce(null); // no other active
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.findOne!.mockResolvedValueOnce(pending).mockResolvedValueOnce(null); // no other active
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       const result = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
       expect(result.status).toBe(VfdChangeSetStatus.APPROVED);
@@ -591,9 +576,7 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.findOne!.mockResolvedValue(pending);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       const result = await service.rejectChangeSet(
         'cs-001',
@@ -636,18 +619,14 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.findOne!.mockResolvedValue(draft);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
-      const result = await service.cancelChangeSet(
-        'cs-001',
-        USER_MAKER,
-        TENANT_ID,
-      );
+      const result = await service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID);
 
       expect(result.status).toBe(VfdChangeSetStatus.CANCELLED);
-      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)['cancellation']!;
+      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)[
+        'cancellation'
+      ]!;
       expect(cancellation['cancelledBy']).toBe(USER_MAKER);
       expect(cancellation['reason']).toBeNull();
       expect(eventEmitter.emit).toHaveBeenCalledWith(
@@ -667,9 +646,7 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.findOne!.mockResolvedValue(approved);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       const result = await service.cancelChangeSet(
         'cs-001',
@@ -679,7 +656,9 @@ describe('VfdChangeSetService', () => {
       );
 
       expect(result.status).toBe(VfdChangeSetStatus.CANCELLED);
-      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)['cancellation']!;
+      const cancellation = (result.metadata as Record<string, Record<string, unknown>>)[
+        'cancellation'
+      ]!;
       expect(cancellation['cancelledBy']).toBe(USER_CHECKER);
       expect(cancellation['reason']).toBe('Schedule no longer needed');
     });
@@ -690,9 +669,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(pending);
 
-      await expect(
-        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject cancelling a REJECTED change set', async () => {
@@ -701,9 +680,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(rejected);
 
-      await expect(
-        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject cancelling an APPLIED change set (rollback territory)', async () => {
@@ -712,9 +691,9 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(applied);
 
-      await expect(
-        service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should scope the lookup to the tenant', async () => {
@@ -722,9 +701,7 @@ describe('VfdChangeSetService', () => {
         status: VfdChangeSetStatus.DRAFT,
       });
       changeSetRepo.findOne!.mockResolvedValue(draft);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       await service.cancelChangeSet('cs-001', USER_MAKER, TENANT_ID);
 
@@ -737,9 +714,9 @@ describe('VfdChangeSetService', () => {
     it('should throw NotFoundException for a non-existent change set', async () => {
       changeSetRepo.findOne!.mockResolvedValue(null);
 
-      await expect(
-        service.cancelChangeSet('non-existent', USER_MAKER, TENANT_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.cancelChangeSet('non-existent', USER_MAKER, TENANT_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -762,11 +739,13 @@ describe('VfdChangeSetService', () => {
         id: 'cs-rollback',
         status: VfdChangeSetStatus.DRAFT,
         rollbackOfId: 'cs-001',
-        items: [createMockItem({
-          changeSetId: 'cs-rollback',
-          previousValue: 5,
-          requestedValue: 10,
-        })],
+        items: [
+          createMockItem({
+            changeSetId: 'cs-rollback',
+            previousValue: 5,
+            requestedValue: 10,
+          }),
+        ],
       });
 
       const finalRollback = createMockChangeSet({
@@ -781,11 +760,11 @@ describe('VfdChangeSetService', () => {
       // 2. findByIdOrFail(rollback) inside submitForApproval
       // 3. ensureNoActiveChangeSet -> findOne -> null
       // 4. findByIdOrFail(rollback) final return
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(applied)           // 1. original
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(applied) // 1. original
         .mockResolvedValueOnce(rollbackCsWithItems) // 2. rollback in submitForApproval
-        .mockResolvedValueOnce(null)               // 3. ensureNoActiveChangeSet
-        .mockResolvedValueOnce(finalRollback);     // 4. final return
+        .mockResolvedValueOnce(null) // 3. ensureNoActiveChangeSet
+        .mockResolvedValueOnce(finalRollback); // 4. final return
 
       const rollbackCs = createMockChangeSet({
         id: 'cs-rollback',
@@ -794,20 +773,18 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.create!.mockReturnValue(rollbackCs);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve({ ...cs, id: 'cs-rollback' } as VfdChangeSet),
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) =>
+        Promise.resolve({ ...cs, id: 'cs-rollback' } as VfdChangeSet),
       );
 
       let savedItems: VfdChangeSetItem[] = [];
       itemRepo.create!.mockImplementation(
         (data: Partial<VfdChangeSetItem>) => data as VfdChangeSetItem,
       );
-      itemRepo.save!.mockImplementation(
-        (items: VfdChangeSetItem[]) => {
-          savedItems = items;
-          return Promise.resolve(items);
-        },
-      );
+      itemRepo.save!.mockImplementation((items: VfdChangeSetItem[]) => {
+        savedItems = items;
+        return Promise.resolve(items);
+      });
 
       const result = await service.rollbackChangeSet(
         'cs-001',
@@ -819,7 +796,7 @@ describe('VfdChangeSetService', () => {
       // Verify inverse item values
       expect(savedItems).toHaveLength(1);
       const firstItem = savedItems[0]!;
-      expect(firstItem.previousValue).toBe(5);  // was requestedValue
+      expect(firstItem.previousValue).toBe(5); // was requestedValue
       expect(firstItem.requestedValue).toBe(10); // was previousValue
     });
 
@@ -838,9 +815,7 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.create!.mockReturnValue(rollbackCs);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       itemRepo.create!.mockImplementation(
         (data: Partial<VfdChangeSetItem>) => data as VfdChangeSetItem,
@@ -859,7 +834,10 @@ describe('VfdChangeSetService', () => {
       });
       changeSetRepo.findOne!.mockResolvedValue(finalRollback);
 
-      const result = await service.rollbackChangeSet(
+      // SEC-LOW-084: the override is now a typed entry — the free-text
+      // reason 'emergency' no longer self-approves anything.
+      changeSetRepo.update!.mockResolvedValueOnce({ affected: 1 });
+      const result = await service.emergencyRollbackChangeSet(
         'cs-001',
         'emergency',
         USER_MAKER,
@@ -897,11 +875,13 @@ describe('VfdChangeSetService', () => {
         id: 'cs-rollback-2',
         status: VfdChangeSetStatus.DRAFT,
         rollbackOfId: 'cs-001',
-        items: [createMockItem({
-          changeSetId: 'cs-rollback-2',
-          previousValue: 5,
-          requestedValue: 10,
-        })],
+        items: [
+          createMockItem({
+            changeSetId: 'cs-rollback-2',
+            previousValue: 5,
+            requestedValue: 10,
+          }),
+        ],
       });
 
       const finalRollback = createMockChangeSet({
@@ -914,8 +894,8 @@ describe('VfdChangeSetService', () => {
       // 2. findByIdOrFail(rollback) inside submitForApproval
       // 3. ensureNoActiveChangeSet -> null
       // 4. findByIdOrFail(rollback) final return
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(verified)
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(verified)
         .mockResolvedValueOnce(rollbackCsWithItems)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(finalRollback);
@@ -927,9 +907,7 @@ describe('VfdChangeSetService', () => {
       });
 
       changeSetRepo.create!.mockReturnValue(rollbackCs);
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
       itemRepo.create!.mockImplementation(
         (data: Partial<VfdChangeSetItem>) => data as VfdChangeSetItem,
       );
@@ -957,18 +935,22 @@ describe('VfdChangeSetService', () => {
       changeSetRepo.create!.mockReturnValue(draft);
       changeSetRepo.save!.mockResolvedValue(draft);
 
-      const created = await service.createChangeSet(TENANT_ID, {
-        vfdDeviceId: DEVICE_ID,
-        description: 'Full lifecycle test',
-      }, USER_MAKER);
+      const created = await service.createChangeSet(
+        TENANT_ID,
+        {
+          vfdDeviceId: DEVICE_ID,
+          description: 'Full lifecycle test',
+        },
+        USER_MAKER,
+      );
       expect(created.status).toBe(VfdChangeSetStatus.DRAFT);
 
       // 2. Add items
       const withItems = createMockChangeSet({
         items: [createMockItem()],
       });
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draft)      // findByIdOrFail (addItems)
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(draft) // findByIdOrFail (addItems)
         .mockResolvedValueOnce(withItems); // return after save
       itemRepo.create!.mockReturnValue(createMockItem());
       itemRepo.save!.mockResolvedValue([createMockItem()]);
@@ -989,9 +971,9 @@ describe('VfdChangeSetService', () => {
         items: [createMockItem()],
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(draftWithItems) // findByIdOrFail
-        .mockResolvedValueOnce(null);          // ensureNoActiveChangeSet
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(draftWithItems) // findByIdOrFail
+        .mockResolvedValueOnce(null); // ensureNoActiveChangeSet
       changeSetRepo.save!.mockResolvedValue(pending);
 
       const submitted = await service.submitForApproval('cs-001', USER_MAKER, TENANT_ID);
@@ -1003,12 +985,10 @@ describe('VfdChangeSetService', () => {
         createdBy: USER_MAKER,
       });
 
-      changeSetRepo.findOne!
-        .mockResolvedValueOnce(pendingForApproval) // findByIdOrFail
-        .mockResolvedValueOnce(null);              // ensureNoActiveChangeSet
-      changeSetRepo.save!.mockImplementation(
-        (cs: VfdChangeSet) => Promise.resolve(cs),
-      );
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(pendingForApproval) // findByIdOrFail
+        .mockResolvedValueOnce(null); // ensureNoActiveChangeSet
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
 
       const approved = await service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID);
       expect(approved.status).toBe(VfdChangeSetStatus.APPROVED);
@@ -1055,13 +1035,7 @@ describe('VfdChangeSetService', () => {
     it('should filter by status when provided', async () => {
       changeSetRepo.findAndCount!.mockResolvedValue([[], 0]);
 
-      await service.findByDevice(
-        TENANT_ID,
-        DEVICE_ID,
-        VfdChangeSetStatus.PENDING_APPROVAL,
-        10,
-        0,
-      );
+      await service.findByDevice(TENANT_ID, DEVICE_ID, VfdChangeSetStatus.PENDING_APPROVAL, 10, 0);
 
       expect(changeSetRepo.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1121,6 +1095,130 @@ describe('VfdChangeSetService', () => {
       await expect(
         service.submitForApproval('non-existent', USER_MAKER, TENANT_ID),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── SEC-MEDIUM-083 / SEC-LOW-084 (2026-08-23 scan №28/№29) ───────
+
+  describe('atomic claims + typed emergency override', () => {
+    it('approve loses the race: conditional UPDATE affected=0 → ConflictException, no event', async () => {
+      const pending = createMockChangeSet({
+        status: VfdChangeSetStatus.PENDING_APPROVAL,
+        createdBy: USER_MAKER,
+        items: [createMockItem()],
+      });
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(pending) // findByIdOrFail
+        .mockResolvedValueOnce(null); // ensureNoActiveChangeSet
+      changeSetRepo.update!.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.approveChangeSet('cs-001', USER_CHECKER, TENANT_ID)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it('the old magic string is dead: reason "emergency" without the typed option submits for approval', async () => {
+      const applied = createMockChangeSet({
+        status: VfdChangeSetStatus.APPLIED,
+        items: [createMockItem({ status: VfdChangeSetItemStatus.APPLIED })],
+      });
+      const draftRollback = createMockChangeSet({
+        id: 'cs-rollback',
+        status: VfdChangeSetStatus.DRAFT,
+        rollbackOfId: 'cs-001',
+        items: [createMockItem()],
+      });
+      const submittedRollback = createMockChangeSet({
+        id: 'cs-rollback',
+        status: VfdChangeSetStatus.PENDING_APPROVAL,
+        rollbackOfId: 'cs-001',
+      });
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(applied) // original
+        .mockResolvedValueOnce(draftRollback) // submitForApproval lookup (needs DRAFT + items)
+        .mockResolvedValueOnce(null) // ensureNoActiveChangeSet
+        .mockResolvedValueOnce(submittedRollback); // final return
+      changeSetRepo.create!.mockReturnValue(
+        createMockChangeSet({ id: 'cs-rollback', rollbackOfId: 'cs-001' }),
+      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
+      itemRepo.create!.mockImplementation(
+        (data: Partial<VfdChangeSetItem>) => data as VfdChangeSetItem,
+      );
+      itemRepo.save!.mockResolvedValue([]);
+
+      const result = await service.rollbackChangeSet('cs-001', 'emergency', USER_MAKER, TENANT_ID);
+
+      // Normal path: PENDING_APPROVAL — the free-text value changed nothing.
+      expect(result.status).toBe(VfdChangeSetStatus.PENDING_APPROVAL);
+      expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+        'vfd.changeset.approved',
+        expect.objectContaining({ action: expect.anything() }),
+      );
+    });
+
+    it('emergencyRollbackChangeSet: atomic DRAFT→APPROVED claim, EMERGENCY_OVERRIDE audit + event', async () => {
+      const applied = createMockChangeSet({
+        status: VfdChangeSetStatus.APPLIED,
+        items: [createMockItem({ status: VfdChangeSetItemStatus.APPLIED })],
+      });
+      const approvedRollback = createMockChangeSet({
+        id: 'cs-rollback',
+        status: VfdChangeSetStatus.APPROVED,
+        rollbackOfId: 'cs-001',
+      });
+      changeSetRepo
+        .findOne!.mockResolvedValueOnce(applied) // original
+        .mockResolvedValueOnce(approvedRollback); // final return
+      changeSetRepo.create!.mockReturnValue(
+        createMockChangeSet({ id: 'cs-rollback', rollbackOfId: 'cs-001' }),
+      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
+      itemRepo.create!.mockImplementation(
+        (data: Partial<VfdChangeSetItem>) => data as VfdChangeSetItem,
+      );
+      itemRepo.save!.mockResolvedValue([]);
+      auditRepo.create!.mockImplementation(
+        (data: Partial<VfdParameterAuditLog>) => data as VfdParameterAuditLog,
+      );
+      auditRepo.save!.mockResolvedValue([]);
+      changeSetRepo.update!.mockResolvedValueOnce({ affected: 1 }); // claim wins
+
+      const result = await service.emergencyRollbackChangeSet(
+        'cs-001',
+        'line pressure critical',
+        USER_CHECKER,
+        TENANT_ID,
+      );
+
+      expect(result.status).toBe(VfdChangeSetStatus.APPROVED);
+      expect(changeSetRepo.update).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'cs-rollback', status: VfdChangeSetStatus.DRAFT }),
+        expect.objectContaining({ status: VfdChangeSetStatus.APPROVED, approvedBy: USER_CHECKER }),
+      );
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        'vfd.changeset.approved',
+        expect.objectContaining({ action: VfdAuditAction.EMERGENCY_OVERRIDE }),
+      );
+    });
+
+    it('emergency override loses the claim race → ConflictException, no event', async () => {
+      const applied = createMockChangeSet({
+        status: VfdChangeSetStatus.APPLIED,
+        items: [createMockItem({ status: VfdChangeSetItemStatus.APPLIED })],
+      });
+      changeSetRepo.findOne!.mockResolvedValueOnce(applied);
+      changeSetRepo.create!.mockReturnValue(
+        createMockChangeSet({ id: 'cs-rollback', rollbackOfId: 'cs-001' }),
+      );
+      changeSetRepo.save!.mockImplementation((cs: VfdChangeSet) => Promise.resolve(cs));
+      changeSetRepo.update!.mockResolvedValueOnce({ affected: 0 }); // claim loses
+
+      await expect(
+        service.emergencyRollbackChangeSet('cs-001', 'r', USER_CHECKER, TENANT_ID),
+      ).rejects.toThrow(ConflictException);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 });

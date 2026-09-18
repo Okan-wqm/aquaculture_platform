@@ -1,5 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { EventBus } from '@nestjs/cqrs';
 import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
@@ -26,6 +31,7 @@ export class CertificationExpiryService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -39,7 +45,10 @@ export class CertificationExpiryService {
    * - Sets their status to EXPIRED
    * - Re-evaluates seaWorthy flag for affected employees
    */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  @ScheduledJob({
+    name: 'certification.process-expired',
+    cron: CronExpression.EVERY_DAY_AT_2AM,
+  })
   async processExpiredCertifications(): Promise<void> {
     this.logger.log('Starting certification expiry processing...');
 

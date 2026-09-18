@@ -89,8 +89,12 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
         {
           provide: TokenBudgetService,
           useValue: {
-            checkBudget: jest.fn().mockResolvedValue({ allowed: true, used: 0 }),
+            checkBudget: jest
+              .fn()
+              .mockResolvedValue({ allowed: true, used: 0, remaining: 1_000_000 }),
             addUsage: jest.fn().mockResolvedValue(undefined),
+            reserveBudget: jest.fn().mockResolvedValue(undefined),
+            settleReservation: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -114,6 +118,7 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
           provide: AiSafetyMiddleware,
           useValue: {
             preProcess,
+            scanUntrustedContext: jest.fn().mockReturnValue(true),
             postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
           },

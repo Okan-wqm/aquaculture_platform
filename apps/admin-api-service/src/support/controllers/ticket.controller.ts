@@ -5,6 +5,21 @@
  */
 
 import {
+  AddCommentDto,
+  AssignTicketDto,
+  ChangePriorityDto,
+  ChangeStatusDto,
+  CreateTicketDto,
+  SatisfactionRatingDto,
+  UpdateTicketDto,
+} from './dto/ticket.dto';
+import {
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -23,128 +38,13 @@ import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'cl
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
-import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
+import {
+  TicketPriority,
+  TicketStatus,
+  TicketCategory,
+  TicketAttachment,
+} from '../entities/support.entity';
 import { TicketService } from '../services/ticket.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateTicketDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsOptional()
-  @IsString()
-  tenantName?: string;
-
-  @IsString()
-  createdByName!: string;
-
-  @IsOptional()
-  @IsString()
-  createdByEmail?: string;
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-}
-
-class UpdateTicketDto {
-  @IsOptional()
-  @IsString()
-  subject?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  status?: TicketStatus;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsString()
-  dueAt?: string;
-}
-
-class AssignTicketDto {
-  @IsString()
-  assignedTo!: string;
-
-  @IsString()
-  assignedToName!: string;
-}
-
-class AddCommentDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  authorName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: TicketAttachment[];
-}
-
-class ChangeStatusDto {
-  @IsString()
-  status!: TicketStatus;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
-}
-
-class ChangePriorityDto {
-  @IsString()
-  priority!: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
-}
-
-class SatisfactionRatingDto {
-  @IsNumber()
-  rating!: number;
-
-  @IsOptional()
-  @IsString()
-  feedback?: string;
-}
 
 // ============================================================================
 // Controller
@@ -165,7 +65,7 @@ export class TicketController {
     @Query('priority') priority?: TicketPriority,
     @Query('category') category?: TicketCategory,
     @Query('assignedTo') assignedTo?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -197,9 +97,7 @@ export class TicketController {
   }
 
   @Get('unassigned')
-  async getUnassignedTickets(
-    @Query() pagination?: PaginationQueryDto,
-  ) {
+  async getUnassignedTickets(@Query() pagination?: PaginationQueryDto) {
     return this.ticketService.getUnassignedTickets({
       page: pagination?.page,
       limit: pagination?.limit,
@@ -231,7 +129,7 @@ export class TicketController {
   @Get('tenant/:tenantId')
   @PlatformAdminOnly()
   async getTicketsForTenant(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('status') status?: TicketStatus,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -255,20 +153,28 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto) {
-    if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
-      throw new BadRequestException('tenantId, subject, description, and createdByName are required');
+  async createTicket(
+    @TenantParam('body') tenantId: string,
+    @Body() dto: CreateTicketDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    if (!tenantId || !dto.subject || !dto.description) {
+      throw new BadRequestException('tenantId, subject, and description are required');
     }
 
+    // ADMIN-CRITICAL-102: the creator is the verified platform admin, not a
+    // name the request body offers.
     return this.ticketService.createTicket({
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       tenantName: dto.tenantName,
-      createdBy: 'tenant-user-id', // In production, would come from auth context
-      createdByName: dto.createdByName,
-      createdByEmail: dto.createdByEmail,
+      createdBy: user.id,
+      createdByName: user.email,
+      createdByEmail: user.email,
       subject: dto.subject,
       description: dto.description,
       category: dto.category,
@@ -277,11 +183,10 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':id')
-  async updateTicket(
-    @Param('id') id: string,
-    @Body() dto: UpdateTicketDto,
-  ) {
+  async updateTicket(@Param('id') id: string, @Body() dto: UpdateTicketDto) {
     return this.ticketService.updateTicket(id, {
       subject: dto.subject,
       description: dto.description,
@@ -297,11 +202,10 @@ export class TicketController {
   // Actions
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Ticket', action: 'ASSIGN' })
+  @RequiresCapability('support-ops')
   @Post(':id/assign')
-  async assignTicket(
-    @Param('id') id: string,
-    @Body() dto: AssignTicketDto,
-  ) {
+  async assignTicket(@Param('id') id: string, @Body() dto: AssignTicketDto) {
     if (!dto.assignedTo || !dto.assignedToName) {
       throw new BadRequestException('assignedTo and assignedToName are required');
     }
@@ -309,6 +213,8 @@ export class TicketController {
     return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName);
   }
 
+  @AuditedOperation({ resource: 'Status', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
@@ -319,14 +225,11 @@ export class TicketController {
       throw new BadRequestException('status is required');
     }
 
-    return this.ticketService.changeStatus(
-      id,
-      dto.status,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changeStatus(id, dto.status, user.id, user.email);
   }
 
+  @AuditedOperation({ resource: 'Priority', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
@@ -337,12 +240,7 @@ export class TicketController {
       throw new BadRequestException('priority is required');
     }
 
-    return this.ticketService.changePriority(
-      id,
-      dto.priority,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changePriority(id, dto.priority, user.id, user.email);
   }
 
   // ============================================================================
@@ -363,6 +261,8 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Comment', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -404,6 +304,8 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Reply', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/replies')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -430,12 +332,11 @@ export class TicketController {
   // Satisfaction
   // ============================================================================
 
+  @AuditedOperation({ resource: 'SatisfactionRating', action: 'SUBMIT' })
+  @RequiresCapability('support-ops')
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
-  async submitSatisfactionRating(
-    @Param('id') id: string,
-    @Body() dto: SatisfactionRatingDto,
-  ) {
+  async submitSatisfactionRating(@Param('id') id: string, @Body() dto: SatisfactionRatingDto) {
     if (!dto.rating) {
       throw new BadRequestException('rating is required');
     }

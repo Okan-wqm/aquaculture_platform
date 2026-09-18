@@ -155,23 +155,58 @@ pub async fn build_production_keystore_from_config(
         )
     })?;
 
-    // Device identity for binding. Device code is the
-    // stable acceptance-token field; operator_id comes
-    // from the token itself.
+    // EDGE-HIGH-011: parse the acceptance-ceremony verifying key.
+    // The acceptance signature (ADR-018 §5) is the governance anchor
+    // that keeps the weaker FileBacked master-key tier unavailable
+    // unless a central authority signed off; FileBacked mode REQUIRES
+    // the key. Without it the gate is decorative (any 64 signature
+    // bytes accepted) — fail closed rather than boot on an unverified
+    // token.
+    let acceptance_pubkey = match config.keystore.acceptance_pubkey_hex.as_deref() {
+        Some(hex) => {
+            crate::authz::signing_key_util::parse_ed25519_pubkey_hex(hex).map_err(|e| {
+                format!(
+                    "Keystore init: keystore.acceptance_pubkey_hex invalid: {:?} \
+                     (fail-closed boot)",
+                    e
+                )
+            })?
+        }
+        None => {
+            return Err(
+                "Keystore init: keystore.acceptance_pubkey_hex is required in FileBacked \
+                 mode — the acceptance-ceremony ed25519 signature is the trust anchor and \
+                 boot fails closed without it (ADR-018 §5)"
+                    .to_string(),
+            );
+        }
+    };
+
+    // Device identity for binding. Device code is the stable,
+    // config-anchored field; operator_id is authenticated by the
+    // acceptance signature (the canonical bytes bind operator_id +
+    // expiry + device_id), so the ceremony pubkey — not the token's
+    // self-claim — is the trust anchor.
     let device_id = config.device_code.clone();
     let acceptance = FileBackedAcceptance::try_from_parts(
         &token,
         &token.operator_id,
         &device_id,
         std::time::SystemTime::now(),
-        // Pre-Batch-84 signature-verify wiring: accept
-        // operator-supplied token without crypto
-        // verify. Batch 84 introduces operator-pubkey
-        // config knob + real ed25519 verify here.
-        // Current discipline: acceptance_path file
-        // perms 0400 owner:suderra + audit-log every
-        // load.
-        |_, _| true,
+        // Real ed25519 verify (EDGE-HIGH-011): verify_strict over the
+        // acceptance canonical bytes. The signature length is already
+        // validated == 64 before this closure runs; a non-64 slice
+        // fails closed here too.
+        |canonical: &[u8], sig: &[u8]| {
+            let sig_arr: [u8; 64] = match sig.try_into() {
+                Ok(a) => a,
+                Err(_) => return false,
+            };
+            let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+            acceptance_pubkey
+                .verify_strict(canonical, &signature)
+                .is_ok()
+        },
     )
     .map_err(|e| format!("Keystore init: acceptance token invalid: {:?}", e))?;
 

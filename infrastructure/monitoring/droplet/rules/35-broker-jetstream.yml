@@ -1,0 +1,64 @@
+# Broker/JetStream + host envelope alert rules for the DROPLET Prometheus
+# (100-tenant readiness Task 0, SENSOR-HIGH-090/091).
+#
+# The locked production envelope is 2K MQTT msg/s sustained + 15K for five
+# minutes (plan Global Constraints, 2026-08-24). The host rules below encode
+# the envelope's steady-state gates (p95 CPU ≤ 70%, working set ≤ 75% RAM);
+# the JetStream storage rule encodes the 25% reserve over the declared stream
+# budget. Per-consumer ack-pending is NOT alertable through
+# prometheus-nats-exporter (server-level collector only) — that alert arrives
+# with the Task 2 stream work via nats-surveyor.
+groups:
+  - name: aquaculture.broker.jetstream
+    rules:
+      - alert: NatsExporterDown
+        expr: up{job="nats-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'NATS metrics exporter is down'
+          description: 'The nats-exporter scrape has been failing for more than 1 minute; JetStream visibility is blind.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/nats-exporter-down.md'
+
+      - alert: JetStreamStorageHigh
+        # 75% of the droplet nats.conf max_file_store (2GiB today). When Task 2
+        # raises max_file_store for AQUACULTURE_TELEMETRY, this threshold MUST
+        # be raised in the same commit — the deploy gate enforces the config
+        # side, this rule enforces the live side.
+        expr: nats_server_jetstream_total_storage_bytes > 1610612736
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'JetStream file store above 75% of the configured budget'
+          description: 'JetStream storage has exceeded 1.5GiB (75% of the 2GiB max_file_store) for 15 minutes; Discard-policy pressure is near.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/jetstream-storage-high.md'
+
+      - alert: HostCpuSustainedHigh
+        # Envelope gate: steady p95 host CPU must stay ≤ 70% for the 2K msg/s
+        # production envelope (plan Task 0.5). 10m of >70% means the envelope
+        # claim is void — resize before activating more tenant capacity.
+        expr: |
+          100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 70
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host CPU above the 70% envelope gate'
+          description: 'Host CPU exceeded 70% for 10 minutes; the 2K msg/s envelope requires p95 ≤ 70%. Tenant capacity activation is gated on this.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/host-cpu-sustained-high.md'
+
+      - alert: HostMemoryLow
+        # Envelope gate: working set ≤ 75% RAM ⇔ available ≥ 25%. The compose
+        # memory manifest already oversubscribes physical RAM, so crossing this
+        # line means the OOM-killer is choosing victims imminently.
+        expr: |
+          node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host available memory below 25%'
+          description: 'Available memory dropped below 25% of physical RAM for 10 minutes; the compose memory manifest already exceeds physical RAM.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/host-memory-low.md'

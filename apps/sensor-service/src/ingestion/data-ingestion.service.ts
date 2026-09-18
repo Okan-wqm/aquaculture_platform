@@ -2,7 +2,11 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } f
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  projectPersistedReadings,
+  type PersistedReadingMetric,
+} from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -271,6 +275,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
       // Collect metrics for batch insert
       const metrics: SensorMetricInput[] = [];
+      const persisted: PersistedReadingMetric[] = [];
 
       for (const channel of channels) {
         // Extract value using dataPath
@@ -324,6 +329,16 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           sourceProtocol: data.source || 'mqtt',
           sourceTimestamp,
         });
+
+        // SENSOR-CRITICAL-111: captured here because the metric row carries the
+        // channel UUID while the projection needs the device-facing key.
+        persisted.push({
+          channelKey: channel.channelKey,
+          value: calibratedValue,
+          farmId: sensor.farmId,
+          pondId: sensor.pondId,
+          tankId: sensor.tankId,
+        });
       }
 
       // Persist all metrics via the single sensor.sensor_metrics writer.
@@ -334,18 +349,38 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         await this.metricWriter.writeImmediate(metrics);
       }
 
-      // Publish SensorReading NATS event so alert-engine can evaluate this data path
-      if (this.eventBus && metrics.length > 0) {
+      // Publish SensorReading NATS event so alert-engine can evaluate this data path.
+      // SENSOR-CRITICAL-111: projected from the rows just written, never from
+      // `data.values` — that carried the pre-calibration wire numbers and no
+      // farm/pond/tank, so the alert engine evaluated a value the platform had
+      // not stored, under a scope that excluded every farm-scoped rule.
+      const projection = projectPersistedReadings(persisted);
+      if (this.eventBus && projection.mappedCount > 0) {
         try {
           await this.eventBus.publish({
-            ...createBaseEvent('SensorReading', sensor.tenantId, { aggregateId: sensor.id, aggregateType: 'Sensor' }),
+            ...createBaseEvent('SensorReading', sensor.tenantId, {
+              aggregateId: sensor.id,
+              aggregateType: 'Sensor',
+            }),
+            eventType: 'SensorReading' as const,
             timestamp: sourceTimestamp.toISOString(),
             sensorId: sensor.id,
-            readings: data.values,
+            ...projection.fields,
+            ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
+            ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
+            ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
+            ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
           });
         } catch (error) {
           this.logger.warn(`Failed to publish SensorReading event: ${(error as Error).message}`);
         }
+      } else if (this.eventBus && metrics.length > 0) {
+        // Rows were stored but none is in the flat reading vocabulary. An empty
+        // reading is not a harmless no-op downstream: the alert engine treats it
+        // as "nothing is wrong" and auto-resolves open INFO/LOW incidents.
+        this.logger.debug(
+          `Sensor ${sensor.id}: ${metrics.length} metric(s) stored, none in the reading vocabulary — no SensorReading published`,
+        );
       }
 
       // Debounce lastSeenAt update — flushed in batch every 30 seconds

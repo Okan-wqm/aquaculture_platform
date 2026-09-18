@@ -73,7 +73,14 @@ class DecayMovesConfidenceTests(unittest.TestCase):
 class ConventionServabilityTests(unittest.TestCase):
     def _seed_hypothesis(self, workspace: Path, plan_id: str) -> None:
         from aria_kernel.knowledge_graph import Pattern, record_convention
+        from tests.test_implementation_lifecycle_continuity import registered_signer
 
+        # Promotion verifies the hypothesis against the signer registry
+        # (B7): a fingerprint no registered key hashes to is not the
+        # kernel's word and is refused `signer_unverified`, so the fixture
+        # signs the way the cycle seam does — a real key, its public half
+        # registered, the private half revoked at once.
+        signer_key_fp = registered_signer(cycle_id="cyc-m2", workspace_root=workspace)
         record_convention(
             Pattern(
                 pattern_id=f"conv_test_{plan_id}",
@@ -86,7 +93,7 @@ class ConventionServabilityTests(unittest.TestCase):
                 plan_id=plan_id,
             ),
             workspace_root=workspace,
-            signer_key_fp="SHA256:testfingerprint",
+            signer_key_fp=signer_key_fp,
         )
 
     def test_merge_promotes_the_hypothesis_to_verified(self) -> None:

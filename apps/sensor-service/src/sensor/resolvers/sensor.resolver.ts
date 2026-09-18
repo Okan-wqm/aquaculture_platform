@@ -1,23 +1,13 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  Int,
-  ID,
-  ResolveReference,
-} from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, Int, ID, ResolveReference } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { SensorReading } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
-import {
-  AggregationInterval,
-  AggregatedReadingsResponse,
-} from '../dto/aggregated-reading.dto';
+import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
+import { AggregationInterval, AggregatedReadingsResponse } from '../dto/aggregated-reading.dto';
 import { IngestReadingInput, BatchIngestInput } from '../dto/ingest-reading.dto';
 import { SensorIngestionService } from '../services/sensor-ingestion.service';
 import { SensorQueryService } from '../services/sensor-query.service';
@@ -42,6 +32,20 @@ export class SensorResolver {
    * Federation reference resolver
    * SECURITY: Includes tenant isolation to prevent cross-tenant data access
    */
+  /**
+   * Mask secret-named protocol-configuration fields before an entity leaves
+   * this resolver. The column transformer decrypts credentials on read
+   * (SENSOR-MEDIUM-080), so every raw-entity read path here MUST pass through
+   * this — the registration read models already redact (SENSOR-HIGH-081);
+   * these legacy paths are held to the same standard (SEC-HIGH-096).
+   */
+  private redactSensor(sensor: Sensor): Sensor {
+    if (sensor.protocolConfiguration) {
+      sensor.protocolConfiguration = redactProtocolSecrets(sensor.protocolConfiguration);
+    }
+    return sensor;
+  }
+
   @ResolveReference()
   async resolveReference(
     reference: {
@@ -52,8 +56,11 @@ export class SensorResolver {
     context: { req?: { user?: { tenantId?: string } } },
   ): Promise<Sensor | null> {
     try {
-      // SECURITY: Extract tenantId from context or reference
-      const tenantId = context?.req?.user?.tenantId || reference.tenantId;
+      // SECURITY: tenant identity comes from the verified request context
+      // ONLY — a representation-supplied tenantId is attacker-influenceable
+      // input on the federation plane and must never select the schema
+      // (hardening rider on SEC-HIGH-096; latent while keys stay id-only).
+      const tenantId = context?.req?.user?.tenantId;
 
       if (!tenantId) {
         this.logger.warn(
@@ -63,9 +70,10 @@ export class SensorResolver {
       }
 
       // SECURITY: Always filter by tenantId to ensure tenant isolation
-      return await this.sensorRepository.findOne({
+      const sensor = await this.sensorRepository.findOne({
         where: { id: reference.id, tenantId },
       });
+      return sensor ? this.redactSensor(sensor) : null;
     } catch {
       return null;
     }
@@ -87,7 +95,7 @@ export class SensorResolver {
       throw new NotFoundException(`Sensor with ID ${id} not found`);
     }
 
-    return sensor;
+    return this.redactSensor(sensor);
   }
 
   /**
@@ -123,12 +131,17 @@ export class SensorResolver {
     if (status) where['status'] = status;
     if (tankId) where['tankId'] = tankId;
 
-    return await this.sensorRepository.find({
+    const sensors = await this.sensorRepository.find({
       where,
       skip,
       take: safeLimit,
       order: { createdAt: 'DESC' },
     });
+
+    // SEC-HIGH-096 (2026-08-23 scan №41): the decrypted protocol
+    // configuration carries live device credentials — mask them on this raw
+    // entity path exactly like the registration read models do.
+    return sensors.map((s) => this.redactSensor(s));
   }
 
   /**
@@ -152,10 +165,7 @@ export class SensorResolver {
     @Args('sensorIds', { type: () => [ID] }) sensorIds: string[],
     @Tenant() tenantId: string,
   ): Promise<SensorReading[]> {
-    return await this.queryService.getLatestReadingsForSensors(
-      sensorIds,
-      tenantId,
-    );
+    return await this.queryService.getLatestReadingsForSensors(sensorIds, tenantId);
   }
 
   /**

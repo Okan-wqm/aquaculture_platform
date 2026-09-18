@@ -3,7 +3,6 @@
 // ============================================================================
 
 export { ChannelListItem } from './ChannelListItem';
-export { ChatThread, type ChatThreadProps } from './ChatThread';
 export { MessageBubble } from './MessageBubble';
 export { MessageInput } from './MessageInput';
 export { AttachmentPicker } from './AttachmentPicker';

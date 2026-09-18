@@ -24,6 +24,7 @@ import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
 import { FeedingRecord } from './entities/feeding-record.entity';
+import { FeedingRecordAttributionQuarantine } from './entities/feeding-record-attribution-quarantine.entity';
 import { GetFeedingOverviewResponder } from './responders/get-feeding-overview.responder';
 import { FeedInventory } from './entities/feed-inventory.entity';
 import { FeedingProgram } from './entities/feeding-program.entity';
@@ -43,7 +44,6 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 import { FeedSelectorService } from './services/feed-selector.service';
 import { BilinearInterpolationService } from './services/bilinear-interpolation.service';
 import { GrowthSimulatorService } from './services/growth-simulator.service';
-import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
 import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 import { FeedingLedgerService } from './services/feeding-ledger.service';
@@ -87,6 +87,7 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
     TypeOrmModule.forFeature([
       FeedingTable,
       FeedingRecord,
+      FeedingRecordAttributionQuarantine,
       FeedInventory,
       FeedingProgram,
       FeedingProgramTank,
@@ -112,7 +113,6 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
     WaterTemperatureService,
     BilinearInterpolationService,
     GrowthSimulatorService,
-    FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
     // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
@@ -136,7 +136,6 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
     FeedingLedgerService,
     BilinearInterpolationService,
     GrowthSimulatorService,
-    FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
   ],

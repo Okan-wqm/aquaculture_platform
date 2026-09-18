@@ -69,7 +69,19 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
       // HR-MEDIUM-001 / HR-MEDIUM-010: Monetary values are string-encoded decimals via
       // Money.of().toJSON().amount. Number() wrappers are REMOVED — IEEE 754 precision
       // loss is STRUCTURALLY IMPOSSIBLE through this path.
-      const currency = savedPayroll.currency || 'USD';
+      // HR-HIGH-008 — no currency literal on the event path. payrolls.currency
+      // is NOT NULL and CreatePayrollHandler is its only writer, resolving the
+      // tenant default through the settings SSoT. A row that still has no
+      // currency is a data defect, and minting a USD-denominated
+      // PayrollProcessed event for it would push that defect into the finance
+      // ledger under a currency nobody chose; failing the approval keeps it
+      // where it can be seen and repaired.
+      const currency = savedPayroll.currency;
+      if (!currency) {
+        throw new BadRequestException(
+          `Payroll ${savedPayroll.id} has no currency; refusing to publish PayrollProcessed`,
+        );
+      }
       const grossRaw = savedPayroll.earnings?.grossPay ?? savedPayroll.netPay;
       const netRaw = savedPayroll.netPay;
       const event: PayrollProcessedEvent = {

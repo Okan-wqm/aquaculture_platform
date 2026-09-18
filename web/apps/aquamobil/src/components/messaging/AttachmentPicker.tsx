@@ -11,8 +11,6 @@ import {
   type RefObject,
 } from 'react';
 
-import { IconButton } from '@/components/ui';
-
 // MSG-LOW-051: the picker validates against the SAME shared MIME allowlist SSoT
 // the upload hook and the server enforce — no third hand-maintained list, so
 // drift is structurally impossible. The check is advisory UX (fail fast with a
@@ -43,9 +41,6 @@ const FILE_SIZE_LIMIT_MB = 25;
  * - Camera: quick photo of tank/equipment (capture="environment" = rear camera)
  * - Gallery: existing photos/videos from device
  * - File: documents like lab reports, PDFs, spreadsheets
- *
- * The three tiles take three v4 decorative hues so they stay distinguishable at
- * a glance; none is an alarm colour, because none of these is a warning.
  */
 const ATTACHMENT_OPTIONS = [
   {
@@ -54,7 +49,7 @@ const ATTACHMENT_OPTIONS = [
     icon: Camera,
     accept: 'image/*',
     capture: 'environment' as const,
-    color: 'bg-acc-dim text-acc',
+    color: 'bg-ocean-100 dark:bg-ocean-900/30 text-ocean-600 dark:text-ocean-400',
   },
   {
     id: 'gallery',
@@ -62,7 +57,7 @@ const ATTACHMENT_OPTIONS = [
     icon: ImageIcon,
     accept: 'image/*,video/*',
     capture: undefined,
-    color: 'bg-type-water-dim text-type-water',
+    color: 'bg-sea-100 dark:bg-sea-900/30 text-sea-600 dark:text-sea-400',
   },
   {
     id: 'file',
@@ -70,7 +65,7 @@ const ATTACHMENT_OPTIONS = [
     icon: FileText,
     accept: '.pdf,.doc,.docx,.xls,.xlsx',
     capture: undefined,
-    color: 'bg-type-transfer-dim text-type-transfer',
+    color: 'bg-coral-100 dark:bg-coral-900/30 text-coral-600 dark:text-coral-400',
   },
 ] as const;
 
@@ -176,37 +171,33 @@ export function AttachmentPicker({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 animate-am-fade"
+        className="absolute inset-0 bg-black/40 animate-[fadeIn_200ms_ease-out]"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* Sheet.
-          WHY the local @keyframes are gone: the v4 motion layer already owns
-          these two entrances (`am-up` springs from the dock, `am-fade` for the
-          scrim), and unlike the inline <style> block they replace, they stop
-          under prefers-reduced-motion via the global rule in main.css. */}
+      {/* Sheet */}
       <div
         className={clsx(
-          'relative w-full max-w-lg bg-surface-1 border border-line-strong border-b-0',
-          'rounded-t-3xl shadow-token pb-safe animate-am-up',
+          'relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-t-3xl shadow-elevated pb-safe',
+          'animate-[slideUp_300ms_ease-out]',
         )}
       >
         {/* Handle bar */}
         <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 bg-line-strong rounded-full" />
+          <div className="w-10 h-1 bg-gray-300 dark:bg-gray-700 rounded-full" />
         </div>
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 pb-3">
-          <h3 className="text-title font-bold text-ink-1">Share</h3>
-          <IconButton
+          <h3 className="text-base font-bold text-gray-900 dark:text-white">Share</h3>
+          <button
             onClick={onClose}
-            className="hover:bg-surface-2 transition-colors"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback transition-colors"
             aria-label="Close"
           >
-            <X size={20} className="text-ink-2" />
-          </IconButton>
+            <X size={20} className="text-gray-500" />
+          </button>
         </div>
 
         {/* Option grid */}
@@ -227,22 +218,24 @@ export function AttachmentPicker({
                 >
                   <Icon size={28} />
                 </div>
-                <span className="text-meta font-semibold text-ink-2">{opt.label}</span>
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  {opt.label}
+                </span>
               </button>
             );
           })}
         </div>
 
         {/* MSG-LOW-051: unsupported-type / oversize error surfaced in the same
-            slot, at pick time. text-meta is 12px, the sunlight floor — it
-            replaces an 11px arbitrary size, and a rejection message is the last
-            thing that should be hard to read. */}
+            slot, at pick time. */}
         {pickerError && (
-          <p className="text-center text-meta text-crit font-medium pb-2 px-4">{pickerError}</p>
+          <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
+            {pickerError}
+          </p>
         )}
 
         {/* File size info */}
-        <p className="text-center text-meta text-ink-3 pb-4">
+        <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 pb-4">
           Max file size: {FILE_SIZE_LIMIT_MB}MB
         </p>
 
@@ -273,6 +266,18 @@ export function AttachmentPicker({
           aria-hidden="true"
         />
       </div>
+
+      {/* Animation keyframes injected via Tailwind arbitrary */}
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

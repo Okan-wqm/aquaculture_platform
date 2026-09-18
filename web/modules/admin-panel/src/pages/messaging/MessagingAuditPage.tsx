@@ -12,6 +12,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
+import { expectedTotalPages } from '@platform/pagination-contracts';
+import { saveBlob } from '../../services/blob-client';
 
 // ============================================================================
 // Types
@@ -65,7 +67,7 @@ const PAGE_SIZE = 25;
 // ============================================================================
 
 const MessagingAuditPage: React.FC = () => {
-  const [entries, setEntries] = useState<MessagingAuditEntry[]>([]);
+  const [entries, setEntries] = useState<readonly MessagingAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<AuditFilters>(INITIAL_FILTERS);
@@ -127,17 +129,13 @@ const MessagingAuditPage: React.FC = () => {
     ]);
 
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `messaging-audit-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    saveBlob(
+      new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+      `messaging-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
   }, [entries]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = expectedTotalPages(total, PAGE_SIZE);
 
   return (
     <div className="space-y-6">

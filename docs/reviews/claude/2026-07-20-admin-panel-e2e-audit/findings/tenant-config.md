@@ -1,0 +1,1424 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Tenant Configuration & Provisioning Settings — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## TenantConfigurationPage — `/admin/tenants/:tenantId/configuration` — verdict: **MOCK_ONLY**
+
+**Chain:** Routing and auth verified working: FE tenantConfigApi
+(web/modules/admin-panel/src/services/api/tenant-config.ts) hits '/api/settings/tenant/:tenantId/_',
+nginx rewrites ^/api/(._) to /api/v1/$1 (infrastructure/nginx/droplet.conf:382), matching
+admin-api's global prefix 'api/v1' (libs/backend-common/src/bootstrap/create-service-app.ts:610) +
+TenantConfigurationController @Controller('settings/tenant')
+(apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:42); all
+requests pass the global PlatformAdminGuard (RS256 JWT + SUPER_ADMIN,
+apps/admin-api-service/src/app.module.ts:283-290, guards/platform-admin.guard.ts:59,155-177). But
+the persistence layer does not exist: TenantConfigurationService is an explicit 'legacy adapter' —
+every GET synthesizes the same hardcoded createDefaultTenantConfiguration() object for every tenant
+(tenant-configuration.service.ts:349-358, entities/tenant-configuration.entity.ts:277-389) and every
+mutation (all 9 tab saves, API keys, webhooks, domain verification, IP lists, module toggles) throws
+GoneException 410 (tenant-configuration.service.ts:360-362). The backing table
+admin.tenant_configurations was dropped by migration 1801400000000 (rows archived to
+admin.retired_config_backups); the promised config-service replacement was never wired for tenant
+scope — usePlatformConfiguration.ts only covers the 'platform' service namespace. The page is fully
+rendered, routed (Module.tsx:114) and looks functional, but is 100% decorative.
+
+**Endpoints exercised:** `GET/PUT /api/v1/settings/tenant/:tenantId/user-limits`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/storage`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/api`;
+`POST /api/v1/settings/tenant/:tenantId/api-keys, DELETE /api/v1/settings/tenant/:tenantId/api-keys/:keyId`;
+`GET/POST /api/v1/settings/tenant/:tenantId/webhooks, PUT/DELETE /api/v1/settings/tenant/:tenantId/webhooks/:webhookId`;
+`GET /api/v1/settings/tenant/:tenantId/domain, POST .../domain/verify, POST .../domain/confirm`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/branding`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/security, POST/DELETE .../security/ip-whitelist(/:ip), POST/DELETE .../security/ip-blacklist(/:ip)`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/notifications`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/features, POST .../features/modules/:moduleCode/enable|disable`;
+`GET/PUT /api/v1/settings/tenant/:tenantId/data-retention`;
+`POST /api/v1/settings/tenant/:tenantId/webhooks/:webhookId/test (FE only — no backend route)`
+
+**DB tables:**
+`admin.tenant_configurations — DROPPED by migration 1801400000000-DropRetiredLegacyConfigStores.ts (no live table backs this page)`,
+`admin.retired_config_backups — write-once jsonb archive of the dropped rows; never read by this page`
+
+### APA-033 [HIGH] Every mutation on the page returns 410 Gone — no tenant configuration can be changed at all
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** All write endpoints route into TenantConfigurationService.throwLegacyGone(): the Save
+  buttons on all 9 tabs (user limits, storage, API, branding, security, notifications, feature
+  flags, data retention), API-key create/revoke, webhook create/update/delete, domain verification
+  initiate/confirm, IP whitelist/blacklist add/remove, and module enable/disable ALL throw
+  GoneException ('admin-api direct tenant_configurations writes are retired; use config-service
+  effective configuration APIs'). The FE catches these and shows generic 'Failed to save X.'
+  banners, so the operator gets no hint that the feature is permanently retired rather than
+  transiently failing. The entire admin surface for per-tenant configuration is a dead end.
+- **Evidence:**
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:94-95`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:148-154`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:208-222`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:263-277`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:303-309`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:360-362`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:272-285`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:572-583`
+- **Verification:** Prior adversarial verification confirmed the chain end-to-end; re-reading
+  confirms it and reveals the full retirement context. Every write method in
+  apps/admin-api-service/src/settings/services/tenant-configuration.service.ts is typed `: never`
+  and terminates in throwLegacyGone() (GoneException 410); tenant-configuration.controller.ts wires
+  all PUT/POST/DELETE on settings/tenant/\* to them. The backing table admin.tenant_configurations
+  was archived into admin.retired_config_backups and DROPPED by migration
+  1801400000000-DropRetiredLegacyConfigStores.ts (ORPHAN-HIGH-364) — forward-only, down() is a
+  deliberate no-op. The named successor ('config-service effective configuration APIs') is a generic
+  tenant/service/key/environment KV exposed only as a federated GraphQL subgraph
+  (configuration.resolver.ts: effectiveConfiguration, effectiveConfigurationsByService,
+  setConfiguration); it has no structured tenant-configuration model and no API-key minting, webhook
+  registry, or domain-verification capability. Severity stays HIGH (not CRITICAL): total loss of an
+  admin capability plus fabricated GET data (defaultConfiguration() with epoch timestamps)
+  misleading operators, but no data corruption or security breach — writes fail closed.
+- **Root cause:** The chain was severed intentionally at the BE service layer as the backend half of
+  a config-store retirement that was never finished. The DB-audit remediation (ORPHAN-HIGH-364)
+  retired the 'legacy trio' (admin.global_configs, admin.system_settings,
+  admin.tenant_configurations) to config-service: writes were 410'd, entities undecorated, tables
+  archived+dropped. But the migration stopped at the service boundary — neither the successor
+  capability (structured tenant-config sections in config-service; today it is a bare KV with no
+  section vocabulary, and no replacement exists for the behavioral resources: API-key minting,
+  webhooks, domain verification) nor the consumer (TenantConfigurationPage + tenantConfigApi, still
+  pointed at the retired routes) was migrated. The drift stayed invisible for 'multiple releases'
+  (the migration's own words) because of two structural gaps: (1) the FE api layer is a hand-written
+  mirror of retired backend interfaces (tenant-config.ts literally says 'mirror backend entity
+  interfaces') with no build- or test-time contract binding FE route usage to live BE routes — a
+  route that throws 410-by-design is indistinguishable from a live one to the FE build; and (2) the
+  GET endpoints synthesize plausible per-tenant defaults instead of failing, so the page renders
+  convincingly and only breaks on Save, where the FE catch blocks discard error detail into generic
+  'Failed to save X.' banners.
+- **Fix design:** Systemic class: half-retired legacy surface (BE 410'd, FE untouched, successor
+  unbuilt) — the identical pattern exists in system-setting.service.ts:419. Fix at pattern level
+  plus local application, completing the retirement in the direction the decision-of-record chose
+  (config-service owns configuration).
+
+PATTERN LEVEL. (A) Tier-3 gate — route-liveness contract: new architecture spec that boots/reflects
+the admin-api Nest route table, statically extracts every apiFetch path from
+web/modules/admin-panel/src/services/api/\*.ts, and fails when an FE-referenced route is
+unregistered OR resolves to a `never`-typed legacy-gone service method. This turns any future
+'retire the backend, forget the FE' into a red PR, and immediately flags both this page, the
+system-settings sibling, and the already-commented dead testWebhook endpoint. (B) Tier-1 contract
+SSoT: move the nine section shapes (UserLimitsConfig … FeatureFlagsConfig, WebhookConfig,
+TenantConfiguration) out of settings/entities/tenant-configuration.entity.ts into a shared contract
+lib (new libs/tenant-config-contracts, dual-consumed like backend-common) with class-validator
+schemas. Admin-api DTOs derive from it, config-service validates written values against it, and the
+admin panel imports the types — deleting the hand-written mirrors in services/api/tenant-config.ts
+so FE-type drift becomes a compile error.
+
+LOCAL APPLICATION. (1) Give config-service the section vocabulary: register serviceId 'tenant-admin'
+with keys tenant.user-limits, tenant.storage, tenant.api, tenant.branding, tenant.security,
+tenant.notifications, tenant.feature-flags, tenant.data-retention, tenant.domain (JSON valueType),
+validated in configuration-validation.service.ts against the shared schemas; seed SYSTEM_TENANT_ID
+rows from createDefaultTenantConfiguration() in a config-service migration so the existing
+tenant→system effective-resolution supplies real defaults. (2) Rewire TenantConfigurationService
+from gone-adapter to a real facade: reads call effectiveConfiguration, writes call setConfiguration,
+over the platform's signed east-west client (libs/backend-common/src/http/signed-http-client.ts,
+HMAC + tenant binding, caller policy via the service catalog) against config-service's GraphQL
+endpoint. The REST surface, envelope, PlatformAdminGuard, and JWT-sourced updatedBy stay
+byte-compatible for the FE; delete every `: never` method and the fabricated
+defaultConfiguration()/epoch-timestamp synthesis — GETs now return real effective values (source:
+system|tenant). (3) The three behavioral resources — API keys (secret minting/validation), webhooks
+(registry+delivery+test), domain verification (DNS token flow) — are workflows, not config values,
+and cannot live in a KV row. Decide per-resource IN THIS EFFORT, no dead tabs: either implement each
+as a properly decorated @Entity({ schema: 'admin' }) aggregate (tenant_api_keys, tenant_webhooks,
+tenant_domains) with a real migration — this satisfies the drift registry whose complaint was
+undecorated ghost tables, not admin ownership — or delete the tab, its api-client methods, and its
+controller routes wholesale under a tracked product finding with owner+deadline. Shipping 410 behind
+a Save button is the one forbidden outcome. (4) Apply the same facade conversion to
+SystemSettingService (SYSTEM_TENANT_ID scope) — the pattern gate makes skipping it impossible.
+
+- **Files to change:**
+  - `libs/tenant-config-contracts/src/index.ts`
+  - `libs/tenant-config-contracts/src/sections/*.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts`
+  - `apps/admin-api-service/src/settings/settings.module.ts`
+  - `apps/admin-api-service/src/settings/services/system-setting.service.ts`
+  - `apps/config-service/src/configuration/configuration.constants.ts`
+  - `apps/config-service/src/configuration/services/configuration-validation.service.ts`
+  - `apps/config-service/src/database/migrations/<new>-SeedTenantAdminSystemDefaults.ts`
+  - `apps/admin-api-service/src/migrations/<new>-TenantWorkflowResources.ts (only if API-keys/webhooks/domain are kept as admin aggregates)`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/types (TenantConfiguration import source)`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `apps/admin-api-service/src/__tests__/e2e/admin-routes-liveness.architecture.spec.ts`
+- **Proof of fix:** (1) New
+  apps/admin-api-service/src/**tests**/e2e/admin-routes-liveness.architecture.spec.ts — enumerates
+  the Nest route table, cross-checks every path extracted from
+  web/modules/admin-panel/src/services/api/_.ts, and asserts none is unregistered or backed by a
+  GoneException/`never` adapter; it must FAIL against current HEAD (proving it detects this finding)
+  and pass after the facade lands. (2) New
+  apps/admin-api-service/src/settings/**tests**/tenant-configuration.facade.integration.spec.ts —
+  PUT /settings/tenant/:id/user-limits returns the envelope with the persisted value; subsequent GET
+  round-trips it; pre-write GET returns source=system seeded defaults, post-write source=tenant
+  (mock signed-http transport per London-school rules; full path covered by an e2e/tests/integration
+  case). (3) Extend
+  apps/config-service/src/configuration/configuration.resolver.public-contract.spec.ts (or sibling)
+  — setConfiguration rejects a tenant.security payload violating the shared section schema, accepts
+  a valid one. (4) npm run type-check green after deleting the FE mirror interfaces proves the admin
+  panel compiles against the shared contract lib (FE-type drift now a build failure). (5)
+  e2e/tests/integration/schema-invariants.spec.ts stays green for any new admin._ workflow tables
+  (schema declared, migration present, registry updated).
+- **Effort:** L
+
+### APA-034 [MEDIUM] All reads return fabricated, identical hardcoded defaults for every tenant — silent wrong data on a security-sensitive surface
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** Every GET synthesizes createDefaultTenantConfiguration(tenantId) with id
+  'legacy:<tenantId>' and createdAt epoch-0: storage always shows 0/10 GB, enabledModules is always
+  [], mfaRequired always false, ipWhitelist always empty, apiKeys always empty, maxUsers always 5. A
+  SUPER_ADMIN viewing any tenant sees this fiction rendered as real state (the storage usage bar,
+  the module toggle grid, the MFA/password-policy checkboxes). Wrong security-posture data (e.g.
+  'MFA not required', 'no IP restrictions') is displayed with full confidence for tenants whose
+  actual enforcement lives elsewhere.
+- **Evidence:**
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:125-131`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:349-358`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts:277-389`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:690-710`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1556-1569`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1177-1204`
+- **Verification:** Confirmed end-to-end per prior verdict (existence not re-litigated). Grounding
+  re-read verified: every read in
+  apps/admin-api-service/src/settings/services/tenant-configuration.service.ts
+  (getConfigurationByTenantId:125-131, getUserLimits, getStorageConfig, getSecurityConfig,
+  getFeatureFlags, getConfigurationSummary, checkStorageLimit) funnels into
+  defaultConfiguration():349-358 which fabricates createDefaultTenantConfiguration(tenantId) with id
+  'legacy:<tenantId>' and epoch-0 timestamps; the controller (@Controller('settings/tenant'))
+  exposes ~40 live routes; the FE tenant-config.ts maps 1:1 and TenantConfigurationPage renders the
+  fiction (0/10GB bar at :690-710, mfaRequired=false at :1177-1204, empty module grid with 'Changes
+  take effect immediately' at :1551-1569). MEDIUM (not HIGH) stands: the route is an orphan — no
+  in-app navigation links to tenants/:tenantId/configuration (grep confirms only the Route
+  registration in Module.tsx:114), all writes 410 so the fiction cannot be persisted, and the
+  surfaces admins actually reach (TenantDetailPage, ModulesPage) serve real data from
+  auth.tenants/auth.tenant_modules. Still real and worth fixing: a SUPER_ADMIN who lands on the URL
+  sees confident, wrong security-posture data with zero legacy indication.
+- **Root cause:** The BE→DB link was deliberately severed — admin.tenant_configurations was archived
+  and dropped by migration 1801400000000-DropRetiredLegacyConfigStores (ORPHAN-HIGH-364), with
+  config-service named the new owner — but the retirement was executed asymmetrically: write paths
+  got 410 Gone while read paths were rewritten into a fabricating compat adapter
+  (defaultConfiguration() synthesizing createDefaultTenantConfiguration) so existing GETs would keep
+  returning 200. The FE→BE link (services/api/tenant-config.ts + TenantConfigurationPage + its
+  route) was never repointed or removed. It drifted because the retirement ran store-by-store: the
+  sibling store admin.system_settings received the complete pattern (config-service seed
+  1805400000000 + federated effectiveConfigurationsByService read path) but tenant_configurations'
+  replacement was never built, and the only FE↔BE gate
+  (apps/admin-api-service/src/**tests**/contract-validation.spec.ts) verifies route EXISTENCE, not
+  data provenance — a fabricated 200 satisfies it, so the half-retired surface was invisible to CI.
+  Systemic class: 'half-retired endpoint serving fabricated reads' — an instance of the
+  config-table-nobody-reads / FE-route-with-no-real-backend family, and the existence-only contract
+  gate is the pattern-level gap that let it survive.
+- **Fix design:** Tier 1 (make fabrication impossible) — complete the retirement symmetrically,
+  deleting the fabricator and its only consumer in one commit. BACKEND: delete
+  TenantConfigurationController entirely (all /settings/tenant routes 404; the 410-for-writes
+  convention existed to signal in-flight clients, but the sole read client is the orphaned FE page
+  removed in the same commit, so keeping dead routes preserves dead surface); remove it from
+  settings/controllers/index.ts and settings.module.ts. Reduce TenantConfigurationService to the
+  single live method requestDefaultConfigurationProvisioning (consumed by
+  tenant-provisioning.service.ts:791) — delete defaultConfiguration(), every fabricating read,
+  checkStorageLimit, getConfigurationSummary, and the now-unreachable 410 stubs. Delete
+  createDefaultTenantConfiguration() from settings/entities/tenant-configuration.entity.ts (nothing
+  may synthesize a TenantConfiguration once the fabricator is gone) and the TenantConfiguration
+  interface; keep only the section-shape interfaces (UserLimitsConfig etc.) still referenced by the
+  provisioning-request DTO. Delete settings/dto/tenant-configuration.dto.ts (only the deleted
+  controller used it). FRONTEND: delete TenantConfigurationPage.tsx, its lazy import + route in
+  Module.tsx:30/114, services/api/tenant-config.ts, the tenantConfigApi re-export in
+  services/adminApi.ts, and the TenantConfiguration interface in services/types/settings.ts. No
+  capability is lost: the truthful surfaces already exist — TenantDetailPage (real
+  limits/storage/modules via TenantDetailService reading auth.tenants + per-tenant schemas +
+  auth.tenant_modules) and ModulesPage (real module toggling via ModuleAssignmentService → NATS
+  ASSIGN_TENANT_MODULES to auth-service). The capabilities the fake page merely promised (per-tenant
+  MFA policy, IP whitelists, tenant API keys, webhooks) have NO enforcement implementation anywhere
+  in the platform; per the discipline they must not have UI until the feature exists — open a
+  tracked product-gap finding (owner: admin-panel/product; SSoT for any future per-tenant security
+  policy = auth-service enforcement + config-service storage under its own ADR) rather than
+  rebuilding a fiction. Tier 3 (pattern-level, make the class detectable) — the systemic gap is that
+  the existence-only contract gate cannot see fabricated reads. Add
+  apps/admin-api-service/src/**tests**/retired-endpoint-symmetry.spec.ts to the same dedicated
+  admin-route-contract CI project: (1) a RETIRED_ROUTE_PREFIXES SSoT (['settings/tenant'], each
+  entry citing its drop migration + replacement surface) — no @Controller/@Get route may resolve
+  under a retired prefix, so the surface cannot silently reappear without a real store; (2)
+  retirement-symmetry rule: for every service file referencing GoneException (a retired-store
+  adapter), every public method must either throw Gone or appear in the spec's documented per-class
+  allowlist (here exactly requestDefaultConfigurationProvisioning) — a non-throwing read on a
+  retired adapter (the fabrication shape) fails CI repo-wide within admin-api; (3) zero references
+  to createDefault\* factories from non-test, non-provisioning code. Same-commit bookkeeping (these
+  gates are designed to break here): contract-validation.spec.ts — drop the
+  '/settings/tenant/:param/webhooks/:param/test' KNOWN_EXCEPTIONS entry and update the backend
+  endpoint snapshot (603 minus the deleted tenant-config routes); trim the
+  TenantConfigurationService mock in tenant-provisioning.service.spec.ts to the kept surface.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/controllers/index.ts`
+  - `apps/admin-api-service/src/settings/settings.module.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `apps/admin-api-service/src/settings/services/index.ts`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning.service.spec.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `apps/admin-api-service/src/__tests__/retired-endpoint-symmetry.spec.ts`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `web/modules/admin-panel/src/Module.tsx`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/adminApi.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+- **Proof of fix:** Primary: NEW spec
+  apps/admin-api-service/src/**tests**/retired-endpoint-symmetry.spec.ts (added to the
+  tests/admin-route-contract CI project alongside contract-validation.spec.ts) proves the fix and
+  pins the pattern: (a) no controller route resolves under the retired 'settings/tenant' prefix; (b)
+  every public method of any GoneException-bearing admin-api service either throws Gone or is on the
+  documented allowlist (requestDefaultConfigurationProvisioning only) — the fabricated-read shape
+  becomes a CI failure for the whole service, not just this instance; (c)
+  createDefaultTenantConfiguration has zero remaining references. Secondary: EXTEND
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts — after deleting
+  web/modules/admin-panel/src/services/api/tenant-config.ts its FE extraction finds zero
+  /settings/tenant/\* calls and the updated backend snapshot count locks the routes out; any future
+  FE call to a tenant-config route fails the existing existence gate. Regression: nx affected
+  --target=test (admin-api unit + tenant-provisioning.service.spec.ts green with trimmed mock) and
+  npm run type-check (proves no dangling imports of tenantConfigApi/TenantConfiguration across
+  web/modules/admin-panel). Manual: /admin/tenants/:id/configuration no longer routes (Module.tsx),
+  and GET /api/v1/settings/tenant/<id> returns 404 — the platform can no longer serve fabricated
+  tenant state.
+- **Effort:** M
+
+### APA-035 [HIGH] The promised config-service replacement for tenant configuration does not exist anywhere
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The 410 message and the entity docblock both say 'config-service owns tenant
+  configuration now', but nothing implements it: the page still calls the retired REST endpoints;
+  the GraphQL config-service path (usePlatformConfiguration.ts / platform-configuration.ts) only
+  serves the 'platform' service namespace with platform._, email._, security._, billing._,
+  rate_limit.\* keys — no tenant-scoped configuration operations at all. Net effect: per-tenant
+  configuration is not manageable anywhere in the product, and per-tenant config values persist to
+  no table and are read by nothing downstream.
+- **Evidence:**
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts:1-14`
+  - `apps/admin-api-service/src/migrations/1801400000000-DropRetiredLegacyConfigStores.ts:54`
+  - `web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts:1-13`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts:16`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts:196-283`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts:194-216`
+- **Verification:** Prior adversarial verdict upheld by direct re-read of current code.
+  web/modules/admin-panel/src/Module.tsx:114 routes tenants/:tenantId/configuration to
+  TenantConfigurationPage, which drives all 9 tabs through tenantConfigApi
+  (services/api/tenant-config.ts) against /settings/tenant/\* — whose service
+  (apps/admin-api-service/src/settings/services/tenant-configuration.service.ts) throws
+  GoneException from every write and fabricates createDefaultTenantConfiguration() output on every
+  read (id 'legacy:<tenantId>', epoch timestamps) so the UI renders fiction and every save 410s.
+  Migration 1801400000000 dropped admin.tenant_configurations forward-only. The promised successor
+  does not exist: config-service's ConfigurationResolver.getTenantId() resolves scope only from the
+  JWT — SUPER_ADMIN (tenantless by C1 invariant) always lands on SYSTEM_TENANT_ID; no operation
+  accepts a target tenantId; the only GraphQL consumer (usePlatformConfiguration.ts) serves the
+  'platform' namespace; no tenant-config vocabulary is seeded; the NATS runtime read surface is
+  SYSTEM-scoped. Severity stays HIGH: an advertised SUPER_ADMIN capability is entirely
+  non-functional and silently misleading, but it is an admin-management gap, not a data-integrity or
+  tenant-isolation breach. Critically for remediation cost: config-service's storage layer
+  (tenant_id column, RLS dual-scope reads, tenant-over-system merge, tombstones, history,
+  encryption, validation) is already tenant-parameterized — only the resolver contract,
+  vocabulary/seeds, and FE wiring are missing.
+- **Root cause:** The chain broke at the BE contract link, in both directions at once. The DB link
+  was deliberately deleted (migration 1801400000000 dropped admin.tenant_configurations; all
+  admin-api writes became 410 Gone) on the strength of a successor claim — 'config-service owns
+  tenant configuration now' — but the successor was never built: config-service's public GraphQL
+  contract derives tenant scope exclusively from the caller's JWT, and SUPER_ADMIN is the platform's
+  only tenantless principal, so it always resolves to SYSTEM_TENANT_ID with no argument to address
+  any other tenant's partition; and no tenant-config key vocabulary was ever defined or seeded in
+  config.configurations. WHY it drifted: the retirement (ORPHAN-HIGH-364) and the replacement
+  (ORPHAN-HIGH-373) were tracked as separate findings, and 373 was closed after delivering only the
+  platform namespace (SystemSettingsPage). Two masking behaviors made the gap invisible: admin-api's
+  read paths synthesize hard-coded defaults presented as the tenant's real configuration (the page
+  loads 'successfully'), and the FE kept its retired REST client compiling because its types are a
+  hand-maintained mirror with no contract test binding 'legacy retired' to 'successor operation
+  exists' — so the docblock promise was structurally unfalsifiable.
+- **Fix design:** SYSTEMIC CLASSES: (a) retirement-without-replacement (legacy store dropped on an
+  unfalsifiable successor promise), (b) reads-that-fabricate-state (synthesized defaults presented
+  as persisted config), (c) hand-mirrored FE/BE type duplication (tenant-config interfaces
+  duplicated in admin-api entity file and FE tenant-config.ts). Fix at pattern level plus local
+  application.
+
+PATTERN LEVEL — (1) Tenant-config vocabulary as a single cross-stack contract: new module in
+libs/shared-contracts (the repo's sanctioned zero-dependency cross-stack lib, already Vite-aliased
+by aquamobil) exporting TENANT_SETTINGS_SERVICE (the config-service `service` namespace, e.g.
+'tenant-settings'), the typed section models
+(UserLimits/Storage/Branding/TenantSecurity/Notification/FeatureFlags/DataRetention), and a
+TENANT_CONFIG_VOCABULARY table: one entry per key carrying {key, valueType, default,
+validationRules, consumedBy}. Both config-service and admin-panel import it — key/shape drift
+becomes a compile error (tier 1). Update the shared-contracts narrowness guard spec to admit the
+module (it fits the lib's charter: byte-identical values across the trust boundary and a Vite
+bundle; no domain enums). (2) Config-service gains explicit tenant targeting — the missing
+capability at the root: add optional `tenantId: ID` arg to effectiveConfiguration,
+effectiveConfigurationsByService, setConfiguration; centralize scope resolution in one
+resolveTenantScope(context, explicitTenantId?) — explicit target requires hasPlatformAdminRole
+(ForbiddenException otherwise, fail-closed); absent arg keeps today's behavior (JWT tenant, SYSTEM
+for tenantless platform admin). No handler changes needed: GetConfigurationsByServiceHandler and
+UpsertConfigurationCommand are already tenant-parameterized with RLS-scoped per-call sessions. (3)
+Seed migration in config-service inserting SYSTEM_TENANT_ID rows for every vocabulary entry,
+generated FROM the shared vocabulary (value_type + validation_rules) — defaults become real rows
+served automatically by the existing tenant-over-system effective merge (tier 2), replacing
+admin-api's fabricated createDefaultTenantConfiguration. Per-tenant overrides are ordinary tenant
+rows written via the tenant-targeted setConfiguration; suppressFallback tombstones already handle
+explicit unsets.
+
+LOCAL APPLICATION — (4) Admin-panel rebuild on the sanctioned GraphQL path (mirrors the
+ORPHAN-HIGH-373 SystemSettingsPage precedent exactly): new
+graphql/tenant-configuration-operations.ts (operations with $tenantId), new pure-mapping
+services/api/tenant-configuration.ts (effective rows <-> section models via the shared vocabulary;
+per-tab write builders), new hooks/useTenantConfiguration.ts (useAdminQuery keyed per tenant in
+adminQueryKeys), TenantConfigurationPage.tsx rewritten onto the hook for the pure-config tabs
+(limits, storage quotas, branding, security policy, notifications, feature flags, retention); alias
+@aquaculture/shared-contracts in the module's tsconfig + vite config (aquamobil precedent). (5)
+Delete the retired surface so the wrong path is structurally impossible (tier 1): FE
+services/api/tenant-config.ts and the TenantConfiguration shapes in services/types/settings.ts;
+admin-api TenantConfigurationController, TenantConfigurationService,
+dto/tenant-configuration.dto.ts, entities/tenant-configuration.entity.ts, and their
+settings.module/barrel wiring. Tenant provisioning drops its config step entirely
+(requestDefaultConfigurationProvisioning is a log-only no-op today): a new tenant needs zero config
+rows because the SYSTEM-fallback merge answers reads immediately — correct behavior becomes
+automatic. (6) API keys, webhook CRUD, and custom-domain verification are stateful operational
+workflows (hashed secrets, DNS-token state machines), NOT key-value configuration — encoding them as
+config rows would be the banned JSON-column escape. Their dead 410-calling UI is removed from the
+page in this fix, and each is opened as its own tracked finding with owner + deadline + ID, listed
+in the PR per CLAUDE.md debt rules. (7) Downstream consumption becomes possible and auditable:
+extend ConfigRuntimeGetRequest in libs/event-contracts/src/config-runtime.ts with tenant scope
+resolved through the same effective merge, and cross-check each vocabulary entry's consumedBy
+declaration against the runtime per-caller allowlist in the new invariant — the 'config nobody
+reads' class becomes build-time detectable instead of silently accumulating.
+
+- **Files to change:**
+  - `libs/shared-contracts/src/tenant-configuration.ts`
+  - `libs/shared-contracts/src/index.ts`
+  - `tests/invariants/shared-contracts-no-enum-drift.spec.ts`
+  - `apps/config-service/src/configuration/configuration.resolver.ts`
+  - `apps/config-service/src/configuration/configuration.resolver.public-contract.spec.ts`
+  - `apps/config-service/src/configuration/__tests__/configuration.resolver.tenant-targeting.spec.ts`
+  - `apps/config-service/src/database/migrations/1801500000000-SeedTenantSettingsDefaults.ts`
+  - `libs/event-contracts/src/config-runtime.ts`
+  - `apps/config-service/src/configuration/handlers/config-runtime-nats.handler.ts`
+  - `web/modules/admin-panel/tsconfig.json`
+  - `web/modules/admin-panel/vite.config.ts`
+  - `web/modules/admin-panel/src/graphql/tenant-configuration-operations.ts`
+  - `web/modules/admin-panel/src/services/api/tenant-configuration.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/tenant-configuration.spec.ts`
+  - `web/modules/admin-panel/src/hooks/useTenantConfiguration.ts`
+  - `web/modules/admin-panel/src/hooks/adminQueryKeys.ts`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts`
+  - `apps/admin-api-service/src/settings/settings.module.ts`
+  - `apps/admin-api-service/src/settings/controllers/index.ts`
+  - `apps/admin-api-service/src/settings/services/index.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning.service.spec.ts`
+  - `tests/invariants/tenant-config-vocabulary.spec.ts`
+- **Proof of fix:** (1) Extend
+  apps/config-service/src/configuration/configuration.resolver.public-contract.spec.ts: pins the
+  optional tenantId targeting arg and asserts the explicit-target path is gated by the same
+  PLATFORM_ADMIN_ROLES vocabulary (fail-closed), so scope resolution cannot drift. (2) New
+  apps/config-service/src/configuration/**tests**/configuration.resolver.tenant-targeting.spec.ts:
+  SUPER_ADMIN with explicit tenantId reads/writes that tenant's rows; a tenant-JWT caller passing a
+  foreign tenantId gets ForbiddenException; effectiveConfigurationsByService for a fresh tenant
+  returns the seeded SYSTEM defaults, overridden after a tenant-targeted setConfiguration. (3) New
+  invariant tests/invariants/tenant-config-vocabulary.spec.ts: binds the shared-contracts
+  TENANT_CONFIG_VOCABULARY to (a) the config-service seed migration rows, (b) the FE mapping
+  module's key set, (c) each entry's declared consumedBy against the config-runtime allowlist, and
+  (d) greps that no admin-panel services/api module references /settings/tenant/ — any surface
+  missing a key, or a resurrected REST call, fails CI. (4) New
+  web/modules/admin-panel/src/services/api/**tests**/tenant-configuration.spec.ts: effective-row ->
+  section-model -> write-builder round-trip over the vocabulary. (5) Updated
+  apps/admin-api-service/src/tenant/**tests**/tenant-provisioning.service.spec.ts: provisioning
+  performs no configuration write (defaults are automatic via SYSTEM fallback). Compile-time:
+  deleting the controller/service/entity/DTO and FE client makes any lingering caller a build error;
+  nx affected --target=test and --target=lint green.
+- **Effort:** L
+
+### APA-036 [MEDIUM] FE echoes whole GET objects back into PUTs whose DTOs lack fields — would 400 via forbidNonWhitelisted even if writes were restored
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** saveNotificationConfig sends the full TenantNotificationConfig including 'webhooks:
+  WebhookConfig[]' (the GET default includes webhooks: []), but UpdateNotificationConfigDto has no
+  'webhooks' property; saveFeatureFlags sends 'planOverrides' (present in the GET default), but
+  UpdateFeatureFlagsDto has no 'planOverrides'. With the global ValidationPipe (whitelist +
+  forbidNonWhitelisted, backend-common bootstrap), both saves would be rejected 400 before reaching
+  the handler. Also numeric inputs coerce empty input to 0 (parseInt(...) || 0) which violates
+  @Min(1) constraints on most DTO fields.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:359`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:374`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts:351-425`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts:431-491`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts:205`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts:270`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:8`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:625`
+- **Root cause:** The FE reuses the full read-model types as write payloads: saveNotificationConfig
+  PUTs the whole TenantNotificationConfig (includes webhooks:[], present in the GET default) and
+  saveFeatureFlags PUTs the whole FeatureFlagsConfig (includes planOverrides:{}). Neither webhooks
+  nor planOverrides exists in UpdateNotificationConfigDto/UpdateFeatureFlagsDto, so the platform
+  ValidationPipe (whitelist+forbidNonWhitelisted) rejects both with 400 before the handler. Systemic
+  class: read-model === write-model shape reuse (FE-type drift + DTO-whitelist rejection).
+  Secondary: parseInt(e.target.value)||0 emits 0 for cleared numeric inputs, violating @Min(1) on
+  most DTO fields. Currently masked by the 410 on these write endpoints.
+- **Fix design:** Pattern-level: make the write-model distinct from the read-model and derived from
+  the backend Update DTOs (the writable SSoT). Narrow each tenantConfigApi.updateX param type to a
+  dedicated Update* type that mirrors the backend DTO exactly (drop webhooks from the notification
+  update type, planOverrides from the feature-flags update type, apiKeys/ipWhitelist etc.), and have
+  the save handlers construct that narrowed object (as saveApiConfig already does with an explicit
+  field pick) rather than echoing the GET response. That turns any extra field into a compile error
+  (tier 1). Fix the numeric inputs to clamp to the DTO minimum (or send undefined when empty)
+  instead of coercing to 0. Add a contract test asserting every FE Update* type's key set is a
+  subset of the corresponding backend DTO's class-validator property set so future drift is caught
+  at build time (tier 3).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/tenant-config-write-shape.spec.ts`
+- **Effort:** M
+
+### APA-037 [MEDIUM] Failed tab loads leave an infinite spinner with only a dismissible banner
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** loadTabData catches errors, shows a feedback banner, and clears sectionLoading — but
+  the tab renderers return renderSectionLoading() whenever their data state is null (e.g.
+  renderUserLimitsTab). After a failed load (which is guaranteed never for GETs here, but applies on
+  network failure) the operator sees a permanent spinner with no retry affordance; dismissing the
+  banner leaves a spinner forever.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:255-260`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:605-609`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:615-616`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1005`
+- **Root cause:** loadTabData catches load errors, shows a dismissible banner, and clears the shared
+  sectionLoading boolean — but the tab renderers (e.g. renderUserLimitsTab:
+  `if (!userLimits) return renderSectionLoading()`) gate the spinner on data===null, not on
+  sectionLoading. A failed load leaves the section data null, so the tab shows the loading spinner
+  permanently; dismissing the banner leaves a spinner with no retry. The component conflates three
+  states (loading / loaded / failed) into one nullable-data + one boolean, so 'failed' is
+  indistinguishable from 'still loading'. Low likelihood today because these GETs return static
+  defaults and never throw, but real on any network/401 failure.
+- **Fix design:** Model each section as an explicit state machine instead of nullable-data + shared
+  boolean. Reuse the existing useAsyncData hook (already used by ProvisioningSettingsPage) which
+  exposes {loading,error,canRetry,retry}; render an error card with a Retry button when a section is
+  in the error state, so 'failed' can never render as 'loading' (tier 2 make-correct-automatic).
+  Because useAsyncData is the established admin-panel pattern, adopting it per tab removes the
+  bespoke sectionLoading flag entirely.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+- **Effort:** M
+
+### APA-038 [MEDIUM] IP list UI invites CIDR ranges that the backend DTO rejects
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The IpListManager placeholder is '192.168.1.0/24' and the copy says 'IP
+  addresses/ranges', but IpAddressDto validates with @IsIP() which rejects CIDR notation — any range
+  entry would 400 (contract drift; currently masked by the 410 on the same endpoints, since
+  validation pipes run before the handler the user actually sees the 400 for CIDR and 410 for plain
+  IPs — two different failure modes for the same button).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:125`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx:1316-1337`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts:342-345`
+- **Root cause:** The single-IP add path validates with IpAddressDto.ip = @IsIP() (accepts only bare
+  IPv4/IPv6, rejects CIDR), yet the IpListManager placeholder is '192.168.1.0/24' and both list
+  descriptions say 'IP addresses/ranges'. Worse, the bulk security PUT validates
+  ipWhitelist/ipBlacklist as @IsString({each}) — arbitrary strings, CIDR included. So the same
+  domain concept ('allowed/blocked address or range') has two contradictory validators, and the UI
+  invites input that only the bulk path accepts. A CIDR entry via Add 400s (@IsIP) while a bare IP
+  410s — two failure modes for one button.
+- **Fix design:** Encode the real domain rule once as a custom class-validator constraint
+  @IsIpOrCidr() and apply it to BOTH IpAddressDto.ip and the each-item validation of
+  ipWhitelist/ipBlacklist in UpdateTenantSecurityDto, replacing the mismatched @IsIP/@IsString pair
+  (tier 1: the type system now expresses exactly what the UI offers, consistently across single-add
+  and bulk). Add a unit spec covering bare IPv4, IPv6, valid CIDR (accepted) and garbage (rejected).
+  If downstream enforcement genuinely cannot honor CIDR, the alternative root-cause fix is to strip
+  'ranges' from the copy and set a bare-IP placeholder — but the 'ranges' intent plus the
+  CIDR-accepting bulk path indicate CIDR should be supported.
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/validators/is-ip-or-cidr.validator.ts`
+  - `apps/admin-api-service/src/settings/__tests__/is-ip-or-cidr.validator.spec.ts`
+- **Effort:** S
+
+### APA-039 [LOW] Unvalidated bodies on several endpoints: controller uses service interfaces as DTOs
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** createApiKey, createWebhook, domain verify, and updateBranding take types imported
+  from the service file (plain TS interfaces, not class-validator classes), so the global
+  ValidationPipe skips them entirely (non-class metatype). Additionally the FE createTenantApiKey
+  payload omits 'createdBy' which the CreateApiKeyDto interface requires — invisible at runtime
+  because nothing validates it. Moot while the endpoints 410, but a latent validation gap if
+  restored.
+- **Evidence:**
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:18-26`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:46-51`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts:263-271`
+- **Root cause:** createConfiguration, updateConfiguration, createApiKey, createWebhook,
+  initiateCustomDomainVerification and updateBranding type their @Body() as
+  CreateTenantConfigurationDto/UpdateTenantConfigurationDto/CreateApiKeyDto/CreateWebhookDto/VerifyDomainDto/UpdateBrandingDto
+  — all plain `export interface`s in tenant-configuration.service.ts. Interfaces erase at compile
+  time, so the param metatype is Object and the global ValidationPipe's shouldValidate returns
+  false: these bodies are completely unvalidated (no whitelist, no type checks). Systemic class:
+  unvalidated interface-DTO. Also FE createTenantApiKey omits createdBy that the CreateApiKeyDto
+  interface requires — invisible because nothing validates it (and createdBy should come from the
+  JWT, not the body). Moot while endpoints 410, latent if restored.
+- **Fix design:** Convert these six interfaces into class-validator DTO classes living in
+  settings/dto/tenant-configuration.dto.ts (their correct home), decorate each field, and import
+  them in the controller so validation becomes automatic (tier 1). Source createApiKey's createdBy
+  from the JWT via getAuthUserId (matching the C6 pattern already applied to the PUT handlers)
+  rather than the request body, and drop createdBy from the FE payload. Make the whole class
+  detectable: add an architecture spec that reflects over every admin-api @Body() param and asserts
+  its metatype is a class carrying class-validator metadata (never an interface/Object), so an
+  interface-as-DTO regression fails CI (tier 3).
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `apps/admin-api-service/src/__tests__/body-dto-is-class.architecture.spec.ts`
+- **Effort:** M
+
+### APA-040 [LOW] testWebhook FE method targets a route that does not exist
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** tenantConfigApi.testWebhook POSTs to /settings/tenant/:id/webhooks/:id/test; the
+  controller has no such route (would 404). The FE file itself admits 'no backend endpoint yet'. Not
+  reachable from this page's UI, but exported and re-exported via settingsApi.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts:323-328`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:214-243`
+  - `web/modules/admin-panel/src/services/api/settings.ts:57`
+- **Root cause:** tenantConfigApi.testWebhook POSTs /settings/tenant/:id/webhooks/:id/test, but
+  TenantConfigurationController exposes no such route (GET/POST webhooks, PUT/DELETE
+  webhooks/:webhookId only) — the call 404s. The FE comment itself admits 'no backend endpoint yet'.
+  It is unused by TenantConfigurationPage but exported and re-exported through
+  settingsApi.testWebhook. Systemic class: FE API method with no backend route
+  (FE-route-with-no-backend).
+- **Fix design:** Remove the dead testWebhook method from tenant-config.ts and its re-export in
+  settings.ts — shipping a client method for a nonexistent endpoint is the defect. If webhook
+  test-fire is a wanted capability, it must be built backend-first (controller route + service +
+  DTO) and only then wired to a FE method. To catch this class going forward, add a route-parity
+  test that extracts every apiFetch path literal in the admin-panel services and asserts each
+  resolves to a declared admin-api route (tier 3 detectable).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/route-parity.spec.ts`
+- **Effort:** S
+
+## ProvisioningSettingsPage — `/admin/settings/provisioning` — verdict: **BROKEN**
+
+**Chain:** FE systemSettingsApi.getProvisioningConfig/updateProvisioningConfig
+(web/modules/admin-panel/src/services/api/settings.ts:123-126) hit GET/PUT
+'/api/system/settings/provisioning-config'; nginx rewrites to /api/v1/... which matches
+GlobalSettingsController @Controller('system/settings') @Get/@Put('provisioning-config')
+(apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:676-692),
+guarded by the global PlatformAdminGuard (SEC-M19 removed @Public()). The GET reads NO database —
+GlobalSettingsService.getProvisioningConfig() returns PROVISIONING\__ env vars with hardcoded
+fallbacks (global-settings.service.ts:879-895,930-944). The PUT unconditionally throws GoneException
+410 (global-settings.service.ts:900-907), so the page's Save button can never succeed;
+admin.global_configs was dropped by migration 1801400000000 and config-service holds no
+provisioning._ keys (no replacement write path exists). The sole downstream consumer (sensor-service
+InstallerScriptService) cannot even reach the GET (wrong base URL, missing /api/v1 prefix,
+non-SUPER_ADMIN bearer) and silently falls back to its own env vars — so nothing this page displays
+or would save affects any real behavior.
+
+**Endpoints exercised:** `GET /api/v1/system/settings/provisioning-config`;
+`PUT /api/v1/system/settings/provisioning-config (always 410 Gone)`
+
+**DB tables:**
+`none — GET is process-env-backed; admin.global_configs DROPPED by migration 1801400000000-DropRetiredLegacyConfigStores.ts; config-service has no provisioning.* keys`
+
+### APA-041 [HIGH] Save always fails: PUT provisioning-config unconditionally throws 410 Gone and no replacement write path exists
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** GlobalSettingsService.updateProvisioningConfig() is 'never'-typed and throws
+  GoneException ('admin-api direct global_configs writes are retired; use config-service effective
+  configuration APIs'). The page's entire purpose is editing these six fields, so its primary flow
+  cannot succeed for any input. Unlike the SystemSettingsPage (migrated to config-service GraphQL
+  via usePlatformConfiguration), no provisioning.\* keys exist in the config-service vocabulary or
+  the platform-configuration write builders — there is no working substitute anywhere. The FE does
+  surface the raw 410 message via err.message, which is the only reason the failure is not silent.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:900-907`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:946-950`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:681-692`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:93-104`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts:196-283`
+- **Verification:** Prior verdict confirmed against current code.
+  apps/admin-api-service/src/system-management/services/global-settings.service.ts:900-907 is
+  never-typed and unconditionally calls throwGlobalConfigGone() (946-950); the controller PUT
+  (global-settings.controller.ts:681-692) is the only route implementation; the FE page is
+  live-routed and its save handler PUTs the tombstoned route via settings.ts:125-126. Additionally
+  verified: (1) config-service's seeded platform vocabulary
+  (1805400000000-SeedPlatformConfigurations.ts, pinned to exactly 35 keys by
+  platform-configuration-seed.spec.ts) contains zero provisioning.\* keys, so no substitute write
+  path exists; (2) the page itself contains a forbidden
+  `config as unknown as Record<string, string>` cast (ProvisioningSettingsPage.tsx:96) and an
+  `any`-typed response mapper (line 36); (3) the read side is also degraded — sensor-service's
+  InstallerScriptService (installer-script.service.ts:81-139) fetches admin-api GET
+  /system/settings/provisioning-config with an INTERNAL_SERVICE_TOKEN bearer, but SEC-M19 removed
+  @Public() so PlatformAdminGuard (RS256 JWT + SUPER_ADMIN) rejects it, meaning the only backend
+  consumer already runs on its env fallback. Severity HIGH (not CRITICAL) stands: the primary flow
+  of the page fails for every input, but the failure is loud (410 message surfaced) and the platform
+  still functions on env-var provisioning defaults — no data loss or security exposure.
+- **Root cause:** The broken link is the BE write handler, and it broke by a half-finished store
+  migration. During ORPHAN-HIGH-373, admin-api's legacy config stores were architecturally retired:
+  `admin.system_settings`/global_configs writes were tombstoned with 410 Gone
+  (global-config.entity.ts documents this; the table was dropped by admin-api
+  migration 1801400000000) and config-service's `config.configurations` became the platform SSoT.
+  The System Settings domain was fully carried across — vocabulary seeded (35 keys in
+  1805400000000-SeedPlatformConfigurations.ts), FE rewired to federated GraphQL
+  (usePlatformConfiguration.ts) — but the provisioning domain was migrated only on the kill side:
+  its write endpoint was tombstoned, yet no `provisioning.*` rows were seeded, no FE tab model/write
+  builders were added to services/api/platform-configuration.ts, and ProvisioningSettingsPage.tsx
+  stayed wired to the corpse REST route (systemSettingsApi.updateProvisioningConfig). Why it
+  drifted: the migration was executed per-page (SystemSettingsPage) instead of per-retired-endpoint,
+  and nothing in the build/test gate fails when a live admin-panel api fn targets a tombstoned
+  admin-api route — the 410 is only discoverable at runtime. This is an instance of the systemic
+  class "FE route wired to a retired backend endpoint", with a secondary "config-nobody-reads"
+  aspect: two of the six edited fields (provisioning.github_repo, provisioning.github_release_url)
+  are deliberately IGNORED by the only consumer (installer-script.service.ts:113-115 pins them from
+  env, MED-07 supply-chain hardening), so even a resurrected write path for those fields would be
+  dead config.
+- **Fix design:** Complete the ORPHAN-HIGH-373 retirement for the provisioning domain using the two
+  primitives the platform already sanctioned — no new mechanism, no shim. PATTERN LEVEL: (A)
+  config-service `platform` namespace + federated GraphQL is the admin read/write path
+  (SystemSettingsPage precedent); (B) `ConfigRuntimeClient` (HMAC-signed NATS request-reply,
+  libs/backend-common/src/config-client/) is the backend-consumer read path
+  (DynamicStripeClientProvider precedent); (C) make the failure class detectable: delete the
+  tombstoned provisioning endpoints outright (a `never`-typed tombstone that a live page still calls
+  is exactly the trap that fired) and add a repo invariant spec asserting no admin-panel
+  `services/api/**` file references a retired admin-api route literal (covers the other 410
+  tombstones as regression protection). LOCAL APPLICATION: (1) New config-service migration
+  `SeedProvisioningConfigurations` (timestamp > 1805400000000; never edit the existing seed
+  migration) seeding SYSTEM-tenant, service='platform', category='provisioning' rows for exactly the
+  keys the installer consumes: provisioning.api_url (string), provisioning.mqtt_broker_host
+  (string), provisioning.mqtt_broker_port (number), provisioning.mqtt_tls_enabled (boolean),
+  provisioning.agent_default_version (string) — same ON CONFLICT DO NOTHING + RLS_TENANT_GUC
+  pattern; deliberately do NOT seed github_repo/github_release_url (env-pinned per MED-07; seeding
+  them recreates config-nobody-reads). Pin the new vocabulary with its own seed spec. (2) FE: extend
+  services/api/platform-configuration.ts with a ProvisioningConfig tab model, defaults, read mapping
+  (readString/readNumber/readBoolean over the same effectiveConfigurationsByService rows) and
+  buildProvisioningWrites(); rewrite ProvisioningSettingsPage.tsx onto usePlatformSettings +
+  useSavePlatformSettings, deleting the `mapResponseToConfig(data: any)` mapper and the forbidden
+  `as unknown as` cast; render GitHub repo/release URL as read-only pinned-by-deployment text (or
+  remove the fields); delete getProvisioningConfig/updateProvisioningConfig from systemSettingsApi
+  in settings.ts. (3) sensor-service: replace InstallerScriptService.getProvisioningConfig()'s HTTP
+  fetch to admin-api with ConfigRuntimeClient.getString/getBoolean('platform','provisioning.\*')
+  reads, keeping the 60s cache, env fallback, and pinned-github invariant unchanged; register
+  ConfigClientModule in edge-device.module.ts. This also root-causes the latent SEC-M19 read
+  breakage (bearer token vs PlatformAdminGuard) instead of papering over it. (4) admin-api: delete
+  the GET+PUT provisioning-config controller methods and
+  getProvisioningConfig/updateProvisioningConfig/provisioningDefault from GlobalSettingsService —
+  with both consumers migrated, the code fails the "would this exist if upstream were correct" test.
+- **Files to change:**
+  - `apps/config-service/src/database/migrations/1805500000000-SeedProvisioningConfigurations.ts`
+  - `apps/config-service/src/database/__tests__/provisioning-configuration-seed.spec.ts`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts`
+  - `apps/sensor-service/src/edge-device/edge-device.module.ts`
+  - `apps/sensor-service/src/edge-device/__tests__/provisioning-config.spec.ts`
+  - `apps/sensor-service/src/edge-device/__tests__/installer-token-header.spec.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+  - `tests/invariants/admin-panel-retired-endpoints.spec.ts`
+- **Proof of fix:** (1)
+  apps/config-service/src/database/**tests**/provisioning-configuration-seed.spec.ts — pins the new
+  vocabulary: exactly the 5 consumed keys, service 'platform', category 'provisioning', value types
+  parse back, no secret rows, and asserts github_repo/github_release_url are ABSENT (the MED-07 pin
+  stays env-only). (2)
+  web/modules/admin-panel/src/services/api/**tests**/platform-configuration.spec.ts — extend:
+  mapping round-trip for the provisioning section (typed + canonical-string values) and
+  buildProvisioningWrites() emits the 5 seeded keys with canonical string values and no isSecret.
+  (3) apps/sensor-service/src/edge-device/**tests**/provisioning-config.spec.ts — rewrite the
+  remote-config cases to mock ConfigRuntimeClient (assert getString/getBoolean called with
+  ('platform','provisioning.\*')), keep the cache-TTL, env-fallback-on-unreachable, and
+  pinned-githubRepo assertions; assert no fetch to admin-api occurs. (4)
+  apps/admin-api-service/src/system-management/**tests**/provisioning-config.spec.ts — replace the
+  GoneException assertions with route-absence assertions (controller no longer declares
+  provisioning-config handlers). (5) New tests/invariants/admin-panel-retired-endpoints.spec.ts —
+  greps web/modules/admin-panel/src/services/api/\*\* for retired admin-api route literals
+  ('/system/settings/provisioning-config' plus the other 410-tombstoned config routes) and fails on
+  any hit; this is the pattern-level gate that makes the drift class build-time detectable.
+  End-to-end proof: save on ProvisioningSettingsPage issues setConfiguration mutations that succeed,
+  a subsequent effectiveConfigurationsByService read returns the written values, and the installer
+  script generator interpolates them. Run `nx affected --target=test` + `nx affected --target=lint`
+  green.
+- **Effort:** M
+
+### APA-042 [MEDIUM] Displayed 'settings' are process-env fallbacks, not stored configuration
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** getProvisioningConfig() returns provisioningDefault(key) which reads
+  PROVISIONING_API_URL / PROVISIONING_MQTT_BROKER_HOST / etc. from process.env with hardcoded
+  fallbacks (e.g. 'http://localhost:3000', 'Okan-wqm/aquaculture_platform'). Nothing is persisted or
+  persistable, so the form renders environment state as if it were editable platform configuration —
+  an edit-then-reload always reverts, and two admin-api replicas with different env would show
+  different 'settings'.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:879-895`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:930-944`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:36-45`
+- **Verification:** Verified as per prior verdict: GET /system/settings/provisioning-config serves
+  only PROVISIONING\*_ process-env fallbacks (global-settings.service.ts:879-944), PUT
+  unconditionally throws 410 GoneException, and ProvisioningSettingsPage renders this env state as
+  an editable form. Severity stays MEDIUM (not HIGH): the save fails loudly with the 410 message in
+  the page's error Alert (no deceptive save-success), and the backend retirement is deliberate and
+  tested. But it is a real defect: the migration of settings to config-service (ORPHAN-HIGH-373) was
+  left incomplete for the provisioning vertical — the page is a dead-end UI, config-service holds
+  zero provisioning._ keys so the 410's pointer leads nowhere, and the runtime consumer
+  (sensor-service installer-script.service.ts:94) still fetches the retired admin-api endpoint with
+  a bearer token PlatformAdminGuard cannot accept (admin-api verifies RS256 SUPER\*ADMIN JWTs only;
+  no INTERNAL_SERVICE_TOKEN handling exists), so in production it always silently falls back to its
+  OWN env vars. Net effect: three divergent env sources (admin-api PROVISIONING\**, sensor-service
+  PROVISIONING*API_BASE_URL/MQTT\*\_, hardcoded literals) for one logical configuration, no
+  persistent store, and an admin page that displays state nobody can change and nothing consumes.
+  This is an instance of two systemic classes flagged by this audit:
+  half-retired-backend-surface-with-FE-still-attached, and config-nobody-reads.
+- **Root cause:** The BE→DB link was severed and never re-pointed, and both attached parties (FE
+  page, sensor-service consumer) were left on the dead surface. Historically admin-api persisted
+  provisioning settings in its global_configs table. That store was architecturally retired (entity
+  deleted, all config writes return 410 Gone; the retirement note in
+  apps/admin-api-service/src/system-management/entities/global-config.entity.ts declares
+  config-service's effective-configuration APIs the SSoT). The rest of the System Settings surface
+  completed the migration to the sanctioned pattern (ORPHAN-HIGH-373: gateway-federated GraphQL
+  effectiveConfigurationsByService + setConfiguration, pure mapping in
+  web/modules/admin-panel/src/services/api/platform-configuration.ts, vocabulary seeded by
+  config-service migration 1805400000000-SeedPlatformConfigurations.ts). The provisioning vertical
+  drifted because its GET path was backstopped with provisioningDefault() env reads instead of being
+  retired or migrated — it 'still returned something', so nothing forced the page or the
+  sensor-service consumer to move, and no provisioning.\* rows were ever seeded in config-service.
+  SEC-M19 then put the GET behind PlatformAdminGuard, silently breaking the sensor-service
+  service-to-service fetch too (its INTERNAL_SERVICE_TOKEN bearer is not a verifiable RS256 admin
+  JWT), leaving every link of the chain reading a different env.
+- **Fix design:** Complete the interrupted migration to the declared SSoT and delete the vestigial
+  surface so re-attachment is structurally impossible. Pattern level: config-service effective
+  configuration is already the platform pattern (seeded vocabulary migration + GraphQL
+  query/mutation + pure FE mapping + configuration_history audit + optimistic version) — apply it to
+  the provisioning vertical end-to-end. (1) DB: new idempotent config-service seed migration (same
+  ON CONFLICT pattern as 1805400000000-SeedPlatformConfigurations.ts) adding SYSTEM_TENANT_ID /
+  service='platform' rows: provisioning.api_url (STRING), provisioning.mqtt_broker_host (STRING),
+  provisioning.mqtt_broker_port (NUMBER), provisioning.agent_default_version (STRING),
+  provisioning.mqtt_tls_enabled (BOOLEAN). Deliberately EXCLUDE github_repo/github_release_url from
+  stored config: sensor-service pins the repo from env as a supply-chain control (MED-07) and its
+  RemoteProvisioningConfig contract already refuses those fields — storing them would be
+  config-nobody-reads or would re-open MED-07. (2) FE: extend platform-configuration.ts with a
+  ProvisioningConfig tab model + defaults + mapProvisioningSettings + buildProvisioningWrites (pure,
+  unit-testable, same shape as the five existing tabs); extend PlatformSettingsSnapshot;
+  ProvisioningSettingsPage drops useAsyncData/systemSettingsApi and consumes
+  usePlatformSettings/useSavePlatformSettings — PLATFORM_CONFIGURATIONS_QUERY already fetches all
+  service='platform' rows, so zero new transport. GitHub repo/release inputs become read-only
+  deployment-pinned display (or are removed). Delete the page-local dotted-key interface,
+  mapResponseToConfig(data: any), and the `as unknown as Record<string, string>` cast — the typed
+  tab model makes shape drift a compile error (tier 1). (3) admin-api: delete GET+PUT
+  provisioning-config routes from global-settings.controller.ts and
+  getProvisioningConfig/updateProvisioningConfig/provisioningDefault from
+  global-settings.service.ts; make getConfig(key) throw via throwGlobalConfigGone() like every
+  sibling of the retired config surface instead of silently serving env. Delete
+  getProvisioningConfig/updateProvisioningConfig from web .../services/api/settings.ts so no FE
+  callsite can compile against the removed routes. (4) Consumer repoint so the stored config is
+  actually read (without this, the fix creates a config-store-nobody-reads):
+  installer-script.service.ts stops fetching admin-api; add a reusable read-only
+  effective-configuration client in libs/backend-common (src/config/effective-config.client.ts)
+  backed by a new internal, service-identity-HMAC-guarded, non-secret-only read endpoint in
+  config-service (the GraphQL resolver is user-JWT gated, so an internal REST read path using the
+  existing service-identity.util.ts conventions is the correct service-to-service door). Keep
+  installer-script's 1-minute cache + env fallback for config-service unavailability and keep MED-07
+  repo pinning untouched. This client is the automatic-correct-behavior (tier 2) path for every
+  future backend consumer of platform config. (5) Detection gate (tier 3): repo invariant spec
+  asserting no source under apps/ or web/ references the retired
+  'system/settings/provisioning-config' path. All five parts land together per CLAUDE.md; if part 4
+  genuinely cannot land in-session it must become a tracked HIGH finding with owner+deadline, not a
+  silent omission.
+- **Files to change:**
+  - `apps/config-service/src/database/migrations/1805500000000-SeedProvisioningConfigurations.ts`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts`
+  - `web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+  - `libs/backend-common/src/config/effective-config.client.ts`
+  - `apps/config-service/src/configuration/controllers/internal-configuration.controller.ts`
+  - `apps/config-service/src/configuration/configuration.module.ts`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts`
+  - `apps/sensor-service/src/edge-device/__tests__/provisioning-config.spec.ts`
+  - `tests/invariants/retired-admin-config-endpoints.spec.ts`
+- **Proof of fix:** (a) Extend
+  web/modules/admin-panel/src/services/api/**tests**/platform-configuration.spec.ts:
+  mapProvisioningSettings maps seeded effective rows and falls back to defaults for missing rows;
+  buildProvisioningWrites emits exactly the five canonical provisioning.\* writes; write→map
+  round-trip is lossless. (b) Rewrite
+  apps/admin-api-service/src/system-management/**tests**/provisioning-config.spec.ts from pinning
+  env-fallback behavior to asserting the surface is GONE: GlobalSettingsController exposes no
+  provisioning-config route (route-metadata assertion) and GlobalSettingsService.getConfig throws
+  GoneException (no env-reading config path remains). (c) New
+  apps/config-service/src/database/**tests**/seed-provisioning-configurations.spec.ts asserting the
+  seed vocabulary contains the five provisioning keys under SYSTEM_TENANT_ID/service='platform' with
+  correct value_types, and that github_repo/github_release_url are NOT present. (d) Update
+  apps/sensor-service/src/edge-device/**tests**/provisioning-config.spec.ts: getProvisioningConfig()
+  resolves from the backend-common effective-config client, falls back to env when config-service is
+  unreachable, and githubRepo remains env-pinned regardless of remote values (MED-07 regression
+  guard). (e) New tests/invariants/retired-admin-config-endpoints.spec.ts failing CI if any file
+  under apps/ or web/ references 'system/settings/provisioning-config'. (f) New
+  internal-configuration.controller spec: rejects requests without a valid service-identity
+  signature and never returns secret-mode values. Then nx affected --target=test && nx affected
+  --target=lint green.
+- **Effort:** L
+
+### APA-043 [HIGH] The only downstream consumer (sensor-service installer scripts) can never reach this endpoint — silent env fallback
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** InstallerScriptService fetches `${ADMIN_API_URL}/system/settings/provisioning-config`
+  — three independent breakages: (1) the real route is /api/v1/system/settings/provisioning-config
+  because admin-api applies the default global prefix 'api/v1' with only health/metrics excluded, so
+  the unprefixed path 404s; (2) ADMIN_API_URL defaults to http://localhost:3010 and no compose file
+  overrides it (repo-wide grep found no yml/env setting it), which is wrong inside the
+  sensor-service container; (3) it authenticates with a raw INTERNAL_SERVICE_TOKEN bearer, but
+  PlatformAdminGuard requires an RS256 auth-service JWT carrying SUPER_ADMIN, so even a reachable
+  request would 401/403. On any failure the service silently falls back to its own env vars (15s-TTL
+  cached), so edge installer scripts are generated from values the admin panel never sees or
+  controls — silent divergence between what the SUPER_ADMIN reads and what devices actually receive.
+- **Evidence:**
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts:87-97`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts:121-138`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:251-255`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:59`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:155-177`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:674-679`
+- **Verification:** Prior verdict confirmed and strengthened by re-reading the live code. The three
+  breakages stand: (1) installer-script.service.ts:94 fetches
+  `${ADMIN_API_URL}/system/settings/provisioning-config` without the `api/v1` global prefix
+  admin-api applies (create-service-app.ts default, only health/metrics excluded) -> 404; (2)
+  ADMIN*API_URL defaults to http://localhost:3010 (installer-script.service.ts:87) and nothing in
+  compose/env sets it; (3) it sends a raw INTERNAL_SERVICE_TOKEN bearer while the global APP_GUARD
+  PlatformAdminGuard (platform-admin.guard.ts:112-179) accepts only RS256 auth-service JWTs carrying
+  SUPER_ADMIN. On every failure the 15s/60s-TTL cache silently falls back to sensor-service env
+  vars, so installer scripts and activateDevice MQTT responses are generated from values the admin
+  panel never controls. Additionally: the endpoint the consumer targets is itself already retired on
+  the admin-api side — GlobalSettingsService.getProvisioningConfig()
+  (global-settings.service.ts:879-895, 930-944) now just relays admin-api's OWN env vars, and
+  updateProvisioningConfig() throws 410 Gone pointing at config-service (throwGlobalConfigGone, line
+  946-949; global-config.entity.ts header confirms the global_configs table was dropped). So the
+  SUPER_ADMIN's ProvisioningSettingsPage Save button ALWAYS fails with 410, and even a
+  hypothetically reachable GET would return a third, unrelated env source. Every hop of the
+  FE->BE->consumer chain is broken; only the silent fallback keeps it invisible. HIGH stands (silent
+  config divergence reaching physical edge devices; not CRITICAL because devices still get \_some*
+  working config from env defaults).
+- **Root cause:** The broken link is the middle of the chain — the provisioning-config STORE — and
+  both ends drifted around its removal. The platform deliberately retired admin-api's direct
+  global-config persistence (global_configs table dropped; writes return 410 Gone: "use
+  config-service effective configuration APIs") and completed that migration for every other System
+  Settings slice: Stripe/SMTP/security/rate-limit config now lives as `service='platform'` rows in
+  config-service, written by the admin panel via the sanctioned GraphQL path
+  (web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts +
+  services/api/platform-configuration.ts) and read by services at runtime via the trusted
+  signed-NATS ConfigRuntimeClient (libs/backend-common/src/config-client/config-runtime.client.ts,
+  contract in libs/event-contracts/src/config-runtime.ts, defense-in-depth handler in
+  apps/config-service/src/configuration/handlers/config-runtime-nats.handler.ts). The provisioning
+  slice was never migrated: the FE ProvisioningSettingsPage still PUTs to the 410-Gone REST
+  endpoint, and sensor-service still points a hand-rolled fetch() at the pre-prefix,
+  pre-guard-hardening admin-api URL with an auth scheme (INTERNAL_SERVICE_TOKEN bearer) no admin-api
+  guard ever accepted. The reason the drift survived every hardening pass is the silent env-var
+  fallback in InstallerScriptService.getProvisioningConfig(): all three transport failures and the
+  retired backend were absorbed into "use my own env vars", so nothing ever failed loudly. This is a
+  compound instance of three systemic classes: FE-route-with-retired-backend (Save always 410s),
+  config-endpoint-nobody-can-read (GET relays admin-api env vars to no reachable consumer), and
+  silent-fallback divergence (the SUPER_ADMIN reads values devices never receive).
+- **Fix design:** Complete the platform's own declared migration: provisioning config joins the
+  config-service effective-configuration SSoT end-to-end, reusing the existing Stripe-keys machinery
+  at every hop. Pattern-level fix (this is the sanctioned pattern for ALL platform-scope dynamic
+  config); local application per hop:
+
+1. CONTRACT (Tier 1 — make wrong reads impossible): in libs/event-contracts/src/config-runtime.ts
+   add canonical `provisioning.*` keys (provisioning.api_url, provisioning.mqtt_broker_host,
+   provisioning.mqtt_broker_port, provisioning.mqtt_tls_enabled, provisioning.agent_default_version)
+   to a CONFIG_RUNTIME_KEYS-style constant, and add
+   `'sensor-service': ['platform/provisioning.api_url', ...]` to CONFIG_RUNTIME_NONSECRET_ALLOWLIST
+   (exact keys — the handler enforces Set membership). Deliberately EXCLUDE github_repo from remote
+   distribution: it stays env-pinned in sensor-service (MED-07 supply-chain pinning already in code)
+   and becomes read-only/removed in the admin UI.
+
+2. NATS SSoT: infrastructure/nats/services.yaml — add `config.runtime.get` (NOT get_secret) to
+   sensor_service publish grants; regenerate infrastructure/docker/nats/nats.conf via
+   scripts/nats/generate-nats-conf.py in the same commit (CLAUDE.md ADR-015 rule). Replies use
+   sensor's existing `_INBOX.>` — no scoped inbox needed since nothing secret crosses.
+
+3. INVARIANT (Tier 3 — violations detectable): e2e/tests/integration/nats-invariants.spec.ts
+   currently pins "no service outside {billing,config} holds ANY config.runtime.\* grant" (line
+   ~735). Rewrite that assertion to DERIVE the allowed-CN set from the union of contract allowlist
+   callers (+config_service as responder), keeping get_secret pinned to billing_service alone. The
+   existing caller<->grant cross-check (line ~749) then covers sensor-service automatically, and any
+   grant not backed by the contract still fails — the contract stays the single choke point, no
+   test-drift allowlisting.
+
+4. STORE: new config-service migration
+   (apps/config-service/src/database/migrations/<ts>-SeedProvisioningConfigurations.ts, following
+   1805400000000-SeedPlatformConfigurations.ts) seeding the `platform/provisioning.*` rows with the
+   current hardcoded defaults, so the admin panel reads real rows on day one and the defaults live
+   in exactly one place.
+
+5. CONSUMER (Tier 1+2 — correct read automatic, silent divergence impossible):
+   apps/sensor-service/src/edge-device/edge-device.module.ts imports ConfigClientModule.forRoot({
+   consumerService: 'sensor-service' }) (identical to billing.module.ts:102). InstallerScriptService
+   deletes the fetch()/ADMIN_API_URL/INTERNAL_SERVICE_TOKEN/parseRemoteProvisioningConfig block
+   wholesale and reads via injected ConfigRuntimeClient.getString/getBoolean, keeping the existing
+   60s TTL snapshot (matches billing's TTL-snapshot pattern; ConfigurationChanged remains an
+   optional accelerator, not a dependency). Fail-closed: if config-service is unreachable AND no
+   snapshot exists, throw ServiceUnavailableException — installer generation is an interactive
+   action and a loud 503 replaces silently shipping localhost values to physical devices. Delete the
+   now-dead PROVISIONING_API_BASE_URL/MQTT_PUBLIC_BROKER_HOST env fallbacks for remotely-managed
+   values (seed migration is the default source); EDGE_AGENT_GITHUB_REPO stays.
+
+6. RETIRE THE DEAD SURFACE (Tier 1): apps/admin-api-service — delete GET+PUT
+   `system/settings/provisioning-config` from global-settings.controller.ts and
+   getProvisioningConfig/updateProvisioningConfig/provisioningDefault from
+   global-settings.service.ts (the write already 410s; the read is env-relay theater with zero
+   reachable consumers after step 5). The route ceasing to exist makes the old call-path
+   structurally impossible.
+
+7. FE: rewrite web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx onto the sanctioned
+   config-service path — extend services/api/platform-configuration.ts with a ProvisioningConfig tab
+   model, read mapping (reusing coerceString/Number/Boolean), and buildProvisioningWrites();
+   fetch/save via the usePlatformConfiguration hook pattern (effectiveConfigurationsByService +
+   setConfiguration GraphQL, adminKeys cache slice); delete
+   getProvisioningConfig/updateProvisioningConfig from services/api/settings.ts. Port the page's
+   URL/port validation into the write builder so it is unit-tested.
+
+Result: one SSoT (config-service rows), one write path (SUPER_ADMIN GraphQL mutation, audited via
+configuration_history), one read path (signed NATS RPC with contract allowlist), no bearer-token
+cross-service HTTP, no env fallback to diverge — what the SUPER_ADMIN sees is, structurally, what
+devices receive.
+
+- **Files to change:**
+  - `libs/event-contracts/src/config-runtime.ts`
+  - `infrastructure/nats/services.yaml`
+  - `infrastructure/docker/nats/nats.conf`
+  - `e2e/tests/integration/nats-invariants.spec.ts`
+  - `apps/config-service/src/database/migrations/1805500000000-SeedProvisioningConfigurations.ts`
+  - `apps/config-service/src/configuration/handlers/__tests__/config-runtime-nats.handler.spec.ts`
+  - `apps/sensor-service/src/edge-device/edge-device.module.ts`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts`
+  - `apps/sensor-service/src/edge-device/__tests__/provisioning-config.spec.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts`
+- **Proof of fix:** (1) e2e/tests/integration/nats-invariants.spec.ts (extend): sensor*service CN
+  holds the `config.runtime.get` PUBLISH grant via the derived allowlist<->grant cross-check;
+  get_secret remains pinned to billing_service only; allowed-CN set is derived from
+  CONFIG_RUNTIME*_\_ALLOWLIST so an ungrounded grant or an ungranted allowlist entry both fail. (2)
+  apps/sensor-service/src/edge-device/**tests**/provisioning-config.spec.ts (rewrite): mock
+  ConfigRuntimeClient instead of global fetch; assert generated installer script + activateDevice
+  carry the config-service values; assert 60s TTL snapshot behavior; assert
+  ServiceUnavailableException when the client throws transport-failure with no snapshot (the
+  silent-fallback regression test — no env values may appear in the script); assert githubRepo still
+  comes from the pinned env var. (3)
+  apps/config-service/src/configuration/handlers/**tests**/config-runtime-nats.handler.spec.ts
+  (extend): sensor-service fetching an allowlisted `platform/provisioning._` key on GET succeeds; a
+  non-allowlisted key and the GET_SECRET path for sensor-service both return uniform {found:false}.
+  (4) apps/admin-api-service/src/system-management/**tests**/provisioning-config.spec.ts (rewrite) +
+  contract-validation.spec.ts: the provisioning-config REST routes and service methods no longer
+  exist. (5) web/modules/admin-panel/src/services/api/**tests**/platform-configuration.spec.ts
+  (extend): provisioning rows map into the tab model and buildProvisioningWrites() round-trips
+  including port/URL validation; no admin-panel code references
+  /system/settings/provisioning-config. (6) Config-service migration test path: seed migration
+  creates the five platform/provisioning.\* rows (assert via existing migration test harness or
+  schema-invariants run).
+- **Effort:** L
+
+### APA-044 [MEDIUM] Two of six form fields are ignored by the consumer even by design
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page collects 'GitHub Release URL' and 'GitHub Repo', but InstallerScriptService
+  deliberately pins the repo from EDGE_AGENT_GITHUB_REPO and always derives the release URL from
+  that pinned value (MED-07 supply-chain hardening) — the remote githubRepo/githubReleaseUrl are
+  dropped in parseRemoteProvisioningConfig (they are not even parsed). Those inputs could never
+  influence anything even in a fully repaired chain; they should not be editable.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:186-197`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts:68-70`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts:113-115`
+  - `apps/sensor-service/src/edge-device/installer-script.service.ts:152-165`
+- **Root cause:** ProvisioningSettingsPage renders editable 'GitHub Release URL' and 'GitHub Repo'
+  inputs, but the real consumer InstallerScriptService pins the repo from EDGE_AGENT_GITHUB_REPO and
+  always derives githubReleaseUrl from that pinned value (MED-07 supply-chain hardening);
+  parseRemoteProvisioningConfig doesn't even parse githubRepo/githubReleaseUrl. So those two fields
+  are inert by design — they could never influence edge-agent downloads even in a fully repaired
+  chain — yet the admin GET returns them and the UI presents them as controls, which is misleading.
+  Systemic class: editable control for a value nobody reads / server-pinned value shown as writable.
+- **Fix design:** Reflect the pinning in the contract: mark githubRepo/githubReleaseUrl as
+  server-derived (non-editable) and render them read-only in ProvisioningSettingsPage with a note
+  that they are env-pinned for supply-chain safety, or remove them from the editable form entirely
+  (drop from ProvisioningConfig, DEFAULT_CONFIG, and mapResponseToConfig). Root-cause tier-1 option:
+  have getProvisioningConfig return these keys under a distinct 'derived'/read-only section so the
+  FE structurally cannot offer them as inputs. Aligns the UI with the single source of truth (the
+  pinned env var).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+- **Effort:** S
+
+### APA-045 [MEDIUM] Asymmetric read/write contract with an unvalidated PUT body and an unsafe FE cast
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** GET returns camelCase fields (provisioningApiUrl, mqttBrokerHost, ...) which the page
+  maps into dotted snake_case keys ('provisioning.api_url'), then PUTs the dotted-key object back
+  cast via 'as unknown as Record<string, string>' (a banned-pattern cast per repo rules, and
+  mqtt_broker_port travels as a string). The backend accepts @Body() as a raw Record<string,string>
+  with only an is-object check — no DTO, no key whitelist — so any arbitrary keys would be accepted
+  if the 410 were lifted. mapResponseToConfig is also typed 'any' and coerces a missing
+  agentDefaultVersion to '' rather than the 'latest' default.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:36-45`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx:96`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:682-688`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts:207`
+- **Root cause:** The provisioning read and write use different, unenforced shapes. GET returns
+  camelCase {provisioningApiUrl, mqttBrokerHost, mqttBrokerPort:number, ...}; the page remaps them
+  into dotted snake_case keys ('provisioning.api_url', mqtt_broker_port carried as a string), then
+  PUTs that object back via `config as unknown as Record<string,string>` — a banned double-cast. The
+  backend PUT types @Body() as a raw Record<string,string> with only an is-object guard: no DTO
+  class, no key whitelist, so any keys are accepted if the 410 were lifted. mapResponseToConfig is
+  typed `any` and coerces a missing agentDefaultVersion to '' (overriding the 'latest' default via
+  the spread). Systemic class: asymmetric read/write contract bridged by an unsafe cast and an
+  untyped Record body.
+- **Fix design:** Introduce one ProvisioningConfigDto class-validator class (camelCase,
+  @IsUrl/@IsString/@IsInt+@Min/@Max per field, default agentDefaultVersion='latest') and use it as
+  BOTH the GET response type and the PUT @Body type in global-settings.controller/service — the
+  whitelist then rejects stray keys automatically (tier 1), replacing the ad-hoc is-object check.
+  Share the same camelCase shape with the FE so ProvisioningSettingsPage drops the dotted-key remap,
+  the `as unknown as Record<string,string>` cast, and the `any`-typed mapper, keeping mqttBrokerPort
+  a number end-to-end and the 'latest' default in the DTO rather than FE coercion. Add a test
+  asserting GET response keys === PUT DTO keys so read/write symmetry is enforced.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/dto/provisioning-config.dto.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+- **Effort:** M
+
+## Cross-cutting findings
+
+### APA-046 [LOW] Tenant-creation default-configuration provisioning is a logged no-op — provisioning defaults affect nothing
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified LOW)
+- **Symptom:** TenantProvisioningService.createDefaultConfiguration() (run during tenant
+  provisioning) calls TenantConfigurationService.requestDefaultConfigurationProvisioning(), which
+  only builds an in-memory object with status 'REQUESTED' targeting 'config-service' and logs
+  'Requested config-service default configuration for tenant ...'. No NATS event is published, no
+  outbox row is written, no HTTP call to config-service is made, and the returned request object is
+  discarded after a second log line. Newly created tenants therefore receive NO default
+  configuration anywhere (branding companyName, feature flags
+  dataExport/auditLog/mobileAccess/iotDeviceSupport are all silently lost), while the logs claim the
+  provisioning was 'requested' — audit theater that will mislead operators debugging missing tenant
+  config. This directly answers the assignment question: provisioning defaults do NOT affect the
+  tenant-creation path.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts:787-821`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:101-119`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:85-92`
+- **Verification:** Confirmed on current code: requestDefaultConfigurationProvisioning()
+  (apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:101-119) fabricates
+  a {status:'REQUESTED', targetService:'config-service'} object, logs it, and the caller
+  createDefaultConfiguration() (tenant-provisioning.service.ts:787-821) logs the requestId and
+  discards it; grep confirms no consumer of TenantConfigurationProvisioningRequest exists anywhere.
+  Severity stays LOW per the prior verdict because the impact claim behind HIGH is false: the legacy
+  admin.tenant_configurations store was deliberately retired (migration 1801400000000,
+  ORPHAN-HIGH-364 — resolution explicitly keeps the synthesized-defaults read contract), admin-api
+  read paths synthesize full defaults via createDefaultTenantConfiguration() (entity file lines
+  277-389), and config-service resolves per-tenant config with automatic SYSTEM_TENANT_ID fallback
+  (configuration.service.ts resolveActiveConfig), so a tenant with zero provisioned rows still gets
+  complete defaults. The four feature flags the fake request 'provisions'
+  (dataExport/auditLog/mobileAccess/iotDeviceSupport) are already true in the synthesized defaults —
+  nothing lost. Residual real defects: (1) audit theater — two log lines and a saga step
+  ('create_default_config', tenant-provisioning.service.ts:373-384, plus a no-op compensation that
+  logs 'removing configuration') claim work that never happens; (2) one real data gap —
+  brandingConfig.companyName = tenant.name is dropped, so GET /settings/tenant/:id/branding
+  (consumed by web/modules/admin-panel/src/services/api/tenant-config.ts:348 and
+  TenantConfigurationPage) returns companyName ''.
+- **Root cause:** The broken link is BE→BE (admin-api tenant-provisioning → config-service), and it
+  broke during a half-finished store retirement. When ORPHAN-HIGH-364 retired
+  admin.tenant_configurations and moved tenant-config ownership to config-service, every adapter
+  write path was honestly converted to throw GoneException (throwLegacyGone) — except the
+  tenant-provisioning saga's create_default_config step, which could not throw without failing
+  provisioning. Instead of deleting the step (correct, because config-service's SYSTEM_TENANT_ID
+  fallback makes per-tenant default provisioning architecturally unnecessary) or building the real
+  transport, the author substituted a third, dishonest method category: a log-and-discard 'request'
+  stub. It survived undetected because the unit spec mocks requestDefaultConfigurationProvisioning
+  with a canned success object (tenant-provisioning.service.spec.ts:169-180), encoding the theater
+  as green tests, and because nothing downstream ever failed — defaults appear at read time anyway.
+  This is an instance of the systemic 'self-deceiving integration seam / audit-theater no-op' class:
+  a retired-store adapter that pretends to delegate instead of either delegating or refusing.
+- **Fix design:** Pattern level (make the wrong behavior impossible/detectable): the legacy adapter
+  contract must have exactly two honest method categories — synthesized reads and 410-Gone writes.
+  Eliminate the third 'log-and-discard request' category structurally and gate against its
+  reintroduction. Tier 1: remove the DI edge so the provisioning saga cannot even express a fake
+  config write. Tier 3: add an adapter contract spec that enumerates every public method of
+  TenantConfigurationService via the prototype and asserts each either returns data derived from
+  synthesized defaults/SSoT or throws GoneException — any future log-and-discard method fails the
+  gate. Local application: (1) DELETE requestDefaultConfigurationProvisioning() and the
+  TenantConfigurationProvisioningRequest interface from tenant-configuration.service.ts. (2) DELETE
+  the create_default_config saga step (tenant-provisioning.service.ts:373-384), its no-op
+  compensation log, the createDefaultConfiguration() method (787-821), and the
+  tenantConfigurationService constructor dependency (line 140) — the compiler then proves no
+  residual caller. (3) Close the one real data gap at its SSoT instead of re-copying at provisioning
+  time: auth.tenants.name is the authoritative tenant name (CLAUDE.md D14), so change
+  TenantConfigurationService.defaultConfiguration() to resolve brandingConfig.companyName from
+  auth.tenants at read time (inject DataSource, same raw-query pattern TenantProvisioningService
+  already uses). Read methods become async; the controller handlers in
+  tenant-configuration.controller.ts are already async so promise returns pass through — update
+  signatures and the now-stale sync-throw comment on deleteConfiguration. Read-through from the SSoT
+  means tenant renames can never drift branding, which a provisioning-time copy (the original
+  intent) would have. (4) Tighten createDefaultTenantConfiguration() return type from
+  Partial<TenantConfiguration> to Omit<TenantConfiguration,'id'|'createdAt'|'updatedAt'|'updatedBy'>
+  and remove the 'as TenantConfiguration' cast at tenant-configuration.service.ts:357 (tier-1 type
+  fix). (5) Rework tenant-provisioning.service.spec.ts: delete the mockTenantConfigurationService
+  block (169-180, 241-242, 264) and the mockImplementationOnce failure test at 546 (dead path);
+  assert the executed saga step list contains no create_default_config. (6) Correct the stale claim
+  at apps/admin-api-service/README.md:263. Do NOT build an outbox/NATS transport to write per-tenant
+  default rows into config-service — that would duplicate the SYSTEM fallback and freeze tenants at
+  provisioning-time snapshots, contradicting the tracked design-of-record (ORPHAN-HIGH-364
+  resolution).
+- **Files to change:**
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/settings.module.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning.service.spec.ts`
+  - `apps/admin-api-service/src/settings/__tests__/tenant-configuration.adapter-contract.spec.ts`
+  - `apps/admin-api-service/README.md`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/settings/**tests**/tenant-configuration.adapter-contract.spec.ts: (a)
+  prototype-enumeration contract — for every public method of TenantConfigurationService, the call
+  either resolves a value derived from createDefaultTenantConfiguration()/auth.tenants or throws
+  GoneException; explicitly assert no method returns an object with status 'REQUESTED'
+  (reintroducing a log-and-discard stub fails this gate); (b) getBrandingConfig(tenantId) returns
+  companyName equal to the mocked auth.tenants.name row, proving the read-through-SSoT fix. Extend
+  apps/admin-api-service/src/tenant/**tests**/tenant-provisioning.service.spec.ts: assert the
+  provisioning saga's executed step names contain no 'create_default_config' and the test module
+  compiles without any TenantConfigurationService provider (Nest DI would throw at module compile if
+  the dependency edge survived). npm run type-check proves zero dangling references to the deleted
+  TenantConfigurationProvisioningRequest/ requestDefaultConfigurationProvisioning. nx affected
+  --target=test green including the existing settings reliability suite.
+- **Effort:** M
+
+### APA-047 [HIGH] Half-finished config-service migration: legacy stores dropped, but two live admin routes still point at the retired backends
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Migration 1801400000000 archived and dropped admin.global_configs,
+  admin.system_settings, and admin.tenant_configurations, and every legacy write path was converted
+  to 410 Gone — but only the SystemSettingsPage was migrated to the config-service GraphQL SSoT
+  (usePlatformConfiguration + platform-configuration-operations). TenantConfigurationPage
+  (/admin/tenants/:tenantId/configuration) and ProvisioningSettingsPage
+  (/admin/settings/provisioning) remain mounted in Module.tsx and still call the retired REST
+  endpoints, giving SUPER_ADMINs two polished, fully-navigable pages whose reads are fabricated/env
+  stubs and whose writes can never succeed. The FE settings.ts barrel even documents the retirement
+  (ORPHAN-HIGH-373) while re-exporting the dead tenantConfigApi methods for 'backward compat'.
+  Either migrate both pages to config-service (tenant-scope + provisioning key vocabularies do not
+  exist there yet) or unmount them; shipping them as-is violates the repo's own 'never ship a
+  partial fix as if complete' rule.
+- **Evidence:**
+  - `apps/admin-api-service/src/migrations/1801400000000-DropRetiredLegacyConfigStores.ts:54`
+  - `apps/admin-api-service/src/migrations/1801400000000-DropRetiredLegacyConfigStores.ts:88`
+  - `web/modules/admin-panel/src/services/api/settings.ts:36-48`
+  - `web/modules/admin-panel/src/Module.tsx:114`
+  - `web/modules/admin-panel/src/Module.tsx:181`
+  - `web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts:1-13`
+- **Verification:** Re-verified every link. Migration 1801400000000 dropped
+  admin.global_configs/system_settings/tenant_configurations (forward-only).
+  TenantConfigurationService fabricates all reads (static defaults, id 'legacy:<tenantId>') and
+  throws GoneException on all writes; GlobalSettingsService.getProvisioningConfig is env-derived
+  only and updateProvisioningConfig is a `never`-typed GoneException tombstone. Both
+  TenantConfigurationPage (Module.tsx:114) and ProvisioningSettingsPage (Module.tsx:181, nav-linked
+  at admin-nav-items.tsx:224) remain mounted and call these retired REST endpoints via apiFetch.
+  Only SystemSettingsPage was migrated to the config-service GraphQL SSoT
+  (usePlatformConfiguration). Two facts sharpen the remediation: (1) sensor-service's
+  InstallerScriptService is a LIVE machine consumer of GET /system/settings/provisioning-config
+  (installer script generation, MED-07 repo pinning ignores remote githubRepo), so provisioning
+  config is real and must gain a real writable SSoT; (2) config-service's ConfigurationResolver
+  resolves tenant scope exclusively from the JWT (SUPER_ADMIN → SYSTEM_TENANT_ID; no cross-tenant
+  tenantId arg), and the tenant-config page's sub-resources (API keys, webhooks, domains with
+  secrets/lifecycle) are stateful entities, not KV config — so 'migrate to config-service' is not a
+  mechanical port for that page; the honest completion of the already-made retirement decision is
+  removal. The existing FE↔BE gate (contract-validation.spec.ts, blocking in CI per
+  tests/invariants/admin-route-contract-ci.spec.ts) defines contract satisfaction as 'matching route
+  exists', which a 410-tombstone handler satisfies — that is the systemic gap that let this ship.
+- **Root cause:** The FE link of the FE→BE→DB chain broke: the legacy-config retirement
+  (ORPHAN-HIGH-364/373) was executed bottom-up per STORE (DB tables archived+dropped, BE write paths
+  tombstoned to 410 Gone, config-service seeded as SSoT via 1805400000000) instead of per SURFACE —
+  no consumer inventory enumerated which admin-panel pages sat on each retired endpoint, so only the
+  first consumer (SystemSettingsPage) was migrated and the other two pages kept shipping. The drift
+  stayed invisible because (a) the only automated FE↔BE gate,
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts, proves route EXISTENCE not route
+  LIVENESS — a handler that throws GoneException or serves fabricated 200s
+  (TenantConfigurationService's 'legacy:<tenantId>' defaults) satisfies it; (b) the backend
+  deliberately kept fabricated-read adapters so the pages 'worked' visually; and (c)
+  web/modules/admin-panel/src/services/api/settings.ts re-exported the dead tenantConfigApi 'for
+  backward compatibility', keeping dead pages compiling and institutionalizing the drift.
+- **Fix design:** SYSTEMIC CLASS: 'FE page wired to retired/tombstone endpoints passes the
+  route-contract gate'. Fix at pattern level plus two local applications.
+
+PATTERN LEVEL (tier 3 → makes the class CI-detectable forever): extend
+apps/admin-api-service/src/**tests**/contract-validation.spec.ts (already blocking via the
+tests/admin-route-contract project) with a RETIRED classification: statically scan matched backend
+handlers for tombstone implementations (service methods with return type `never` and/or a
+GoneException throw reachable from the handler body — both current tombstones are statically
+detectable this way). Any frontend apiFetch endpoint that maps to a RETIRED handler FAILS the
+contract exactly like an unmatched URL. No allowlist, no baseline: after the local fixes below, zero
+FE endpoints map to tombstones, so the gate starts clean and 'polished page over dead endpoint'
+becomes a build-time failure for the entire admin surface.
+
+LOCAL A — ProvisioningSettingsPage (vocabulary is real and live → complete the migration to
+config-service):
+
+1. New config-service migration SeedProvisioningConfigurations (pattern of 1805400000000:
+   SYSTEM-tenant rows, service 'platform', idempotent ON CONFLICT DO NOTHING) seeding
+   provisioning.api_url, provisioning.mqtt_broker_host, provisioning.mqtt_broker_port,
+   provisioning.agent_default_version with the current env-default values as seeds. Deliberately
+   EXCLUDE provisioning.github_repo and provisioning.github_release_url from the editable
+   vocabulary: sensor-service's MED-07 supply-chain pinning ignores the remote value by design, so
+   an editable field nobody reads is the 'config-nobody-reads' class — the repo stays env-pinned and
+   the FE fields are removed.
+2. FE: extend web/modules/admin-panel/src/services/api/platform-configuration.ts with a
+   ProvisioningConfig tab model, mapPlatformSettings provisioning section, and
+   buildProvisioningWrites; rewrite ProvisioningSettingsPage.tsx onto
+   usePlatformSettings/useSavePlatformSettings (the sanctioned GraphQL transport SystemSettingsPage
+   already uses). Delete getProvisioningConfig/updateProvisioningConfig from
+   services/api/settings.ts and the banned `data: any` response mapper.
+3. Machine read model: keep GET /system/settings/provisioning-config as the
+   service-token-authenticated facade sensor-service already consumes, but re-implement
+   GlobalSettingsService.getProvisioningConfig to resolve from the config-service SSoT (SYSTEM
+   tenant, service 'platform') over the platform's signed service-to-service HTTP client, with the
+   env values demoted to documented bootstrap/fail-degraded defaults (mirroring sensor-service's own
+   fallback discipline). DELETE updateProvisioningConfig and its PUT route outright — the write
+   lives only in config-service now, so the tombstone disappears instead of being detected.
+
+LOCAL B — TenantConfigurationPage (vocabulary never had a real SSoT → complete the retirement by
+removal, tier 1: wrong behavior becomes impossible): The page is reachable only by hand-typed URL
+(no nav item, no TenantDetailPage link); its reads are fabricated tenant state served as 200s —
+actively misleading to a SUPer_ADMIN — and its sub-entities (API keys, webhooks, domains) are not KV
+configuration, while config-service's resolver has no cross-tenant admin scope. Removal completes
+the retirement decision already made: unmount the route from Module.tsx; delete
+pages/TenantConfigurationPage.tsx, services/api/tenant-config.ts, the tenantConfigApi
+re-exports/delegations in services/api/settings.ts and services/adminApi.ts, and the
+TenantConfiguration type block in services/types/settings.ts; delete the backend tombstone adapter
+(settings/controllers/tenant-configuration.controller.ts,
+settings/services/tenant-configuration.service.ts, settings/entities/tenant-configuration.entity.ts,
+settings/dto/tenant-configuration.dto.ts) and its settings.module.ts wiring. Also remove
+tenant-provisioning.service.ts's call to requestDefaultConfigurationProvisioning — it fabricates a
+'REQUESTED' record that no transport ever delivers, and config-service's hierarchical
+effective-configuration already makes SYSTEM-row fallback automatic for new tenants (tier 2: correct
+default with zero per-tenant seeding). If product later wants a per-tenant admin configuration
+surface, that is a new feature that must start from a config-service contract change (admin-only
+tenantId override arg, fail-closed) and gets its own tracked finding — this commit ships no partial
+surface.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `web/modules/admin-panel/src/Module.tsx`
+  - `web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx`
+  - `web/modules/admin-panel/src/services/api/tenant-config.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/adminApi.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/ProvisioningSettingsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/platform-configuration.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/platform-configuration.spec.ts`
+  - `apps/admin-api-service/src/settings/settings.module.ts`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts`
+  - `apps/admin-api-service/src/settings/services/tenant-configuration.service.ts`
+  - `apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts`
+  - `apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/provisioning-config.spec.ts`
+  - `apps/config-service/src/database/migrations/1805500000000-SeedProvisioningConfigurations.ts`
+  - `apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts`
+- **Proof of fix:** 1) Extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts
+  (blocking in CI via tests/admin-route-contract, enforced by
+  tests/invariants/admin-route-contract-ci.spec.ts) with the RETIRED-handler classification: the
+  suite fails if any admin-panel apiFetch endpoint maps to a handler whose service implementation is
+  a GoneException tombstone, and — post-fix — proves zero FE references to
+  /settings/tenant/:tenantId\* remain and that PUT /system/settings/provisioning-config no longer
+  exists as a route (unmatched-FE check covers accidental resurrection). 2) Extend
+  web/modules/admin-panel/src/services/api/**tests**/platform-configuration.spec.ts: provisioning
+  rows map into the ProvisioningConfig tab model (typed and string GraphQLJSON values) and
+  buildProvisioningWrites emits canonical string writes for exactly the four seeded keys. 3) Extend
+  apps/config-service/src/database/**tests**/platform-configuration-seed.spec.ts: the provisioning
+  seed contains exactly the four keys, excludes github_repo/github_release_url, and is
+  idempotent. 4) Rewrite
+  apps/admin-api-service/src/system-management/**tests**/provisioning-config.spec.ts:
+  getProvisioningConfig resolves from the config-service client (SYSTEM tenant, service 'platform')
+  and degrades to env bootstrap defaults on outage; updateProvisioningConfig no longer exists on the
+  service. 5) apps/sensor-service/src/edge-device/**tests**/provisioning-config.spec.ts stays green
+  unchanged (facade URL and shape preserved — proves the machine consumer is unaffected). 6) nx
+  affected --target=test && nx affected --target=lint green.
+- **Effort:** L
+
+### APA-048 [NOT_A_BUG] Auth/routing plumbing for the audited surface is sound (verified, no finding)
+
+- **Status:** REFUTED
+- **Symptom:** Verified working, recorded for audit completeness: browser chain '/api' base → nginx
+  rewrite ^/api/(.\*)→/api/v1/$1 → global prefix 'api/v1' with URI versioning defaultVersion ['1',
+  VERSION_NEUTRAL] resolves every FE path in this section to an existing route; the global APP_GUARD
+  PlatformAdminGuard enforces RS256 JWT verification (issuer/audience/algorithm pinned via
+  getJwtVerifyOptions) and hard-codes SUPER_ADMIN as the only accepted role (decorators can never
+  widen access), and SEC-M19 removed the former @Public() from provisioning-config. No unguarded
+  endpoint was found in scope. The controllers' C6 fix also sources updatedBy identity from the JWT
+  (getAuthUserId) rather than the request body.
+- **Evidence:**
+  - `infrastructure/nginx/droplet.conf:377-383`
+  - `apps/admin-api-service/src/main.ts:14-19`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
+  - `apps/admin-api-service/src/app.module.ts:283-290`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:149-177`
+  - `apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts:117-127`
+- **Refutation (brief check):** Not a defect — this is a positive verification entry for audit
+  completeness. The claims check out against the code: the browser chain '/api' base -> nginx
+  rewrite ^/api/(.\*)->/api/v1/$1 -> global prefix api/v1 with URI versioning defaultVersion ['1',
+  VERSION_NEUTRAL] resolves every FE path in this section; the global APP_GUARD PlatformAdminGuard
+  enforces RS256 JWT (pinned issuer/audience/algorithm) and hard-codes SUPER_ADMIN; SEC-M19 removed
+  @Public() from provisioning-config (comment present at global-settings.controller.ts:674-675); and
+  the C6 fix sources updatedBy/createdBy identity from the JWT (getAuthUserId in the tenant-config
+  controller, getAuthUser in the global-settings controller) rather than the body. No unguarded
+  endpoint in scope.

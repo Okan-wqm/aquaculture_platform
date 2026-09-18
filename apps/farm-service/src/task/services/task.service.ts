@@ -6,17 +6,15 @@
  *
  * @module Task/Services
  */
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-  Logger,
-} from '@nestjs/common';
+import { Inject, BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
-import { Cron } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import {
   MobileCommandReceiptService,
   type MobileCommandEnvelope,
@@ -25,7 +23,13 @@ import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { randomUUID } from 'crypto';
-import { Task, TaskChecklistItem, TaskStatus, TaskPriority } from '../entities/task.entity';
+import {
+  Task,
+  StoredTaskChecklistItem,
+  TaskChecklistItem,
+  TaskStatus,
+  TaskPriority,
+} from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import { UpdateTaskInput } from '../dto/update-task.dto';
@@ -54,7 +58,7 @@ export class TaskService {
    * save — whatever we emit REPLACES the array entry, so the stale
    * `completed` is gone after the first normalise-and-save).
    */
-  static normaliseChecklistItem(raw: Partial<TaskChecklistItem>): TaskChecklistItem {
+  static normaliseChecklistItem(raw: Partial<StoredTaskChecklistItem>): TaskChecklistItem {
     const canonicalCompleted = raw.isCompleted ?? raw.completed ?? false;
     const normalised: TaskChecklistItem = {
       id: raw.id ?? randomUUID(),
@@ -66,8 +70,13 @@ export class TaskService {
     return normalised;
   }
 
-  private static normaliseChecklistItems(
-    raw: Partial<TaskChecklistItem>[] | undefined,
+  /**
+   * Public because it is ALSO the read path: the `checklistItems` field
+   * resolvers on Task and RecurringTemplate serve every row through it, so the
+   * wire never carries the permissive stored shape (FARM-HIGH-320).
+   */
+  static normaliseChecklistItems(
+    raw: Partial<StoredTaskChecklistItem>[] | undefined,
   ): TaskChecklistItem[] {
     if (!raw || !Array.isArray(raw)) return [];
     return raw.map((item) => TaskService.normaliseChecklistItem(item));
@@ -82,7 +91,7 @@ export class TaskService {
    * are reset — a brand-new task starts with everything unchecked.
    */
   static propagateChecklistItemsFromTemplate(
-    templateItems: Partial<TaskChecklistItem>[] | undefined,
+    templateItems: Partial<StoredTaskChecklistItem>[] | undefined,
   ): TaskChecklistItem[] {
     if (!templateItems || !Array.isArray(templateItems)) return [];
     return templateItems.map((t) => ({
@@ -108,6 +117,7 @@ export class TaskService {
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -718,7 +728,7 @@ export class TaskService {
    * Gecikmiş görevleri her 30 dakikada bir tespit eder.
    * Iterates ALL tenant schemas to ensure no tenant is missed.
    */
-  @Cron('0 */30 * * * *')
+  @ScheduledJob({ name: 'task.detect-overdue', cron: '0 */30 * * * *' })
   async detectOverdueTasks(): Promise<void> {
     this.logger.log('Running overdue task detection across all tenant schemas...');
     const now = new Date();

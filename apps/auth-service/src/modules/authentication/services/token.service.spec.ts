@@ -6,6 +6,7 @@ import {
   SESSION_MANAGER,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -259,6 +260,55 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
       service.generateTokens(buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
     ).rejects.toThrow(/without a tenant/i);
   });
+
+  // ADR-0011 (SEC-CRITICAL-058): a platform admin without MFA cannot hold a credential.
+  describe('SUPER_ADMIN MFA enrolment at token issue (ADR-0011)', () => {
+    const switchEnv = 'SUPER_ADMIN_MFA_ENFORCED_AT';
+    const previous = process.env[switchEnv];
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      if (previous === undefined) delete process.env[switchEnv];
+      else process.env[switchEnv] = previous;
+    });
+
+    it('refuses a SUPER_ADMIN token for an un-enrolled account once enforcement has started', async () => {
+      process.env[switchEnv] = '2020-01-01T00:00:00Z';
+      await expect(
+        service.generateTokens(
+          buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+        ),
+      ).rejects.toThrow(/must enrol in MFA/);
+      expect(signAsync).not.toHaveBeenCalled();
+    });
+
+    it('records an un-enrolled SUPER_ADMIN in detective mode and still mints the token', async () => {
+      process.env[switchEnv] = 'detective';
+      await service.generateTokens(
+        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+      );
+      expect(signAsync).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('super_admin_token_without_mfa_enrolment'),
+      );
+    });
+
+    it('mints an enrolled SUPER_ADMIN token under enforcement without a warning', async () => {
+      process.env[switchEnv] = '2020-01-01T00:00:00Z';
+      await service.generateTokens(
+        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: true }),
+      );
+      expect(signAsync).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('super_admin_token_without_mfa_enrolment'),
+      );
+    });
+  });
 });
 
 /**
@@ -329,10 +379,21 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     // intersection. Default 'farm' keeps core caps entitled; add 'ai'/'hr' to
     // license those module-gated categories.
     enabledModuleCodes?: string[];
+    // ADR-0016: the live rows of auth.platform_capability_grants for the user.
+    platformCapabilities?: string[];
+    onPlatformCapabilityQuery?: (sql: string) => Promise<unknown>;
   }): jest.Mock =>
     jest.fn((sql: string) => {
       if (typeof sql !== 'string') {
         return Promise.resolve([]);
+      }
+      if (sql.includes('platform_capability_grants')) {
+        if (overrides?.onPlatformCapabilityQuery) {
+          return overrides.onPlatformCapabilityQuery(sql);
+        }
+        return Promise.resolve(
+          (overrides?.platformCapabilities ?? []).map((capability) => ({ capability })),
+        );
       }
       // Entitlement query (RBAC-HIGH-010): tenant_modules JOIN modules.
       if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
@@ -748,6 +809,79 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     });
   });
 
+  describe('platformCapabilities claim (ADR-0016)', () => {
+    const capabilityQuery = (): [string, unknown[]] | undefined =>
+      query.mock.calls.find(
+        ([sql]) => typeof sql === 'string' && sql.includes('platform_capability_grants'),
+      ) as [string, unknown[]] | undefined;
+
+    it('projects the live grants of a SUPER_ADMIN, bound by user id, live-predicate in SQL', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops', 'security-ops'] }),
+      });
+
+      await service.generateTokens(
+        buildUser({
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          role: Role.SUPER_ADMIN,
+          tenantId: null,
+        }),
+      );
+
+      expect(lastPayload?.platformCapabilities).toEqual(['billing-ops', 'security-ops']);
+      const call = capabilityQuery();
+      expect(call).toBeDefined();
+      const [sql, params] = call as [string, unknown[]];
+      expect(sql).toContain('"auth"."platform_capability_grants"');
+      expect(sql).toContain('"revokedAt" IS NULL');
+      expect(sql).toContain('"expiresAt" > now()');
+      expect(params).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
+    });
+
+    it('omits the claim entirely when the SUPER_ADMIN holds no live grant', async () => {
+      service = await createService({ query: buildQueryRouter({ platformCapabilities: [] }) });
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+
+      expect(lastPayload).toBeDefined();
+      expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
+    });
+
+    it('drops a stored value outside the closed enum instead of minting it', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops', 'root'] }),
+      });
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+
+      expect(lastPayload?.platformCapabilities).toEqual(['billing-ops']);
+    });
+
+    it('never reads the grant table for a tenant principal', async () => {
+      service = await createService({
+        query: buildQueryRouter({ platformCapabilities: ['billing-ops'] }),
+      });
+
+      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+
+      expect(capabilityQuery()).toBeUndefined();
+      expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
+    });
+
+    it('fails the mint loud when the grant read fails (no silent read-only downgrade)', async () => {
+      service = await createService({
+        query: buildQueryRouter({
+          onPlatformCapabilityQuery: () => Promise.reject(new Error('relation missing')),
+        }),
+      });
+
+      await expect(
+        service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })),
+      ).rejects.toThrow('relation missing');
+      expect(signAsync).not.toHaveBeenCalled();
+    });
+  });
+
   describe('authorization-revocation issuance fence', () => {
     it('cannot insert a refresh token while deactivation owns the User fence and fails stale issuance closed', async () => {
       service = await createService();
@@ -1102,6 +1236,114 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(daysFromNow(savedRow.expiresAt)).toBeGreaterThan(6);
       expect(daysFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(7);
       expect(result.rememberMe).toBe(false);
+    });
+  });
+
+  // ADR-046 / ADMIN-HIGH-015 — the tenant idle-session policy clamps the
+  // refresh-token TTL, and it does so INSIDE this chokepoint. These specs pin
+  // both halves: the arithmetic, and the fact that no caller threads it.
+  describe('tenant session-timeout clamp (ADR-046)', () => {
+    const minutesFromNow = (d: Date): number => (d.getTime() - Date.now()) / 60_000;
+
+    const routerWithPolicy = (sessionTimeoutMinutes: number | null): jest.Mock =>
+      jest.fn((sql: string) => {
+        if (typeof sql !== 'string') {
+          return Promise.resolve([]);
+        }
+        if (sql.includes('tenant_modules') && sql.includes('"auth"."modules"')) {
+          return Promise.resolve([{ code: 'farm' }]);
+        }
+        if (sql.includes('user_role_assignments') && sql.includes('tenant_role_permissions')) {
+          return Promise.resolve([]);
+        }
+        if (sql.includes('FROM auth.tenants')) {
+          return Promise.resolve([
+            { plan: 'professional', session_timeout_minutes: sessionTimeoutMinutes },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+
+    it('reads the policy in the SAME auth.tenants statement as the plan claim', async () => {
+      service = await createService({ query: routerWithPolicy(60) });
+
+      await service.generateTokens(buildUser({}));
+
+      const tenantReads = query.mock.calls
+        .map((call) => call[0] as unknown)
+        .filter(
+          (sql): sql is string => typeof sql === 'string' && sql.includes('FROM auth.tenants'),
+        );
+      expect(tenantReads).toHaveLength(1);
+      expect(tenantReads[0]).toContain('session_timeout_minutes');
+      // The plan claim still resolves off the same row — no second read.
+      expect(capturedPayload().planLevel).toBeDefined();
+    });
+
+    it('clamps the refresh TTL to the tenant policy when it is shorter', async () => {
+      service = await createService({
+        query: routerWithPolicy(30),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(30);
+    });
+
+    it('lets the tenant policy win over a rememberMe extension', async () => {
+      service = await createService({
+        query: routerWithPolicy(45),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+        rememberMe: true,
+      });
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
+      // The remembered flag is preserved (the cookie stays persistent) but the
+      // ROW cannot outlive the tenant's idle window.
+      expect(savedRow.rememberMe).toBe(true);
+      expect(result.rememberMe).toBe(true);
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(45);
+    });
+
+    it('keeps the configured TTL when the tenant sets no policy (NULL)', async () => {
+      service = await createService({
+        query: routerWithPolicy(null),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(7 * 24 * 60 - 1);
+    });
+
+    it('never lets a longer tenant policy EXTEND the configured TTL', async () => {
+      service = await createService({
+        query: routerWithPolicy(1440),
+        config: { REFRESH_TOKEN_EXPIRY_DAYS: 0.5, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
+      });
+
+      await service.generateTokens(buildUser({}));
+
+      const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
+      // MIN wins: 0.5 day (720 min) is shorter than the 1440-minute policy.
+      expect(minutesFromNow(savedRow.expiresAt)).toBeLessThanOrEqual(720);
+    });
+
+    it('exposes NO caller-supplied session-timeout parameter (the clamp cannot be forgotten)', () => {
+      // ADMIN-HIGH-015 root cause: the clamp used to be an optional argument
+      // five of seven mint paths omitted. Pin that generateTokens takes exactly
+      // (user, ipAddress, userAgent, options) and that the options bag carries
+      // no timeout knob — a caller has nothing to pass and nothing to forget.
+      expect(TokenService.prototype.generateTokens).toHaveLength(4);
+      const source = TokenService.prototype.generateTokens.toString();
+      expect(source).not.toMatch(/sessionTimeout/i);
     });
   });
 });

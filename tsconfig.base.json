@@ -67,6 +67,9 @@
       "@aquaculture/backend-common/database": [
         "libs/backend-common/src/database/index.ts"
       ],
+      "@aquaculture/backend-common/event-dedup": [
+        "libs/backend-common/src/event-dedup/index.ts"
+      ],
       "@aquaculture/backend-common/dataloader": [
         "libs/backend-common/src/dataloader/index.ts"
       ],
@@ -116,6 +119,7 @@
       "@aquaculture/backend-common/pagination": [
         "libs/backend-common/src/pagination/index.ts"
       ],
+      "@platform/pagination-contracts": ["platform/libs/pagination-contracts/src/index.ts"],
       "@aquaculture/backend-common/quota": ["libs/backend-common/src/quota/index.ts"],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
       "@aquaculture/backend-common/resilience": [
@@ -123,6 +127,12 @@
       ],
       "@aquaculture/backend-common/rate-limit": [
         "libs/backend-common/src/rate-limit/index.ts"
+      ],
+      "@aquaculture/backend-common/scheduling": [
+        "libs/backend-common/src/scheduling/index.ts"
+      ],
+      "@aquaculture/backend-common/scheduling/testing": [
+        "libs/backend-common/src/scheduling/testing.ts"
       ],
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
@@ -168,7 +178,8 @@
       "@web/shared-ui": ["web/shared-ui/src/index.ts"],
       "@aquaculture/node-components": ["libs/node-components/src/index.ts"],
       "@platform/aquaculture-engines": ["libs/aquaculture-engines/src/index.ts"],
-      "@platform/migration-harness": ["libs/migration-harness/src/index.ts"]
+      "@platform/migration-harness": ["libs/migration-harness/src/index.ts"],
+      "@platform/mqtt-test-harness": ["libs/mqtt-test-harness/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp", "dist", ".nx"]

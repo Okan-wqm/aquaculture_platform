@@ -30,6 +30,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { discoverSteeringFiles } from './_constants';
+import { isKnownUnrunnable, runnersOf } from './helpers/spec-runners';
+import { workflowScriptReferences } from './helpers/workflows';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -91,9 +93,7 @@ function extractCheckablePaths(content: string): string[] {
 }
 
 const steeringFiles = discoverSteeringFiles(REPO_ROOT);
-const nestedFiles = steeringFiles.filter(
-  (f) => f !== 'CLAUDE.md' && f !== 'AGENTS.md',
-);
+const nestedFiles = steeringFiles.filter((f) => f !== 'CLAUDE.md' && f !== 'AGENTS.md');
 
 describe('CLAUDE.md accuracy invariants', () => {
   it('discovers the root steering files', () => {
@@ -114,6 +114,82 @@ describe('CLAUDE.md accuracy invariants', () => {
               `Fix the reference or skip it (globs/placeholders are ignored).`,
           );
         }
+      });
+    }
+  });
+
+  describe('every cited enforcement spec is executed by a CI lane', () => {
+    // A steering file that says "enforced by <spec>" is making a claim about
+    // CI, not about the filesystem. CLAUDE.md cited
+    // apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts
+    // (a target no workflow invoked) and e2e/tests/integration/
+    // schema-invariants.spec.ts (a script no job ran) for months; both paths
+    // resolved on disk, so the check above was green. This one asks the
+    // question the reader asks: does anything actually run it on a PR?
+    const scriptsRunByWorkflows = new Set(workflowScriptReferences().map((ref) => ref.script));
+    // A citation may name a spec CI does not run only while the same line
+    // names the OPEN finding that tracks the gap — the repository's one
+    // sanctioned shape for debt (owner + deadline + id live on the finding).
+    const openFindingIds = new Set(
+      readFileSync(join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl'), 'utf8')
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as { id: string; state: string })
+        .filter(
+          (row) => row.state === 'OPEN' || row.state === 'IN-PROGRESS' || row.state === 'BLOCKED',
+        )
+        .map((row) => row.id),
+    );
+    const FINDING_ID_RX = /\b[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}\b/g;
+    const testQuarantine = new Set(
+      Object.keys(
+        (
+          JSON.parse(
+            readFileSync(join(REPO_ROOT, 'scripts/ci/affected-target-policy.json'), 'utf8'),
+          ) as { targets: { test: { knownUnstableProjects: Record<string, unknown> } } }
+        ).targets.test.knownUnstableProjects,
+      ),
+    );
+
+    function whyNotGated(spec: string): string | undefined {
+      if (isKnownUnrunnable(spec)) return 'listed as unrunnable';
+      const runners = runnersOf(spec);
+      if (runners.length === 0) return 'no runner claims it';
+      const reasons: string[] = [];
+      for (const runner of runners) {
+        switch (runner.kind) {
+          case 'script':
+          case 'declared-non-nx':
+            if (scriptsRunByWorkflows.has(runner.script)) return undefined;
+            reasons.push(`script ${runner.script} is invoked by no workflow`);
+            break;
+          case 'workflow':
+            return undefined;
+          case 'nx-test':
+            if (!testQuarantine.has(runner.project)) return undefined;
+            reasons.push(`project ${runner.project} is quarantined in the affected test lane`);
+            break;
+          case 'blanket':
+            reasons.push(`only blanket-owned by ${runner.owner}; no script or workflow names it`);
+            break;
+        }
+      }
+      return reasons.join('; ');
+    }
+
+    for (const file of steeringFiles) {
+      it(`${file}: every cited spec is gated, or its gap is tracked on the same line`, () => {
+        const ungated: string[] = [];
+        for (const line of readFileSync(join(REPO_ROOT, file), 'utf8').split('\n')) {
+          const specs = extractCheckablePaths(line).filter((p) => /\.spec\.tsx?$/.test(p));
+          if (specs.length === 0) continue;
+          const tracked = [...line.matchAll(FINDING_ID_RX)].some((m) => openFindingIds.has(m[0]));
+          for (const spec of specs) {
+            const why = whyNotGated(spec);
+            if (why !== undefined && !tracked) ungated.push(`${spec}: ${why}`);
+          }
+        }
+        expect(ungated).toEqual([]);
       });
     }
   });

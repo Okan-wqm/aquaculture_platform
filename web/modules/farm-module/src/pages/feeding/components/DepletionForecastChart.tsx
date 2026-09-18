@@ -77,6 +77,16 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
               {t('feedingV2.forecast.mortalityNone')}
             </span>
           )}
+          {forecast.poolScope === 'SITE' && (
+            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+              {t('feedingV2.forecast.poolScopeSite')}
+            </span>
+          )}
+          {forecast.stale && (
+            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700">
+              {t('feedingV2.forecast.stale')}
+            </span>
+          )}
           <span>
             {t('feedingV2.forecast.computedAt', {
               at: new Date(forecast.computedAt).toLocaleString(),

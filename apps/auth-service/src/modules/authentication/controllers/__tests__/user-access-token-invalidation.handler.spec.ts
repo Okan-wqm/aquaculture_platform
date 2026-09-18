@@ -105,7 +105,14 @@ describe('UserAccessTokenInvalidationHandler', () => {
         ...invalidationEvent(),
         invalidatedAtEpochSeconds: 'not-an-epoch',
       }),
-    ).rejects.toThrow('Invalid UserAccessTokenInvalidationRequested event');
+    ).resolves.toEqual(
+      // PLAT-HIGH-902: on this unlimited-redelivery consumer a throw was an
+      // endless NAK loop; a malformed payload is terminated (dead-lettered).
+      expect.objectContaining({
+        kind: 'terminate',
+        reason: 'Invalid UserAccessTokenInvalidationRequested event',
+      }),
+    );
 
     expect(userTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
   });

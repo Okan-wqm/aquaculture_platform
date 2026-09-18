@@ -26,9 +26,12 @@ import {
   AlertCircle,
   XCircle,
 } from 'lucide-react';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import { adminKeys, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
+import { saveBlob } from '../../services/blob-client';
 
 // ============================================================================
 // Types
@@ -92,6 +95,16 @@ interface ActivityStats {
 // API Service - Using centralized securityApi with auth headers
 // ============================================================================
 
+/** One page of activity rows. */
+const ACTIVITY_PAGE_SIZE = 50;
+
+/**
+ * A stable empty array. `?? []` would hand a NEW array on every render, so
+ * every memo and effect keyed on `activities` would see a changed reference
+ * while nothing about the data changed.
+ */
+const EMPTY_ACTIVITIES: readonly ActivityLog[] = [];
+
 async function fetchActivities(params: {
   page?: number;
   limit?: number;
@@ -100,7 +113,7 @@ async function fetchActivities(params: {
   searchQuery?: string;
   startDate?: string;
   endDate?: string;
-}): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
+}, signal?: AbortSignal): Promise<{ data: ActivityLog[]; total: number; page: number; limit: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -110,7 +123,7 @@ async function fetchActivities(params: {
   if (params.startDate) apiParams.startDate = params.startDate;
   if (params.endDate) apiParams.endDate = params.endDate;
 
-  const result = await securityApi.getActivityLogs(apiParams);
+  const result = await securityApi.getActivityLogs(apiParams, signal);
   return {
     data: result.data.map((log) => ({
       id: log.id,
@@ -142,8 +155,8 @@ async function fetchActivities(params: {
   };
 }
 
-async function fetchActivityStats(): Promise<ActivityStats> {
-  const stats = await securityApi.getActivityStatsOverview();
+async function fetchActivityStats(signal?: AbortSignal): Promise<ActivityStats> {
+  const stats = await securityApi.getActivityStatsOverview(signal);
   const failedCount = stats.bySuccess.failure ?? 0;
   return {
     totalActivities: stats.totalActivities,
@@ -434,15 +447,10 @@ const ActivityDetailModal: React.FC<{
 // ============================================================================
 
 export const ActivityLogPage: React.FC = () => {
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
-  const [stats, setStats] = useState<ActivityStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<ActivityLog | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [limit] = useState(50);
+  const limit = ACTIVITY_PAGE_SIZE;
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -451,51 +459,53 @@ export const ActivityLogPage: React.FC = () => {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [showFilters, setShowFilters] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const [activitiesResult, statsResult] = await Promise.allSettled([
-      fetchActivities({
-        page,
-        limit,
-        category: categoryFilter,
-        severity: severityFilter,
-        searchQuery: searchTerm || undefined,
-        startDate: dateRange.start || undefined,
-        endDate: dateRange.end || undefined,
-      }),
-      fetchActivityStats(),
-    ]);
-    const failures: string[] = [];
+  // The list and the header statistics are two INDEPENDENT queries, which is
+  // what `Promise.allSettled` was reaching for by hand: one failing must not
+  // blank the other. Each now carries its own error, and the page joins them
+  // for display exactly as it did — but a stats outage no longer costs a
+  // re-fetch of the list, because they have separate keys and lifetimes.
+  const activityFilter = useMemo(
+    () => ({
+      page,
+      limit,
+      category: categoryFilter,
+      severity: severityFilter,
+      searchQuery: searchTerm || undefined,
+      startDate: dateRange.start || undefined,
+      endDate: dateRange.end || undefined,
+    }),
+    [page, limit, categoryFilter, severityFilter, searchTerm, dateRange],
+  );
 
-    if (activitiesResult.status === 'fulfilled') {
-      setActivities(activitiesResult.value.data);
-      setTotal(activitiesResult.value.total);
-    } else {
-      failures.push(
-        activitiesResult.reason instanceof Error
-          ? activitiesResult.reason.message
-          : 'Failed to load activities',
-      );
-    }
+  const activityQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'activities', activityFilter],
+    ({ signal }) => fetchActivities(activityFilter, signal),
+    {
+      // Every keystroke in the search box is a new key. Without this the table
+      // blanks between keys; with it the previous page stays on screen until
+      // the next one lands, and the superseded request is aborted rather than
+      // left to decode into a view that has moved on.
+      placeholderData: (previous) => previous,
+      staleTime: 30_000,
+    },
+  );
 
-    if (statsResult.status === 'fulfilled') {
-      setStats(statsResult.value);
-    } else {
-      failures.push(
-        statsResult.reason instanceof Error
-          ? statsResult.reason.message
-          : 'Failed to load activity statistics',
-      );
-    }
+  const statsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'activity-stats'],
+    ({ signal }) => fetchActivityStats(signal),
+    { staleTime: 60_000 },
+  );
 
-    setError(failures.length > 0 ? failures.join('; ') : null);
-    setLoading(false);
-  }, [page, limit, categoryFilter, severityFilter, searchTerm, dateRange]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const activities = activityQuery.data?.data ?? EMPTY_ACTIVITIES;
+  const total = activityQuery.data?.total ?? 0;
+  const stats = statsQuery.data ?? null;
+  const loading = activityQuery.isPending;
+  const error =
+    [activityQuery.error?.message, statsQuery.error?.message].filter(Boolean).join('; ') || null;
+  const loadData = (): void => {
+    void activityQuery.refetch();
+    void statsQuery.refetch();
+  };
 
   const toggleRowExpand = (id: string): void => {
     const newExpanded = new Set(expandedRows);
@@ -524,12 +534,10 @@ export const ActivityLogPage: React.FC = () => {
       ),
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `activity-log-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    saveBlob(
+      new Blob([csvContent], { type: 'text/csv' }),
+      `activity-log-${new Date().toISOString().split('T')[0]}.csv`,
+    );
   };
 
   if (loading && activities.length === 0) {
@@ -540,23 +548,29 @@ export const ActivityLogPage: React.FC = () => {
     );
   }
 
-  if (error && activities.length === 0) {
+  if (error !== null && activities.length === 0) {
+    // The full-page branch of the same component, so the two states cannot
+    // drift apart in wording or in what they offer.
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={() => void loadData()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
+      <QueryFailureNotice
+        errors={[activityQuery.error, statsQuery.error]}
+        hasContent={false}
+        onRetry={loadData}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
+      {/* One component decides banner-vs-full-page for every admin page
+          (ADMIN-HIGH-105) — the condition three pages had each written and
+          each got wrong in the same direction. */}
+      <QueryFailureNotice
+        errors={[activityQuery.error, statsQuery.error]}
+        hasContent={activities.length > 0}
+        onRetry={loadData}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

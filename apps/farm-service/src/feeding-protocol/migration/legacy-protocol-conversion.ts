@@ -371,7 +371,10 @@ function convertTemperatureRanges(
   const converted = (ranges ?? [])
     .filter(
       (range) =>
-        range && typeof range.min === 'number' && typeof range.max === 'number' && range.min < range.max,
+        range &&
+        typeof range.min === 'number' &&
+        typeof range.max === 'number' &&
+        range.min < range.max,
     )
     .map((range) => ({
       minC: clamp(range.min, -10, 50),

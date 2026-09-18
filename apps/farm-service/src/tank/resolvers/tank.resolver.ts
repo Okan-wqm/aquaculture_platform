@@ -236,7 +236,7 @@ export class TankResolver {
   async getTanksByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<Tank[]> {
+  ): Promise<readonly Tank[]> {
     const result: PaginatedQueryResult<Tank> = await this.queryBus.execute(
       new ListTanksQuery(tenantId, { departmentId, isActive: true, limit: 100 }),
     );

@@ -1,23 +1,11 @@
- 
- 
- 
- 
- 
- 
- 
 import { Role } from '@aquaculture/backend-common/decorators';
 import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
-import {
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
-import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
@@ -131,7 +119,6 @@ describe('TenantUserManagementService', () => {
   // value, which is untyped, so a precise two-method double is enough. No cast.
   let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
-  let mockEventBus: { publish: jest.Mock };
   let mockAuditLogService: { log: jest.Mock };
   let mockUserLifecycleService: {
     createUser: jest.Mock;
@@ -178,10 +165,6 @@ describe('TenantUserManagementService', () => {
 
     mockTenantRoleService = {
       getRoleById: jest.fn().mockResolvedValue(createMockRoleWithDetails()),
-    };
-
-    mockEventBus = {
-      publish: jest.fn().mockResolvedValue(undefined),
     };
 
     mockAuditLogService = {
@@ -242,14 +225,6 @@ describe('TenantUserManagementService', () => {
         { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
-        { provide: 'EVENT_BUS', useValue: mockEventBus },
-        // The service injects BestEffortEventPublisher (not the raw bus) for the
-        // allowlisted UserInvited event; wrap the same mock so publish assertions
-        // continue to observe what the service emits (DATA-HIGH-001).
-        {
-          provide: BestEffortEventPublisher,
-          useValue: new BestEffortEventPublisher(mockEventBus),
-        },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
         { provide: CapabilityAuthorityService, useValue: mockCapabilityAuthority },
@@ -314,9 +289,9 @@ describe('TenantUserManagementService', () => {
         new ConflictException('User already exists'),
       );
 
-      await expect(
-        service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('should propagate NotFoundException from UserLifecycleService', async () => {
@@ -324,9 +299,9 @@ describe('TenantUserManagementService', () => {
         new NotFoundException('Tenant not found'),
       );
 
-      await expect(
-        service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -532,22 +507,24 @@ describe('TenantUserManagementService', () => {
       mockDataSource.query
         .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID }]) // existing
         .mockResolvedValueOnce([]) // UPDATE (inside transaction)
-        .mockResolvedValueOnce([{
-          id: 'assignment-1',
-          user_id: USER_ID,
-          role_id: 'new-role-id',
-          role_name: 'Supervisor',
-          role_color: '#8B5CF6',
-          role_icon: 'user-check',
-          role_level: 70,
-          permission_overrides: null,
-          panel_permissions: '{}',
-          resource_permissions: [],
-          is_active: true,
-          expires_at: null,
-          created_at: new Date(),
-          assigned_by: ADMIN_USER_ID,
-        }]); // getUserRoleAssignment
+        .mockResolvedValueOnce([
+          {
+            id: 'assignment-1',
+            user_id: USER_ID,
+            role_id: 'new-role-id',
+            role_name: 'Supervisor',
+            role_color: '#8B5CF6',
+            role_icon: 'user-check',
+            role_level: 70,
+            permission_overrides: null,
+            panel_permissions: '{}',
+            resource_permissions: [],
+            is_active: true,
+            expires_at: null,
+            created_at: new Date(),
+            assigned_by: ADMIN_USER_ID,
+          },
+        ]); // getUserRoleAssignment
 
       const newRole = createMockRoleWithDetails({ id: 'new-role-id', name: 'Supervisor' });
       mockTenantRoleService.getRoleById.mockResolvedValue(newRole);
@@ -661,9 +638,13 @@ describe('TenantUserManagementService', () => {
       mockDataSource.query.mockResolvedValueOnce([
         { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
       ]); // existing
-      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails({ id: ROLE_ID }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: ROLE_ID }),
+      );
       mockCapabilityAuthority.assertGrantableOverrides.mockImplementation(() => {
-        throw new ForbiddenException('You cannot grant capabilities you do not hold: roles:delete.');
+        throw new ForbiddenException(
+          'You cannot grant capabilities you do not hold: roles:delete.',
+        );
       });
 
       await expect(
@@ -714,22 +695,24 @@ describe('TenantUserManagementService', () => {
       mockDataSource.query
         .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID }]) // existing
         .mockResolvedValueOnce([]) // UPDATE (inside tx)
-        .mockResolvedValueOnce([{
-          id: 'assignment-1',
-          user_id: USER_ID,
-          role_id: 'new-role-id',
-          role_name: 'Supervisor',
-          role_color: '#8B5CF6',
-          role_icon: 'user-check',
-          role_level: 70,
-          permission_overrides: null,
-          panel_permissions: '{}',
-          resource_permissions: [],
-          is_active: true,
-          expires_at: null,
-          created_at: new Date(),
-          assigned_by: ADMIN_USER_ID,
-        }]); // getUserRoleAssignment
+        .mockResolvedValueOnce([
+          {
+            id: 'assignment-1',
+            user_id: USER_ID,
+            role_id: 'new-role-id',
+            role_name: 'Supervisor',
+            role_color: '#8B5CF6',
+            role_icon: 'user-check',
+            role_level: 70,
+            permission_overrides: null,
+            panel_permissions: '{}',
+            resource_permissions: [],
+            is_active: true,
+            expires_at: null,
+            created_at: new Date(),
+            assigned_by: ADMIN_USER_ID,
+          },
+        ]); // getUserRoleAssignment
       mockTenantRoleService.getRoleById.mockResolvedValue(
         createMockRoleWithDetails({ id: 'new-role-id', name: 'Supervisor' }),
       );
@@ -774,12 +757,7 @@ describe('TenantUserManagementService', () => {
         .mockResolvedValueOnce([{ id: 'a1', role_id: ROLE_ID }]) // existing (old role)
         .mockResolvedValueOnce([]); // UPDATE (inside transaction)
 
-      await service.updateTenantUser(
-        TENANT_ID,
-        USER_ID,
-        { roleId: 'new-role-id' },
-        ADMIN_USER_ID,
-      );
+      await service.updateTenantUser(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID);
 
       expect(mockDataSource.transaction).toHaveBeenCalled();
       // GROUND-TRUTH: the role-change UPDATE (2nd query, forwarded by the tx
@@ -855,12 +833,7 @@ describe('TenantUserManagementService', () => {
         .mockResolvedValueOnce([]) // no existing assignment (auth.* JOIN read)
         .mockResolvedValueOnce([{ id: 'new-assignment-id' }]); // INSERT...SELECT RETURNING id
 
-      await service.updateTenantUser(
-        TENANT_ID,
-        USER_ID,
-        { roleId: 'new-role-id' },
-        ADMIN_USER_ID,
-      );
+      await service.updateTenantUser(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID);
 
       expect(mockDataSource.transaction).toHaveBeenCalled();
       // The shared helper logs USER_ROLE_CHANGED with previousValue.roleId=null
@@ -899,7 +872,11 @@ describe('TenantUserManagementService', () => {
       const result = await service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
       expect(result).toBe(true);
-      expect(mockUserLifecycleService.deleteUser).toHaveBeenCalledWith(TENANT_ID, USER_ID, ADMIN_USER_ID);
+      expect(mockUserLifecycleService.deleteUser).toHaveBeenCalledWith(
+        TENANT_ID,
+        USER_ID,
+        ADMIN_USER_ID,
+      );
       expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
   });
@@ -1022,18 +999,20 @@ describe('TenantUserManagementService', () => {
   describe('getUserEffectivePermissions', () => {
     it('should return effective permissions for a user with active assignment', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{
-        user_id: USER_ID,
-        role_id: ROLE_ID,
-        role_name: 'Operator',
-        role_color: '#10B981',
-        role_icon: 'activity',
-        role_level: 30,
-        permission_overrides: JSON.stringify({ grants: ['sensors:configure'], revokes: [] }),
-        panel_permissions: JSON.stringify({ farm: { sites: { view: true } } }),
-        resource_permissions: ['sites:view', 'sensors:view'],
-        is_active: true,
-      }]);
+      mockDataSource.query.mockResolvedValueOnce([
+        {
+          user_id: USER_ID,
+          role_id: ROLE_ID,
+          role_name: 'Operator',
+          role_color: '#10B981',
+          role_icon: 'activity',
+          role_level: 30,
+          permission_overrides: JSON.stringify({ grants: ['sensors:configure'], revokes: [] }),
+          panel_permissions: JSON.stringify({ farm: { sites: { view: true } } }),
+          resource_permissions: ['sites:view', 'sensors:view'],
+          is_active: true,
+        },
+      ]);
 
       const result = await service.getUserEffectivePermissions(TENANT_ID, USER_ID);
 
@@ -1046,34 +1025,36 @@ describe('TenantUserManagementService', () => {
     it('should throw NotFoundException when user does not exist', async () => {
       userRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.getUserEffectivePermissions(TENANT_ID, 'non-existent'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getUserEffectivePermissions(TENANT_ID, 'non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw NotFoundException when no active assignment', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
       mockDataSource.query.mockResolvedValueOnce([]); // no active assignment
 
-      await expect(
-        service.getUserEffectivePermissions(TENANT_ID, USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getUserEffectivePermissions(TENANT_ID, USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should handle null permission_overrides gracefully', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{
-        user_id: USER_ID,
-        role_id: ROLE_ID,
-        role_name: 'Viewer',
-        role_color: '#6B7280',
-        role_icon: 'eye',
-        role_level: 10,
-        permission_overrides: null,
-        panel_permissions: null,
-        resource_permissions: ['sites:view'],
-        is_active: true,
-      }]);
+      mockDataSource.query.mockResolvedValueOnce([
+        {
+          user_id: USER_ID,
+          role_id: ROLE_ID,
+          role_name: 'Viewer',
+          role_color: '#6B7280',
+          role_icon: 'eye',
+          role_level: 10,
+          permission_overrides: null,
+          panel_permissions: null,
+          resource_permissions: ['sites:view'],
+          is_active: true,
+        },
+      ]);
 
       const result = await service.getUserEffectivePermissions(TENANT_ID, USER_ID);
 
@@ -1083,18 +1064,20 @@ describe('TenantUserManagementService', () => {
 
     it('should handle string-formatted permission_overrides', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValueOnce([{
-        user_id: USER_ID,
-        role_id: ROLE_ID,
-        role_name: 'Operator',
-        role_color: '#10B981',
-        role_icon: 'activity',
-        role_level: 30,
-        permission_overrides: '{"grants":["tanks:edit"],"revokes":["sensors:view"]}',
-        panel_permissions: '{"farm":{"sites":{"view":true}}}',
-        resource_permissions: ['sites:view', 'sensors:view'],
-        is_active: true,
-      }]);
+      mockDataSource.query.mockResolvedValueOnce([
+        {
+          user_id: USER_ID,
+          role_id: ROLE_ID,
+          role_name: 'Operator',
+          role_color: '#10B981',
+          role_icon: 'activity',
+          role_level: 30,
+          permission_overrides: '{"grants":["tanks:edit"],"revokes":["sensors:view"]}',
+          panel_permissions: '{"farm":{"sites":{"view":true}}}',
+          resource_permissions: ['sites:view', 'sensors:view'],
+          is_active: true,
+        },
+      ]);
 
       const result = await service.getUserEffectivePermissions(TENANT_ID, USER_ID);
 
@@ -1128,11 +1111,8 @@ describe('TenantUserManagementService', () => {
         'user-c': null,
         [ADMIN_USER_ID]: adminActor,
       };
-      userRepository.findOne.mockImplementation(
-        (opts) =>
-          Promise.resolve(
-            usersById[(opts as { where: { id: string } }).where.id] ?? null,
-          ),
+      userRepository.findOne.mockImplementation((opts) =>
+        Promise.resolve(usersById[(opts as { where: { id: string } }).where.id] ?? null),
       );
 
       // user-a + user-b each: [no-existing, INSERT]; user-c never reaches the
@@ -1171,18 +1151,20 @@ describe('TenantUserManagementService', () => {
   describe('Tenant Isolation', () => {
     it('should always scope user lookup by tenantId', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
-      mockDataSource.query.mockResolvedValue([{
-        user_id: USER_ID,
-        role_id: ROLE_ID,
-        role_name: 'Operator',
-        role_color: '#10B981',
-        role_icon: 'activity',
-        role_level: 30,
-        permission_overrides: null,
-        panel_permissions: '{}',
-        resource_permissions: [],
-        is_active: true,
-      }]);
+      mockDataSource.query.mockResolvedValue([
+        {
+          user_id: USER_ID,
+          role_id: ROLE_ID,
+          role_name: 'Operator',
+          role_color: '#10B981',
+          role_icon: 'activity',
+          role_level: 30,
+          permission_overrides: null,
+          panel_permissions: '{}',
+          resource_permissions: [],
+          is_active: true,
+        },
+      ]);
 
       await service.getUserEffectivePermissions(TENANT_ID, USER_ID);
 
@@ -1195,18 +1177,20 @@ describe('TenantUserManagementService', () => {
       const otherTenantId = '22222222-2222-2222-2222-222222222222';
 
       userRepository.findOne.mockResolvedValue(createMockUser({ tenantId: otherTenantId }));
-      mockDataSource.query.mockResolvedValue([{
-        user_id: USER_ID,
-        role_id: ROLE_ID,
-        role_name: 'Op',
-        role_color: '#10B981',
-        role_icon: 'activity',
-        role_level: 30,
-        permission_overrides: null,
-        panel_permissions: '{}',
-        resource_permissions: [],
-        is_active: true,
-      }]);
+      mockDataSource.query.mockResolvedValue([
+        {
+          user_id: USER_ID,
+          role_id: ROLE_ID,
+          role_name: 'Op',
+          role_color: '#10B981',
+          role_icon: 'activity',
+          role_level: 30,
+          permission_overrides: null,
+          panel_permissions: '{}',
+          resource_permissions: [],
+          is_active: true,
+        },
+      ]);
 
       await service.getUserEffectivePermissions(otherTenantId, USER_ID);
 

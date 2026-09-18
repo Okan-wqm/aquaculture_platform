@@ -337,7 +337,11 @@ function findControllerFiles(dir: string): string[] {
  * Frontend: /tenants/:param/notes/:param   (template literal'den normalize edilmis)
  * Backend:  /tenants/:id/notes/:noteId      (NestJS param dekoratoru)
  *
- * Her ikisinde de :xxx segmentleri parametre olarak kabul edilir.
+ * Bir segment ya her iki tarafta da parametredir ya da her iki tarafta da
+ * AYNI literal'dir. Frontend literal'inin backend parametresine eslesmesi
+ * (`/jobs/scheduled` ↔ `/jobs/:id`) bir eslesme DEGIL, tam olarak ADMIN-HIGH-011'in
+ * "route shadowing" hatasidir: istek `:id` handler'ina duser ve `scheduled`
+ * bir kimlik gibi islenir. Bu fonksiyon o durumu artik gecirmez.
  */
 function matchPath(frontendUrl: string, backendPath: string): boolean {
   const feParts = frontendUrl.split('/').filter(Boolean);
@@ -348,17 +352,12 @@ function matchPath(frontendUrl: string, backendPath: string): boolean {
   for (let i = 0; i < feParts.length; i++) {
     const fe = feParts[i]!;
     const be = beParts[i]!;
+    const feIsParam = fe.startsWith(':');
+    const beIsParam = be.startsWith(':');
 
-    // Her ikisi de parametre ise eslestir
-    if (fe.startsWith(':') && be.startsWith(':')) continue;
+    if (feIsParam && beIsParam) continue;
+    if (!feIsParam && !beIsParam && fe === be) continue;
 
-    // Birisi parametre, digeri statik ise eslestir (frontend :param, backend :id gibi)
-    if (fe.startsWith(':') || be.startsWith(':')) continue;
-
-    // Statik segmentler eslesiyorsa devam
-    if (fe === be) continue;
-
-    // Eslesmiyor
     return false;
   }
 
@@ -512,18 +511,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending',
   },
 
-  // Database backup frontend expects different paths
-  {
-    url: '/database/backups/schedule',
-    method: 'POST',
-    reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)',
-  },
-  {
-    url: '/database/backups/:param/restore',
-    method: 'POST',
-    reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST',
-  },
-
   // Security activities export - frontend uses GET with query, backend uses POST
   {
     url: '/security/activities/export',
@@ -603,25 +590,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     url: '/security/monitoring/health-score',
     method: 'GET',
     reason: 'Backend uses /security/monitoring/health-score (matches)',
-  },
-
-  // Impersonation permissions check via query params
-  {
-    url: '/impersonation/permissions/check',
-    method: 'GET',
-    reason: 'Backend uses /impersonation/permissions/:superAdminId/check/:tenantId',
-  },
-
-  // Impersonation sessions actions (frontend uses /actions, backend uses /log-action)
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'GET',
-    reason: 'No GET actions endpoint; actions are write-only',
-  },
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'POST',
-    reason: 'Backend uses /sessions/:id/log-action',
   },
 
   // Feature toggle key lookup
@@ -860,8 +828,6 @@ describe('Frontend-Backend Contract Validation', () => {
     { domain: 'reports', description: 'Reports API' },
     { domain: 'support', description: 'Support API' },
     { domain: 'settings', description: 'Settings API' },
-    { domain: 'impersonation', description: 'Impersonation API' },
-    { domain: 'debug', description: 'Debug Tools API' },
     { domain: 'security', description: 'Security API' },
     { domain: 'health', description: 'Health API' },
     { domain: 'database', description: 'Database Management API' },
@@ -924,19 +890,6 @@ describe('Frontend-Backend Contract Validation', () => {
       );
       expect(be).toBeDefined();
     });
-
-    it('impersonation revoke should use /terminate path', () => {
-      // H21 fix: frontend revokeSession -> /impersonation/sessions/:id/terminate
-      const fe = frontendEndpoints.find(
-        (e) => e.url === '/impersonation/sessions/:param/terminate' && e.method === 'POST',
-      );
-      expect(fe).toBeDefined();
-
-      const be = backendEndpoints.find(
-        (e) => matchPath(e.path, '/impersonation/sessions/:id/terminate') && e.method === 'POST',
-      );
-      expect(be).toBeDefined();
-    });
   });
 
   // --------------------------------------------------------------------------
@@ -990,7 +943,65 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    // 601: was 603 (+1 for GET /billing/payments/stats, ADMIN-HIGH-008; -1 for
+    // GET /impersonation/stats, deleted as the all-time twin of
+    // GET /impersonation/audit/summary, ADMIN-MEDIUM-084 — the two messaging
+    // endpoints touched by #962 already existed as 501 throws, so the route
+    // count did not move for them). -2 for the two
+    // `/security/activities/sessions/user/:userId*` routes, which read and
+    // wrote `admin.user_sessions`, a table this service never populated: the
+    // read always answered `[]` and the terminate always answered
+    // `{ terminated: 0 }` while every real session stayed live. Session state
+    // is auth-service's, reachable at GET /users/:id/sessions and
+    // PATCH /users/:id/force-logout (ADMIN-HIGH-100).
+    // 590: -11 for the /database/backups surface, deleted with the pg_dump
+    // backup subsystem WAL-G already replaced (INFRA-CRITICAL-164).
+    // 585: -5 for the runtime retention-policy CRUD, replaced by the
+    // registry's read-only view (DATA-CRITICAL-016).
+    // 539: -46 for the /impersonation/* and /debug-tools/* surfaces, deleted
+    // with the subsystem that had no consumer (SEC-CRITICAL-162). The audit
+    // wave counted 47 there; main had already deleted GET /impersonation/stats
+    // as the all-time twin of the audit summary (ADMIN-MEDIUM-084), so one of
+    // the 47 was gone before this branch touched it.
+    // 538: -1 for POST /security/activities, whose body named the actor
+    // through userId / userName / userEmail / ipAddress (ADMIN-CRITICAL-102).
+    // 526: -12 for the twelve routes of the settings IP allow-list surface,
+    // deleted with both access-rule stacks — the admin-api CRUD wrote a table
+    // no guard read, and the gateway guard was registered nowhere
+    // (SEC-HIGH-165).
+    // 529: +3 for the platform-capability grant surface, which narrows the
+    // SUPER_ADMIN bit to named capabilities (SEC-HIGH-164).
+    // 463: -66 for every route that existed only to refuse — the
+    // tenant-configuration stack, the system-settings writers, the
+    // global-config CRUD, the 409 subscription/schema/migration refusals and
+    // the 501 tenant-limit query, deleted with their service methods, DTOs,
+    // clients and page controls (ADMIN-HIGH-106). The two messaging 501s the
+    // audit counted here are NOT in that number: main answered them with real
+    // cross-tenant aggregates before this landed (ADMIN-HIGH-009), and a route
+    // that returns real data is not a stub.
+    // 462: -1 for POST /billing/plans/seed. Seeding the plan catalogue is
+    // billing's own boot-time concern once `billing.plans` is the only
+    // catalogue, not an admin route (ADR-0013 / BILLING-CRITICAL-011). The
+    // discount and module-price surfaces moved in the same wave and are NOT in
+    // this number: their rows moved to billing, but admin-api keeps every route
+    // — it reads the rows read-only and forwards each write as a command, so
+    // the operator surface is unchanged and only its backing store moved.
+    // 461: -1 for POST /security/monitoring/analyze/login. Anomaly detection
+    // ran only when a SUPER_ADMIN pressed a button; it now runs from the
+    // `events.security.events.auth.login.*` stream on every real attempt, so
+    // the route had nothing left to trigger (ADMIN-HIGH-109).
+    // 460: -1 for POST /system/errors/report, whose replacement is the
+    // `events.*.ServiceErrorCaptured` stream every service publishes: a defect
+    // reaches the store because it happened, not because something remembered
+    // to POST it. The audit wave counted -3 here, expecting to retire
+    // `admin.user_sessions`' two session routes in the same change; main had
+    // already deleted them (ADMIN-HIGH-100), so they are in the baseline and
+    // only this one moves.
+    // 459: -1 for POST /system/performance/metrics/request. `recordRequestMetric`
+    // drained an in-memory map nothing ever filled — the route had no caller and
+    // the RED data it duplicated is already in Prometheus, so it goes with the
+    // aggregation cron that read it (ADMIN-HIGH-109).
+    expect(count).toBe(459);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

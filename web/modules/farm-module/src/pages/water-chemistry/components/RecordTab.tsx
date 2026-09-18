@@ -70,11 +70,11 @@ export const RecordTab: React.FC = () => {
   );
 
   // ----- Derived data -----
-  const systems: System[] = systemsQuery.data?.items ?? [];
+  const systems: readonly System[] = systemsQuery.data?.items ?? [];
 
   // System filtering is now done server-side via { systemId } in the query filter
   // (see equipmentQuery above), so no client-side filter needed.
-  const filteredEquipment: Equipment[] = useMemo(
+  const filteredEquipment: readonly Equipment[] = useMemo(
     () => equipmentQuery.data?.items ?? [],
     [equipmentQuery.data],
   );

@@ -43,7 +43,11 @@ describe('jitteredBackoffDelay', () => {
 describe('isAuthDisconnectError', () => {
   it('classifies connect_error Errors carrying status tokens', () => {
     expect(isAuthDisconnectError(new Error('xhr poll error status 401'))).toBe(true);
-    expect(isAuthDisconnectError(Object.assign(new Error('handshake failed'), { description: 'code 4401' }))).toBe(true);
+    expect(
+      isAuthDisconnectError(
+        Object.assign(new Error('handshake failed'), { description: 'code 4401' }),
+      ),
+    ).toBe(true);
   });
 
   it('classifies the gateway in-band error envelopes (code or message)', () => {
@@ -64,31 +68,38 @@ describe('isAuthDisconnectError', () => {
 
 describe('gatewayHealthy', () => {
   it('probes GET /health/live with no-store and accepts only 2xx', async () => {
-    const fetchMock = vi.fn(() => new Response('ok', { status: 200 }));
-    await expect(gatewayHealthy(fetchMock as unknown as typeof fetch)).resolves.toBe(true);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    // Doubles are typed as `fetch` itself, so the probe's contract is checked.
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('ok', { status: 200 })),
+    );
+    await expect(gatewayHealthy(fetchMock)).resolves.toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/health/live');
     expect(init.method).toBe('GET');
     expect(init.cache).toBe('no-store');
 
-    const fiveHundred = vi.fn(() => new Response('down', { status: 503 }));
-    await expect(gatewayHealthy(fiveHundred as unknown as typeof fetch)).resolves.toBe(false);
+    const fiveHundred = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('down', { status: 503 })),
+    );
+    await expect(gatewayHealthy(fiveHundred)).resolves.toBe(false);
   });
 
   it('a hung gateway (no response within the timeout) counts as unhealthy', async () => {
-    const hanging = vi.fn(
-      (_url: string, init: RequestInit) =>
+    const hanging = vi.fn<typeof fetch>(
+      (_url, init) =>
         new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
         }),
     );
     const start = Date.now();
-    await expect(gatewayHealthy(hanging as unknown as typeof fetch)).resolves.toBe(false);
+    await expect(gatewayHealthy(hanging)).resolves.toBe(false);
     expect(Date.now() - start).toBeGreaterThanOrEqual(HEALTH_PROBE_TIMEOUT_MS - 50);
   });
 
   it('a rejected fetch (network down) counts as unhealthy without throwing', async () => {
-    const rejecting = vi.fn(() => Promise.reject(new TypeError('fetch failed')));
-    await expect(gatewayHealthy(rejecting as unknown as typeof fetch)).resolves.toBe(false);
+    const rejecting = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('fetch failed')));
+    await expect(gatewayHealthy(rejecting)).resolves.toBe(false);
   });
 });

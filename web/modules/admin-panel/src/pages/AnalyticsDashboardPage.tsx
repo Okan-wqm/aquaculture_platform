@@ -7,11 +7,13 @@
  */
 
 import { Card, Button } from '@aquaculture/shared-ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { adminRoutes } from '../routes/adminRoutes';
 import { analyticsApi, systemApi } from '../services/adminApi';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
 
 // ============================================================================
 // Types
@@ -104,72 +106,28 @@ type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
 type AnalyticsGranularity = 'day' | 'week' | 'month';
 
 // ============================================================================
-// Default Data Structure
+// Unknown vs zero (ADMIN-HIGH-125)
 // ============================================================================
 
-// Default empty data structure
-const getDefaultData = (): DashboardSummary => ({
-  tenants: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    trial: 0,
-    suspended: 0,
-    newThisMonth: 0,
-    churnedThisMonth: 0,
-    churnRate: 0,
-    growthRate: 0,
-    byPlan: {},
-    byRegion: {},
-  },
-  users: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    newThisMonth: 0,
-    activeLastDay: 0,
-    activeLastWeek: 0,
-    activeLastMonth: 0,
-    growthRate: 0,
-    avgUsersPerTenant: 0,
-    byRole: {},
-  },
-  financial: {
-    mrr: 0,
-    arr: 0,
-    arpu: 0,
-    arppu: 0,
-    ltv: 0,
-    totalRevenue: 0,
-    revenueThisMonth: 0,
-    revenueGrowthRate: 0,
-    pendingPayments: 0,
-    overduePayments: 0,
-    refunds: 0,
-    byPlan: {},
-    byCurrency: {},
-  },
-  system: {
-    totalStorageBytes: 0,
-    usedStorageBytes: 0,
-    storageUtilization: 0,
-    apiCallsToday: 0,
-    apiCallsThisMonth: 0,
-    avgResponseTimeMs: 0,
-    errorRate: 0,
-    uptimePercent: 0,
-    activeConnections: 0,
-    queuedJobs: 0,
-  },
-  usage: {
-    moduleUsage: {},
-    featureAdoption: {},
-    topFeatures: [],
-    peakHours: [],
-    avgDailyActiveUsers: 0,
-  },
-  generatedAt: new Date().toISOString(),
-});
+/**
+ * There is no default dashboard.
+ *
+ * This page used to build one — `getDefaultData()`, roughly forty zeros
+ * including MRR, ARR, LTV, churn rate and uptime — and render it whenever
+ * `/analytics/dashboard` failed, with no banner of any kind. So a platform
+ * whose billing source was unreachable displayed $0 MRR, 0% churn and 0%
+ * uptime as measurements.
+ *
+ * The endpoint ALSO degrades per section: `unavailable: ['financial']` means
+ * the server substituted its own zeros for that section (see
+ * `analytics.service.ts#getDefaultFinancialMetrics`, tracked for W9). The page
+ * treats a section named there as unknown rather than rendering those zeros,
+ * so the server's own signal is load-bearing instead of a footnote.
+ */
+const UNKNOWN = '\u2014';
+
+const EMPTY_SERIES: TimeSeriesPoint[] = [];
+const EMPTY_SERVICES: Array<{ name: string; status: string }> = [];
 
 // ============================================================================
 // KPI Card Component
@@ -381,101 +339,110 @@ const DonutChart: React.FC<DonutChartProps> = ({
 // ============================================================================
 
 const AnalyticsDashboardPage: React.FC = () => {
-  const [data, setData] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsRange>('30d');
-  const [tenantTrend, setTenantTrend] = useState<TimeSeriesPoint[]>([]);
-  const [revenueTrend, setRevenueTrend] = useState<TimeSeriesPoint[]>([]);
-  const [userTrend, setUserTrend] = useState<TimeSeriesPoint[]>([]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const granularity: AnalyticsGranularity = selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
+  const granularity: AnalyticsGranularity =
+    selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
 
-      // Try to fetch from real API endpoints
-      const [dashboardResponse, systemHealthResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] = await Promise.allSettled([
-        analyticsApi.getDashboardSummary(),
-        systemApi.getServicesHealth(),
-        analyticsApi.getTenantGrowthTrend(selectedPeriod, granularity),
-        analyticsApi.getRevenueTrend(selectedPeriod, granularity),
-        analyticsApi.getUserActivity(selectedPeriod, granularity),
-      ]);
+  // ==========================================================================
+  // Five keyed reads (ADMIN-HIGH-121)
+  //
+  // They were one `Promise.allSettled` that mapped every rejection to a
+  // zero-filled dashboard and an empty series, so a failure was
+  // indistinguishable from a quiet platform. Each read is now its own cache
+  // entry, forwards its `AbortSignal`, and reports its own failure.
+  // ==========================================================================
 
-      // Process dashboard data
-      let dashboardData = getDefaultData();
-      if (dashboardResponse.status === 'fulfilled' && dashboardResponse.value) {
-        // Map API response to our DashboardSummary type
-        const apiData = dashboardResponse.value as Partial<DashboardSummary>;
-        dashboardData = {
-          ...dashboardData,
-          ...apiData,
-          generatedAt: new Date().toISOString(),
-        };
-      }
+  const summaryQuery = useAdminQuery(
+    [...adminKeys.system.analytics(), 'summary'],
+    ({ signal }) => analyticsApi.getDashboardSummary(signal),
+  );
 
-      // Enhance with system health data if available
-      if (systemHealthResponse.status === 'fulfilled' && systemHealthResponse.value) {
-        const services = systemHealthResponse.value as Array<{ name: string; status: string }>;
-        const healthyServices = services.filter(s => s.status === 'healthy').length;
-        const totalServices = services.length;
-        if (totalServices > 0) {
-          dashboardData.system.uptimePercent = Math.round((healthyServices / totalServices) * 100);
-        }
-      }
+  const servicesQuery = useAdminQuery(adminKeys.system.health(), ({ signal }) =>
+    systemApi.getServicesHealth(signal),
+  );
 
-      setData(dashboardData);
+  const tenantTrendQuery = useAdminQuery(
+    [...adminKeys.system.analytics(), 'tenant-growth', selectedPeriod, granularity],
+    ({ signal }) => analyticsApi.getTenantGrowthTrend(selectedPeriod, granularity, signal),
+  );
 
-      // Process tenant growth trend
-      if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
-        const responseData = tenantTrendResponse.value;
-        setTenantTrend(Array.isArray(responseData.data) ? responseData.data : []);
-      } else {
-        setTenantTrend([]);
-      }
+  const revenueTrendQuery = useAdminQuery(
+    [...adminKeys.system.analytics(), 'revenue-trend', selectedPeriod, granularity],
+    ({ signal }) => analyticsApi.getRevenueTrend(selectedPeriod, granularity, signal),
+  );
 
-      // Process revenue trend
-      if (revenueTrendResponse.status === 'fulfilled' && revenueTrendResponse.value) {
-        const responseData = revenueTrendResponse.value;
-        setRevenueTrend(Array.isArray(responseData.data) ? responseData.data : []);
-      } else {
-        setRevenueTrend([]);
-      }
+  const userTrendQuery = useAdminQuery(
+    [...adminKeys.system.analytics(), 'user-activity', selectedPeriod, granularity],
+    ({ signal }) => analyticsApi.getUserActivity(selectedPeriod, granularity, signal),
+  );
 
-      if (userActivityResponse.status === 'fulfilled' && userActivityResponse.value) {
-        setUserTrend(Array.isArray(userActivityResponse.value.data) ? userActivityResponse.value.data : []);
-      } else {
-        setUserTrend([]);
-      }
-    } catch {
-      // Set default empty data on error
-      setData(getDefaultData());
-      setTenantTrend([]);
-      setRevenueTrend([]);
-      setUserTrend([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedPeriod]);
+  const data = summaryQuery.data ?? null;
+  const tenantTrend: TimeSeriesPoint[] = tenantTrendQuery.data?.data ?? EMPTY_SERIES;
+  const revenueTrend: TimeSeriesPoint[] = revenueTrendQuery.data?.data ?? EMPTY_SERIES;
+  const userTrend: TimeSeriesPoint[] = userTrendQuery.data?.data ?? EMPTY_SERIES;
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const queries = [
+    summaryQuery,
+    servicesQuery,
+    tenantTrendQuery,
+    revenueTrendQuery,
+    userTrendQuery,
+  ];
+  const queryErrors = queries.map((query) => query.error);
+  const loading = summaryQuery.isPending;
 
-  const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
+  const loadData = (): void => {
+    for (const query of queries) void query.refetch();
   };
 
-  const formatNumber = (value: number): string => {
-    return new Intl.NumberFormat('en-US').format(value);
-  };
+  /**
+   * A section the server could not compute (`unavailable: ['financial']`) is
+   * UNKNOWN, not zero — the endpoint substitutes its own zeros for it, and
+   * rendering those as measurements is the same lie one layer down.
+   */
+  const section = <T,>(name: string, value: T | undefined): T | null =>
+    value === undefined || (data?.unavailable?.includes(name) ?? false) ? null : value;
 
-  const formatBytes = (bytes: number): string => {
+  const tenants = section('tenants', data?.tenants);
+  const users = section('users', data?.users);
+  const financial = section('financial', data?.financial);
+  const usage = section('usage', data?.usage);
+
+  /**
+   * Uptime is the share of services reporting healthy, and it only exists when
+   * the health read answered with at least one service. The old code left the
+   * summary's own `system.uptimePercent` — a zero — in place otherwise.
+   */
+  const services = servicesQuery.data ?? EMPTY_SERVICES;
+  const uptimePercent: number | null =
+    services.length > 0
+      ? Math.round((services.filter((s) => s.status === 'healthy').length / services.length) * 100)
+      : null;
+
+  const system = section('system', data?.system);
+
+  const formatCurrency = (value: number | null | undefined): string =>
+    value === null || value === undefined
+      ? UNKNOWN
+      : new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        }).format(value);
+
+  const formatNumber = (value: number | null | undefined): string =>
+    value === null || value === undefined ? UNKNOWN : new Intl.NumberFormat('en-US').format(value);
+
+  const formatPercent = (value: number | null | undefined, digits = 0): string =>
+    value === null || value === undefined ? UNKNOWN : `${value.toFixed(digits)}%`;
+
+  const formatMs = (value: number | null | undefined): string =>
+    value === null || value === undefined ? UNKNOWN : `${value}ms`;
+
+  const formatBytes = (bytes: number | null | undefined): string => {
+    if (bytes === null || bytes === undefined) return UNKNOWN;
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let unitIndex = 0;
     let value = bytes;
@@ -486,12 +453,21 @@ const AnalyticsDashboardPage: React.FC = () => {
     return `${value.toFixed(1)} ${units[unitIndex]}`;
   };
 
-  if (loading || !data) {
+  /** An arrow only means something when there is a number behind it. */
+  const trendOf = (change: number | null | undefined): 'up' | 'down' | 'stable' | undefined =>
+    change === null || change === undefined ? undefined : change > 0 ? 'up' : change < 0 ? 'down' : 'stable';
+
+  if (loading && data === null) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
+  }
+
+  // Nothing to show: the summary is what every panel below reads from.
+  if (data === null) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
   return (
@@ -529,9 +505,14 @@ const AnalyticsDashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* A read that failed, named — the page used to render a zero-filled
+          dashboard for it and say nothing (ADMIN-HIGH-125). */}
+      <QueryFailureNotice errors={queryErrors} hasContent onRetry={loadData} />
+
       {data.unavailable && data.unavailable.length > 0 && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-          Partial analytics data: {data.unavailable.join(', ')}
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800" role="status">
+          The server could not compute these sections, so their cards read
+          {' '}{UNKNOWN}: {data.unavailable.join(', ')}
         </div>
       )}
 
@@ -539,10 +520,10 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Tenants"
-          value={formatNumber(data.tenants.total)}
-          subtitle={`${data.tenants.active} aktif`}
-          change={data.tenants.growthRate}
-          trend="up"
+          value={formatNumber(tenants?.total)}
+          subtitle={`${formatNumber(tenants?.active)} aktif`}
+          change={tenants?.growthRate ?? undefined}
+          trend={trendOf(tenants?.growthRate)}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -552,9 +533,9 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Total Users"
-          value={formatNumber(data.users.total)}
-          subtitle={`${formatNumber(data.users.activeLastDay)} DAU`}
-          change={data.users.growthRate}
+          value={formatNumber(users?.total)}
+          subtitle={`${formatNumber(users?.activeLastDay)} DAU`}
+          change={users?.growthRate ?? undefined}
           trend="up"
           color="green"
           icon={
@@ -565,9 +546,9 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="MRR"
-          value={formatCurrency(data.financial.mrr)}
-          subtitle={`ARR: ${formatCurrency(data.financial.arr)}`}
-          change={data.financial.revenueGrowthRate}
+          value={formatCurrency(financial?.mrr)}
+          subtitle={`ARR: ${formatCurrency(financial?.arr)}`}
+          change={financial?.revenueGrowthRate ?? undefined}
           trend="up"
           color="purple"
           icon={
@@ -578,8 +559,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Uptime"
-          value={`${data.system.uptimePercent}%`}
-          subtitle={`Error rate: ${data.system.errorRate}%`}
+          value={formatPercent(uptimePercent)}
+          subtitle={`Error rate: ${formatPercent(system?.errorRate, 2)}`}
           trend="stable"
           color="orange"
           icon={
@@ -594,7 +575,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="ARPU"
-          value={formatCurrency(data.financial.arpu)}
+          value={formatCurrency(financial?.arpu)}
           subtitle="Revenue per user"
           color="indigo"
           icon={
@@ -605,8 +586,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Churn Rate"
-          value={`${data.tenants.churnRate}%`}
-          subtitle={`${data.tenants.churnedThisMonth} churned this month`}
+          value={formatPercent(tenants?.churnRate, 1)}
+          subtitle={`${formatNumber(tenants?.churnedThisMonth)} churned this month`}
           change={-0.5}
           trend="down"
           color="red"
@@ -618,8 +599,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="Bekleyen Odemeler"
-          value={formatCurrency(data.financial.pendingPayments)}
-          subtitle={`${formatCurrency(data.financial.overduePayments)} overdue`}
+          value={formatCurrency(financial?.pendingPayments)}
+          subtitle={`${formatCurrency(financial?.overduePayments)} overdue`}
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -629,8 +610,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         />
         <KpiCard
           title="API Calls (Today)"
-          value={formatNumber(data.system.apiCallsToday)}
-          subtitle={`Avg: ${data.system.avgResponseTimeMs}ms`}
+          value={formatNumber(system?.apiCallsToday)}
+          subtitle={`Avg: ${formatMs(system?.avgResponseTimeMs)}`}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -653,8 +634,8 @@ const AnalyticsDashboardPage: React.FC = () => {
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Bu ay: +{data.tenants.newThisMonth}</span>
-            <span className="text-green-600 font-medium">+{data.tenants.growthRate}%</span>
+            <span className="text-gray-500">Bu ay: {formatNumber(tenants?.newThisMonth)}</span>
+            <span className="text-green-600 font-medium">{formatPercent(tenants?.growthRate, 1)}</span>
           </div>
         </Card>
 
@@ -669,8 +650,8 @@ const AnalyticsDashboardPage: React.FC = () => {
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">MRR: {formatCurrency(data.financial.mrr)}</span>
-            <span className="text-green-600 font-medium">+{data.financial.revenueGrowthRate}%</span>
+            <span className="text-gray-500">MRR: {formatCurrency(financial?.mrr)}</span>
+            <span className="text-green-600 font-medium">{formatPercent(financial?.revenueGrowthRate, 1)}</span>
           </div>
         </Card>
 
@@ -684,7 +665,7 @@ const AnalyticsDashboardPage: React.FC = () => {
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">DAU: {formatNumber(data.users.activeLastDay)}</span>
+            <span className="text-gray-500">DAU: {formatNumber(users?.activeLastDay)}</span>
           </div>
         </Card>
       </div>
@@ -696,12 +677,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <DonutChart
               data={[
-                { label: 'Enterprise', value: data.tenants.byPlan.enterprise || 0, color: '#8B5CF6' },
-                { label: 'Professional', value: data.tenants.byPlan.professional || 0, color: '#10B981' },
-                { label: 'Starter', value: data.tenants.byPlan.starter || 0, color: '#3B82F6' },
-                { label: 'Trial', value: data.tenants.byPlan.trial || 0, color: '#F59E0B' },
+                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: '#8B5CF6' },
+                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: '#10B981' },
+                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: '#3B82F6' },
+                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: '#F59E0B' },
               ]}
-              centerValue={data.tenants.total.toString()}
+              centerValue={formatNumber(tenants?.total)}
               centerLabel="Total"
             />
             <div className="flex-1 ml-8 space-y-3">
@@ -710,28 +691,28 @@ const AnalyticsDashboardPage: React.FC = () => {
                   <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
                   <span className="text-sm text-gray-600">Enterprise</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.enterprise || 0}</span>
+                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.enterprise ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
                   <span className="text-sm text-gray-600">Professional</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.professional || 0}</span>
+                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.professional ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
                   <span className="text-sm text-gray-600">Starter</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.starter || 0}</span>
+                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.starter ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
                   <span className="text-sm text-gray-600">Trial</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.trial || 0}</span>
+                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.trial ?? 0) : null)}</span>
               </div>
             </div>
           </div>
@@ -742,24 +723,24 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="h-40">
             <BarChart
               data={[
-                { label: 'Starter', value: data.financial.byPlan.starter || 0 },
-                { label: 'Professional', value: data.financial.byPlan.professional || 0 },
-                { label: 'Enterprise', value: data.financial.byPlan.enterprise || 0 },
+                { label: 'Starter', value: financial?.byPlan?.starter || 0 },
+                { label: 'Professional', value: financial?.byPlan?.professional || 0 },
+                { label: 'Enterprise', value: financial?.byPlan?.enterprise || 0 },
               ]}
               maxHeight={120}
             />
           </div>
           <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.starter || 0)}</p>
+              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}</p>
               <p className="text-xs text-gray-500">Starter</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.professional || 0)}</p>
+              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.professional ?? 0) : null)}</p>
               <p className="text-xs text-gray-500">Professional</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.enterprise || 0)}</p>
+              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.enterprise ?? 0) : null)}</p>
               <p className="text-xs text-gray-500">Enterprise</p>
             </div>
           </div>
@@ -770,14 +751,14 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Module Usage */}
         <Card title="Module Usage">
-          {Object.keys(data.usage.moduleUsage).length === 0 && (
+          {Object.keys(usage?.moduleUsage ?? {}).length === 0 && (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-gray-500">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
-            {Object.entries(data.usage.moduleUsage).map(([module, stats]) => {
-              const percentage = data.users.active > 0 ? Math.round((stats.activeUsers / data.users.active) * 100) : 0;
+            {Object.entries(usage?.moduleUsage ?? {}).map(([module, stats]) => {
+              const percentage = users && users.active > 0 ? Math.round((stats.activeUsers / users.active) * 100) : 0;
               return (
                 <div key={module}>
                   <div className="flex justify-between mb-1">
@@ -800,13 +781,13 @@ const AnalyticsDashboardPage: React.FC = () => {
 
         {/* Feature Adoption */}
         <Card title="Feature Adoption">
-          {data.usage.topFeatures.length === 0 && (
+          {(usage?.topFeatures.length ?? 0) === 0 && (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-gray-500">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
-            {data.usage.topFeatures.map((feature) => (
+            {(usage?.topFeatures ?? []).map((feature) => (
               <div key={feature.feature}>
                 <div className="flex justify-between mb-1">
                   <span className="text-sm font-medium text-gray-700">{feature.feature}</span>
@@ -828,27 +809,27 @@ const AnalyticsDashboardPage: React.FC = () => {
       <Card title="System Metrics">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.uptimePercent}%</p>
+            <p className="text-2xl font-bold text-gray-900">{formatPercent(uptimePercent)}</p>
             <p className="text-xs text-gray-500 mt-1">Uptime</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.avgResponseTimeMs}ms</p>
+            <p className="text-2xl font-bold text-gray-900">{formatMs(system?.avgResponseTimeMs)}</p>
             <p className="text-xs text-gray-500 mt-1">Avg Response</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.errorRate}%</p>
+            <p className="text-2xl font-bold text-gray-900">{formatPercent(system?.errorRate, 2)}</p>
             <p className="text-xs text-gray-500 mt-1">Error Rate</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatBytes(data.system.usedStorageBytes)}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatBytes(system?.usedStorageBytes)}</p>
             <p className="text-xs text-gray-500 mt-1">Storage Used</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.activeConnections}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatNumber(system?.activeConnections)}</p>
             <p className="text-xs text-gray-500 mt-1">Active Connections</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.queuedJobs}</p>
+            <p className="text-2xl font-bold text-gray-900">{formatNumber(system?.queuedJobs)}</p>
             <p className="text-xs text-gray-500 mt-1">Queued Jobs</p>
           </div>
         </div>
@@ -857,11 +838,15 @@ const AnalyticsDashboardPage: React.FC = () => {
       {/* Regional Distribution */}
       <Card title="Bolgesel Dagilim">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {Object.entries(data.tenants.byRegion).map(([region, count]) => (
+          {Object.entries(tenants?.byRegion ?? {}).map(([region, count]) => (
             <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
               <p className="text-3xl font-bold text-gray-900">{count}</p>
               <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-500">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
+              <p className="text-xs text-gray-500">
+                {tenants && tenants.total > 0
+                  ? formatPercent((count / tenants.total) * 100, 1)
+                  : UNKNOWN}
+              </p>
             </div>
           ))}
         </div>

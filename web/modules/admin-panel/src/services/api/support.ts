@@ -13,7 +13,8 @@ import type {
   TicketStatus,
   TicketPriority,
   TicketCategory,
-  MessageThread,
+  MessageThreadSummary,
+  SupportThreadRecord,
   SupportMessage,
   Announcement,
   OnboardingStep,
@@ -33,7 +34,7 @@ export const supportApi = {
     apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
   getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
   getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
-  createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string; createdBy: string }) =>
+  createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string }) =>
     apiFetch<SupportTicket>('/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
   // Fix: backend uses PUT (not PATCH)
   updateTicket: (id: string, data: Partial<{ status: TicketStatus; priority: TicketPriority; assignedTo: string; tags: string[] }>) =>
@@ -63,18 +64,26 @@ export const supportApi = {
   getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
     apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
-  updateTicketStatus: (ticketId: string, status: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/status`, { method: 'POST', body: JSON.stringify({ status, changedByName }) }),
-  updateTicketPriority: (ticketId: string, priority: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority, changedByName }) }),
+  updateTicketStatus: (ticketId: string, status: string) =>
+    apiFetch<unknown>(`/support/tickets/${ticketId}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  updateTicketPriority: (ticketId: string, priority: string) =>
+    apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority }) }),
 
   // Messaging - Backend: /support/messages
+  // The list returns MessagingService.getAllThreads's projection, not the
+  // thread row and not the GraphQL shape (ADMIN-HIGH-110).
   getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MessageThread>>(`/support/messages/threads?${buildQueryString(params || {})}`),
-  getThread: (threadId: string) => apiFetch<MessageThread>(`/support/messages/threads/${threadId}`),
+    apiFetch<PaginatedResult<MessageThreadSummary>>(
+      `/support/messages/threads?${buildQueryString(params || {})}`,
+    ),
+  getThread: (threadId: string) =>
+    apiFetch<SupportThreadRecord>(`/support/messages/threads/${threadId}`),
   getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
   createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<MessageThread>('/support/messages/threads', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<SupportThreadRecord>('/support/messages/threads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
     apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
   markAsRead: (threadId: string) =>
@@ -111,9 +120,13 @@ export const supportApi = {
     apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
 
   // Onboarding - Backend: /support/onboarding
-  getOnboardingSteps: () => apiFetch<OnboardingStep[]>('/support/onboarding/steps'),
-  getTenantOnboardings: (params?: { status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<TenantOnboarding>>(`/support/onboarding?${buildQueryString(params || {})}`),
+  getOnboardingSteps: (signal?: AbortSignal) =>
+    apiFetch<OnboardingStep[]>('/support/onboarding/steps', { signal }),
+  getTenantOnboardings: (params?: { status?: string } & PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<TenantOnboarding>>(
+      `/support/onboarding?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getTenantOnboarding: (tenantId: string) => apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}`),
   initializeOnboarding: (tenantId: string, tenantName: string) =>
     apiFetch<TenantOnboarding>('/support/onboarding/initialize', {
@@ -131,9 +144,31 @@ export const supportApi = {
       method: 'POST',
       body: JSON.stringify({ guideId, guideName })
     }),
-  getOnboardingStats: () =>
-    apiFetch<{ notStarted: number; inProgress: number; completed: number; stalled: number; avgCompletionDays: number }>('/support/onboarding/stats'),
+  /**
+   * The onboarding rollup, as the service actually returns it.
+   *
+   * This declared `stalled` — a field `getOnboardingStats` has never returned —
+   * and omitted `total`, `skipped`, `avgCompletionPercent` and
+   * `completionByStep`, which it does (ADMIN-HIGH-134). So the page's "Stalled"
+   * card read `undefined` on every load and its zero-default rendered `0`
+   * forever, while the page summed four fields to get a total the server was
+   * already sending.
+   */
+  getOnboardingStats: (signal?: AbortSignal) =>
+    apiFetch<{
+      total: number;
+      notStarted: number;
+      inProgress: number;
+      completed: number;
+      skipped: number;
+      avgCompletionPercent: number;
+      avgCompletionDays: number;
+      completionByStep: Record<string, number>;
+    }>('/support/onboarding/stats', { signal }),
   getTenantsNeedingAttention: () => apiFetch<TenantOnboarding[]>('/support/onboarding/needs-attention'),
-  getTrainingResources: (category?: string) =>
-    apiFetch<Array<{ id: string; title: string; type: string; category: string; url: string }>>(`/support/onboarding/resources/all${category ? `?category=${category}` : ''}`),
+  getTrainingResources: (category?: string, signal?: AbortSignal) =>
+    apiFetch<Array<{ id: string; title: string; type: string; category: string; url: string }>>(
+      `/support/onboarding/resources/all${category ? `?category=${category}` : ''}`,
+      { signal },
+    ),
 };

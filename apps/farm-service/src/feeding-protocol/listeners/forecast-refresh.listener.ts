@@ -20,8 +20,15 @@
  * @module FeedingProtocol/Listeners
  */
 import { isValidUUID } from '@aquaculture/backend-common/database';
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus } from '@platform/event-bus';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
+import { IEventBus, HandlerOutcome } from '@platform/event-bus';
 import type { BaseEvent, StockMovementRecordedEvent } from '@platform/event-contracts';
 
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
@@ -59,12 +66,10 @@ export class ForecastRefreshListener implements OnModuleInit, OnModuleDestroy {
     for (const eventType of SUBSCRIBED_EVENT_TYPES) {
       await this.eventBus.subscribeWildcard(eventType, {
         getEventType: (): string => eventType,
-        handle: async (event: BaseEvent): Promise<void> => this.onEvent(event),
+        handle: async (event: BaseEvent): Promise<HandlerOutcome> => this.onEvent(event),
       });
     }
-    this.logger.log(
-      `Forecast yenileme aboneliği kuruldu: ${SUBSCRIBED_EVENT_TYPES.join(', ')}`,
-    );
+    this.logger.log(`Forecast yenileme aboneliği kuruldu: ${SUBSCRIBED_EVENT_TYPES.join(', ')}`);
   }
 
   onModuleDestroy(): void {
@@ -86,10 +91,17 @@ export class ForecastRefreshListener implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  async onEvent(event: BaseEvent): Promise<void> {
-    if (!this.shouldRefresh(event)) return;
+  /**
+   * Debounce, then refresh. The refresh itself runs detached from the delivery
+   * on purpose (PLAT-HIGH-902 R7): its failure is not data loss — the 07:00
+   * cron regenerates the same snapshot — so the trigger is acknowledged once
+   * the debounce window is armed rather than held open for up to a minute
+   * against the consumer's ack_wait.
+   */
+  async onEvent(event: BaseEvent): Promise<HandlerOutcome> {
+    if (!this.shouldRefresh(event)) return HandlerOutcome.ack();
     const tenantId = event.tenantId as string;
-    if (this.pendingByTenant.has(tenantId)) return; // pencere zaten açık — birleştir
+    if (this.pendingByTenant.has(tenantId)) return HandlerOutcome.ack(); // pencere zaten açık — birleştir
     const timer = setTimeout(() => {
       this.pendingByTenant.delete(tenantId);
       void this.forecastService.refreshTenant(tenantId).catch((error: unknown) => {
@@ -103,5 +115,6 @@ export class ForecastRefreshListener implements OnModuleInit, OnModuleDestroy {
     // Testlerde/kapanışta process'i açık tutmasın.
     timer.unref?.();
     this.pendingByTenant.set(tenantId, timer);
+    return HandlerOutcome.ack();
   }
 }

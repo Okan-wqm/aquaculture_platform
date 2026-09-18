@@ -27,8 +27,8 @@ export {
 } from './useTenantRoles';
 
 export { useTenantAuditLog, auditLogKeys } from './useTenantAuditLog';
-export { useTenantBilling, billingKeys } from './useTenantBilling';
-export { useTenantActivity, activityKeys } from './useTenantActivity';
+export { useTenantBilling } from './useTenantBilling';
+export { useTenantActivity } from './useTenantActivity';
 
 export {
   canManageUserSiteAccess,

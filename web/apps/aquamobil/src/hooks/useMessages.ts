@@ -17,11 +17,7 @@
  * @returns isFetchingNextPage — true while loading older messages
  */
 
-import {
-  useInfiniteQuery,
-  type UseInfiniteQueryResult,
-  type InfiniteData,
-} from '@tanstack/react-query';
+import { useInfiniteQuery, type UseInfiniteQueryResult, type InfiniteData } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import { useAuth } from './useAuth';
@@ -32,7 +28,6 @@ import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage } from '@/types/messaging';
 import { logger } from '@/utils/logger';
 import { messagesQueryKey } from '@/utils/messaging-query-keys';
-import { flattenMessagePages } from '@/utils/messaging-helpers';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Messages per page (cursor-based). */
@@ -51,16 +46,19 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
  * @param cursor - Opaque pagination cursor (null for latest messages)
  * @returns MessagePage with items, hasMore, and next cursor
  */
-async function fetchMessages(channelId: string, cursor: string | null): Promise<MessagePage> {
+async function fetchMessages(
+  channelId: string,
+  cursor: string | null,
+): Promise<MessagePage> {
   const filter: Record<string, unknown> = { limit: PAGE_SIZE };
   if (cursor) {
     filter.cursor = cursor;
   }
 
-  const result = await graphqlRequest<{ messages: MessagePage }>(GET_MESSAGES, {
-    channelId,
-    filter,
-  });
+  const result = await graphqlRequest(
+    GET_MESSAGES,
+    { channelId, filter },
+  );
 
   if (!result.messages) {
     throw new Error('Invalid response: no messages data');
@@ -150,20 +148,29 @@ export function useMessages(
       }
     },
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage: MessagePage) => (lastPage.hasMore ? lastPage.cursor : undefined),
+    getNextPageParam: (lastPage: MessagePage) =>
+      lastPage.hasMore ? lastPage.cursor : undefined,
     enabled: isAuthenticated && !!tenantId && !!channelId && !!user?.id,
     staleTime: 15_000, // 15 seconds — messages update frequently
     gcTime: 5 * 60 * 1000, // 5 min in-memory
     refetchOnWindowFocus: false, // Socket.IO handles updates via useMessageSocket
   });
 
-  // Flatten all pages into a single messages array (oldest first). Both the
-  // page order and the per-page item order are newest-first from the subgraph;
-  // flattenMessagePages reverses BOTH (user-reported ordering fix 2026-09-17).
-  const messages = useMemo(
-    () => flattenMessagePages(query.data?.pages),
-    [query.data?.pages],
-  );
+  // Flatten all pages into a single messages array (oldest first)
+  const messages = useMemo(() => {
+    if (!query.data?.pages) return [];
+
+    // Pages are in reverse order (first page = newest), so we reverse
+    // to get oldest-first ordering for the chat view.
+    const allMessages: Message[] = [];
+    for (let i = query.data.pages.length - 1; i >= 0; i--) {
+      const page = query.data.pages[i];
+      if (page) {
+        allMessages.push(...page.items);
+      }
+    }
+    return allMessages;
+  }, [query.data?.pages]);
 
   return {
     messages,

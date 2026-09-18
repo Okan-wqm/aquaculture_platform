@@ -143,6 +143,15 @@ export class CronHeartbeatService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Record a tick this replica did not run because another replica holds
+   * the job's lease (ADMIN-HIGH-013). Not an attempt: the last-attempt gauge
+   * stays with the replica that ran, so "never ran anywhere" stays true.
+   */
+  recordSkipped(job: string): void {
+    this.runs.inc({ cron_job: job, outcome: 'skipped' });
+  }
+
+  /**
    * Run `body`, recording that the attempt happened and how it ended.
    *
    * Re-throws on failure: wrapping a job must not change what the job does,

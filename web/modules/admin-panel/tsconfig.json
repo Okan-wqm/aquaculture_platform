@@ -20,6 +20,9 @@
     "paths": {
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@platform/pagination-contracts": [
+        "../../../platform/libs/pagination-contracts/src/index.ts"
+      ],
       "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"]
     }
   },

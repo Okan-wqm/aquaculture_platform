@@ -21,11 +21,7 @@
  */
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource, EntityManager } from 'typeorm';
-import {
-  BadRequestException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import type {
@@ -40,10 +36,7 @@ import {
   UnassignProtocolCommand,
   UpdateProtocolAssignmentCommand,
 } from '../commands/feeding-protocol-v2.commands';
-import {
-  FeedingProtocolStatus,
-  FeedingProtocolV2,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolStatus, FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import {
   FeedingUnitType,
   ProtocolAssignment,
@@ -165,18 +158,30 @@ async function performUnitAssignment(
   }
 
   // fcrOverrides yalnız protokol bandlarındaki yemler için anlamlıdır.
-  assertOverrideFeedsExist(protocol, args.overrides?.fcrOverrides?.map((o) => o.feedId));
+  assertOverrideFeedsExist(
+    protocol,
+    args.overrides?.fcrOverrides?.map((o) => o.feedId),
+  );
 
-  // Değiştirme semantiği: mevcut aktif atama tarihçeye iner (ENDED).
-  const existingActive = await assignmentRepo.findOne({
-    where: { tenantId, unitId: args.unitId, status: ProtocolAssignmentStatus.ACTIVE },
+  // Değiştirme semantiği: ünitedeki TÜM canlı atamalar (active + paused)
+  // tarihçeye iner. Yalnız ACTIVE'i sonlandırmak paused satır biriktiriyordu:
+  // sahte UnfedUnitDetected + resume'da duplicate-key (FARM-MEDIUM-250a);
+  // canlı-tekillik kısıtı da (IDX_fpa_tenant_unit_live) bunu artık DB'de
+  // zorluyor — kod ile kısıt aynı invariant'ı söyler.
+  const existingLive = await assignmentRepo.find({
+    where: [
+      { tenantId, unitId: args.unitId, status: ProtocolAssignmentStatus.ACTIVE },
+      { tenantId, unitId: args.unitId, status: ProtocolAssignmentStatus.PAUSED },
+    ],
     lock: { mode: 'pessimistic_write' },
   });
-  if (existingActive) {
-    existingActive.status = ProtocolAssignmentStatus.ENDED;
-    existingActive.endedAt = new Date();
-    existingActive.updatedBy = userId;
-    await assignmentRepo.save(existingActive);
+  const replacedAssignment =
+    existingLive.find((a) => a.status === ProtocolAssignmentStatus.ACTIVE) ?? existingLive[0];
+  for (const live of existingLive) {
+    live.status = ProtocolAssignmentStatus.ENDED;
+    live.endedAt = new Date();
+    live.updatedBy = userId;
+    await assignmentRepo.save(live);
   }
 
   const assignment = assignmentRepo.create({
@@ -209,14 +214,20 @@ async function performUnitAssignment(
     siteId,
     protocolId: saved.protocolId,
     protocolName: protocol.name,
-    replacedAssignmentId: existingActive?.id,
+    // Değiştirilen atama: birden çok canlı satır varsa (eski paused birikimi)
+    // event ACTIVE olanı, yoksa ilk sonlandırılanı taşır — tek alan olduğu için
+    // "temsilci" seçimi belgeli.
+    replacedAssignmentId: replacedAssignment?.id,
     speciesMismatchReason: args.speciesMismatchReason,
   };
   await outboxPublisher.enqueue(event, manager);
 
   logger.log(
     `Protocol ${protocol.name} assigned to unit ${saved.unitCode} (${saved.id})` +
-      (existingActive ? ` replacing ${existingActive.id}` : ''),
+      (replacedAssignment
+        ? ` replacing ${replacedAssignment.id}` +
+          (existingLive.length > 1 ? ` (+${existingLive.length - 1} stale live assignment(s))` : '')
+        : ''),
   );
   return saved;
 }
@@ -403,10 +414,29 @@ export class UpdateProtocolAssignmentHandler
         }));
       }
       if (input.status !== undefined) {
-        assignment.status =
+        const nextStatus =
           input.status === 'active'
             ? ProtocolAssignmentStatus.ACTIVE
             : ProtocolAssignmentStatus.PAUSED;
+        // Resume kapısı: ünitede başka bir canlı atama varsa DB kısıtı
+        // (IDX_fpa_tenant_unit_live) ham `duplicate key` ile 500 üretirdi.
+        // Çakışma burada anlamlı bir 409 olarak karşılanır (FARM-MEDIUM-256).
+        if (nextStatus === ProtocolAssignmentStatus.ACTIVE && assignment.status !== nextStatus) {
+          const conflicting = await assignmentRepo.findOne({
+            where: [
+              { tenantId, unitId: assignment.unitId, status: ProtocolAssignmentStatus.ACTIVE },
+              { tenantId, unitId: assignment.unitId, status: ProtocolAssignmentStatus.PAUSED },
+            ],
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (conflicting && conflicting.id !== assignment.id) {
+            throw new ConflictException(
+              `Ünitede zaten canlı bir atama var (${conflicting.id}, durum: ${conflicting.status}) —` +
+                ' önce onu sonlandırın veya protokolü doğrudan yeniden atayın',
+            );
+          }
+        }
+        assignment.status = nextStatus;
       }
       assignment.updatedBy = userId;
       const saved = await assignmentRepo.save(assignment);

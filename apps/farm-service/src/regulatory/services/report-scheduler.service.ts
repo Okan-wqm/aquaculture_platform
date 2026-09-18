@@ -24,15 +24,19 @@
  * resurrects a dismissed draft.
  *
  * Multi-instance safe via a PostgreSQL advisory lock per job. Tenant discovery
- * mirrors FeedingCronService: schema names are truncated (tenant_<16hex>), so
- * the full tenantId is read from each schema's `sites` rows, never derived from
- * the schema name.
+ * mirrors `FeedingCronV2Service.tenantsForRetention`: schema names are truncated
+ * (tenant_<16hex>), so the full tenantId is read from each schema's `sites` rows,
+ * never derived from the schema name.
  */
 import * as crypto from 'crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { Cron } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { DataSource, QueryRunner } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
@@ -90,13 +94,14 @@ export class ReportSchedulerService {
     private readonly draftSubmissionService: RegulatoryDraftSubmissionService,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly metrics: FarmDomainMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ==========================================================================
   // CRON ENTRY POINTS
   // ==========================================================================
 
-  @Cron('0 3 * * 1', { name: 'regulatory-weekly-rollover', timeZone: 'Europe/Oslo' })
+  @ScheduledJob({ name: 'regulatory.weekly-rollover', cron: '0 3 * * 1', timeZone: 'Europe/Oslo' })
   async weeklyRollover(now: Date = new Date()): Promise<void> {
     await this.runJob('regulatory-weekly-rollover', async (tenantId) => {
       const created = await this.rolloverForTenant(
@@ -108,7 +113,7 @@ export class ReportSchedulerService {
     });
   }
 
-  @Cron('0 3 1 * *', { name: 'regulatory-monthly-rollover', timeZone: 'Europe/Oslo' })
+  @ScheduledJob({ name: 'regulatory.monthly-rollover', cron: '0 3 1 * *', timeZone: 'Europe/Oslo' })
   async monthlyRollover(now: Date = new Date()): Promise<void> {
     await this.runJob('regulatory-monthly-rollover', async (tenantId) => {
       const created = await this.rolloverForTenant(
@@ -120,14 +125,14 @@ export class ReportSchedulerService {
     });
   }
 
-  @Cron('0 7 * * *', { name: 'regulatory-deadline-sweep', timeZone: 'Europe/Oslo' })
+  @ScheduledJob({ name: 'regulatory.deadline-sweep', cron: '0 7 * * *', timeZone: 'Europe/Oslo' })
   async deadlineSweep(now: Date = new Date()): Promise<void> {
     await this.runJob('regulatory-deadline-sweep', (tenantId) =>
       this.notifyDeadlinesForTenant(tenantId, now),
     );
   }
 
-  @Cron('*/30 * * * *', { name: 'regulatory-retry-sweep', timeZone: 'Europe/Oslo' })
+  @ScheduledJob({ name: 'regulatory.retry-sweep', cron: '*/30 * * * *', timeZone: 'Europe/Oslo' })
   async retrySweep(now: Date = new Date()): Promise<void> {
     await this.runJob('regulatory-retry-sweep', (tenantId) =>
       this.retrySweepForTenant(tenantId, now),

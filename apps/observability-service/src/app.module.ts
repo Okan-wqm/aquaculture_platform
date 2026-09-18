@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
@@ -18,6 +19,7 @@ import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /**
  * PR#363 port — observability joins the fleet-wide schema authority
@@ -40,6 +42,9 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
       envFilePath: ['.env.local', '.env'],
     }),
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'observability-service' }),
     // Database connection — observability-service reads aggregated metrics
     // across tenants (deliberate cross-tenant access). Uses the platform
     // TypeORM factory so pool, SSL, fail-fast, and search_path semantics
@@ -127,4 +132,16 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * SEC-CRITICAL-002 / ADR-0006: strip the spoofable internal trust headers
+   * (x-user-payload, x-user-id, x-user-roles, x-tenant-id, …) from every
+   * request that does not carry a verified service-identity signature. A
+   * Docker-network caller could otherwise plant SUPER_ADMIN context on an
+   * unauthenticated path. Every bootstrapped service mounts this first;
+   * enforced by tests/invariants/public-service-edge-hardening.spec.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+  }
+}

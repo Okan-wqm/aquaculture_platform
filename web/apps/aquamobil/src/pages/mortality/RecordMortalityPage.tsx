@@ -1,12 +1,3 @@
-/**
- * RecordMortalityPage — a thin consumer of the shared record scaffold.
- *
- * ORPHAN-MEDIUM-578: this path is superseded by the log sheet and scheduled for
- * retirement, but it is still routed and still writes real records, so it is
- * converted rather than left looking broken. Deleting a live record path means
- * exercising the sheet against a running backend first — a separate, deliberate
- * step, not a side effect of a restyle.
- */
 import { ChevronRight, Skull } from 'lucide-react';
 import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -24,11 +15,12 @@ import {
 } from '../_shared/RecordEntityPage';
 
 import { useTanks } from '@/hooks/useTanks';
-import type { MortalityReason, MortalityInput } from '@/types';
+import type { MortalityReason, QueuedPayload } from '@/types';
 
-// WHY: All 13 MortalityReason enum values from the backend schema are present
-// (BUG-14 regression guard — AMMONIA/PREDATION/CANNIBALISM/STARVATION/GENETIC
-// were missing from an earlier revision).
+// WHY: exactly the backend's MortalityReason enum (10 members). `value` is the
+// GENERATED enum union, so a member the server lacks is a compile error here —
+// the hand-written union this page used to import carried AMMONIA, STARVATION
+// and GENETIC, which the server rejects at enum coercion (MOB-HIGH-022).
 const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; emoji: string }> = [
   { value: 'DISEASE', label: 'Disease', emoji: '🦠' },
   { value: 'WATER_QUALITY', label: 'Water Quality', emoji: '💧' },
@@ -36,38 +28,24 @@ const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; 
   { value: 'HANDLING', label: 'Handling', emoji: '🤲' },
   { value: 'TEMPERATURE', label: 'Temperature', emoji: '🌡️' },
   { value: 'OXYGEN', label: 'Low Oxygen', emoji: '💨' },
-  { value: 'AMMONIA', label: 'Ammonia', emoji: '⚗️' },
   { value: 'PREDATION', label: 'Predation', emoji: '🦅' },
   { value: 'CANNIBALISM', label: 'Cannibalism', emoji: '🐟' },
-  { value: 'STARVATION', label: 'Starvation', emoji: '🍽️' },
-  { value: 'GENETIC', label: 'Genetic', emoji: '🧬' },
   { value: 'UNKNOWN', label: 'Unknown', emoji: '❓' },
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
 
-/**
- * v4: the red→red gradient chrome is gone. Red on this screen was page
- * IDENTITY, not an alarm — a mortality entry is a routine daily log — and
- * spending the alarm colour on a whole header leaves the token layer nothing
- * louder for an actual alarm to say. The identity the screen keeps is the
- * mortality hue from the per-log-type token set (icon bubble, summary heading,
- * the headline count), which is the one place v4 lets colour be decorative,
- * because a worker reads an entry's type from its hue before reading a word.
- * The CTA and the selected reason take the accent: in v4 teal carries every
- * action and every active state, on every screen.
- */
 const MORTALITY_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
-  accentText: 'text-type-mortality',
-  summaryHeaderBg: 'bg-type-mortality-dim border-line',
-  summaryHeaderText: 'text-type-mortality',
-  iconBubbleBg: 'bg-type-mortality-dim',
-  surfaceSoftBg: 'bg-type-mortality-dim',
-  surfaceBorder: 'border-line',
-  ctaGradient: 'bg-acc text-acc-on',
-  ctaShadow: 'shadow-acc',
-  selectionBorder: 'border-acc',
-  selectionGlow: 'shadow-acc',
+  headerGradient: 'bg-gradient-to-r from-red-600 to-red-500',
+  accentText: 'text-mortality',
+  summaryHeaderBg: 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/50',
+  summaryHeaderText: 'text-red-700 dark:text-red-300',
+  iconBubbleBg: 'bg-red-50 dark:bg-red-900/20',
+  surfaceSoftBg: 'bg-red-50 dark:bg-red-900/20',
+  surfaceBorder: 'border-red-100 dark:border-red-800',
+  ctaGradient: 'bg-gradient-to-r from-red-600 to-red-500',
+  ctaShadow: 'shadow-red-500/25',
+  selectionBorder: 'border-mortality',
+  selectionGlow: 'shadow-glow-red',
 };
 
 export function RecordMortalityPage(): JSX.Element {
@@ -96,7 +74,7 @@ export function RecordMortalityPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const buildPayload = (): MortalityInput => {
+  const buildPayload = (): QueuedPayload<'recordMortality'> => {
     // Contract: the shell only invokes buildPayload after validate() passes AND
     // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
     // so batchId is present here. The guard narrows BatchMetrics['batchId']
@@ -116,7 +94,7 @@ export function RecordMortalityPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<MortalityInput>
+    <RecordEntityPage<'recordMortality'>
       theme={MORTALITY_THEME}
       entryTitle="Record Mortality"
       confirmTitle="Confirm Record"
@@ -143,13 +121,10 @@ export function RecordMortalityPage(): JSX.Element {
           <SummaryRow label="Tank" value={selectedTank?.name} />
           <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
           <SummaryDivider />
-          {/* The count is the record's headline figure and a machine value, so
-              it is set in mono and carries the mortality hue — the same hue the
-              icon bubble and the summary heading wear. */}
           <SummaryRow
             label="Dead Fish"
             value={quantity}
-            valueClass="text-head font-mono font-bold tabular-nums text-type-mortality"
+            valueClass="text-2xl font-bold text-red-600"
           />
           <SummaryRow
             label="Reason"

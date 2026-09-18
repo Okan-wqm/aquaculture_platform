@@ -114,62 +114,24 @@ interface MessageBubbleProps {
 // ---------------------------------------------------------------------------
 
 /**
- * WHY sender name colors at all: in a group chat a field worker tells who said
- * what by hue before reading the name.
- *
- * WHY five and not the previous ten: the v4 token layer resolves colour per
- * theme, and it offers exactly five decorative hues that are NOT already spoken
- * for by an alarm meaning — teal, blue, violet, amber and green. The tenth
- * "distinct" colour in the pre-v4 list was a hand-picked Tailwind ramp plus a
- * second class for the dark theme, which is the pairing the token layer exists
- * to remove; and coral is deliberately excluded because it reads as an alarm
- * everywhere else in the app. Five real hues beat ten a theme could collapse.
- *
- * The same five back ChannelAvatar and MentionPicker, so one person keeps one
- * hue wherever they appear.
+ * WHY: 10 sender name colors ensure visual distinction in group chats
+ * so field workers can quickly tell who said what without reading the name.
+ * Colors are chosen for readability against the white bubble background.
  */
 const SENDER_COLORS = [
-  'text-acc',
-  'text-type-water',
-  'text-type-transfer',
-  'text-type-cull',
-  'text-type-harvest',
+  'text-ocean-700 dark:text-ocean-400',
+  'text-sea-700 dark:text-sea-400',
+  'text-coral-700 dark:text-coral-400',
+  'text-violet-700 dark:text-violet-400',
+  'text-amber-700 dark:text-amber-400',
+  'text-emerald-700 dark:text-emerald-400',
+  'text-rose-700 dark:text-rose-400',
+  'text-cyan-700 dark:text-cyan-400',
+  'text-indigo-700 dark:text-indigo-400',
+  'text-teal-700 dark:text-teal-400',
 ] as const;
 
 const LONG_PRESS_MS = 500;
-
-/**
- * A surface nested INSIDE a bubble — the reply quote, the file chip.
- *
- * WHY `bg-black/10` on the own side instead of a surface token: the own bubble
- * is filled with the accent, and the token ramp has no "one step darker than the
- * accent" value — the surface tokens are calibrated against the ground, not
- * against a saturated fill, so `bg-surface-3` on teal reads as a foreign patch.
- * A flat black wash reads as a recess on the accent in all three themes.
- *
- * WHY no alpha modifier on token colours anywhere in this file: Tailwind cannot
- * parse `var(--x)` as a colour, so a class like `text-acc-on/75` emits NO rule
- * at all — it silently does nothing. Where a dimmer treatment is wanted the
- * element carries a plain `opacity-*` utility instead.
- */
-const NESTED_SURFACE = {
-  own: 'bg-black/10',
-  other: 'bg-surface-3',
-} as const;
-
-/** Secondary text on a bubble: on-accent ink dimmed by opacity, or the ink ramp. */
-const META_TEXT = {
-  own: 'text-acc-on opacity-75',
-  other: 'text-ink-3',
-} as const;
-
-/**
- * One row of the long-press context menu. `min-h-touch` is the 44px gloved-use
- * floor (MOB-MEDIUM-009) — it replaces the hand-written 44px literal, so the
- * floor now comes from the spacing token rather than from a repeated constant.
- */
-const MENU_ITEM =
-  'flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-touch hover:bg-surface-2 touch-feedback transition-colors';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -220,10 +182,9 @@ function renderRichText(
           onClick={() => onMentionTap?.(userId)}
           className={clsx(
             'font-bold inline',
-            // On an accent-filled own bubble the accent cannot also be the
-            // mention colour, so the mention is set in the on-accent ink and
-            // carries an underline to stay distinguishable from body text.
-            isOwn ? 'text-acc-on underline' : 'text-acc',
+            isOwn
+              ? 'text-white underline decoration-white/50'
+              : 'text-ocean-600 dark:text-ocean-400',
           )}
         >
           {mentionText}
@@ -352,8 +313,8 @@ export function MessageBubble({
   if (isDeleted) {
     return (
       <div className={clsx('flex px-4 py-0.5', isOwn ? 'justify-end' : 'justify-start')}>
-        <div className="bg-surface-2 rounded-2xl px-4 py-2 max-w-[80%]">
-          <span className="text-meta text-ink-3 italic">[message deleted]</span>
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2 max-w-[80%]">
+          <span className="text-xs text-gray-400 dark:text-gray-500 italic">[message deleted]</span>
         </div>
       </div>
     );
@@ -366,10 +327,10 @@ export function MessageBubble({
     <div className={clsx('flex px-4 py-0.5 relative', isOwn ? 'justify-end' : 'justify-start')}>
       <div
         className={clsx(
-          'rounded-2xl px-3.5 py-2 max-w-[80%] relative shadow-token',
+          'rounded-2xl px-3.5 py-2 max-w-[80%] relative shadow-sm',
           isOwn
-            ? 'bg-acc text-acc-on rounded-br-md'
-            : 'bg-surface-2 text-ink-1 rounded-bl-md border border-line',
+            ? 'bg-ocean-600 text-white rounded-br-md'
+            : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-md border border-gray-100 dark:border-gray-700',
         )}
         onTouchStart={startLongPress}
         onTouchEnd={cancelLongPress}
@@ -383,10 +344,8 @@ export function MessageBubble({
         {isForwarded && (
           <div
             className={clsx(
-              // text-meta is 12px — the sunlight-readability floor. It replaces
-              // a 10px arbitrary size, so it LOWERS the tiny-text ratchet.
-              'flex items-center gap-1.5 mb-1.5 text-meta',
-              isOwn ? META_TEXT.own : META_TEXT.other,
+              'flex items-center gap-1.5 mb-1.5 text-[10px]',
+              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
             )}
           >
             <CornerUpRight size={12} />
@@ -398,21 +357,35 @@ export function MessageBubble({
 
         {/* Sender name in group chat */}
         {isGroup && !isOwn && senderName && (
-          <p className={clsx('text-meta font-bold mb-0.5', senderColor)}>{senderName}</p>
+          <p className={clsx('text-xs font-bold mb-0.5', senderColor)}>{senderName}</p>
         )}
 
         {/* Reply preview */}
         {replyTo && (
           <div
             className={clsx(
-              'mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-meta',
-              isOwn ? `${NESTED_SURFACE.own} border-acc-on` : `${NESTED_SURFACE.other} border-acc`,
+              'mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs',
+              isOwn
+                ? 'bg-ocean-700/50 border-white/50'
+                : 'bg-gray-50 dark:bg-gray-700/60 border-ocean-400',
             )}
           >
-            <p className={clsx('font-bold truncate', isOwn ? 'text-acc-on' : 'text-acc')}>
+            <p
+              className={clsx(
+                'font-bold truncate',
+                isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400',
+              )}
+            >
               {replyTo.senderName}
             </p>
-            <p className={clsx('truncate', isOwn ? META_TEXT.own : 'text-ink-2')}>{replyTo.text}</p>
+            <p
+              className={clsx(
+                'truncate',
+                isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400',
+              )}
+            >
+              {replyTo.text}
+            </p>
           </div>
         )}
 
@@ -462,36 +435,33 @@ export function MessageBubble({
             target="_blank"
             rel="noopener noreferrer"
             className={clsx(
-              // Hover darkens on both sides. The other side uses `brightness`
-              // rather than the next surface token because the ramp does not run
-              // the same direction in every theme (s3 to s1 is darker at night
-              // and LIGHTER by day), so a token step would invert the affordance.
               'flex items-center gap-2.5 mb-1.5 p-2.5 rounded-xl',
               isOwn
-                ? `${NESTED_SURFACE.own} hover:bg-black/20`
-                : `${NESTED_SURFACE.other} hover:brightness-95`,
+                ? 'bg-ocean-700/50 hover:bg-ocean-700/70'
+                : 'bg-gray-50 dark:bg-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-700',
             )}
           >
-            {/* The icon tile inverts on the own side — on-accent fill with an
-                accent glyph — so it separates from the accent bubble behind it. */}
             <div
               className={clsx(
                 'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-                isOwn ? 'bg-acc-on' : 'bg-acc-dim',
+                isOwn ? 'bg-white/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
               )}
             >
-              <FileIcon size={18} className="text-acc" />
+              <FileIcon
+                size={18}
+                className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'}
+              />
             </div>
             <div className="min-w-0 flex-1">
               <p
                 className={clsx(
-                  'text-meta font-semibold truncate',
-                  isOwn ? 'text-acc-on' : 'text-ink-1',
+                  'text-xs font-semibold truncate',
+                  isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
                 )}
               >
                 {file.name}
               </p>
-              <p className={clsx('text-meta', isOwn ? META_TEXT.own : META_TEXT.other)}>
+              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400')}>
                 {file.size}
               </p>
             </div>
@@ -502,27 +472,23 @@ export function MessageBubble({
         {text && contentType !== 'VOICE' && (
           <p
             className={clsx(
-              'text-body leading-relaxed break-words whitespace-pre-wrap',
-              isOwn ? 'text-acc-on' : 'text-ink-1',
+              'text-sm leading-relaxed break-words whitespace-pre-wrap',
+              isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
             )}
           >
             {renderRichText(text, isOwn, onMentionTap)}
           </p>
         )}
 
-        {/* Timestamp + edited + read receipt.
-            The dimming lives on the text spans rather than on this row, because
-            `opacity` on a parent multiplies into every child — and the read
-            receipt needs FULL strength to be the thing that stands out. */}
-        <div className="flex items-center justify-end gap-1 mt-1">
-          {isEdited && (
-            <span className={clsx('text-meta italic', isOwn ? META_TEXT.own : META_TEXT.other)}>
-              (edited)
-            </span>
+        {/* Timestamp + edited + read receipt */}
+        <div
+          className={clsx(
+            'flex items-center justify-end gap-1 mt-1',
+            isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
           )}
-          <span className={clsx('text-meta tabular-nums', isOwn ? META_TEXT.own : META_TEXT.other)}>
-            {timeStr}
-          </span>
+        >
+          {isEdited && <span className="text-[10px] italic">(edited)</span>}
+          <span className="text-[10px] tabular-nums">{timeStr}</span>
           {isOwn && status && <ReadReceipt status={status} />}
         </div>
       </div>
@@ -542,55 +508,55 @@ export function MessageBubble({
           {/* Menu */}
           <div
             className={clsx(
-              'absolute z-50 bg-surface-1 rounded-xl shadow-token border border-line overflow-hidden',
+              'absolute z-50 bg-white dark:bg-gray-800 rounded-xl shadow-elevated border border-gray-100 dark:border-gray-700 overflow-hidden',
               isOwn ? 'right-4 top-full mt-1' : 'left-4 top-full mt-1',
             )}
           >
             {onReply && (
               <button
                 onClick={() => handleAction(onReply)}
-                className={clsx(MENU_ITEM, 'text-ink-1')}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
               >
-                <Reply size={16} className="text-ink-2" />
-                <span className="text-body font-medium">Reply</span>
+                <Reply size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Reply</span>
               </button>
             )}
             {onCopy && (
               <button
                 onClick={() => handleAction(onCopy)}
-                className={clsx(MENU_ITEM, 'text-ink-1')}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
               >
-                <Copy size={16} className="text-ink-2" />
-                <span className="text-body font-medium">Copy</span>
+                <Copy size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Copy</span>
               </button>
             )}
             {onForward && (
               <button
                 onClick={() => handleAction(onForward)}
-                className={clsx(MENU_ITEM, 'text-ink-1')}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
               >
-                <Forward size={16} className="text-ink-2" />
-                <span className="text-body font-medium">Forward</span>
+                <Forward size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Forward
+                </span>
               </button>
             )}
             {onEdit && (
               <button
                 onClick={() => handleAction(onEdit)}
-                className={clsx(MENU_ITEM, 'text-ink-1')}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
               >
-                <Pencil size={16} className="text-ink-2" />
-                <span className="text-body font-medium">Edit</span>
+                <Pencil size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Edit</span>
               </button>
             )}
             {onDelete && (
-              // Coral here is an alarm, not decoration: Delete is the one
-              // irreversible entry in this menu, so it takes the crit token.
               <button
                 onClick={() => handleAction(onDelete)}
-                className={clsx(MENU_ITEM, 'text-crit')}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
               >
-                <Trash2 size={16} className="text-crit" />
-                <span className="text-body font-medium">Delete</span>
+                <Trash2 size={16} className="text-red-500" />
+                <span className="text-sm font-medium text-red-600 dark:text-red-400">Delete</span>
               </button>
             )}
           </div>

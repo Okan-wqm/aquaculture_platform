@@ -59,6 +59,12 @@ const MFA_LOCKOUT_DURATION_MINUTES = 15;
 /** MFA token JWT subject prefix to distinguish from regular tokens */
 const MFA_TOKEN_PREFIX = 'mfa:';
 
+/** ADR-046: MFA setup (enrollment) token TTL in seconds — 10 minutes. */
+const MFA_SETUP_TOKEN_TTL_SECONDS = 600;
+
+/** ADR-046: MFA setup token JWT subject prefix (mirrors MFA_TOKEN_PREFIX). */
+const MFA_SETUP_TOKEN_PREFIX = 'mfa_setup:';
+
 /** Base32 alphabet for TOTP secret encoding */
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -545,6 +551,66 @@ export class MfaService {
       mfaRequired: true,
       mfaToken,
     };
+  }
+
+  /**
+   * ADR-046: mint the short-lived MFA SETUP (enrollment) token returned by
+   * login when the tenant enforces MFA and the user has no second factor.
+   *
+   * Mirrors generateMfaChallenge: same signing keypair, same canonical `type`
+   * discriminator discipline. `type: 'mfa_setup'` makes this token
+   *   - unusable as a bearer credential (enforceAccessTokenType rejects every
+   *     type !== 'access'),
+   *   - unusable at verifyMfaLogin (which positively requires
+   *     type === 'mfa_challenge'),
+   *   - usable ONLY where resolveSetupTokenUserId positively requires it —
+   *     the setupMfa + verifyMfaSetup enrollment pair.
+   */
+  generateMfaSetupToken(user: User): string {
+    const setupPayload = {
+      sub: `${MFA_SETUP_TOKEN_PREFIX}${user.id}`,
+      type: 'mfa_setup' as const,
+      purpose: 'mfa_enrollment',
+      userId: user.id,
+      jti: crypto.randomUUID(),
+    };
+
+    return this.jwtService.sign(setupPayload, {
+      expiresIn: MFA_SETUP_TOKEN_TTL_SECONDS,
+    });
+  }
+
+  /**
+   * ADR-046: resolve the user identified by an MFA setup token (the
+   * pre-session enrollment credential minted by generateMfaSetupToken).
+   *
+   * Follows verifyMfaLogin's consumption pattern for the challenge token:
+   * signature/expiry verification first, then a POSITIVE type + purpose +
+   * sub-prefix check, so no other token shape (access / refresh /
+   * mfa_challenge) can ever be accepted here.
+   */
+  resolveSetupTokenUserId(mfaSetupToken: string): string {
+    let setupPayload: {
+      sub: string;
+      userId: string;
+      purpose: string;
+      type?: string;
+    };
+    try {
+      setupPayload = this.jwtService.verify(mfaSetupToken);
+    } catch {
+      throw new UnauthorizedException('MFA setup token is invalid or expired. Please login again.');
+    }
+
+    if (
+      setupPayload.type !== 'mfa_setup' ||
+      setupPayload.purpose !== 'mfa_enrollment' ||
+      !setupPayload.sub?.startsWith(MFA_SETUP_TOKEN_PREFIX)
+    ) {
+      throw new UnauthorizedException('Invalid MFA setup token');
+    }
+
+    return setupPayload.userId;
   }
 
   /**

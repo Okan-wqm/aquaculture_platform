@@ -13,6 +13,8 @@ from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Literal
 
+from .file_lock import lock_sidecar_path, lock_sidecar_target
+
 
 RootKind = Literal["tools", "workspace", "repo"]
 StateClass = Literal["ledger", "index", "runtime_state", "artifact", "lock"]
@@ -428,8 +430,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("proposals", "proposals/proposals.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("cycle_incremental_plans", "cycle-state/incremental-plans.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
     StateSurface("context_audits", "context-audits.jsonl", "ledger", "context_audits", "runtime", True, "append_fsync", True, profile_surface="context_audits", observe_class="observation"),
-    # Plan 032 Faz 032b-2 — hook verdicts (observation) and the sanitized work journal (write-driving: recovery reads it).
-    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032b-2 — hook verdicts and the sanitized work journal (write-driving: recovery reads it).
+    # hook_decisions became write-driving with cycle_and_turn_budget_cap: the hook counts a
+    # request's admitted turns FROM this ledger before deciding the next one, so losing it
+    # resets the cap, not only the record.
+    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -490,7 +495,22 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_artifact_index", "run-artifacts/artifact-index.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_manifest", "run-artifacts/manifest.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_inventory", "observability/artifact-inventory.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
+    # ARIA-HIGH-117 — what compaction stripped, attested by the compaction
+    # that stripped it. `state compact` removes hot-artifact cycles past the
+    # retention window and drops their index rows, while `runs.jsonl` refs
+    # and `raw-findings.jsonl` pointers keep naming those artifacts by
+    # design ("nothing is lost": the compact archive holds the rows). The
+    # verifier had no notion of a compacted artifact and read every one as
+    # missing/corrupt, so the store the kernel's own maintenance produced
+    # was refused by the kernel's own integrity verb (3,898 issues on the
+    # 2026-09-13 tip; no executor publish since 09-04). One row per stripped
+    # artifact; `verify_runtime_artifacts` classifies a ref/pointer into a
+    # row here as `compacted` and still refuses an absent artifact no row
+    # names. Written and read only by `state_compact` / `runtime_artifacts`.
+    StateSurface("runtime_artifact_compactions", "run-artifacts/compacted.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    StateSurface("runtime_artifact_archives", ".archive/runtime/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    StateSurface("runtime_validation_log_archives", ".archive/runtime/**/*.log", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("state_archives", "archives/*.jsonl.gz", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     # ARIA scope discipline — out-of-scope observations captured from
     # rejected evidence (operator requirement 2026-08-29: don't fix what
@@ -547,6 +567,16 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # authorises an action, and it must not turn a single historical defect
     # into a write-block on spawn accounting.
     StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # B7 — the knowledge signer registry: the PUBLIC half of every
+    # per-cycle key that signed a knowledge-graph row, keyed by the
+    # fingerprint the row carries. The private key is revoked when the
+    # cycle ends and the public key file goes with it, so without this
+    # ledger a row's `signer_key_fp` named a key nobody could ever look
+    # at again. `knowledge_graph.verify_convention_signer` recomputes the
+    # fingerprint from the registered key. strict_read=True: a new ledger
+    # with no pre-envelope history has no late-joiner excuse.
+    # write_driving=False: it informs verification, it authorises nothing.
+    StateSurface("kg_signers", "knowledge-graph/signers.jsonl", "ledger", "knowledge", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
     # join the declared surface system. Same defect class as M11/E12-b,
     # one ring further out: operator/AI verdicts (operator-feedback),
@@ -568,6 +598,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("operator_feedback_seeding", "operator-feedback-seeding/*/*.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # V9.5 hard-fail check 12 (operator_feedback_signature) — what the plan
+    # synthesizer admitted and dropped from operator-feedback.jsonl on each
+    # scan, and which synthesized plan_content each scan fed. strict_read
+    # True and write_driving True because the pre-merge perimeter reads
+    # this ledger as AUTHORITY: a broken chain here is a refused merge, not
+    # a tolerated read. profile_surface observation: the row records what
+    # the synthesizer verified, it enacts nothing by itself.
+    StateSurface("operator_feedback_ingestion", "operator-feedback-ingestion.jsonl", "ledger", "feedback", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -763,6 +801,46 @@ def surface_by_name(name: str) -> StateSurface:
 
 def surfaces_for_lock_group(lock_group: str) -> tuple[StateSurface, ...]:
     return tuple(surface for surface in STATE_SURFACES if surface.lock_group == lock_group)
+
+
+# THE GROUP-LOCK SHAPE, DECLARED ONCE. Every writer of a lock group's
+# surfaces serialises on ``<root>/locks/state-groups/<group>.lock`` — a KEY
+# the transaction hands to ``file_lock.with_exclusive_lock``, which then
+# holds ``file_lock``'s side-car of it (``<group>.lock.lock``) on disk. The
+# key's own ``.lock`` is the side-car suffix applied to the bare group name,
+# so the shape is derived from ``file_lock``'s naming rather than restated:
+# ``ledger`` (the transaction's lock order), ``state_store`` (recovery and
+# host-artifact cleanup) and ``state_tree_contract`` (what a published tree
+# may carry) all ask here, and none of them spells the path a second time.
+STATE_GROUP_LOCK_DIR = PurePosixPath("locks") / "state-groups"
+
+
+def state_group_lock_relative_path(lock_group: str) -> PurePosixPath:
+    """``locks/state-groups/<group>.lock`` — the key a group's writers lock."""
+    return lock_sidecar_path(STATE_GROUP_LOCK_DIR / lock_group)
+
+
+def state_group_lock_group(relative_path: str | PurePosixPath) -> str | None:
+    """The DECLARED lock group whose key ``relative_path`` is, or ``None``.
+
+    Exact inverse of ``state_group_lock_relative_path``: the path must sit
+    directly in the group-lock directory, decode through ``file_lock`` to a
+    bare name, that name must be a lock group some declared surface uses,
+    and re-encoding it must give the path back. The side-car ``file_lock``
+    leaves beside the key (``<group>.lock.lock``) is NOT the key — a caller
+    that meets one decodes it with ``lock_sidecar_target`` first and asks
+    here about the target.
+    """
+    candidate = PurePosixPath(relative_path)
+    target = lock_sidecar_target(candidate)
+    if target is None or target.parent != STATE_GROUP_LOCK_DIR:
+        return None
+    group = target.name
+    if not surfaces_for_lock_group(group):
+        return None
+    if state_group_lock_relative_path(group) != candidate:
+        return None
+    return group
 
 
 def _surface_resolution_order(
@@ -1065,5 +1143,8 @@ __all__ = [
     "surface_for_relative_path",
     "surface_path_matches",
     "surfaces_for_lock_group",
+    "STATE_GROUP_LOCK_DIR",
+    "state_group_lock_group",
+    "state_group_lock_relative_path",
     "validate_state_surface_patterns",
 ]

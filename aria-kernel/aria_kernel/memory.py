@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .evidence_probe import GitProbeSession
 from .evidence_trust import EvidencePolicy, SELF_OUTPUT_PREFIXES, classify_evidence_ref
 from .runs_reader import read_runs_rows
 from .feedback_store import load_feedback
@@ -475,21 +476,30 @@ def validate_repo_evidence(
     """
     if not evidence_refs:
         raise GovernanceError("memory belief requires at least one repo evidence reference")
+    # ONE decision — this belief — so ONE probe session (evidence_probe): the
+    # baseline is resolved once for every ref and every git probe of the
+    # decision shares one liveness clock. A session per ref gave a belief
+    # with N refs N baseline probes and, on a git that had stopped
+    # answering, N full retry arcs before the decision was reached.
+    workspace = Path(workspace_root) if workspace_root is not None else None
+    target_sha = (
+        "HEAD" if workspace is not None and (workspace / ".git").exists() else None
+    )
+    probe_session = GitProbeSession()
     for raw_ref in evidence_refs:
         ref = str(raw_ref).replace("\\", "/")
         while ref.startswith("./"):
             ref = ref[2:]
         if not ref.strip():
             raise GovernanceError("memory belief evidence reference must not be empty")
-        if workspace_root is not None:
-            workspace = Path(workspace_root)
-            target_sha = "HEAD" if (workspace / ".git").exists() else None
+        if workspace is not None:
             envelope = classify_evidence_ref(
                 ref,
                 workspace_root=workspace,
                 source_hint="repo_source",
                 context="memory_belief",
                 target_sha=target_sha,
+                probe_session=probe_session,
             )
             if envelope.self_output_class == "aria_self_output":
                 raise GovernanceError(
@@ -685,6 +695,28 @@ def _record_belief(
         prior_verified_at=(existing or {}).get("verified_at"),
     )
     append_jsonl(root / "memory" / "beliefs.jsonl", row)
+    # ORPHAN-MEDIUM-808 — the reset half of the oscillation contract.
+    #
+    # `_apply_diff_to_existing_beliefs` calls `record_reopen` when a belief's
+    # evidence stops holding, and `reopen_streak` tail-scans governance until it
+    # meets a `finding_resolution_clean` for the same fingerprint. Nothing in
+    # production emitted that event, so the streak could only ever RISE: a
+    # belief that legitimately broke and healed three times over the repo's life
+    # was indistinguishable from one ping-ponging inside a single cycle, and a
+    # decider wired on top of that counter would have refused it forever.
+    #
+    # This is that event, at the only transition that earns it: the belief was
+    # in revalidation, ARIA re-observed it, and its evidence holds again. The
+    # fingerprint is spelled exactly as the reopen side spells it — one
+    # vocabulary, or the scan silently matches nothing.
+    if int((existing or {}).get("needs_revalidation_cycles", 0)) > 0 and not needs_revalidation_cycles:
+        from .oscillation_guard import record_resolution
+
+        record_resolution(
+            fingerprint=f"belief:{belief_id}",
+            cycle_id=cycle_id,
+            base_dir=root,
+        )
     _record_learning_event(
         root,
         cycle_id=cycle_id,
@@ -999,7 +1031,10 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
         )
         # Plan 031 Gate B — a belief reopened because its evidence changed is a
         # reopen signal for the oscillation guard. Pure counter increment (no
-        # escalation here); the fix dispatcher's guard_fix_dispatch decides.
+        # escalation here); the decision belongs to `guard_fix_dispatch`, called
+        # from `promotion_controller.promote_converged_plan_to_dispatch` before
+        # a plan for this belief becomes a dispatch row (ORPHAN-MEDIUM-808 —
+        # until that wiring this comment named a consumer that did not exist).
         from .oscillation_guard import record_reopen
         record_reopen(
             fingerprint=f"belief:{belief.get('belief_id')}",

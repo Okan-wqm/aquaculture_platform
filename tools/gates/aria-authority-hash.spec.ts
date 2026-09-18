@@ -24,7 +24,7 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
@@ -37,7 +37,7 @@ import {
   recordedAriaAuthorityHash,
   writeAriaAuthorityHash,
 } from './aria-authority-hash';
-
+import { removeFixtureTree } from './fixture-tree';
 const GATES_ROOT = __dirname;
 const SPEC_REPO_ROOT = join(GATES_ROOT, '..', '..');
 const MERGE_AUTHORITY_WORKFLOW = join(SPEC_REPO_ROOT, '.github/workflows/aria-merge-authority.yml');
@@ -128,7 +128,7 @@ function declaredDay(repoRoot: string): string {
 }
 
 after(() => {
-  for (const root of fixtureRoots) rmSync(root, { recursive: true, force: true });
+  for (const root of fixtureRoots) removeFixtureTree(root);
 });
 
 void test('a next-UTC-day merge of the stamped tree keeps the pin current', () => {

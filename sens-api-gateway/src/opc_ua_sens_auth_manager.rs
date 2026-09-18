@@ -153,13 +153,19 @@ pub struct SensAuthManager {
     /// is the explicit-release-on-token-known path for callers that
     /// can iterate token lifecycle.
     ///
-    /// Note: storing leases keyed by token allows future Phase B-3.5
-    /// to wire a per-token cleanup hook (e.g., when async-opcua
-    /// upstream exposes the close callback) without reshaping the
-    /// SensAuthManager API. See ORPHAN-MEDIUM-052.
+    /// EDGE-HIGH-018: keyed by the lease's process-unique `lease_id`, NOT
+    /// by the operator token. The operator token is a pure function of the
+    /// 16-byte `OperatorId`, so it is CONSTANT across every session for a
+    /// given operator — keying the index on it made each new session's
+    /// `insert` overwrite (and thus drop, releasing the quota slot for) the
+    /// previous session's lease, silently pinning an operator's concurrent
+    /// count at 1 and defeating the per-user / per-tenant caps. A unique
+    /// `lease_id` makes concurrent leases coexist, so `SessionQuota.counts`
+    /// stays the single source of truth and this map is a subordinate,
+    /// self-pruning index.
     active_leases: Arc<
         std::sync::Mutex<
-            std::collections::HashMap<String, crate::opc_ua_server::session_quota::SessionLease>,
+            std::collections::HashMap<u64, crate::opc_ua_server::session_quota::SessionLease>,
         >,
     >,
 }
@@ -392,13 +398,17 @@ impl AuthManager for SensAuthManager {
                 };
 
                 let token_str = format_operator_token(&op);
-                // Stash the lease keyed by the token string so a
-                // future session-close callback (Phase B-3.5 /
-                // ORPHAN-MEDIUM-052) can look it up + drop it
-                // explicitly. Until then, the SessionQuota's TTL
-                // fail-safe is the release path.
+                // EDGE-HIGH-018: stash the lease keyed by its unique
+                // lease_id (NOT the per-operator-constant token), so
+                // concurrent sessions for the same operator coexist instead
+                // of overwriting each other. Then prune any index entries
+                // whose lease is no longer live (released or TTL-swept),
+                // keeping this map a subordinate view of the authoritative
+                // SessionQuota.counts. The SessionQuota's TTL fail-safe
+                // remains the load-bearing release path.
                 if let Ok(mut leases) = self.active_leases.lock() {
-                    leases.insert(token_str.clone(), lease);
+                    leases.insert(lease.lease_id(), lease);
+                    leases.retain(|_, l| self.session_quota.is_lease_live(l.lease_id()));
                 } else {
                     // Mutex poisoned — we still hold the lease in
                     // scope; the Drop impl will release it when

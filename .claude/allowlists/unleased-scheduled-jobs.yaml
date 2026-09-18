@@ -1,0 +1,39 @@
+# Scheduled methods that still use a raw NestJS scheduler decorator instead of
+# the kernel `@ScheduledJob` (ADMIN-HIGH-013). Every raw `@Cron` / `@Interval` /
+# `@Timeout` runs on every replica of its service with no lease and no
+# heartbeat. tests/invariants/scheduled-jobs-leased.spec.ts requires every
+# scheduled method in apps/, libs/ and platform/libs/ to be `@ScheduledJob`, or
+# to appear here with an owner, a future expiry, the finding that owns the
+# conversion and a reason. `ceiling` is the maximum number of entries and only
+# decreases; an entry whose site is gone or converted fails the gate.
+#
+# Down to TWO since 2026-09-07 (ADMIN-HIGH-013): all 65 raw scheduled methods
+# across the nine services and the retention enforcer are `@ScheduledJob`. The
+# outbox worker's two cannot be, and the reason is structural rather than
+# unfinished work — see the entries.
+version: 1
+ceiling: 2
+entries:
+  - site: platform/libs/outbox/src/outbox-worker.service.ts#pollAndPublish
+    owner: okan
+    expiry: 2027-03-31
+    findingId: PLAT-MEDIUM-903
+    reason: >-
+      `@ScheduledJob` lives in `@aquaculture/backend-common/scheduling`, and
+      backend-common already imports `@platform/outbox` (OutboxPublisher in the
+      erasure module, the proof-ledger constant in schema-manager). Importing it
+      back inverts that and the eslint boundary rule reports the cycle. The
+      relay is also correctly per-replica — its concurrency control is the ROW
+      lease (`FOR UPDATE SKIP LOCKED` + `leasedBy`), so it needs the heartbeat,
+      not the lock, and it already publishes
+      `outbox_relay_last_cycle_timestamp_seconds`, which is the same liveness
+      fact. PLAT-MEDIUM-903 owns extracting scheduling below both.
+  - site: platform/libs/outbox/src/outbox-worker.service.ts#cleanupPublished
+    owner: okan
+    expiry: 2027-03-31
+    findingId: PLAT-MEDIUM-903
+    reason: >-
+      Same dependency cycle as the relay above. This one WOULD want the cluster
+      lease — it is a nightly DELETE over shared rows — but the delete is
+      idempotent and by-age, so N replicas racing it costs lock contention, not
+      correctness. It converts with the extraction in PLAT-MEDIUM-903.

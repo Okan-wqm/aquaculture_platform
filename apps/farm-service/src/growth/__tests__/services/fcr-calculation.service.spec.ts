@@ -49,7 +49,11 @@ describe('FCRCalculationService', () => {
       initialQuantity,
       currentQuantity,
       weight: {
-        initial: { avgWeight: initialAvgWeightG, totalBiomass: params.startBiomassKg, measuredAt: new Date() },
+        initial: {
+          avgWeight: initialAvgWeightG,
+          totalBiomass: params.startBiomassKg,
+          measuredAt: new Date(),
+        },
         theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
         actual: {
           avgWeight: actualAvgWeightG,
@@ -68,16 +72,21 @@ describe('FCRCalculationService', () => {
     createQueryBuilder: jest.fn(),
   };
 
-  const mockGrowthMeasurementRepository = {
-    find: jest.fn(),
-    createQueryBuilder: jest.fn(),
-  };
-
   // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
   // atar — varsayılan boş sonuç: v2 ataması yok, zincir legacy dallara düşer.
   const mockManagerQuery = jest.fn();
+  // W5 (FARM-LOW-291): trend analizi de toplu ham sorguya döndü — pencere
+  // fonksiyonu tek çağrıda son 10 ölçümü batch başına getirir.
+  const mockGrowthMeasurementQuery = jest.fn();
+  const mockGrowthMeasurementRepository = {
+    find: jest.fn(),
+    createQueryBuilder: jest.fn(),
+    manager: { query: mockGrowthMeasurementQuery },
+  };
   const mockBatchRepository = {
     findOne: jest.fn(),
+    // Toplu yol (`getTargetFCRForBatches`) batch'leri `find` ile ön-yükler.
+    find: jest.fn(),
     manager: { query: mockManagerQuery },
   };
 
@@ -177,6 +186,7 @@ describe('FCRCalculationService', () => {
     mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
     mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 0 });
     mockManagerQuery.mockResolvedValue([]);
+    mockGrowthMeasurementQuery.mockResolvedValue([]);
   });
 
   describe('calculatePeriodFCR', () => {
@@ -421,10 +431,9 @@ describe('FCRCalculationService', () => {
 
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
-      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'op.operationDate <= :endDate',
-        { endDate },
-      );
+      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith('op.operationDate <= :endDate', {
+        endDate,
+      });
     });
   });
 
@@ -433,9 +442,9 @@ describe('FCRCalculationService', () => {
     const batchId = 'batch-456';
 
     it('should return stable trend when insufficient data', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.5 } },
-        { id: '2', fcrAnalysis: { periodFCR: 1.4 } },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.5 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -445,27 +454,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect improving trend (decreasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -475,27 +468,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect declining trend (increasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -505,11 +482,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should include recommendations for declining trend', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.2 }, measurementDate: new Date('2024-01-01') },
-        { id: '2', fcrAnalysis: { periodFCR: 1.5 }, measurementDate: new Date('2024-01-08') },
-        { id: '3', fcrAnalysis: { periodFCR: 1.8 }, measurementDate: new Date('2024-01-15') },
-        { id: '4', fcrAnalysis: { periodFCR: 2.1 }, measurementDate: new Date('2024-01-22') },
+      mockGrowthMeasurementQuery.mockResolvedValue([
+        { batchId, fcrAnalysis: { periodFCR: 1.2 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.5 } },
+        { batchId, fcrAnalysis: { periodFCR: 1.8 } },
+        { batchId, fcrAnalysis: { periodFCR: 2.1 } },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -686,18 +663,16 @@ describe('FCRCalculationService', () => {
     });
 
     it('fcrSource=feed protokolde band yeminin FCR matrisi ağırlık ekseninde interpolasyonla çözülür', async () => {
-      mockManagerQuery
-        .mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })])
-        .mockResolvedValueOnce([
-          {
-            matrix: {
-              temperatures: [10],
-              weights: [100, 200],
-              rates: [[2.5, 2.0]],
-              fcrMatrix: [[1.0, 1.4]],
-            },
+      mockManagerQuery.mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })]).mockResolvedValueOnce([
+        {
+          matrix: {
+            temperatures: [10],
+            weights: [100, 200],
+            rates: [[2.5, 2.0]],
+            fcrMatrix: [[1.0, 1.4]],
           },
-        ]);
+        },
+      ]);
 
       const result = await service.compareFCR(batchId, tenantId);
 
@@ -719,6 +694,52 @@ describe('FCRCalculationService', () => {
 
       expect(mockManagerQuery).toHaveBeenCalledTimes(1);
       expect(result.targetFCR).toBe(1.35);
+    });
+
+    it('getTargetFCRForBatches legacy dala düşen batch’ler için de SORGU ATMAZ (FARM-LOW-291)', async () => {
+      // Bulgunun tam senaryosu. Toplu API'nin DIŞ iki çağrısı toplulaştırılmıştı,
+      // ama zincirin 3. adımı — legacy yemleme programı — batch başına İKİ
+      // `findOne` atmaya devam ediyordu: `batch_locations` ve
+      // `feeding_program_tanks`. O adıma, v2 ataması OLMAYAN her batch düşer;
+      // cutover'ı bitirmemiş bir tenant'ta bu, batch'lerin çoğunluğudur. Yani
+      // "toplu" okuma, bulgunun saydığı sorguları hâlâ atıyordu.
+      const batchIds = ['batch-a', 'batch-b', 'batch-c'];
+      mockBatchRepository.find.mockResolvedValue(
+        batchIds.map((id) =>
+          Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+            id,
+            tenantId,
+            species: undefined,
+            speciesId: 'species-1',
+          }),
+        ),
+      );
+      mockSpeciesRepository.findOne.mockResolvedValue(null);
+      mockManagerQuery
+        // 1) v2 atama sorgusu — hiçbiri atanmamış, hepsi legacy dala düşer.
+        .mockResolvedValueOnce([])
+        // 2) legacy program sorgusu — TOPLU. Yalnız batch-b'nin programı var.
+        .mockResolvedValueOnce([
+          {
+            batchId: 'batch-b',
+            fcrTable: { temperatures: [10], weights: [100, 200], fcrValues: [[1.1, 1.5]] },
+          },
+        ]);
+
+      const targets = await service.getTargetFCRForBatches(tenantId, batchIds);
+
+      // Legacy tablosu olan batch onun interpolasyonunu alır; olmayanlar
+      // zincirin devamına düşer (species yok → endüstri yok → 1.5).
+      // 120g: wFrac = 0.2 → 1.1 + 0.4×0.2 = 1.18.
+      expect(targets.get('batch-b')).toBeCloseTo(1.18, 10);
+      expect(targets.get('batch-a')).toBe(1.5);
+      expect(targets.get('batch-c')).toBe(1.5);
+
+      // Asıl iddia: batch BAŞINA hiçbir legacy round-trip yok.
+      expect(mockBatchLocationRepository.findOne).not.toHaveBeenCalled();
+      expect(mockFeedingProgramTankRepository.findOne).not.toHaveBeenCalled();
+      // Ham sorgu sayısı batch sayısından BAĞIMSIZ: v2 + legacy = 2.
+      expect(mockManagerQuery).toHaveBeenCalledTimes(2);
     });
 
     it('kullanıcı override (batch.fcr.target) her şeyden önce gelir — v2 sorgusu atılmaz', async () => {

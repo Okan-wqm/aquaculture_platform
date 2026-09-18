@@ -45,6 +45,7 @@ import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { DayPlanAdminResultView, MealFeedingResultView } from '../dto/meal-execution.results';
 import {
   CorrectMealPourInput,
+  FinalizeMealInput,
   RecordMealFeedingInput,
   SkipMealInput,
 } from '../dto/meal-execution.inputs';
@@ -133,7 +134,7 @@ export class MealExecutionResolver {
 
   @ResolveField(() => Float, { nullable: true })
   waterTempC(@Parent() plan: FeedingDayPlan): number | null {
-    return plan.snapshot.waterTempC;
+    return plan.resolution.waterTempC;
   }
 
   @ResolveField(() => String)
@@ -146,37 +147,40 @@ export class MealExecutionResolver {
     return plan.snapshot.usingDefaultTemperature;
   }
 
+  // Yem kimliği ve oran/FCR CANLI çözümden okunur (FARM-HIGH-247):
+  // snapshot üretim anında donar, gün içi band geçişi onu güncellemiyordu —
+  // operatör eski yemi görürken ledger yeni yemi düşüyordu.
   @ResolveField(() => ID)
   feedId(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.id;
+    return plan.resolution.feed.id;
   }
 
   @ResolveField(() => String)
   feedCode(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.code;
+    return plan.resolution.feed.code;
   }
 
   @ResolveField(() => String)
   feedName(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.name;
+    return plan.resolution.feed.name;
   }
 
   @ResolveField(() => Float)
   effectiveRatePercent(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.effectiveRatePercent;
+    return plan.resolution.effectiveRatePercent;
   }
 
   @ResolveField(() => Float)
   expectedFcr(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.expectedFcr;
+    return plan.resolution.expectedFcr;
   }
 
   @ResolveField(() => FcrResolvedSource)
   fcrResolvedSource(@Parent() plan: FeedingDayPlan): FcrResolvedSource {
-    return plan.snapshot.fcrResolvedSource;
+    return plan.resolution.fcrResolvedSource;
   }
 
-  /** D-2 rozeti: band dominant-biomass'tan seçildi, tank karışık (B3 öncesi snapshot'ta false). */
+  /** D-2 rozeti: band TANK ORTALAMASINDAN seçildi, tank karışık (FARM-LOW-263). */
   @ResolveField(() => Boolean)
   mixedBatch(@Parent() plan: FeedingDayPlan): boolean {
     return plan.snapshot.mixedBatch ?? false;
@@ -205,6 +209,27 @@ export class MealExecutionResolver {
       finalize: input.finalize,
       feedingMethod: input.feedingMethod,
       notes: input.notes,
+      envelope: mobileCommandEnvelopeFromInput(input),
+    });
+  }
+
+  /**
+   * Öğünü döküm eklemeden kapat (W8 — FARM-MEDIUM-269). Operatör "balık doydu"
+   * dediğinde uydurma bir 0.001 kg döküm kaydetmesi gerekmez; kayıtta sahte bir
+   * `feeding_records` satırı ve sahte bir stok düşümü oluşmaz.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Mutation(() => MealFeedingResultView)
+  async finalizeMeal(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('input') input: FinalizeMealInput,
+  ): Promise<MealFeedingResultView> {
+    return this.mealExecutionService.finalizeMeal({
+      tenantId,
+      userId: user.sub,
+      caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+      mealId: input.mealId,
       envelope: mobileCommandEnvelopeFromInput(input),
     });
   }

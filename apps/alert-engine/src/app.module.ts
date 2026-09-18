@@ -71,6 +71,11 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 // Nested ObjectTypes for orphanedTypes registration
 import { IncidentTimelineEvent } from './database/entities/alert-incident.entity';
 import { AlertCondition } from './database/entities/alert-rule.entity';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 @Module({
   imports: [
@@ -139,6 +144,14 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
+        /**
+         * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+         * hardening preset — production error masking (raw TypeORM/driver text must
+         * never reach clients through the gateway's message passthrough) and the
+         * complexity cap for direct-access defense-in-depth.
+         */
+        formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+        plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
         buildSchemaOptions: {
           orphanedTypes: [IncidentTimelineEvent, AlertCondition],
         },
@@ -178,6 +191,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'alert-engine' }),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.

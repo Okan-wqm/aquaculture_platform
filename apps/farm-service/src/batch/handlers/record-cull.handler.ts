@@ -19,7 +19,12 @@
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { CullRecordedEvent } from '@platform/event-contracts';
@@ -46,7 +51,10 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
 import { TankBatchService } from '../services/tank-batch.service';
-import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
+import {
+  findTankOrEquipmentWithManager,
+  resolveSiteIdFromDepartment,
+} from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordCullCommand)
@@ -70,10 +78,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     // SSoT tank-composition writer (batchDetails[] + derived aggregates + current*).
     private readonly tankBatchService: TankBatchService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
-    private readonly mobileCommandReceipts: MobileCommandReceiptService =
-      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService = defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: RecordCullCommand): Promise<Batch> {
@@ -181,18 +187,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         addedRemoval: payload.quantity,
       });
 
-      // Biomass hesapla
-      // D-3 miktar çözümü (SSoT) — mortality ile aynı üç-mod semantiği.
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
-      const resolvedRemoval = this.removalQuantityPolicy.resolve({
-        count: payload.quantity,
-        biomassKg: payload.biomassKg,
-        currentQuantity: batch.currentQuantity,
-        // Türetilmiş güncel biyokütle (adet × etkin ortalama) — ceiling doğrulaması için.
-        currentBiomassKg: (batch.currentQuantity * avgWeightG) / 1000,
-        currentAvgWeightG: avgWeightG,
-      });
-      const biomassKg = resolvedRemoval.biomassKg;
 
       // TankBatch bul (inside TX for consistency).
       // FARM-MEDIUM-055: pessimistic_write lock — parity with mortality. Without
@@ -206,12 +201,31 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       });
       this.mortalityCullPolicy.assertBatchInTank({ batchId, tankBatch });
 
-      const preOperationState = tankBatch ? {
-        quantity: tankBatch.totalQuantity,
-        biomassKg: tankBatch.totalBiomassKg,
-        densityKgM3: tankBatch.densityKgM3,
-      } : undefined;
+      // D-3 miktar çözümü — tavan, düşümün UYGULANDIĞI kapsamla aynı olmalı
+      // (FARM-HIGH-246): eskiden tavan PARTİ geneli (batch.currentQuantity /
+      // türetilmiş parti biyokütlesi) üzerinden doğrulanıyor ama düşüm TANKA
+      // uygulanıyordu. Çok tanklı bir partide T1'e 900 kg'lık cull girmek
+      // parti tavanını (2000 kg) geçmediği için kabul ediliyor, T1'in gerçek
+      // 200 kg'ı hiç kontrol edilmiyordu. Bu yüzden çözüm artık TankBatch
+      // kilidi ALINDIKTAN SONRA, tankın kendi toplamlarıyla yapılır.
+      const tankQuantity = tankBatch?.totalQuantity ?? 0;
+      const tankBiomassKg = Number(tankBatch?.totalBiomassKg ?? 0);
+      const resolvedRemoval = this.removalQuantityPolicy.resolve({
+        count: payload.quantity,
+        biomassKg: payload.biomassKg,
+        currentQuantity: tankQuantity,
+        currentBiomassKg: tankBiomassKg,
+        currentAvgWeightG: avgWeightG,
+      });
+      const biomassKg = resolvedRemoval.biomassKg;
 
+      const preOperationState = tankBatch
+        ? {
+            quantity: tankBatch.totalQuantity,
+            biomassKg: tankBatch.totalBiomassKg,
+            densityKgM3: tankBatch.densityKgM3,
+          }
+        : undefined;
 
       // Tank operation kaydı oluştur
       const operation = queryRunner.manager.create(TankOperation, {
@@ -286,11 +300,9 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
           .execute();
       }
 
-      await this.farmStockProjection.refreshContainers(
-        queryRunner.manager,
-        tenantId,
-        [payload.tankId],
-      );
+      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [
+        payload.tankId,
+      ]);
 
       // P-31: cull sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
       await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, payload.tankId, 'cull');
@@ -300,7 +312,10 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       // either both commit or neither. OutboxWorkerService publishes to NATS
       // asynchronously with retry + dead-letter on failure.
       const cullEvent: CullRecordedEvent = {
-        ...createBaseEvent<CullRecordedEvent>('CullRecorded', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
+        ...createBaseEvent<CullRecordedEvent>('CullRecorded', tenantId, {
+          aggregateId: batchId,
+          aggregateType: 'Batch',
+        }),
         userId: recordedBy,
         batchId,
         tankId: payload.tankId,

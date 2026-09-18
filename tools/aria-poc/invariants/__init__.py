@@ -14,6 +14,6 @@ discipline: load-bearing invariant tests stay visible AND uniquely
 named.
 
 CI dispatches ``unittest discover tools/aria-poc/invariants``
-independently of the kernel suite (aria-kernel.yml; aria-kernel-fast.yml
-carries the PR-early copy of the same dispatch).
+independently of the kernel suite (aria-kernel.yml, on the PR and on the
+push to main).
 """

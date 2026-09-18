@@ -150,9 +150,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToSensorEvents(): void {
     if (!this.connection) return;
 
-    // Subscribe to all sensor reading events
-    // sensor-service publishes to subject: events.SensorReading (no trailing tokens)
-    this.subscription = this.connection.subscribe('events.SensorReading');
+    // Task 2 (SENSOR-HIGH-092): SensorReading is a high-rate telemetry type
+    // routed to the telemetry root (AQUACULTURE_TELEMETRY). The previous
+    // 2-segment `events.SensorReading` subject matched NOTHING the sensor
+    // subgraph publishes (3-segment events.{tenant}.SensorReading) — the
+    // bridge was silently blind; the routed wildcard fixes both at once.
+    this.subscription = this.connection.subscribe('telemetry.*.SensorReading');
 
     this.logger.log('Subscribed to sensor reading events');
 
@@ -230,7 +233,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -272,7 +277,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -298,11 +305,13 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Forward to WebSocket gateway
-    const timestamp = event.timestamp instanceof Date
-      ? event.timestamp.toISOString()
-      : String(event.timestamp);
+    const timestamp =
+      event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp);
 
     this.sensorGateway.broadcastSensorReading({
+      // Task 1.5: forward the deterministic identity so the client can
+      // deduplicate its reconnect window instead of double-rendering.
+      eventId: event.eventId,
       sensorId: event.sensorId ?? '',
       sensorName: event.sensorName ?? '',
       tenantId: event.tenantId,

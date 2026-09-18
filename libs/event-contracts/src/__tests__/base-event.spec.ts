@@ -1,5 +1,7 @@
 import {
+  AQUA_EVENT_ID_NAMESPACE,
   createBaseEvent,
+  deriveEventId,
   toEventIso,
   type BaseEvent,
   type EventId,
@@ -68,9 +70,7 @@ describe('createBaseEvent — canonical contract invariants', () => {
 
     it('timestamp matches strict ISO 8601 with millisecond precision', () => {
       const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
-      expect(event.timestamp).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
-      );
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
     it('timestamp is parseable by Date.parse without ambiguity', () => {
@@ -158,5 +158,63 @@ describe('toEventIso (ORPHAN-111 canonical date→ISO normaliser)', () => {
   it('throws on an unparseable value rather than emitting a bad timestamp', () => {
     expect(() => toEventIso('not-a-date')).toThrow(TypeError);
     expect(() => toEventIso(new Date('nope'))).toThrow(TypeError);
+  });
+});
+
+describe('deriveEventId — deterministic (UUIDv5) event identity (Task 1.4)', () => {
+  // Concrete-type stub so the generic narrows to a known eventType.
+  interface TestEvent extends BaseEvent {
+    eventType: 'TestEvent';
+  }
+
+  const RFC4122_DNS_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+
+  it('implements the RFC 4122 §4.3 algorithm (known v5 vector)', () => {
+    // Cross-implementation reference vector: v5(DNS, "python.org") =
+    // 886313e1-3b8a-5372-9b90-0c9aee199e5d. Pinning this proves the SHA-1 +
+    // version/variant bit layout, not just self-consistency.
+    expect(deriveEventId('python.org', RFC4122_DNS_NAMESPACE)).toBe(
+      '886313e1-3b8a-5372-9b90-0c9aee199e5d',
+    );
+  });
+
+  it('is deterministic: the same seed yields the same EventId', () => {
+    const a = deriveEventId('tenant-1\u0000sensor-9\u000017300000000000\u0000abc123');
+    const b = deriveEventId('tenant-1\u0000sensor-9\u000017300000000000\u0000abc123');
+    expect(a).toBe(b);
+  });
+
+  it('differs across seeds and across namespaces', () => {
+    const base = deriveEventId('seed');
+    expect(deriveEventId('seed-2')).not.toBe(base);
+    expect(deriveEventId('seed', RFC4122_DNS_NAMESPACE)).not.toBe(base);
+    // The platform namespace is a valid UUID and NOT one of the RFC's.
+    expect(AQUA_EVENT_ID_NAMESPACE).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(AQUA_EVENT_ID_NAMESPACE).not.toBe(RFC4122_DNS_NAMESPACE);
+  });
+
+  it('yields a valid RFC 4122 v5-shaped UUID', () => {
+    const id = deriveEventId('shape-check');
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it('fails closed on an empty seed', () => {
+    expect(() => deriveEventId('')).toThrow(/empty seed/);
+  });
+
+  it('createBaseEvent honors an explicit eventId override verbatim (no random replacement)', () => {
+    const deterministic = deriveEventId('tenant-1\u0000sensor-9\u0000payload-sha');
+    const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1', {
+      eventId: deterministic,
+    });
+    expect(event.eventId).toBe(deterministic);
+  });
+
+  it('createBaseEvent still generates fresh random UUIDs without an override', () => {
+    const a = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
+    const b = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
+    expect(a.eventId).not.toBe(b.eventId);
   });
 });

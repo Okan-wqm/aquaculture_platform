@@ -28,6 +28,9 @@ import {
   RecurringTemplate,
 } from '../../entities/recurring-template.entity';
 import { Task } from '../../entities/task.entity';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 /**
  * The three methods under test are `private` on the service so the
@@ -51,7 +54,7 @@ function makeService(): PrivateAccess {
   const taskRepo = noop as Repository<Task>;
   const dataSource = noop as DataSource;
   const outbox = noop as OutboxPublisher;
-  const svc = new RecurringTaskService(templateRepo, taskRepo, dataSource, outbox);
+  const svc = new RecurringTaskService(templateRepo, taskRepo, dataSource, outbox, scheduledJobs.executor);
   return svc as unknown as PrivateAccess;
 }
 

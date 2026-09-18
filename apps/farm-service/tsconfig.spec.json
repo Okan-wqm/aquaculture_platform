@@ -18,6 +18,10 @@
     "jest.integration.config.ts",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
+    // `*.e2e-spec.ts` suffix'i `*.spec.ts` glob'una TAKILMAZ (`-spec` vs
+    // `.spec`), o yüzden bu dosyalar strict-tsc kapısının dışında kalıyordu —
+    // ts-jest ise onları derliyor. Asimetri kapatıldı.
+    "src/**/*.e2e-spec.ts",
     "src/**/*.d.ts"
   ],
   "exclude": [

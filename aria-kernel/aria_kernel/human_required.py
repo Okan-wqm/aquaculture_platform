@@ -26,10 +26,35 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import _request_event_count, derive_request_state
-from .ledger import load_declared_jsonl
+from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl
+from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
+# The longest `record_human_required` can legitimately wait: its governance
+# append (one state transaction behind a live holder) and the notification
+# it sends (`notify.NOTIFY_WORST_CASE_SECONDS`: every channel at its wall
+# clock, then one transaction for the outbox rows). The executor runs this
+# function as a kernel child on its refusal exits and derives that child's
+# wall clock from this number (`tools/aria-poc/ci_executor.py`), so it
+# cannot kill a healthy record while the kernel is still inside its own
+# bounds — the 30 s-versus-600 s disagreement of 2026-09-12, on this path.
+HUMAN_REQUIRED_RECORD_WAIT_SECONDS: float = STATE_LOCK_LIVENESS_SECONDS + NOTIFY_WORST_CASE_SECONDS
+
+
+# ARIA-HIGH-124 (round 3) — the context kind of every escalation the
+# EXECUTOR records for a request it holds (`tools/aria-poc/ci_executor.py`
+# `_record_human_required`): a branch collision, an invalid request row, a
+# delivery refusal, the agent's own refusal envelope, a model refusal. The
+# machine ids (`branch`, `base_sha`, `claim_id`, the refusal's detail) ride
+# the record's `context` under this kind, never the reason's prose — the
+# operator CLI's free-text `--reason` validator refused ids carrying ten
+# consecutive digits as phone numbers, and the executor no longer goes
+# through it. Deliberately NOT in
+# `human_required_adjudication.ADJUDICABLE_CONTEXT_KINDS`: an unadmitted
+# kind is irreducible by construction, and each of these is a person's
+# decision (deliver or delete a branch, re-stage a plan, read a refusal).
+EXECUTOR_ESCALATION_KIND: str = "executor_escalation"
 
 # Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
 # MEDIUM gets 7 days; everything else falls back to 14 days.
@@ -49,6 +74,25 @@ def _human_required_dir(tools_root: Path) -> Path:
 
 def _human_required_path(tools_root: Path, request_id: str) -> Path:
     return _human_required_dir(tools_root) / f"{request_id}.json"
+
+
+def open_human_required_record(request_id: str, *, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """The request's HUMAN_REQUIRED record while it is OPEN (no
+    ``resolved_at``), else None. ARIA-HIGH-124 (round 2) — the claim
+    release reads it: a request an executor escalated (the record is
+    written before the release) derives HUMAN_REQUIRED from that release,
+    not after two more wasted claims. A resolved record is a closed
+    episode and binds nothing."""
+    path = _human_required_path(ensure_tools_dir(base_dir), request_id)
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(record, dict) or record.get("resolved_at"):
+        return None
+    return record
 
 
 def _resolve_severity(severity: str | None) -> str:
@@ -120,8 +164,6 @@ def record_human_required(
         },
     )
     # Plan 032 Faz 032e — a person is needed; say so on the configured channels.
-    from .notify import notify_best_effort
-
     notify_best_effort(
         kind="human_required_opened", key=request_id, base_dir=root,
         title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",

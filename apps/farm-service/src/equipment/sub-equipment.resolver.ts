@@ -100,7 +100,7 @@ export class SubEquipmentResolver {
     @Args('includeInactive', { type: () => Boolean, nullable: true, defaultValue: false })
     includeInactive: boolean,
     @CurrentTenant() tenantId: string,
-  ): Promise<SubEquipmentResponse[]> {
+  ): Promise<readonly SubEquipmentResponse[]> {
     this.logger.debug(`Getting sub-equipment for parent ${parentEquipmentId}`);
     const filter: SubEquipmentFilterInput = {
       parentEquipmentId,

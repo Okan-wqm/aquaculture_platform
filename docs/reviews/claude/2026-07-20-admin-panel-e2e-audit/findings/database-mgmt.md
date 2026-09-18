@@ -1,0 +1,1852 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Database Management & Explorer — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## DatabaseManagementPage.tsx — `/admin/database` — verdict: **PARTIAL**
+
+**Chain:** FE calls /api/database/_ -> shell nginx rewrites /api/(._) to /api/v1/$1
+(infrastructure/nginx/droplet.conf:377-383) -> admin-api-service (default global prefix 'api/v1',
+libs/backend-common/src/bootstrap/create-service-app.ts:610; URI versioning VERSION_NEUTRAL keeps
+unversioned paths, apps/admin-api-service/src/main.ts:14-19). Every route is protected by the global
+PlatformAdminGuard APP_GUARD (apps/admin-api-service/src/app.module.ts:283-290) enforcing
+SUPER_ADMIN via RS256 JWT with issuer/audience
+(apps/admin-api-service/src/guards/platform-admin.guard.ts:112-177). Read chains are real: schemas
+list reads admin.tenant_schemas (schema-management.service.ts:83-95), migration history reads
+admin.schema_migrations (migration-management.service.ts:243-268), backups list reads
+admin.schema_backups (backup-restore.service.ts:342-367), monitoring runs live
+pg_stat_activity/pg_tables/pg_statio/pg_stat_user_tables queries
+(database-monitoring.service.ts:101-133,731-778,823-899). All tables are created by the Baseline
+migration in schema admin (apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:191-213)
+and every @Entity declares schema:'admin' (database-management.entity.ts:37,88,146,217,295,351,382).
+However most mutations are permanently disabled server-side by the db-migrate authority boundary
+(suspend/activate/refresh-stats/create-schema throw 409; migration run/rollback/batch throw 403;
+restore throws 400) and the FE was never updated, and Create Backup is broken at the DTO validation
+layer — so most action buttons on this page cannot succeed.
+
+**Endpoints exercised:** `GET /api/v1/database/schemas`;
+`POST /api/v1/database/schemas/:tenantId/suspend`;
+`POST /api/v1/database/schemas/:tenantId/activate`;
+`GET /api/v1/database/schemas/:tenantId/validate`;
+`POST /api/v1/database/schemas/:tenantId/refresh-stats`;
+`GET /api/v1/database/migrations/available`; `GET /api/v1/database/migrations/history`;
+`POST /api/v1/database/migrations/batch/run`; `GET /api/v1/database/backups`;
+`GET /api/v1/database/backups/schedule`; `POST /api/v1/database/backups`;
+`DELETE /api/v1/database/backups/:backupId`
+
+**DB tables:** `admin.tenant_schemas`, `admin.schema_migrations`, `admin.schema_backups`,
+`admin.schema_restores`, `admin.database_metrics`, `admin.slow_query_logs`, `admin.audit_logs`,
+`pg_stat_activity/pg_tables/pg_statio_user_tables/pg_stat_user_tables (live)`
+
+### APA-314 [HIGH] Create Backup always fails with 400 — FE sends 'encrypt' field the DTO does not whitelist
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** The Create Backup modal always includes encrypt in the POST body (page always
+  serializes encrypt: boolean). CreateBackupDto has
+  tenantId/backupType/compress/retentionDays/excludeTables but NO encrypt property, and the
+  platform-wide ValidationPipe runs whitelist:true + forbidNonWhitelisted:true, so every
+  create-backup request is rejected with 400 ('property encrypt should not exist') before reaching
+  the service. The primary Backups-tab flow can never succeed from the UI. (Server-side, encryption
+  is forced on anyway via resolveBackupEncryption, so the FE checkbox is doubly meaningless.)
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:785-791 (payload includes encrypt: createForm.encrypt)`
+  - `web/modules/admin-panel/src/services/api/database.ts:130-131`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts:47-73 (CreateBackupDto lacks encrypt)`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:459-460 (whitelist:true, forbidNonWhitelisted:true)`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:181-186`
+- **Verification:** Fully reproduced end-to-end in real wiring. FE handleCreateBackup
+  (DatabaseManagementPage.tsx:785-791) always includes encrypt: createForm.encrypt;
+  createForm.encrypt defaults to false (752) and is toggled by a checkbox (1038-1039). Because
+  encrypt is a boolean, JSON.stringify (database.ts:130-131) always serializes the property into the
+  POST body — true OR false. CreateBackupDto (backup.controller.ts:47-73) has no encrypt property,
+  and the createBackup handler never reads it. admin-api-service/src/main.ts calls bootstrapService
+  with NO validationPipeOverrides/customValidationPipe, so the platform default global
+  ValidationPipe (create-service-app.ts:459-460, whitelist:true + forbidNonWhitelisted:true) applies
+  and rejects the unknown encrypt property with 400 'property encrypt should not exist' before the
+  handler runs. So every UI-triggered create-backup fails. Compounding: resolveBackupEncryption
+  (backup-restore.service.ts:181-186) forces encryption on and throws BadRequestException on
+  encrypt:false, so the toggle is not just drift, it is impossible to honor. Adversarial attempts to
+  refute failed: no per-service pipe override, no alternate lenient route, no route that reads
+  encrypt. Severity lowered CRITICAL->HIGH: the flow is 100% dead from the UI (serious), but it
+  fails loud (400 surfaced via alert), causes no data loss, no security/tenant-isolation impact, and
+  server-side scheduled backups are unaffected — so it is a total functional breakage of an
+  important feature rather than a CRITICAL security/data-integrity defect.
+- **Root cause:** FE->BE contract drift at the DTO whitelist boundary, an instance of the systemic
+  FE-type-drift / DTO-whitelist-rejection class. The admin-panel maintains hand-written request
+  types (web/modules/admin-panel/src/services/api/database.ts) that are NOT derived from the
+  admin-api DTOs, so both the createBackup signature and the DatabaseManagementPage form carry a
+  vestigial encrypt field that CreateBackupDto never declared. The platform-correct security posture
+  (whitelist:true + forbidNonWhitelisted:true) then rejects the always-present property at runtime.
+  The drift is invisible until a real request hits the pipe in prod because nothing ties admin-panel
+  request shapes to backend DTOs at build/test time (there is no OpenAPI codegen for admin-api the
+  way there is GraphQL codegen elsewhere). The field is also semantically dead: server policy
+  mandates encryption and rejects encrypt:false, so a plaintext-backup toggle can never be honored
+  and must not exist in the UI.
+- **Fix design:** Local fix — tier 1 (make the wrong request impossible to construct): remove
+  encrypt entirely from the FE, since mandatory encryption is a server invariant. Delete the
+  checkbox (DatabaseManagementPage.tsx:1038-1039), the encrypt field from createForm initial state
+  (752), and the encrypt key from the createBackup payload (789); keep/show 'Encrypted' as read-only
+  status (the page already reads backup.isEncrypted at ~942), not as a control. Drop encrypt?:
+  boolean from the createBackup signature in services/api/database.ts:130 so the type system no
+  longer permits sending it. Do NOT add encrypt to CreateBackupDto — that would let encrypt:false
+  pass the whitelist only to hit a deeper 400 in resolveBackupEncryption, surfacing a fixed security
+  policy as a validation error and re-introducing a meaningless toggle. Pattern fix — tier 3 (make
+  drift detectable at test time): add a request-contract spec that boots the real global
+  ValidationPipe (whitelist:true + forbidNonWhitelisted:true, matching create-service-app.ts) and
+  POSTs the exact payload the FE serializes, asserting 201 rather than 400; this gate catches any
+  future FE/DTO shape drift for backup creation. Durable systemic fix (larger, note as follow-up):
+  derive admin-panel request types from the admin-api OpenAPI/Swagger schema via codegen, mirroring
+  the existing npm run codegen GraphQL pipeline, so request-shape drift becomes a build-time
+  (tier 3) failure instead of a prod runtime 400 across all admin-panel endpoints.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `apps/admin-api-service/src/database-management/controllers/__tests__/backup-create.contract.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/database-management/controllers/**tests**/backup-create.contract.spec.ts:
+  bootstrap a Nest test app wiring BackupController with the platform global ValidationPipe
+  configured exactly as create-service-app.ts (whitelist:true, forbidNonWhitelisted:true,
+  transform:true) and mock BackupRestoreService. (1) POST /database/backups with the exact FE
+  payload shape AFTER the fix ({ backupType:'full', compress:true, retentionDays:30 }) and assert
+  201, proving the request the FE now sends is accepted. (2) Regression guard: POST the same body
+  PLUS encrypt:false and assert 400 with a message referencing the non-whitelisted 'encrypt'
+  property, locking in that the field is not silently reintroduced into the DTO. Optionally add an
+  FE type-level assertion (tsc) that databaseApi.createBackup rejects an encrypt argument. Run nx
+  affected --target=test and nx affected --target=lint green.
+- **Effort:** S
+
+### APA-315 [HIGH] Backups can never actually complete in the deployed container — pg_dump binary, /backups volume, and BACKUP_ENCRYPTION_KEY all missing
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** BackupRestoreService spawns pg_dump and writes AES-256-GCM-encrypted dumps to
+  /backups/schemas. The production runtime image installs only 'curl dumb-init' (no
+  postgresql-client), the droplet compose mounts no /backups volume for admin-api and sets no
+  BACKUP_ENCRYPTION_KEY, so getBackupEncryptionKey() throws (or spawn ENOENT fires) and every backup
+  — UI-triggered AND the 2AM daily / Sunday 3AM weekly crons — is marked 'failed'. The scheduled
+  backups fail silently (error is only logged). The backup trigger therefore does NOT produce real
+  backups in production; actual DB backups exist only via the separate pg-backup/wal-g infra
+  containers.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:61 (BACKUP_BASE_PATH '/backups/schemas'), 513-554 (spawn('pg_dump')), 556-567 (BACKUP_ENCRYPTION_KEY required), 618-667 (cron backups swallow errors)`
+  - `infrastructure/docker/Dockerfile.backend:78 (runtime apk add only curl dumb-init)`
+  - `docker-compose.droplet.yml:943-1009 (admin-api-service: no /backups volume, no BACKUP_ENCRYPTION_KEY env)`
+- **Verification:** Verified against real wiring, and the finding survives on all three independent
+  blockers — in fact it is stronger than written. The finding cited
+  infrastructure/docker/Dockerfile.backend:78, but the deployed admin-api image is built from
+  Dockerfile.backend.simple (deploy-digitalocean.yml:900 selects it for every non-db-migrate
+  service; deploy-staging.yml:428 same). Its runtime layer runs only
+  `apt-get install --no-install-recommends curl dumb-init` (lines 24-26) — no postgresql-client — so
+  spawn('pg_dump') at backup-restore.service.ts:525 fires ENOENT. The admin-api-service compose
+  block (docker-compose.droplet.yml:1002-1007) mounts only NATS/JWT material, no /backups; the
+  container runs as non-root nestjs (uid 1001) so even fs.mkdir('/backups/schemas/…') at line 203
+  fails EACCES. The env block (947-989) never sets BACKUP_ENCRYPTION_KEY and compose passes nothing
+  through, so getBackupEncryptionKey() (556-560) throws on the empty default. Reachability
+  confirmed: ScheduleModule.forRoot() (app.module.ts:178) + DatabaseManagementModule's
+  ScheduleModule import register the 2AM/Sunday-3AM @Cron backups, whose per-tenant try/catch only
+  logs (635-638, 662-665); the UI path is fully wired FE handleCreateBackup ->
+  databaseApi.createBackup -> POST /database/backups -> BackupController.createBackup
+  (backup.controller.ts:162-176). getBackupScheduleStatus() (804-841) hardcodes
+  dailyBackupEnabled:true and a computed nextDailyBackup, so the UI actively reports a healthy
+  backup subsystem that produces nothing. Not CRITICAL: real DR is covered independently by WAL-G
+  continuous archiving on the postgres container (compose 240-291) + Dockerfile.pg-backup, so there
+  is no cluster data-loss — this is a broken parallel per-tenant feature that gives operators false
+  safety and self-pollutes the audit ledger with CRITICAL rows (113-127) for phantom backups. HIGH
+  is the correct grade. This is an instance of a systemic class: an FE-exposed feature whose backend
+  has implicit, unverified runtime prerequisites (external binary + mounted volume + secret) that
+  the production image and compose never provide, so image/infra/code drifted apart with nothing
+  asserting the capability at build or boot — the same shape as a config-table-nobody-provisions /
+  capability-drift bug.
+- **Root cause:** The FE->BE->infra chain broke at the infra/runtime link, not the code link.
+  BackupRestoreService assumes three ambient runtime prerequisites — a pg_dump binary on PATH, a
+  writable /backups volume, and a 32-byte BACKUP_ENCRYPTION_KEY — but NOTHING declares, provisions,
+  or verifies them, so they drifted independently: (a) the shared production Dockerfile
+  (Dockerfile.backend.simple) installs only curl+dumb-init because most services need no DB client,
+  and admin-api was never singled out; (b) the admin-api compose block was authored for a stateless
+  HTTP service (NATS/JWT mounts only) and no one added the volume or secret when the backup feature
+  landed; (c) the service code treats these as guaranteed rather than asserted, so a mis-provisioned
+  deploy fails silently at 2AM instead of loudly at build/boot. Compounding it,
+  getBackupScheduleStatus() reports the schedule as enabled unconditionally, and mkdir() sits
+  outside the try/catch so failures leave rows stuck in_progress. The deeper cause is a missing
+  capability contract: the platform already made a deliberate architectural choice that runtime
+  RESTORE is disabled in favor of the audited db-migrate/WAL-G authority (executeRestore rejects at
+  the authority boundary, 455-471), but the BACKUP side was left half-wired — enabled in code,
+  unprovisioned in the environment, and unverified anywhere.
+- **Fix design:** Make enabled-but-incapable impossible to deploy silently (tier 1/3), then supply
+  the missing prerequisites at their sources (tier 2), and resolve the product ambiguity vs WAL-G.
+  Concretely: (1) DECISION GATE — decide whether app-driven per-tenant pg_dump backups are wanted at
+  all given WAL-G is the cluster DR SSoT and runtime restore is already disabled. If NOT wanted, the
+  root-cause fix is to retire the backup-execution/cron path the same way restore was retired (route
+  through the audited db-migrate/WAL-G authority) and repoint getBackupScheduleStatus()+the UI at
+  real WAL-G state instead of hardcoded dailyBackupEnabled:true — this removes the whole
+  implicit-prerequisite surface. (2) If the capability IS wanted, make it a verified, fail-closed
+  contract: add a boot-time BackupCapabilityValidator (OnModuleInit in database-management.module)
+  that asserts pg_dump resolves on PATH (spawn --version), BACKUP_BASE_PATH exists and is writable,
+  and BACKUP_ENCRYPTION_KEY decodes to 32 bytes; gate cron registration and createBackup behind a
+  BACKUPS_ENABLED config so the feature is off unless the env is provably capable, and when
+  enabled-but-incapable the service refuses to boot (loud failure in CI/staging, not silent 2AM
+  logs). Supply the three prerequisites at source: install postgresql-client-16 (matching the pg16
+  server) in the runtime stage of Dockerfile.backend.simple, guarded by an ARG so only the admin-api
+  image pays the size; add `admin_backups:/backups` named volume to the admin-api-service compose
+  block plus a declared top-level volume; add
+  `BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?BACKUP_ENCRYPTION_KEY required}` using the same
+  fail-if-unset pattern already used for ENCRYPTION_KEY/MINIO. Also move the mkdir at service line
+  203 inside the try so any provisioning failure is recorded as status='failed' (not stuck
+  'in_progress'), and replace the hardcoded getBackupScheduleStatus() flags with the validator's
+  real capability result. Lock the drift shut with a cross-source invariant test so
+  image+compose+code can never diverge again.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `apps/admin-api-service/src/database-management/services/backup-capability.validator.ts`
+  - `apps/admin-api-service/src/database-management/database-management.module.ts`
+  - `infrastructure/docker/Dockerfile.backend.simple`
+  - `docker-compose.droplet.yml`
+  - `e2e/tests/integration/backup-capability-invariants.spec.ts`
+- **Proof of fix:** Add e2e/tests/integration/backup-capability-invariants.spec.ts (a config-drift
+  invariant in the same family as schema-invariants.spec.ts / nats-invariants.spec.ts) that
+  statically asserts: IF BackupRestoreService registers @Cron backups / BACKUPS_ENABLED can be true,
+  THEN (a) infrastructure/docker/Dockerfile.backend.simple installs postgresql-client for the
+  admin-api image, (b) docker-compose.droplet.yml admin-api-service declares a /backups volume mount
+  AND a required BACKUP_ENCRYPTION_KEY (${...:?}) env. Add a unit spec
+  apps/admin-api-service/src/database-management/services/**tests**/backup-capability.validator.spec.ts
+  proving the validator throws at boot when pg_dump is absent, BACKUP_BASE_PATH is unwritable, or
+  BACKUP_ENCRYPTION_KEY is missing/not-32-bytes, and that createBackup/cron are no-ops when
+  BACKUPS_ENABLED is false. Extend backup-restore.service.spec to assert a mkdir/pg_dump/key failure
+  yields status='failed' (never stuck 'in_progress') and that getBackupScheduleStatus() reflects the
+  validator's real capability, not a hardcoded true. End-to-end: in staging with the fixed
+  image+compose, POST /database/backups produces a status='completed' encrypted .enc file on the
+  volume; with the key removed, boot fails fast.
+- **Effort:** L
+
+### APA-316 [MEDIUM] Restore from backup always fails — runtime restore is disabled at the authority boundary but the FE offers it
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** executeRestore() unconditionally marks the restore row 'failed' and throws
+  BadRequestException('Runtime database restore is disabled. Use the audited db-migrate restore
+  workflow instead.'). The page renders a Restore button on every completed backup and a confirm
+  dialog warning about overwrite; the flow can never succeed and each click also inserts a failed
+  row into admin.schema_restores.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:455-471`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:811-820,955-963`
+- **Verification:** Verified end-to-end and reachable in real wiring. FE renders a "Restore" button
+  on every completed backup (DatabaseManagementPage.tsx:957-963), opens an overwrite-warning modal,
+  and "Start Restore" (1128-1137) calls handleRestoreBackup (811-820) ->
+  databaseApi.restoreFromBackup (database.ts:134-138) -> POST /database/backups/restore. The
+  controller route (backup.controller.ts:198-210) is behind the global PlatformAdminGuard
+  (SUPER_ADMIN), the exact caller of this panel. RestoreBackupDto only requires @IsUUID() backupId,
+  which the FE supplies from a real completed backup, so the platform ValidationPipe passes.
+  restoreFromBackup (service:406-450) writes a SCHEMA_RESTORE_REQUESTED CRITICAL audit row + a
+  pending schema_restores row, then executeRestore (455-471) unconditionally sets status='failed',
+  persists it, and throws BadRequestException. So every click 100% returns HTTP 400 ("Runtime
+  database restore is disabled...") AND self-pollutes the DB with one failed schema_restores row +
+  one CRITICAL audit entry. No test pins the throw (only migration/explorer specs exist), confirming
+  this is drift, not intended contract. This is a systemic class: FE action wired to a
+  permanently-rejecting backend capability (dead-end action / FE-BE capability drift), compounded by
+  a self-polluting audit+ledger side effect on the reject path. Corrected HIGH->MEDIUM: the backend
+  deliberately disables runtime restore at an authority boundary and fails CLOSED — no data
+  overwrite, no security bypass, no cross-tenant leak. Impact is a broken/misleading DR-looking
+  control plus audit-ledger noise, bounded to SUPER_ADMIN operators. That is a genuine defect but
+  not HIGH; the related PITR button (backups tab, line 889) is an additional no-op in the same class
+  (opens the modal but "Start Restore" only fires when selectedBackup is set), reinforcing the
+  capability-drift diagnosis without raising severity.
+- **Root cause:** FE-to-BE capability contract drift on the destructive-restore path. The backend
+  was hardened to disable runtime schema restore at the application authority boundary
+  (executeRestore is a permanently-throwing stub; the message points operators to the audited
+  db-migrate restore workflow), but the admin-panel was never updated to remove the now-impossible
+  action. The broken link is the HTTP surface itself: POST /database/backups/restore (and
+  /restore/point-in-time) are endpoints whose only runtime behavior is to reject — dead code with
+  side effects, because restoreFromBackup writes a CRITICAL audit row and a pending schema_restores
+  row before executeRestore flips it to 'failed' and throws. The FE still presents a green "Restore"
+  button, an overwrite-warning modal, and an optimistic "Restore initiated successfully" path
+  against that stub. Nothing structurally prevents the FE from invoking a capability the backend
+  refuses, so the drift is invisible at build/test time.
+- **Fix design:** Align the contract at the source by REMOVING the impossible capability from the
+  API surface (tier 1 — make the wrong behavior impossible), not by making the FE swallow the error.
+  Runtime restore is intentionally the db-migrate CLI's job, so the correct architecture is: no
+  runtime-restore HTTP endpoint exists, the FE offers no runtime-restore action, and the panel
+  instead surfaces read-only restore history plus a pointer to the audited workflow. Concretely: (1)
+  BACKEND — delete the @Post('restore') and @Post('restore/point-in-time') handlers and the
+  RestoreBackupDto/PointInTimeRecoveryDto in backup.controller.ts; delete restoreFromBackup,
+  executeRestore, pointInTimeRecovery and the RUNTIME_RESTORE_AUTHORITY_ERROR constant from
+  backup-restore.service.ts (this also removes the self-polluting audit+ledger writes on the reject
+  path). Keep the read-only getRestoreHistory/getRestore accessors (restores/tenant/:id,
+  restores/:id) — the schema_restores ledger stays as the record populated by the db-migrate CLI.
+  (2) FE api — remove restoreFromBackup, pointInTimeRecovery, and the legacy restoreBackup wrapper
+  from database.ts; keep getRestoreHistory/getRestore. (3) FE page — remove the per-row Restore
+  button (957-963), the Point-in-Time Recovery button (889-893), the restore modal (1067-1142), and
+  handleRestoreBackup (811-820) from DatabaseManagementPage.tsx; replace with a read-only "Restore
+  History" panel driven by getRestoreHistory and an informational banner directing operators to the
+  audited db-migrate restore runbook. Net effect: the FE cannot call a non-functional endpoint
+  (correct behavior automatic — tier 2), and the destructive control simply does not exist in the
+  UI.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `apps/admin-api-service/src/database-management/__tests__/backup-restore-authority.spec.ts`
+  - `web/modules/admin-panel/src/services/api/__tests__/database-api-contract.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/database-management/**tests**/backup-restore-authority.spec.ts: reflect
+  over BackupController route metadata and assert NO POST route matches /restore (proving the
+  permanently-rejecting endpoint is gone, tier-1/tier-3 structural gate), and assert
+  BackupRestoreService exposes no restoreFromBackup/executeRestore/pointInTimeRecovery members so no
+  HTTP path can write a failed schema_restores row. Add
+  web/modules/admin-panel/src/services/api/**tests**/database-api-contract.spec.ts asserting
+  databaseApi has no restoreFromBackup/pointInTimeRecovery/restoreBackup keys and that
+  DatabaseManagementPage's Backups tab renders no element with the "Restore" / "Point-in-Time
+  Recovery" action text (only a read-only history panel), locking the FE to the reduced capability.
+  Both specs fail against today's code and pass after the removal, making future re-introduction of
+  a dead-end restore action detectable at CI. Run via nx affected --target=test for
+  admin-api-service and admin-panel.
+- **Effort:** M
+
+### APA-317 [MEDIUM] Suspend/Activate schema buttons silently do nothing — backend always throws 409 and FE has no .catch
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** SchemaManagementService.updateSchemaStatus() unconditionally throws ConflictException
+  ('Runtime admin.tenant_schemas status writes are disabled'), so suspendSchema/activateSchema can
+  never succeed. The FE calls databaseApi.suspendSchema(...).then(refresh) with NO catch handler —
+  the rejection is unhandled, no error UI is shown, and the row keeps its old status. Silent broken
+  secondary flow.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:137-159`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:372-390 (promise without .catch)`
+- **Verification:** CONFIRMED end-to-end. BE: SchemaManagementService.updateSchemaStatus() is typed
+  `never` and unconditionally throws ConflictException ('Runtime admin.tenant_schemas status writes
+  are disabled. Status evidence is owned by aqua-db-migrate.'); suspendSchema/activateSchema
+  delegate to it (schema-management.service.ts:137-159), and SchemaController routes POST
+  :tenantId/suspend|activate straight into them (schema.controller.ts:112-120) — every call is
+  a 409. FE: apiFetch throws on 4xx with no retry (http-client.ts:309-311), and
+  DatabaseManagementPage.tsx:373-390 chains only .then(() => schemasState.refresh()) with no .catch
+  and no rejection handler — unhandled rejection, no error UI, row keeps old status. Reachable: the
+  Suspend button renders for every status==='active' row. No global handler exists (adjacent buttons
+  at lines 455-472 carry their own .catch(alert), proving per-call handling is the page's
+  mechanism). Lint could not catch it: root no-floating-promises:'error' (eslint.config.mjs:390)
+  excludes PROJECT_GLOBS, and admin-panel's override sets it "off"
+  (eslint.project-overrides.mjs:2050). Severity lowered HIGH→MEDIUM: admin.tenant_schemas.status is
+  tracking evidence only — nothing enforces tenant access from it; the real, working suspension
+  control is PATCH /admin/tenants/:id/suspend (e2e/helpers/tenant.fixture.ts:315-342, covered by
+  e2e/tests/integration/event-publishing.spec.ts). So impact is a dead admin control with false
+  affordance + silent failure on a SUPER_ADMIN-only secondary flow — no security bypass, no data
+  corruption, and the unchanged status badge gives indirect feedback after refresh. No other
+  consumer of the schema-level suspend/activate endpoints exists (repo-wide grep), so the retired
+  capability can be removed without breaking anything.
+- **Root cause:** The 'Sites Setup SSOT remediation' retired runtime writes to admin.tenant_schemas
+  (ownership moved to aqua-db-migrate) but applied the retirement only at the SERVICE layer —
+  updateSchemaStatus/suspendSchema/activateSchema were tombstoned as `never`-typed throwers while
+  the controller routes (schema.controller.ts:112-120), the FE api functions (database.ts:40-43),
+  and the FE Suspend/Activate buttons were left standing. The drift stayed invisible because the FE
+  call sites are fire-and-forget (.then(refresh) with no .catch) and admin-panel is exempted from
+  the root no-floating-promises:'error' policy by its per-project ESLint override ("off",
+  eslint.project-overrides.mjs:2050). Systemic classes: (1) capability retired mid-chain leaving
+  live routes + FE controls pointing at tombstones (same shape as this page's
+  createSchema/deleteSchema/refresh-stats tombstones); (2) admin-panel fire-and-forget mutations
+  with no rejection handling, enabled by the lint-rule opt-out.
+- **Fix design:** Tier 1 — make the retired capability structurally absent across the whole chain
+  (complete the retirement instead of shimming around it): (a) delete the @Post(':tenantId/suspend')
+  and @Post(':tenantId/activate') routes plus the already-dead UpdateSchemaStatusDto from
+  schema.controller.ts; (b) delete the updateSchemaStatus/suspendSchema/activateSchema tombstones
+  from schema-management.service.ts, moving the ownership statement ('admin.tenant_schemas status
+  evidence is owned by aqua-db-migrate') to the class JSDoc; (c) delete
+  databaseApi.suspendSchema/activateSchema from
+  web/modules/admin-panel/src/services/api/database.ts; (d) remove the Suspend/Activate row-action
+  buttons from DatabaseManagementPage.tsx — status stays a read-only badge, and tenant lifecycle
+  suspension remains at its working home (PATCH /admin/tenants/:id/suspend in tenant management).
+  TypeScript then turns any lingering reference into a compile error. Tier 3 — make the
+  silent-failure CLASS detectable: (e) flip '@typescript-eslint/no-floating-promises' from "off" to
+  "error" in the admin-panel block of eslint.project-overrides.mjs, aligning it with the root
+  policy, and fix every surfaced fire-and-forget mutation (UserManagementPage.tsx,
+  system/ImpersonationPage.tsx, remaining DatabaseManagementPage.tsx sites) by handling rejection in
+  the UI via the page's established .catch(err => alert(...)) pattern — no eslint-disable, no
+  allowlist; (f) update the admin-panel snapshot in
+  tools/lint-gates/fixtures/eslintrc-flat-parity.fixture.json so the parity gate encodes the
+  tightening intentionally; (g) add a backend surface gate spec asserting via Nest route metadata
+  that SchemaController exposes no ':tenantId/suspend'/':tenantId/activate' routes, so the retired
+  capability cannot silently return.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/UserManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/system/ImpersonationPage.tsx`
+  - `eslint.project-overrides.mjs`
+  - `tools/lint-gates/fixtures/eslintrc-flat-parity.fixture.json`
+  - `apps/admin-api-service/src/database-management/__tests__/schema-controller-surface.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/database-management/**tests**/schema-controller-surface.spec.ts: reads
+  SchemaController route metadata and asserts no suspend/activate status-mutation routes exist and
+  SchemaManagementService has no status-write methods. Class-level gate: `nx affected --target=lint`
+  now enforces no-floating-promises:error over web/modules/admin-panel, so any future
+  fire-and-forget mutation fails CI; tools/lint-gates/eslintrc-flat-parity.spec.ts stays green
+  against the updated fixture (proves the tightening is encoded, not drift). `npm run type-check`
+  fails on any lingering databaseApi.suspendSchema/activateSchema reference (tier-1 proof).
+  Regression guard: existing e2e/tests/integration/event-publishing.spec.ts 'maintain schema through
+  suspend/activate cycle' still passes — it uses the real tenant lifecycle routes
+  (/admin/tenants/:id/suspend|activate), which are untouched.
+- **Effort:** M
+
+### APA-318 [HIGH] Slow Queries panel can never display data — backend returns a SlowQueryResult object, FE expects an array
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** GET /database/monitoring/slow-queries?grouped=true returns {source, data: [...],
+  metadata} (SlowQueryResult). The FE types it as Array<{query,count,avgTime,...}> and the page
+  checks slowQueries.length > 0 on the envelope-unwrapped OBJECT — undefined > 0 is false, so the
+  panel always renders 'No slow queries detected' regardless of real slow-query volume. The actual
+  rows sit one level down in .data and are never read.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:298-344,353-435 (returns SlowQueryResult)`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts:588-592`
+  - `web/modules/admin-panel/src/services/api/database.ts:172-174 (typed as flat array)`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:1167-1189,1364-1411`
+- **Verification:** Confirmed end-to-end. BE: monitoring.controller.ts:77-90 returns SlowQueryResult
+  {source, data, metadata} on every service path (slow_query_logs, pg_stat_statements,
+  pg_stat_activity, error fallbacks). ResponseInterceptor's pagination-flatten branch requires
+  'total' at top level (response.interceptor.ts:47-52) but SlowQueryResult nests total inside
+  metadata, so the whole object is wrapped {success,data:SlowQueryResult,meta:{timestamp}}. FE
+  http-client.ts:341-349 unwraps exactly once (inner object lacks 'success', no double-unwrap),
+  delivering the {source,data,metadata} object where database.ts:172-174 falsely asserts
+  Array<{query,count,avgTime,...}> via the unchecked apiFetch<T> generic.
+  DatabaseManagementPage.tsx:1188 treats the truthy object as the array; :1364 'slowQueries.length >
+  0' evaluates undefined > 0 = false, so the panel unconditionally renders 'No slow queries
+  detected.' (:1406-1410) — rows in .data and the source/metadata diagnostics are never read.
+  MonitoringTab is reachable (:1511). No alternate route; the only contract gate
+  (contract-validation.spec.ts) checks URL/method existence, not shape, so CI cannot catch it. HIGH
+  stands: a SUPER_ADMIN monitoring control that structurally can never display data and asserts an
+  affirmative false negative to the operator, masking real DB performance incidents (not CRITICAL:
+  no security/data-integrity impact). This is an instance of the systemic
+  FE-type-drift/envelope-shape-mismatch class — every apiFetch<T> generic in services/api/\* is an
+  unverified cast.
+- **Root cause:** The FE→BE type link broke at the unchecked apiFetch<T> cast. The backend endpoint
+  evolved into the structured SlowQueryResult envelope (source/metadata added for graceful
+  pg_stat_statements→pg_stat_activity fallback) while the hand-written inline generic in
+  web/modules/admin-panel/src/services/api/database.ts stayed at the older flat-array shape. Nothing
+  binds the two sides: no shared type artifact between apps/admin-api-service and the admin-panel
+  FE, and the only CI contract gate (contract-validation.spec.ts) validates route existence, not
+  response shape. The page's `.length > 0` truthiness guard then converted the shape mismatch into a
+  silent false 'No slow queries detected' instead of a visible failure. Systemic class: FE
+  hand-written response-type drift.
+- **Fix design:** Tier 1 (make drift a compile error) + tier 3 gate; pattern-level plus local
+  application. PATTERN: use the existing runtime-dependency-free FE/BE contract lib
+  @aquaculture/shared-contracts (libs/shared-contracts, aliased in tsconfig.base.json, already
+  consumed by web/apps/aquamobil) as the single home for this wire contract. Add
+  libs/shared-contracts/src/admin/database-monitoring.ts exporting SlowQuerySource, per-source item
+  interfaces (GroupedSlowQueryItem {query,count,avgTime,maxTime,minTime,lastSeen};
+  PgStatStatementsItem {query,count,avgTime,maxTime,minTime,totalTime,totalRows}; PgStatActivityItem
+  {query,state,elapsedMs,username,database,applicationName,clientAddr,queryStart,waitEventType,waitEvent};
+  SlowQueryLogItem), SlowQueryResultMetadata, and SlowQueryResult as a discriminated union keyed on
+  `source` whose variants fix the `data` element type — eliminating the current
+  `Record<string, unknown>[]` erasure. Export from index.ts. BACKEND: database-management.entity.ts
+  deletes its local SlowQuery\* declarations and re-exports the shared ones;
+  database-monitoring.service.ts return types compile against the shared union, so each source
+  branch's mapped rows must satisfy the typed item interface and any future BE shape change breaks
+  the build. FRONTEND: add the @aquaculture/shared-contracts alias to admin-panel's tsconfig/vite
+  config (same mechanical entries aquamobil carries); database.ts types getSlowQueries as
+  Promise<SlowQueryResult> (inline array generic deleted); DatabaseManagementPage.tsx deletes the
+  local SlowQueryItem interface, uses useAsyncData<SlowQueryResult> with a typed empty initial value
+  {source:'none', data:[], metadata:{total:0, limit:20}}, renders rows from result.data narrowed by
+  the `source` discriminant, and surfaces `source` plus metadata.note/error in the panel header
+  (that diagnostic metadata was designed for the operator and is currently discarded — part of the
+  defect). After the type change, npm run type-check fails on any array-shaped consumption, making
+  this drift structurally impossible and establishing the shared-contract home for sibling findings
+  of the same class. Tier-3 gate: a supertest spec boots the module with the real
+  ResponseInterceptor and asserts the wire shape (rows under .data, total inside metadata — i.e. the
+  interceptor pagination branch must not fire), plus an FE component spec proving rows render from a
+  realistic wire envelope (fails against current code). No defensive ?., no casts, no allowlists.
+- **Files to change:**
+  - `libs/shared-contracts/src/admin/database-monitoring.ts`
+  - `libs/shared-contracts/src/index.ts`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts`
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/tsconfig.json`
+  - `web/modules/admin-panel/vite.config.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/monitoring-slow-queries.contract.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.monitoring.spec.tsx`
+- **Proof of fix:** 1) New
+  apps/admin-api-service/src/database-management/**tests**/monitoring-slow-queries.contract.spec.ts:
+  supertest against a test module wired with the real ResponseInterceptor and a stubbed
+  slowQueryRepository/queryRunner returning rows; GET /database/monitoring/slow-queries?grouped=true
+  must yield {success:true, data:{source:'slow_query_logs', data:[...rows],
+  metadata:{total,limit,minExecutionTimeMs}}} — asserting rows live under data.data and the
+  interceptor's pagination branch did not restructure the payload; the body is type-checked against
+  the shared SlowQueryResult contract. 2) New
+  web/modules/admin-panel/src/pages/**tests**/DatabaseManagementPage.monitoring.spec.tsx: render
+  MonitoringTab with fetch mocked to the same wire envelope and assert the grouped query text and
+  count appear in the table (this test FAILS on current code — 'No slow queries detected.' renders —
+  proving the defect and the fix); also assert the source/metadata note surfaces for a
+  pg_stat_activity fallback payload. 3) Compile-time invariant: npm run type-check fails if either
+  side drifts from @aquaculture/shared-contracts SlowQueryResult (BE service return type and FE
+  consumption both import it). Existing contract-validation.spec.ts continues to guard route
+  existence.
+- **Effort:** M
+
+### APA-319 [MEDIUM] Database Health 'Slow Queries' check uses an inverted time filter — counts everything EXCEPT the last hour
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** getDatabaseHealthStatus counts recentSlowQueries with recordedAt:
+  LessThan(Date.now() - 3600000) — i.e. rows OLDER than one hour — while the comment and check say
+  'last hour'. The count grows monotonically until the 30-day cleanup, so the health score/status
+  degrades over time based on historical rows and never reflects the actual last hour. Silent wrong
+  data on the page's headline health widget.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:989-1020 (LessThan with 'Last hour' comment)`
+- **Verification:** CONFIRMED at
+  apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:989-993:
+  recordedAt: LessThan(new Date(Date.now() - 3600000)) with comment '// Last hour' counts rows OLDER
+  than one hour, the inverse of the stated intent (check messages say 'in last hour'; thresholds
+  20/100 and the index-recommendation text confirm recency semantics). Fully reachable:
+  MonitoringTab in DatabaseManagementPage.tsx:1152-1155 calls databaseApi.getDatabaseHealth()
+  (services/api/database.ts:164) -> GET /database/monitoring/health (monitoring.controller.ts:49-52)
+  -> getDatabaseHealthStatus(); the FE renders health.checks and the headline score/status badge.
+  The 30-day cleanup (lines 1116-1130) confirms the count would grow monotonically on a populated
+  table. SEVERITY CORRECTED HIGH->MEDIUM: the sole writer of admin.slow_query_logs, logSlowQuery()
+  (lines 243-261), has zero callers repo-wide (no endpoint, no TypeORM logger hook, no other service
+  — despite the docblock at lines 277-281 claiming the application layer populates it), so the table
+  is empty in current wiring and both the inverted and correct predicates return 0 today. The
+  wrong-data scenario is real but latent: it manifests only once the recording path is activated or
+  against deployments with historical rows. Confirmed correctness defect on a wired SUPER_ADMIN
+  headline widget with currently-masked user-visible impact = MEDIUM.
+- **Root cause:** BE service->DB link. A recency window ('rows within the last hour') was hand-built
+  inline with the retention idiom operator: LessThan(now - window) is the correct shape for
+  cleanup/staleness (used correctly in cleanupOldMetrics at lines 1123-1128 and
+  job-queue.service.ts:757) but inverted for recency, where MoreThanOrEqual(now - window) is
+  required. The direction of the predicate is encoded only in a comment, which the type system
+  cannot check — classic comment-as-contract drift. Two factors let it ship: (1) no unit spec exists
+  for DatabaseMonitoringService.getDatabaseHealthStatus pinning the window direction (only
+  migration-management and explorer-sql-security specs exist in this module); (2) the ingestion path
+  is dead — logSlowQuery() has no callers — so the table is always empty and every end-to-end
+  observation returns 0 for both the wrong and right predicate, making the inversion undetectable at
+  runtime. Systemic class: inline FindOperator time-window predicates with intent in comments — 4
+  instances in admin-api-service (compliance.service.ts:727, security-monitoring.service.ts:460,
+  database-monitoring.service.ts:991, job-queue.service.ts:757).
+- **Fix design:** Pattern-level fix (tier 2 — make correct behavior automatic) plus local
+  application, per the systemic class above. (1) Add intent-named time-window FindOperator helpers
+  to backend-common: libs/backend-common/src/database/time-window.operators.ts exporting
+  withinLast(ms: number): FindOperator<Date> => MoreThanOrEqual(new Date(Date.now() - ms)) and
+  olderThan(ms: number): FindOperator<Date> => LessThan(new Date(Date.now() - ms)), with explicit
+  return types; export via the backend-common barrel. The helper name carries the direction,
+  eliminating the comment/operator mismatch class — an inverted window becomes visibly wrong at the
+  call site. (2) Local root fix: in getDatabaseHealthStatus replace the predicate with recordedAt:
+  withinLast(3_600_000) (hoist the window into a named constant SLOW_QUERY_HEALTH_WINDOW_MS
+  alongside the existing threshold constants) and delete the now-redundant comment. (3) Apply the
+  helpers at the other three inline call sites (compliance.service.ts:727 -> withinLast(72h),
+  security-monitoring.service.ts:460 -> withinLast(30d), job-queue.service.ts:757 -> olderThan(7d))
+  and at cleanupOldMetrics (lines 1123-1128 -> olderThan(30d)) so the idiom has exactly one
+  spelling. (4) Tier-3 gate: add an invariant spec banning new inline
+  (LessThan|LessThanOrEqual|MoreThan|MoreThanOrEqual)\(new Date\(Date\.now\(\) in apps/\*\* so the
+  class cannot silently reappear. NOT in scope of this finding but must be tracked as its own
+  finding per discipline: logSlowQuery() is a dead write path (table-nobody-writes), which means the
+  Slow Queries health check reads a perpetually empty table — the check is non-functional even after
+  the operator fix; the docblock at lines 277-281 is also wrong. That requires wiring a real
+  recorder (e.g., TypeORM slow-query logger hook) and is a separate architectural change with its
+  own owner/ID.
+- **Files to change:**
+  - `libs/backend-common/src/database/time-window.operators.ts`
+  - `libs/backend-common/src/index.ts`
+  - `libs/backend-common/src/database/__tests__/time-window.operators.spec.ts`
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts`
+  - `tests/invariants/time-window-operator-usage.spec.ts`
+- **Proof of fix:** (1) New unit spec
+  apps/admin-api-service/src/database-management/**tests**/database-monitoring.service.spec.ts
+  (London-school, mocked slowQueryRepository): assert getDatabaseHealthStatus() calls
+  slowQueryRepository.count with a FindOperator of type 'moreThanOrEqual' whose value is within
+  tolerance of Date.now() - 3600000 (this exact assertion fails RED against the current LessThan
+  code); plus threshold behavior cases: count 0 -> check 'pass', 21 -> 'warn' and score -5, 101 ->
+  'fail' and score -20. (2) New
+  libs/backend-common/src/database/**tests**/time-window.operators.spec.ts: withinLast(ms) yields
+  moreThanOrEqual at now-ms, olderThan(ms) yields lessThan at now-ms. (3) New
+  tests/invariants/time-window-operator-usage.spec.ts: greps apps/\*\* for inline
+  (LessThan|LessThanOrEqual|MoreThan|MoreThanOrEqual)\(new Date\(Date\.now\(\) and fails on any
+  occurrence, proving all call sites migrated and freezing the class out. Run nx affected
+  --target=test and --target=lint green.
+- **Effort:** M
+
+### APA-320 [MEDIUM] Validate Isolation always reports 'Issues found' — field name drift (isIsolated vs valid)
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** Backend returns {isIsolated, issues}; the FE api type and the page read result.valid,
+  which is always undefined/falsy, so the alert always takes the failure branch and prints 'Issues
+  found: ' (empty list) even for a perfectly isolated schema. The real validation (cross-schema FK +
+  shared-sequence queries) runs, but its verdict is never rendered correctly.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:197-252 (returns isIsolated)`
+  - `web/modules/admin-panel/src/services/api/database.ts:46-47 (typed {valid, issues})`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:454-459`
+- **Verification:** Chain confirmed end-to-end in real wiring. schema-management.service.ts:197-252
+  returns {isIsolated, issues}; schema.controller.ts:165-168 (@Get(':tenantId/validate')) returns
+  that object verbatim with no DTO transform; ResponseInterceptor wraps it and the admin-panel
+  http-client unwraps the envelope back to data, so the FE receives {isIsolated, issues}.
+  database.ts:47 inline-types the return as {valid, issues} (wrong field name), and
+  DatabaseManagementPage.tsx:457 reads result.valid, which is always undefined -> always falsy ->
+  the alert always renders the else branch 'Issues found: '+issues.join(). The real isolation
+  queries (cross-schema FK + shared-sequence) still run and issues renders via the correctly-named
+  field, but the boolean verdict is read from a nonexistent field, so the 'Schema isolation is
+  valid.' branch is unreachable and a perfectly isolated schema is falsely reported as having issues
+  (empty list). Corrected HIGH->MEDIUM: the miswiring only produces false alarms on healthy schemas
+  (never false reassurance on broken ones, since the issues list itself renders), and the blast
+  radius is a single diagnostic alert() with no data or security consequence. This is an instance of
+  the systemic FE-type-drift class: admin-panel service/api return types are hand-written literals
+  mirrored from backend return shapes with no shared contract, no codegen, and no contract test, so
+  a field rename drifts silently past tsc.
+- **Root cause:** The broken link is the FE api-type<->backend-contract boundary. The backend
+  contract for GET /database/schemas/:tenantId/validate is an anonymous inline object literal
+  ({isIsolated, issues}) with no named/exported DTO, and the admin-panel mirrors it by hand as
+  {valid, issues}. Because the shape is an untyped literal on both ends and admin-panel has no
+  codegen or contract gate over its hand-written services/types + services/api literals, the
+  field-name divergence (isIsolated vs valid) compiles cleanly on both sides and only surfaces at
+  runtime as a wrong alert branch. It drifted because there is no single source of truth for the
+  response shape that both ends import or that a test pins.
+- **Fix design:** Fix the contract at the source and make the drift detectable (discipline tiers
+  1+3), not just rename the FE field. (1) Name the backend contract: in schema-management.service.ts
+  extract the anonymous return into an exported interface (e.g. SchemaIsolationResult { isIsolated:
+  boolean; issues: string[] }) and annotate validateSchemaIsolation()'s return with it, and give
+  schema.controller.ts's validateSchemaIsolation() that explicit return type so the wire shape has a
+  nameable SSoT. (2) Local FE application: in database.ts change the validateSchemaIsolation return
+  type literal from {valid: boolean; issues: string[]} to {isIsolated: boolean; issues: string[]},
+  and in DatabaseManagementPage.tsx line 457 read result.isIsolated so the success branch ('Schema
+  isolation is valid.') becomes reachable. (3) Systemic/detectable gate (the real root-cause fix for
+  the class): add a backend contract test that pins the JSON body of GET
+  /database/schemas/:tenantId/validate to exactly {isIsolated: boolean, issues: string[]}, so any
+  future rename of the field fails CI at the source; and add an FE handler/render test on the
+  Validate Isolation button asserting isIsolated:true renders 'Schema isolation is valid.' and
+  isIsolated:false renders the issues list. This closes the loop the same way for the whole
+  FE-type-drift class: every admin-panel api literal that mirrors a backend shape should be pinned
+  by a contract test (recommend generalizing this into a shape-drift gate over services/api
+  literals, tracked separately as the pattern-level remediation).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/database-management/**tests**/integration/schema-validate-contract.spec.ts:
+  call GET /database/schemas/:tenantId/validate (or the controller method directly) and assert the
+  response data has boolean isIsolated and array issues, and NOT a 'valid' key — this fails today if
+  the field is renamed at the source. Add a FE test
+  web/modules/admin-panel/src/pages/**tests**/DatabaseManagementPage.validate.spec.tsx that mocks
+  databaseApi.validateSchemaIsolation to resolve {isIsolated:true, issues:[]} and asserts the alert
+  text is 'Schema isolation is valid.', and with {isIsolated:false, issues:['x']} asserts 'Issues
+  found: x'. Both tests fail on the current code (undefined result.valid) and pass after the
+  field-name fix.
+- **Effort:** S
+
+### APA-321 [MEDIUM] Backup Schedule card always shows 'Not configured' + suspended — response shape drift
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Backend GET /database/backups/schedule returns {dailyBackupEnabled,
+  weeklyBackupEnabled, nextDailyBackup, nextWeeklyBackup, lastDailyBackup, lastWeeklyBackup}; the FE
+  expects {enabled, schedule, lastRun, nextRun}. scheduleState.data.schedule and .enabled are
+  undefined, so the card renders 'Not configured' with a suspended badge even though daily/weekly
+  cron backups are registered — factually wrong operator information.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:804-841`
+  - `web/modules/admin-panel/src/services/api/database.ts:126-127`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:854-874`
+- **Root cause:** Instance of the systemic FE-type-drift class:
+  web/modules/admin-panel/src/services/api/database.ts:126-127 hand-declares GET
+  /database/backups/schedule as {enabled, schedule, lastRun, nextRun}, but
+  backup-restore.service.ts:804-841 returns {dailyBackupEnabled, weeklyBackupEnabled,
+  nextDailyBackup, nextWeeklyBackup, lastDailyBackup, lastWeeklyBackup}. The card reads
+  .schedule/.enabled which are always undefined, so it renders 'Not configured' with a suspended
+  badge — factually wrong operator information.
+- **Fix design:** Fix the contract at the source (tier 1): define a single BackupScheduleStatus
+  interface in the shared admin API contract module (created under i12), matching the backend's
+  actual daily/weekly shape. Backend getBackupScheduleStatus() types its return against it; the FE
+  api fn imports the same interface (no hand-written duplicate). Rewrite the Backup Schedule card to
+  render what the contract actually carries: a Daily row and a Weekly row, each with enabled badge
+  (dailyBackupEnabled/weeklyBackupEnabled), Next Run (nextDailyBackup/nextWeeklyBackup) and Last Run
+  (lastDailyBackup/lastWeeklyBackup). Verification: shared-contract compile break on drift + a
+  DatabaseManagementPage BackupsTab test
+  (web/modules/admin-panel/src/pages/**tests**/DatabaseManagementPage.spec.tsx) asserting the card
+  shows active daily/weekly schedules from a contract-shaped fixture; endpoint covered by the i12
+  route-contract spec.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
+
+### APA-322 [MEDIUM] Point-in-Time Recovery modal is not wired — inputs are dead and the API is never called
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The PITR modal's Target Tenant ID and Recovery Point inputs are uncontrolled (no
+  state, no onChange) and the Start Restore button only executes when selectedBackup exists (the
+  non-PITR path). databaseApi.pointInTimeRecovery exists in the FE api layer and POST
+  /database/backups/restore/point-in-time exists on the backend, but the page never calls it —
+  clicking Start Restore in PITR mode is a no-op.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:1093-1111 (uncontrolled inputs),1128-1133 (only handleRestoreBackup when selectedBackup)`
+  - `web/modules/admin-panel/src/services/api/database.ts:140-144 (unused pointInTimeRecovery)`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts:212-229`
+- **Root cause:** PITR modal was scaffolded but never wired: the Target Tenant ID and Recovery Point
+  inputs (DatabaseManagementPage.tsx:1095-1108) have no state or onChange, and the Start Restore
+  handler (1128-1133) only executes the selectedBackup (non-PITR) branch.
+  databaseApi.pointInTimeRecovery and the backend POST /database/backups/restore/point-in-time
+  (backup.controller.ts:212-229, real implementation in backup-restore.service.ts:476-502) are
+  complete but unreachable from the UI — clicking Start Restore in PITR mode is a silent no-op on a
+  destructive-recovery flow.
+- **Fix design:** Wire the existing, working contract end-to-end (tier 2 — correct behavior becomes
+  the default path). Add pitrForm state {tenantId, targetTime} bound to both inputs; make Start
+  Restore branch on PITR mode and call databaseApi.pointInTimeRecovery({tenantId, targetTime: new
+  Date(targetTime).toISOString()}); disable the button until tenantId is a UUID and targetTime is
+  set (mirrors the backend PointInTimeRecoveryDto so validation failures are impossible to trigger
+  from the happy path); surface success/error and refresh backupsState. Type the request body from
+  the shared contract's PointInTimeRecoveryRequest so the FE cannot drift from the DTO.
+  Verification: BackupsTab test asserting (a) Start Restore is disabled with empty PITR fields, (b)
+  filling both fields and clicking calls pointInTimeRecovery with the entered values, (c) the
+  selectedBackup branch is unchanged.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `libs/admin-contracts/src/database-management.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
+
+### APA-323 [MEDIUM] Migrations tab is vestigial — registry is permanently empty and all run/rollback/batch endpoints unconditionally 403
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** MIGRATION_REGISTRY = [] ('Runtime admin-api does not own migration definitions'), so
+  GET /database/migrations/available always returns [] and the Available Migrations list is
+  permanently empty; the Batch Migration modal can never select a version. Even if forced, POST
+  batch/run, tenant/:id/run and tenant/:id/rollback call assertRuntimeMigrationEndpointAllowed()
+  which throws ForbiddenException before any work (the version checks after it are dead code). Only
+  migration HISTORY (admin.schema_migrations reads) is real.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/migration-management.service.ts:37-39 (empty registry),129-157,215-224 (always reject)`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts:88-92,122-187 (throw-first, unreachable code after)`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:527-544,559-569`
+- **Root cause:** Instance of the systemic vestigial-surface class: runtime migration execution was
+  architecturally moved to apps/db-migrate (MIGRATION_REGISTRY = [] at
+  migration-management.service.ts:39; runMigration/runBatchMigration/rollbackMigration are
+  never-typed throwers; migration.controller.ts:88-92 throws ForbiddenException before any work,
+  leaving the version checks after it as dead code), but the FE Migrations tab, its Batch Migration
+  modal, and the FE api fns were left promising capabilities the backend forbids by design. Only
+  migration history/summary reads are real.
+- **Fix design:** Remove the surface instead of gating it (tier 1 — a route that must never succeed
+  should not exist). Backend: delete POST tenant/:id/run, tenant/:id/rollback, batch/run routes,
+  assertRuntimeMigrationEndpointAllowed, the never-methods, MIGRATION_REGISTRY,
+  getAvailableMigrations and getPendingMigrations (permanently-empty registry reads); keep history,
+  summary, tenant history, batch/:version/status (ledger reads). Recompute
+  getMigrationSummary.latestVersion from admin.schema_migrations instead of the deleted registry.
+  FE: rework MigrationsTab into a read-only Migration History view (history table + summary card,
+  with a note that schema changes are executed by db-migrate); delete the Available Migrations card,
+  Batch Migration modal, and the
+  runTenantMigration/rollbackTenantMigration/runBatchMigration/getAvailableMigrations/getPendingMigrationsForTenant
+  api fns plus the legacy
+  getMigration/createMigration/runMigration/rollbackMigration/getPendingMigrations wrappers.
+  Verification: the i12 route-contract spec proves no POST /database/migrations/\* route is
+  registered and no FE fn references a removed path; extend
+  apps/admin-api-service/src/**tests**/integration/admin-route-contract.spec.ts with an explicit
+  invariant 'admin-api exposes zero migration-execution routes'.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts`
+  - `apps/admin-api-service/src/database-management/services/migration-management.service.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** M
+
+### APA-324 [MEDIUM] Index Recommendations render an empty SQL block — backend has no createStatement field
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page renders rec.createStatement in a <code> block, but the backend
+  IndexRecommendation contains recommendedAction/indexName/authority instead of createStatement —
+  the recommendation is real (pg_stat_user_tables seq-scan/unused-index analysis) but the actionable
+  SQL the UI promises is always undefined/empty.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:1443-1445`
+  - `apps/admin-api-service/src/database-management/services/database-monitoring.service.ts:852-864,882-893`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts:543-552`
+- **Root cause:** Instance of the systemic FE-type-drift class: the backend deliberately replaced
+  actionable SQL with a db-migrate-authority model — IndexRecommendation
+  (database-management.entity.ts:543-552) carries recommendedAction
+  ('add_index'|'review_unused_index'), indexName, authority: 'db-migrate' and no createStatement —
+  but the FE type (database.ts:192) and the page (DatabaseManagementPage.tsx:1443-1445) still
+  declare/render rec.createStatement, producing a permanently empty <code> block.
+- **Fix design:** Make the drift impossible (tier 1): move the IndexRecommendation interface into
+  the shared admin contract module; the backend entity file re-exports it (single definition) and
+  the FE api fn + page import it — createStatement ceases to compile. Rewrite the recommendation
+  card to render the contract's actual fields: recommendedAction badge, indexName, columns, reason,
+  estimatedImpact, and an explicit 'apply via db-migrate' authority note (matching the platform's
+  single-writer migration discipline) instead of a copy-paste SQL block the runtime is forbidden to
+  promise. Verification: contract import makes the wrong field a compile error; MonitoringTab test
+  asserting a recommendation fixture renders indexName + recommendedAction and no empty code block.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx`
+- **Effort:** S
+
+### APA-325 [MEDIUM] Schemas tab stats may be stale/zero — tenant_schemas sizeBytes/tableCount are ledger columns with no runtime refresh path
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The summary cards (Total Size, Total Tables) and per-row Size/Tables read
+  admin.tenant_schemas.sizeBytes/tableCount, which default to 0 and can only be updated by
+  db-migrate: updateSchemaStats/refresh-stats always throws 409, so the 'Refresh Stats' button
+  always alerts a failure and the numbers on screen are whatever the last db-migrate ledger write
+  left (live sizes ARE computed by getSchemaInfo, but that endpoint is not used by the page list).
+  Also the 'Create Schema' button has no onClick handler at all (dead), and the backend
+  createTenantSchema is disabled anyway.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts:56-63 (defaults 0)`
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:68-74,441-447`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:304-315,329-331 (no onClick),466-473`
+- **Root cause:** Two instances of the systemic config-nobody-writes / vestigial-surface classes:
+  (1) the Schemas list serves admin.tenant_schemas.sizeBytes/tableCount ledger columns that default
+  to 0 (entity:56-63) and whose only writer is db-migrate — updateSchemaStats/refresh-stats always
+  throws 409 (schema-management.service.ts:441-447), so the Refresh Stats button always alerts
+  failure and on-screen numbers are stale, while the live computation (getSchemaInfo) exists but is
+  not used by the list; (2) the Create Schema button has no onClick at all (page:329-331) and
+  backend createTenantSchema is disabled by design (service:68-74).
+- **Fix design:** Make correct data automatic (tier 2): extend getAllSchemas to join live stats in
+  one catalog query (aggregate pg_total_relation_size + table count per schemaName across the page
+  of schemas, reusing the getTableInfo/getSchemaSize SQL) and return them as the
+  sizeBytes/tableCount the contract exposes, keeping ledger columns as db-migrate's durable evidence
+  only. Then delete the permanently-failing surface (tier 1): remove POST /database/schemas and POST
+  :tenantId/refresh-stats routes plus createTenantSchema/updateSchemaStats never-methods, remove the
+  FE Refresh Stats button, the dead Create Schema button, and the createSchema/refreshSchemaStats
+  api fns (tenant creation belongs to the provisioning workflow, which has its own UI).
+  Verification: integration spec
+  (apps/admin-api-service/src/database-management/**tests**/integration/schema-list-live-stats.spec.ts)
+  seeding a tenant schema with tables and asserting GET /database/schemas returns nonzero live
+  tableCount/sizeBytes; i12 route-contract spec asserts the removed routes are gone and no FE fn
+  references them.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/integration/schema-list-live-stats.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** M
+
+### APA-326 [MEDIUM] FE api layer declares ~14 endpoints that do not exist on the backend (404 if ever used) plus hand-written type drift
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** database.ts ships functions with no matching route: getSchemaInfo-adjacent
+  resetSchema/optimizeSchema/analyzeSchema (schema.controller has no reset/optimize/analyze); legacy
+  getMigration(:id), createMigration POST /migrations, runMigration(:id/run),
+  rollbackMigration(:id/rollback), getPendingMigrations(/pending); monitoring
+  getDatabaseStats(/stats), getTableStats(/tables), runVacuum(/vacuum), runAnalyze(/analyze);
+  scheduleBackup POST /backups/schedule (route is GET-only); deleteSchema cannot pass the required
+  confirmToken for hardDelete. types/database.ts also drifts from entities:
+  TenantSchema.tenantName/rowCount never returned, status enum mismatch
+  ('archived'/'migration_pending' vs 'creating'/'migrating'/'pending_deletion'/'deleted');
+  SchemaMigration.appliedToSchemas/failedSchemas/createdBy/sql do not exist (entity:
+  migrationName/upScript/executedBy);
+  DatabaseBackup.type/location/compressionType/encryptionKey/createdBy vs entity
+  backupType/filePath/isCompressed/isEncrypted — the page survives only via ad-hoc inline fallback
+  fields.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/database.ts:56-61,106-115,156-157,197-204`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts:72-196 (route set)`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts:49-137 (route set)`
+  - `web/modules/admin-panel/src/services/types/database.ts:5-83 vs apps/admin-api-service/src/database-management/entities/database-management.entity.ts:37-211`
+- **Root cause:** This is the umbrella of the systemic class behind i7/i10/i11: the FE api layer and
+  types are hand-written with no build-time link to the backend. Verified: ~14 fns target routes
+  that do not exist (schema reset/optimize/analyze; legacy migration
+  :id/create/run/rollback/pending; monitoring stats/tables/vacuum/analyze; POST backups/schedule
+  where only GET exists), deleteSchema cannot pass the confirmToken required for hardDelete
+  (schema.controller.ts:136-143), and types/database.ts contradicts the entities on TenantSchema
+  status enum and SchemaMigration/DatabaseBackup field names — the pages survive only via ad-hoc
+  inline fallback interfaces.
+- **Fix design:** Pattern-level fix, applied here: create libs/admin-contracts (buildable TS lib
+  consumable by both apps/admin-api-service and web/modules/admin-panel) as the SSoT with (a)
+  request/response interfaces derived from the entities/service returns (SchemaStatus, TenantSchema,
+  SchemaMigration, SchemaBackup, BackupScheduleStatus, IndexRecommendation, paginated envelopes),
+  (b) an endpoint manifest of {method, path template} for every database-management route. Backend
+  controllers/services annotate return types from (a) — drift is a compile error (tier 1). FE:
+  services/types/database.ts becomes re-exports of contract types; services/api/database.ts builds
+  every URL from the manifest and deletes all 14 phantom fns; deleteSchema signature gains
+  confirmToken wired into the query string per the manifest's declared params. Detection gate (tier
+  3): new spec apps/admin-api-service/src/**tests**/integration/admin-route-contract.spec.ts boots
+  the app, walks the Nest route map, and asserts exact 1:1 coverage against the manifest — a
+  manifest entry without a route (phantom FE endpoint) or a route without a manifest entry fails CI,
+  with no allowlist. Page inline fallback interfaces (SchemaItem/BackupItem/MigrationHistoryItem
+  dual-field unions) are then deleted in favor of the contract types.
+- **Files to change:**
+  - `libs/admin-contracts/src/database-management.ts`
+  - `libs/admin-contracts/src/endpoint-manifest.ts`
+  - `libs/admin-contracts/src/index.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts`
+  - `apps/admin-api-service/src/__tests__/integration/admin-route-contract.spec.ts`
+- **Effort:** L
+
+## DatabaseExplorerPage.tsx — `/admin/database/explorer` — verdict: **PARTIAL**
+
+**Chain:** Read chain is fully real and defensively built: GET
+/api/v1/database/explorer/schemas|/schemas/:schema/tables|/tables/:table/data run on a dedicated
+'explorer-readonly' DataSource with default*transaction_read_only=on at the connection level plus
+SET TRANSACTION READ ONLY per runner (app.module.ts:135-170, explorer.controller.ts:280-287). Schema
+access is allowlisted to public/auth/admin/billing, tenant*<uuid> schemas are NOT exposed, module
+tables are blocklisted from MODULE_SCHEMAS (the SSoT), identifiers are regex-validated, LIMIT/OFFSET
+are parameterized, credential-pattern columns are always masked server-side, and every read/export
+is fail-closed audited into admin.audit_logs (requireAuditLog blocks the response if the audit row
+does not persist). Row CRUD uses the write DataSource but is double-gated: ENABLE_DB_EXPLORER_WRITES
+must be 'true' AND NODE_ENV must not be production, so in production every insert/update/delete
+returns 403. Export is throttled (@ThrottleExport 5/hr) and raw SQL (POST /database/explorer/query)
+is flag-gated + non-prod + SELECT-only with statement/function/schema blocklists; the FE has no
+raw-SQL caller. Main breakages: the global ResponseInterceptor corrupts the export download, and the
+edit modal would write the '**\*\*\*\***' mask back into real columns if writes were enabled.
+
+**Endpoints exercised:** `GET /api/v1/database/explorer/schemas`;
+`GET /api/v1/database/explorer/schemas/:schema/tables`;
+`GET /api/v1/database/explorer/schemas/:schema/tables/:table/data`;
+`POST /api/v1/database/explorer/schemas/:schema/tables/:table/rows`;
+`PUT /api/v1/database/explorer/schemas/:schema/tables/:table/rows/:id`;
+`DELETE /api/v1/database/explorer/schemas/:schema/tables/:table/rows/:id`;
+`GET /api/v1/database/explorer/schemas/:schema/tables/:table/export`;
+`POST /api/v1/database/explorer/query (backend only, no FE caller)`
+
+**DB tables:** `information_schema.* + pg_tables/pg_index/pg_class (metadata)`,
+`any table in public/auth/admin/billing schemas (browse/CRUD/export)`,
+`admin.audit_logs (fail-closed audit of every read/export/write-intent)`
+
+### APA-327 [HIGH] CSV/JSON export downloads a JSON envelope, not the data — global ResponseInterceptor wraps the StreamableFile
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** exportTableData returns a StreamableFile (CSV) or a rows array (JSON) with
+  Content-Disposition set, but the app-wide ResponseInterceptor (skip list only /health,/docs) maps
+  EVERY body into {success,data,meta}. A StreamableFile wrapped inside a plain object is no longer
+  detected by Nest's response handler, so the 'CSV' download serializes the envelope object instead
+  of streaming the buffer; the JSON export delivers {success:true,data:[...],meta:...} instead of
+  the row array. The FE only checks response.ok and saves whatever arrives — user silently gets a
+  corrupted export file. This breaks any binary/file endpoint in admin-api, not just this one.
+- **Evidence:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:23-24,44-74`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:543-647 (StreamableFile + rows return)`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx:96-126 (blind blob download)`
+- **Verification:** Confirmed reachable. ResponseInterceptor is a global APP_INTERCEPTOR registered
+  first (app.module.ts:292-294), so its map runs last on the return value; skip list is only
+  /health,/docs (response.interceptor.ts:24), export route not skipped. exportTableData uses Res
+  passthrough:true (explorer.controller.ts:549) so Nest processes the return through the chain and
+  map wraps it into success/data/meta (lines 67-73). Nest v11 only streams when the result is still
+  instanceof StreamableFile; the wrapper defeats that, so res.json serializes the wrapper (CSV line
+  643 -> garbage) or the wrapped rows array (JSON line 611 -> envelope not bare array). FE
+  (DatabaseExplorerPage.tsx:107-124) raw-fetches, blobs, and saves verbatim, bypassing apiFetch
+  unwrap. HIGH not CRITICAL: silent break of a SUPER_ADMIN export and a systemic class hitting every
+  future binary endpoint, but no data-loss/security/cross-tenant impact.
+- **Root cause:** Backend response-shaping. The global ResponseInterceptor assumes every handler
+  returns an enveloped JSON DTO; its only opt-out is a hardcoded URL-prefix skip list, with no
+  awareness of Nest non-JSON response types (StreamableFile/Readable/Buffer). The DB-explorer export
+  is the first file/stream endpoint here; the outermost interceptor envelopes both its
+  StreamableFile (CSV) and raw array (JSON) before Nest can detect the StreamableFile. The
+  enveloping policy and the file-response policy were never reconciled.
+- **Fix design:** Systemic envelope/shape mismatch: a global interceptor wraps a response type it
+  must never wrap. Tier 2 automatic plus Tier 3 detectable. Part 1 response.interceptor.ts: before
+  enveloping, return data unchanged when it is instanceof StreamableFile, instanceof Readable, or
+  Buffer.isBuffer(data) (import StreamableFile from nestjs/common, Readable from node stream); this
+  makes all current and future stream/file endpoints immune by default, not a defensive
+  optional-chain. Part 2 explorer.controller.ts exportTableData: return a StreamableFile for BOTH
+  formats so both hit the passthrough. JSON = StreamableFile from Buffer of JSON.stringify(rows)
+  with options type application/json and an attachment disposition; CSV = carry type and disposition
+  via StreamableFile options instead of res.setHeader. Collapses the split return type to one
+  StreamableFile and drops Res passthrough plus manual headers. Rejected a RawResponse/NoEnvelope
+  decorator via Reflector: forgettable on the next endpoint, ranks below structural passthrough. FE
+  unchanged.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/explorer-export.envelope-passthrough.integration.spec.ts`
+- **Proof of fix:** Unit spec response.interceptor.spec.ts: intercept returns
+  StreamableFile/Buffer/Readable unwrapped while a plain object is still enveloped. Integration spec
+  explorer-export.envelope-passthrough.integration.spec.ts: boot Nest with the global
+  ResponseInterceptor, GET the export route; format csv -> Content-Type text/csv, first body line
+  equals CSV header, no success envelope marker; format json -> body JSON-parses to a bare array
+  (Array.isArray true), not an object with a data key.
+- **Effort:** M
+
+### APA-328 [MEDIUM] Edit Row writes the '**\*\*\*\***' mask back into real sensitive columns when writes are enabled
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** Rows arrive with credential columns masked to '**\*\*\*\***'. RowEditorModal seeds
+  formData with formatValue(row[col]) — i.e. the literal mask — and for sensitive columns renders NO
+  input ('Clear to unset' is impossible: there is nothing to clear). handleSave includes every
+  column in parsedData, so saving ANY edit on a row with masked columns sends data:
+  {password_hash:'**\*\*\*\***', ...} and the backend updateRow blindly executes UPDATE ... SET
+  "password_hash"='**\*\*\*\***'. With ENABLE_DB_EXPLORER_WRITES=true (dev/staging), one edit in
+  auth.users silently destroys the real hash/token. The insert path has the same property for
+  defaulted sensitive columns.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx:150 (MASKED_VALUE),190-203 (formData seeded with mask),222-259 (all columns serialized),307-311 (no input for sensitive columns)`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:98,117-128 (masking),726-788 (update applies any validated column verbatim)`
+- **Verification:** Confirmed end-to-end. BE getTableData masks non-null sensitive columns to
+  '**\*\*\*\***' (MASKED_VALUE) via maskSensitiveData (explorer.controller.ts:117-128,502-503). FE
+  RowEditorModal seeds formData with that literal mask (DatabaseExplorerPage.tsx:190-203), renders
+  NO editable input for sensitive columns (307-311 is a static div — 'Clear to unset' is
+  impossible), yet handleSave serializes every column: '**\*\*\*\***' is neither '' nor 'NULL' and
+  password_hash's varchar/text type falls through to the else branch, so
+  parsedData['password_hash']='**\*\*\*\***' (233-247). updateExplorerRow PUTs
+  {data:{...,password_hash:'**\*\*\*\***'}} (api/database.ts:218) and BE updateRow (727-788) only
+  validates identifiers then executes UPDATE ... SET "password_hash"='**\*\*\*\***' with no
+  MASKED_VALUE guard — the real hash/token is silently overwritten. Insert path has the analogous
+  defect: defaulted sensitive columns are coerced to null (227-232) overriding the DB default.
+  Reachability is real but gated: assertExplorerWritesEnabled requires
+  ENABLE_DB_EXPLORER_WRITES=true AND NODE_ENV!=production (313-322), so production is fully
+  protected and blast radius is dev/staging + SUPER_ADMIN only. Real, silent, irreversible
+  credential corruption but confined to non-production, so HIGH is over-graded → MEDIUM. Existing
+  explorer-security.spec.ts covers masking on READ but has zero coverage for the mask being written
+  back on the CRUD paths.
+- **Root cause:** The read endpoint applies a lossy, non-invertible transform (masking sensitive
+  columns to the '**\*\*\*\***' sentinel) while the write endpoints treat the request body as
+  authoritative ground truth. The broken link is the missing inverse of the masking transform on the
+  write side: nothing distinguishes 'the client re-submitted the sentinel we handed it' from 'the
+  client intends to persist this literal value.' The FE compounds it — RowEditorModal seeds
+  sensitive fields with the mask, renders no input to change them, and handleSave unconditionally
+  serializes every column, sending the sentinel straight back. Since the server both produces the
+  mask (maskSensitiveData) and executes the write (updateRow/insertRow), the server is the
+  authoritative place the invariant 'never persist the mask sentinel into a sensitive column' must
+  hold, and it currently does not. This is an instance of a systemic class — read-projection /
+  write-contract asymmetry: any lossy read transform (mask, redact, truncate, derived field) becomes
+  a corruption vector the moment the same shape is accepted back on write without inverting or
+  rejecting the transformed sentinel. A secondary drift vector: MASKED_VALUE and the
+  sensitive-column classifier are duplicated in FE (DatabaseExplorerPage.tsx:150,34) and BE
+  (explorer.controller.ts:98,103) with no shared SSoT.
+- **Fix design:** Layered, root-cause fix with the authoritative enforcement at the source
+  (backend), since the server owns both the mask and the write. TIER 1 — make it impossible (BE):
+  the server must never persist its own mask sentinel into a sensitive column. Extract MASKED_VALUE,
+  isSensitiveColumn, maskSensitiveData into one co-located module and add its exact inverse
+  stripUnchangedMaskedSensitive(data, columns) so the mask and its inverse live together and cannot
+  drift. In updateRow, after identifier validation, drop from the SET clause every column where
+  isSensitiveColumn(col) && value===MASKED_VALUE (leaving the column unchanged); if nothing writable
+  remains, return the existing row / 400 'no writable changes' instead of issuing an UPDATE. In
+  insertRow, drop such columns so the DB default/NULL applies rather than persisting the sentinel.
+  Because the sentinel and classifier are the same functions that produced the mask, the inverse is
+  exact and centralized — structurally impossible for any client to overwrite a sensitive column
+  with the mask. TIER 2 — make correct behavior automatic (FE): in RowEditorModal, never seed
+  sensitive columns with the mask (seed ''); render an empty password-type 'new value' input (blank
+  = keep current) so the UI's promised set/clear actually works; in handleSave OMIT any sensitive
+  column whose value is empty or equals MASKED_VALUE from parsedData; and stop null-ing defaulted
+  sensitive columns on insert. TIER 3 — make it detectable (test gate): extend
+  explorer-security.spec.ts CRUD section (already sets ENABLE_DB_EXPLORER_WRITES=true) to assert the
+  emitted UPDATE SQL omits password_hash when submitted as '**\*\*\*\***', returns 400/no-op when
+  the mask is the only change, and the insert strips it; add a RowEditorModal unit test asserting
+  masked sensitive columns are not serialized on save. Design the fix at the pattern level: the
+  mask/inverse SSoT module is the general remedy for the read-projection/write-contract asymmetry
+  class.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Proof of fix:** Extend
+  apps/admin-api-service/src/database-management/**tests**/security/explorer-security.spec.ts 'CRUD
+  operations' describe (already toggles ENABLE_DB_EXPLORER_WRITES=true): (1) PUT
+  /database/explorer/schemas/auth/tables/users/rows/:id with data {name:'x',
+  password_hash:'**\*\*\*\***'} — inspect mockQueryRunner.query.mock.calls and assert the UPDATE SET
+  clause contains "name" but NOT "password_hash"; (2) PUT with data {password_hash:'**\*\*\*\***'}
+  only — assert 400/no UPDATE issued (mask sentinel never reaches SQL); (3) POST insert with a
+  sensitive column set to '**\*\*\*\***' — assert the column is stripped from the INSERT column
+  list. Add a RowEditorModal unit test in web/modules/admin-panel/src (e.g.
+  src/pages/**tests**/DatabaseExplorerPage.spec.tsx) rendering edit mode on a row with a masked
+  sensitive column and asserting onSave's payload excludes that column unless a new value was typed.
+  These specs fail against current code (mask is written verbatim) and pass after the BE inverse +
+  FE serialization fix.
+- **Effort:** M
+
+### APA-329 [HIGH] Explorer read/export/raw-SQL audit rows record performedBy:'SUPER_ADMIN' literal instead of the actual operator
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The write-intent audits correctly capture getAuthUser(req).id/email/IP, but
+  DATABASE_EXPLORER_READ, DATABASE_EXPLORER_EXPORT and DATABASE_EXPLORER_RAW_SQL — the
+  highest-leak-risk actions per the code's own comments — hardcode performedBy:'SUPER_ADMIN' with no
+  user id, email, or IP, even though the request user is available. The SOC 2 evidence chain cannot
+  answer 'which admin exported auth.users' — silently wrong audit data.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:518-523 (READ),597-603 (EXPORT),1051-1061 (RAW_SQL) vs 331-354 (write intent uses getAuthUser)`
+- **Verification:** Verified concretely reachable in real wiring. The global APP_GUARD
+  PlatformAdminGuard populates request.user = { sub, id, email, roles, role, tenantId } on EVERY
+  admin-api request (platform-admin.guard.ts:133-140), and req.ip is on the Express request. The
+  write-intent helper auditExplorerWriteIntent (explorer.controller.ts:331-354) correctly derives
+  performedBy: getAuthUser(req)?.id || 'SUPER_ADMIN' plus performedByEmail/ipAddress/userAgent. The
+  three highest-leak-risk read paths do NOT: getTableData (518-523), exportTableData (597-603) and
+  executeQuery (1051-1061) hardcode performedBy:'SUPER_ADMIN' and supply no email/IP/userAgent.
+  Confirmed the handlers getTableData(450), exportTableData(545), getPublicTableData(653) and
+  executeQuery(920) do not even inject @Req (only insertRow/updateRow/deleteRow do). No
+  audit-enriching interceptor exists (grep: only 4 performedBy call sites in the service, no audit
+  interceptor). The AuditLog entity (audit.entity.ts) stores performedBy as a required varchar and
+  persists the literal, leaving performedByEmail/ipAddress/userAgent NULL. Result: for
+  READ/EXPORT/RAW_SQL — the very actions the code comments mark as SOC 2 CC4 evidence — every
+  operator writes an identical constant, so 'which admin exported auth.users / ran raw SQL' is
+  unanswerable. Not CRITICAL because access is still SUPER_ADMIN-gated and the action/target/details
+  ARE captured; only actor attribution is lost. Above MEDIUM because multi-operator accountability
+  is entirely defeated for the highest-risk class. HIGH stands; confidence high.
+- **Root cause:** The FE->BE chain is intact; the break is inside the admin-api audit link. The
+  controller has TWO divergent audit paths: write ops funnel through the centralized actor-binding
+  helper auditExplorerWriteIntent(req,...) which extracts the operator from getAuthUser(req), while
+  READ/EXPORT/RAW_SQL call requireAuditLog(...) directly with a hand-written
+  performedBy:'SUPER_ADMIN' literal and never inject @Req, so no operator identity is threaded in.
+  This is a systemic class: ad-hoc/hardcoded actor attribution. The enabling footgun is that
+  AuditLogInput.performedBy is a free-form REQUIRED string with no compiler tie to the request
+  actor, so 'correct operator attribution' is a per-call-site convention rather than an automatic
+  default — and it silently drifted between the two paths (the read paths were added/kept with a
+  placeholder literal while the write paths were fixed to use getAuthUser).
+- **Fix design:** Architectural tier-1 (make wrong behavior impossible) + tier-3 (detectable) at the
+  pattern level, applied locally. (1) Generalize the existing actor-binding helper into a single
+  private method that is the ONLY way explorer endpoints record audit rows, e.g.
+  auditExplorerAction(req: Request, action: string, entityType: string, severity: AuditSeverity,
+  details: Record<string,unknown>). Inside it, derive actor fields exclusively from the request:
+  performedBy = getAuthUser(req)?.id ?? 'SUPER_ADMIN', performedByEmail = getAuthUser(req)?.email,
+  ipAddress = req.ip, userAgent = req.get('user-agent'); it calls requireAuditLog internally. Keep
+  requireAuditLog private and route every explorer audit (INTENT, READ, EXPORT, RAW_SQL) through
+  this one helper so the controller never hand-supplies performedBy again — the helper's required
+  Request parameter makes it structurally impossible to record an explorer action without operator
+  identity. Refactor the existing auditExplorerWriteIntent to delegate to it. (2) Inject @Req() req:
+  Request into getTableData, exportTableData and executeQuery, and thread req from
+  getPublicTableData -> getTableData; replace the three hardcoded requireAuditLog({...
+  performedBy:'SUPER_ADMIN' ...}) blocks (518-523, 597-603, 1051-1061) with calls to the new helper.
+  This makes correct operator attribution automatic for reads exactly as it already is for writes.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Proof of fix:** Extend
+  apps/admin-api-service/src/database-management/**tests**/security/explorer-security.spec.ts (which
+  already mocks AuditLogService.log and drives the controller via supertest with the guard
+  overridden) with an 'audit attribution' describe block: override PlatformAdminGuard to set
+  request.user = { id:'admin-123', sub:'admin-123', email:'admin@corp.io' } and a client IP; issue
+  GET /database/explorer/schemas/auth/tables/users/data, GET .../export, and POST
+  /database/explorer/query (SELECT). Assert mockAuditLogService.log was called for
+  DATABASE_EXPLORER_READ, DATABASE_EXPLORER_EXPORT and DATABASE_EXPLORER_RAW_SQL with
+  performedBy:'admin-123', performedByEmail:'admin@corp.io', and a non-null ipAddress/userAgent; add
+  a guard assertion that NO explorer audit call carries performedBy:'SUPER_ADMIN' while a user is
+  present. This fails on current code (literal) and passes after the fix, making the drift
+  detectable at test time.
+- **Effort:** S
+
+### APA-330 [MEDIUM] insert/update responses return the raw RETURNING \* row unmasked
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** insertRow and updateRow return result[0] from 'INSERT/UPDATE ... RETURNING \*'
+  without maskSensitiveData, so when writes are enabled the HTTP response exposes the very columns
+  (password_hash, tokens, secrets) that the read path always masks. deleteRow similarly returns the
+  full deleted row.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:709-715,774-784,824-834`
+- **Root cause:** Instance of the systemic unmasked-row-egress class: masking is applied ad hoc per
+  endpoint instead of at a choke point. insertRow returns result[0] from INSERT ... RETURNING \*
+  (explorer.controller.ts:709-715), updateRow returns result[0] (774-784), and deleteRow returns
+  {deleted, row} (824-834) — none call maskSensitiveData, so with writes enabled the HTTP response
+  exposes password_hash/token/secret columns the read path always masks.
+- **Fix design:** Make unmasked egress structurally impossible (tier 1): introduce a single private
+  serializeRow(queryRunner, schema, table, row) in the controller that resolves column info
+  (getColumnInfo, already available) and applies maskSensitiveData; every method that returns row
+  data — getTableData, exportTableData, insertRow, updateRow, deleteRow — returns only through it,
+  and the raw result arrays never escape a method scope. This is the same choke point i5/i6 extend,
+  so the classification is applied exactly once. Verification: extend
+  apps/admin-api-service/src/database-management/**tests**/security/explorer-security.spec.ts with
+  cases asserting insert/update/delete responses mask a password_hash column (writes flag enabled,
+  non-prod) and that the delete response row is masked.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Effort:** S
+
+### APA-331 [MEDIUM] Write UI (New Row / Edit / Delete) is always rendered but always 403 in production
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** assertExplorerWritesEnabled requires ENABLE_DB_EXPLORER_WRITES='true' and rejects
+  outright when NODE_ENV=production. The page renders New Row, per-row Edit and Delete
+  unconditionally with no capability check, so in production every save/delete attempt ends in a 403
+  error message. The FE should not offer permanently-disabled controls.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:313-322`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx:595-600,757-776`
+- **Root cause:** Instance of the systemic vestigial-surface class: write capability is decided
+  server-side only (assertExplorerWritesEnabled, explorer.controller.ts:313-322 — requires
+  ENABLE_DB_EXPLORER_WRITES=true and hard-fails when NODE_ENV=production) but the FE renders New Row
+  (DatabaseExplorerPage.tsx:595-600) and per-row Edit/Delete (757-776) unconditionally, so in
+  production every write attempt is a guaranteed 403 error dialog.
+- **Fix design:** Capability truth flows from the backend (tier 2 — the UI cannot disagree with the
+  server because it renders from the server's own predicate). Refactor the assertion into a pure
+  explorerWritesEnabled(): boolean used by both assertExplorerWritesEnabled() and a new capabilities
+  field returned from GET /database/explorer/schemas (contract: {schemas: string[], capabilities:
+  {writesEnabled: boolean}} — one round trip, no new endpoint family), declared in the shared admin
+  contract. FE stores capabilities from the initial schemas load and renders New Row/Edit/Delete
+  (and the edit/delete modals) only when writesEnabled; no defensive fallback — the field is
+  non-optional in the contract. Verification: controller spec asserting
+  capabilities.writesEnabled=false when NODE_ENV=production regardless of the flag, true only when
+  flag set outside prod; DatabaseExplorerPage test asserting write controls absent when capabilities
+  report false.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `libs/admin-contracts/src/database-management.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+- **Effort:** M
+
+### APA-332 [MEDIUM] Raw SQL endpoint returns rows unmasked and its catalog blocklist misses unqualified references
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** POST /database/explorer/query (no FE caller; gated to non-prod +
+  ENABLE*RAW_SQL_EXPLORER) returns query results with NO sensitive-column masking — SELECT
+  password_hash FROM auth.users returns real hashes, bypassing the masking layer the browse path
+  enforces. The schema blocklist only matches 'pg_catalog.'/'information_schema.' PREFIXED
+  references, so unqualified catalog names resolve via search_path (e.g. SELECT \* FROM
+  pg_stat_activity exposes other sessions' SQL text). Mitigations are real (read-only DataSource,
+  SELECT/WITH-only, semicolon/multi-statement block, dangerous-function blocklist,
+  tenant*/module-table patterns, 30s timeout, fail-closed audit), so this is a defense-in-depth gap
+  rather than a live hole.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:919-1069 (no masking on result),1016-1029 (prefix-only schema blocklist)`
+- **Root cause:** Two defense-in-depth gaps in POST /database/explorer/query (non-prod +
+  flag-gated): (1) result rows are returned with no sensitive-column masking
+  (explorer.controller.ts:1063-1066) — SELECT password_hash FROM auth.users returns real hashes,
+  bypassing the masking every other read path enforces; (2) the schema blocklist matches only
+  prefix-qualified references ('pg_catalog.'/'information_schema.' via `blocked\.` regex,
+  1018-1023), so unqualified catalog names resolve via the implicit search_path (e.g.
+  pg_stat_activity), and the readonly DataSource falls back to the primary DB user
+  (app.module.ts:145-148), so catalog visibility is not restricted at the role level either.
+- **Fix design:** Layered root-cause fix. (1) Masking: raw results flow through the same egress
+  choke point as i3 — for arbitrary SQL there is no table metadata, so mask by result-key using
+  isSensitiveColumn over each row's keys (aliasing a secret column to a benign name is already out
+  of reach for masking-by-metadata too; the role fix below is the real backstop). (2) Catalog
+  access: make it structurally impossible (tier 1) — production/absence of a dedicated role fails
+  closed: the explorer-readonly DataSource factory requires DATABASE*READONLY_USER to be set (no
+  silent fallback to the privileged main user), and the provisioning of that role (NOSUPERUSER, not
+  in pg_read_all_stats, SELECT only on public/auth/admin/billing) is added to the db-migrate
+  baseline so pg_stat_activity query text and pg_read*\* are denied by PostgreSQL itself. (3)
+  Tighten the regex as detectable defense (tier 3): block unqualified relation-position references
+  matching (FROM|JOIN)\s+"?(pg\_|information_schema) in addition to the prefix rule. Verification:
+  extend
+  apps/admin-api-service/src/database-management/controllers/**tests**/explorer-sql-security.spec.ts
+  — unqualified pg_stat_activity rejected, SELECT password_hash result masked, and DataSource
+  factory throws when DATABASE_READONLY_USER is unset in production.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `apps/db-migrate/src (readonly-role grant migration)`
+  - `apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts`
+- **Effort:** M
+
+### APA-333 [MEDIUM] Personal PII is not masked — masking covers credentials only, and export pulls up to 10K rows
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** SENSITIVE*COLUMNS matches password/token/secret/key/hash-style names only. Emails,
+  names, phone numbers, addresses in auth.* and billing.\_ (cross-tenant data for ALL tenants)
+  render fully and can be exported (limit 10,000 rows, 5 exports/hr). For a SUPER_ADMIN debug tool
+  this may be accepted, but it contradicts the platform's mask-PII-in-logs posture and makes bulk
+  PII exfiltration a single audited click.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:73-98 (mask list),557 (export limit 10000)`
+  - `ALLOWED_SCHEMAS includes auth/billing: explorer.controller.ts:46`
+- **Root cause:** Masking classification covers credentials only (SENSITIVE_COLUMNS,
+  explorer.controller.ts:73-96: password/token/secret/key/hash patterns), while ALLOWED_SCHEMAS
+  includes auth and billing (line 46) — cross-tenant PII for ALL tenants (emails, names, phones,
+  addresses) renders fully in browse and exports up to 10,000 rows per call (line 557, 5/hr). This
+  contradicts the platform's mask-PII posture, whose SSoT already exists
+  (libs/backend-common/src/utils/pii-mask.util.ts) but is applied only to logs, not to this
+  data-egress surface.
+- **Fix design:** Pattern-level: promote data classification to a two-tier shared policy and apply
+  it at the single egress choke point from i3. Extend libs/backend-common pii-mask.util (the
+  existing SSoT) with an exported column-name classifier: SECRET tier (current credential list →
+  full '**\*\*\*\***') and PII tier (email, \*\_name, phone, address, iban/tax/vat, dob patterns →
+  partial mask, e.g. j**_@d_**.com), so explorer, log masking, and any future admin egress share one
+  list. explorer.controller.ts replaces its private SENSITIVE_COLUMNS/isSensitiveColumn with the
+  shared classifier inside serializeRow, covering browse, export, write-returns, and raw SQL
+  uniformly; column metadata marks tier so the FE can badge PII columns distinctly. If operators
+  genuinely need raw PII for support, add an explicit ?revealPii=true param that requires the
+  existing requireAuditLog with AuditSeverity.CRITICAL per request — visible, audited, deliberate.
+  Verification: extend explorer-security.spec.ts asserting email/phone columns are partially masked
+  in table data AND export payloads by default, fully present only with revealPii=true and a
+  persisted CRITICAL audit row; pii-mask.util spec extended for the classifier.
+- **Files to change:**
+  - `libs/backend-common/src/utils/pii-mask.util.ts`
+  - `libs/backend-common/src/utils/__tests__/pii-mask.util.spec.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx`
+- **Effort:** M
+
+### APA-334 [LOW] Sorting on masked columns leaks relative ordering of the hidden values
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** orderBy accepts any valid identifier including sensitive columns; the server sorts by
+  the REAL value then masks, so an operator can binary-search relative ordering of masked data (e.g.
+  token prefixes) via ORDER BY. Niche, but trivially closed by rejecting orderBy on sensitive
+  columns.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:463-464,491-499 (order by real column, mask after)`
+- **Root cause:** In explorer.controller.ts both getTableData (491-492) and exportTableData
+  (576-577) build `ORDER BY "<orderBy>" <dir>` against the REAL column value and only apply
+  maskSensitiveData() to the returned rows AFTER the DB has sorted. orderBy is gated solely on
+  SQL-identifier syntax (`isValidIdentifier` at 463/558; DTO @Matches at 147-148 and 173-174) and is
+  never checked against isSensitiveColumn() (the SSoT helper at 103 + SENSITIVE_COLUMNS at 73). So
+  an operator can ORDER BY / paginate on a masked column (e.g. token, hash, api_key) and
+  binary-search the relative ordering of values that masking is supposed to hide — masking is
+  defeated for ordering information. Both the data and export paths accept orderBy, so the leak has
+  two entry points.
+- **Fix design:** Reject orderBy on sensitive columns at the source, reusing the existing
+  isSensitiveColumn() SSoT (tier 3 make-it-detectable + tier 2 automatic). Replace the duplicated
+  `query.orderBy && this.isValidIdentifier(query.orderBy) ? query.orderBy : null` expression in BOTH
+  getTableData and exportTableData with one private helper, e.g. resolveOrderBy(raw?: string):
+  string|null, that returns null when raw is empty/invalid and THROWS BadRequestException('Cannot
+  sort by a masked column') when isValidIdentifier(raw) but isSensitiveColumn(raw). Throwing (not
+  silently dropping) makes the rejection observable to the caller and prevents a silent fallback to
+  unordered results. Routing both call sites through the single helper closes the export entry point
+  automatically and prevents a future third call site from reintroducing the gap.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+- **Effort:** S
+
+## Cross-cutting findings
+
+### APA-335 [HIGH] db-migrate authority boundary was implemented server-side but never propagated to the admin-panel FE
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** A deliberate architectural decision moved all runtime DDL authority to
+  aqua-db-migrate: schema create/suspend/activate/delete/refresh-stats throw 409, migration
+  run/rollback/batch throw 403, restore throws 400, schema sync is report-only. The admin panel
+  still renders all of these controls as if functional — six visible flows (Suspend, Activate,
+  Refresh Stats, Batch Migration, Restore, PITR) plus Create Schema can never succeed, two of them
+  fail silently (no .catch). This single root cause produces most of the page-level breakage above;
+  the FE needs the same authority model (hide/disable + explain) or the endpoints should return
+  capability metadata.
+- **Evidence:**
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts:68-74,137-159,441-447,484-499`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts:88-92`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:455-471`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx:372-390,559-569,955-963`
+- **Verification:** Confirmed reachable end-to-end. Backend: all cited methods throw the documented
+  authority-boundary errors and are wired to live controllers registered in
+  database-management.module.ts (SchemaController/MigrationController/BackupController) —
+  createTenantSchema/updateSchemaStatus(suspend,activate)/updateSchemaStats/deleteSchema throw 409
+  ConflictException; migration.controller run/rollback/batch call
+  assertRuntimeMigrationEndpointAllowed() which throws 403 ForbiddenException before touching the
+  service; backup-restore executeRestore throws 400 BadRequestException (both restore and PITR
+  funnel through it); syncExistingTenantSchemas is report-only. FE: DatabaseManagementPage is a real
+  route (/admin/database, Module.tsx:171, admin-nav-items.tsx:214) reachable by SUPER_ADMIN and
+  renders all these controls as enabled affordances. Two mutating flows fail SILENTLY exactly as
+  claimed — Suspend (372-381) and Activate (383-390) call databaseApi.\*(…).then(refresh) with NO
+  .catch, so the 409 rejection is an unhandled promise rejection with zero user feedback and no
+  status change. Refresh Stats, Batch Migration and Restore surface the rejection via alert() (still
+  can never succeed). Create Schema (329-332) has NO onClick at all (inert) and PITR's Start Restore
+  (1128-1137) guards on selectedBackup which is null in PITR mode and never calls
+  pointInTimeRecovery — both dead buttons. Independently corroborated by
+  docs/product-audits/button-action-auditor/2026-04-13-full-platform-e2e.md:179-185. This is a
+  systemic class: FE affordance drift from an intentional backend authority boundary — the boundary
+  was expressed imperatively as per-method throws but never as a machine-readable capability
+  contract the FE could consume, so the two sides drifted. Severity held at HIGH (not CRITICAL): the
+  backend fail-closes so there is no data corruption or isolation bypass; but the breadth (7
+  controls across one page) plus SILENT failure on a security-relevant control (suspend a tenant
+  schema) that leaves an operator with false confidence justifies HIGH over MEDIUM.
+- **Root cause:** The deliberate decision to move all runtime DDL authority to aqua-db-migrate was
+  encoded only imperatively — as hardcoded throws (409/403/400) scattered inside admin-api-service
+  service/controller methods. It was never expressed as a declarative, machine-readable capability
+  descriptor that both the backend enforcement and the admin-panel affordances derive from. With no
+  shared SSoT tying enforcement to affordance, the FE kept rendering enabled-looking controls
+  (Suspend, Activate, Refresh Stats, Create Schema, Batch Migration, Restore, PITR) for operations
+  the backend now categorically rejects. The broken link is the FE->BE contract: the FE assumes
+  every rendered button maps to a working endpoint. Compounding local defects: Suspend/Activate use
+  .then() with no .catch() (409 -> unhandled rejection -> silent failure), Create Schema has no
+  onClick, and PITR's Start Restore never invokes the pointInTimeRecovery API.
+- **Fix design:** Fix at the pattern level with a single authority SSoT consumed by BOTH sides
+  (hierarchy tier 1/2 — make drift structurally impossible, correct affordance automatic). (1)
+  Introduce one declarative descriptor in the database-management module, e.g.
+  apps/admin-api-service/src/database-management/database-runtime-authority.ts, exporting a typed
+  map keyed by operation (createSchema, suspendSchema, activateSchema, refreshStats, deleteSchema,
+  syncSchemas, runMigration, rollbackMigration, batchMigration, restore, pointInTimeRecovery) -> {
+  enabled, mode?('report-only'), reason, owner:'aqua-db-migrate' }. (2) Make the existing disabled
+  throws DERIVE from this descriptor (a single helper reads the entry and throws the mapped
+  409/403/400) so enforcement and metadata can never diverge; re-enabling an op is one flag flip.
+  (3) Expose GET /database/capabilities (new lightweight endpoint on SchemaController or a
+  CapabilitiesController) that serializes the descriptor. (4) FE: add
+  databaseApi.getCapabilities() + a DatabaseManagementCapabilities type mirroring the descriptor;
+  DatabaseManagementPage fetches it on mount and gates every control — disabled ops render as
+  disabled buttons with the reason as tooltip/inline note, report-only sync is labeled, and the
+  disabled controls do NOT wire the mutating handler. (5) As defense-in-depth for the silent-failure
+  class, any remaining state-mutating call gets a .catch surfacing the error; fix the dead buttons
+  (Create Schema onClick, PITR Start Restore wiring) as part of gating — a disabled op should not
+  present a live-but-inert affordance. This makes the boundary the automatic default the FE inherits
+  rather than a fact the FE has to be hand-synced to.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/database-runtime-authority.ts`
+  - `apps/admin-api-service/src/database-management/services/schema-management.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+- **Proof of fix:** Backend invariant spec
+  apps/admin-api-service/src/database-management/**tests**/database-runtime-authority.spec.ts:
+  assert that the set of operations the authority descriptor marks enabled:false is EXACTLY the set
+  whose service/controller entrypoints reject (createSchema/suspend/activate/refresh-stats/delete ->
+  409, run/rollback/batch -> 403, restore/point-in-time -> 400), proving enforcement and the
+  /database/capabilities descriptor share one source; plus a supertest that GET
+  /database/capabilities returns each disabled flag with reason+owner. FE spec
+  web/modules/admin-panel/src/pages/**tests**/DatabaseManagementPage.spec.tsx: mock getCapabilities
+  returning the disabled descriptor and assert (a) Suspend/Activate/Refresh Stats/Create
+  Schema/Batch Migration/Restore/PITR controls render disabled with the reason and clicking them
+  does NOT invoke the corresponding databaseApi mutating fn, and (b) any still-live mutating call
+  handles rejection (no unhandled promise / error surfaced) — this regression-locks the two
+  silent-failure buttons.
+- **Effort:** L
+
+### APA-336 [HIGH] Global ResponseInterceptor has no StreamableFile/binary bypass — every file-download endpoint in admin-api is corrupted
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** ResponseInterceptor wraps all bodies except /health and /docs prefixes in the
+  {success,data,meta} envelope. Any controller returning StreamableFile (explorer CSV export today,
+  any future report/backup download) gets its stream wrapped in a plain object, defeating Nest's
+  StreamableFile handling and serializing garbage JSON to the client. Fix belongs in the interceptor
+  (skip when data instanceof StreamableFile / Buffer / when Content-Disposition is set), not
+  per-endpoint.
+- **Evidence:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:44-74`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:643 (StreamableFile return)`
+- **Verification:** CONFIRMED end-to-end. ResponseInterceptor is a global APP_INTERCEPTOR
+  (app.module.ts:291-294) whose only bypass is request-URL-prefix matching (/health, /docs\*); its
+  map() is response-type-blind. The explorer export endpoint (explorer.controller.ts:544-647) uses
+  @Res({passthrough:true}) — the Nest-idiomatic pattern where the framework owns the reply — and
+  returns new StreamableFile(buffer) for CSV. Nest's ExpressAdapter runs its
+  `body instanceof StreamableFile` check on the POST-interceptor body; the envelope
+  {success,data:StreamableFile,meta} fails it, so Express JSON-serializes the wrapper (Content-Type
+  stays text/csv, already set via res.setHeader) — the client receives JSON garbage with HTTP 200.
+  FE reachability confirmed: DatabaseExplorerPage.tsx:96-126 fetches this URL, blobs the 200
+  response, and saves table_export.csv — silent corruption, no error surfaced. The format=json
+  branch is also broken: the downloaded artifact is the envelope, not the row array. One correction
+  to the finding's scope: NOT every download endpoint is corrupted today —
+  reports.controller.ts:295-305 and audit-trail.controller.ts:430-451 work because they use raw
+  @Res() + res.send(), which skips Nest reply handling entirely; but that is precisely the
+  per-endpoint escape-hatch accretion the interceptor forces, confirming the systemic class. HIGH is
+  correct: a primary SUPER_ADMIN feature (the endpoint the code itself calls 'the highest-leak-risk
+  SUPER_ADMIN action', hard-gated on audit persistence) silently delivers corrupted files in both
+  formats, and every future idiomatic download endpoint is a trap. Not CRITICAL: functional break,
+  no security/data-loss impact.
+- **Root cause:** The response-envelope cross-cutting concern was implemented as a
+  request-URL-prefix allowlist instead of a response-type-aware transform. Nest's contract is that
+  adapter-level StreamableFile handling applies to the FINAL post-interceptor body (which is why
+  Nest core's own ClassSerializerInterceptor special-cases StreamableFile); a global map() that
+  wraps unconditionally therefore structurally defeats streaming. The interceptor was written when
+  every admin-api endpoint returned a JSON DTO; download endpoints drifted in later under a
+  different contract (bytes + Content-Disposition, not envelope). Two of the three (reports,
+  audit-trail) dodged the bug by dropping to raw @Res()+res.send() — abandoning the framework reply
+  path and hiding the defect — while the one endpoint using the idiomatic StreamableFile+passthrough
+  pattern (explorer export) broke. No test asserts bytes-on-the-wire for any download, so the
+  corruption was undetectable at build/test time. This is the systemic 'envelope/shape mismatch'
+  class: the BE envelope contract has no type-level carve-out for the binary-response contract, so
+  each new download endpoint must either break or work around.
+- **Fix design:** Pattern-level fix (tier 1-2: make correct behavior automatic and wrong behavior
+  impossible), plus local applications and a test gate. (A) Interceptor: make the bypass
+  TYPE-driven, not URL-driven — in ResponseInterceptor.map(), return data unchanged when
+  `data instanceof StreamableFile` (import from @nestjs/common) or `Buffer.isBuffer(data)`. This is
+  the same structural rule Nest core applies in ClassSerializerInterceptor; it makes every current
+  and future download endpoint correct with zero per-endpoint effort. No Content-Disposition
+  sniffing — the type is the contract. (B) One download idiom, applied everywhere: (1)
+  explorer.controller.ts format=json branch returns
+  `new StreamableFile(Buffer.from(JSON.stringify(rows)))` instead of the raw rows array, so 'file
+  download' is expressed by exactly one type and the interceptor rule is total; (2) converge
+  reports.controller.ts downloadExecution and audit-trail.controller.ts exportAuditTrail from raw
+  @Res()+res.send() to @Res({passthrough:true})+StreamableFile, eliminating the two escape-hatch
+  instances so all downloads flow through the framework reply path and the global interceptor stack
+  (incl. AdminBypassRlsInterceptor) uniformly. (C) Detectability gate (tier 3): unit spec proving
+  StreamableFile/Buffer pass through unwrapped while DTOs and paginated shapes still wrap; supertest
+  integration spec asserting bytes-on-the-wire for all three download routes (Content-Type,
+  Content-Disposition, body starts with CSV header / parses as raw row array, body contains no
+  '"success":true'); plus a static invariant failing any admin-api controller that uses @Res()
+  without passthrough, making future escape-hatch regressions build-time detectable. No allowlist
+  additions to SKIP_PREFIXES — that mechanism stays for the two genuinely non-enveloped infra
+  prefixes only.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts`
+  - `apps/admin-api-service/src/__tests__/integration/download-envelope.spec.ts`
+- **Proof of fix:** New unit spec
+  apps/admin-api-service/src/shared/**tests**/response.interceptor.spec.ts: (1) a handler emitting
+  StreamableFile reaches the subscriber unwrapped (same instance, instanceof StreamableFile); (2)
+  Buffer passes unwrapped; (3) plain DTO still wraps as {success:true,data,meta.timestamp}; (4)
+  {data,total,page,limit,totalPages} still lifts pagination into meta — proving the envelope
+  contract is unchanged for JSON bodies. New integration spec
+  apps/admin-api-service/src/**tests**/integration/download-envelope.spec.ts (supertest against the
+  bootstrapped app with guards overridden): GET /database/explorer/.../export?format=csv returns 200
+  with Content-Type text/csv, Content-Disposition attachment, body beginning with the CSV header row
+  and NOT containing '"success":true'; format=json body JSON.parses to the raw row array (not an
+  envelope); reports executions/:id/download and security/audit-trail/export return their declared
+  mimeType bytes unenveloped. Same spec carries the static invariant: read all
+  apps/admin-api-service/src/\*_/controllers/_.ts and fail on any @Res( not immediately followed by
+  {passthrough: true} — locking the single download idiom. Then nx affected --target=test && nx
+  affected --target=lint green.
+- **Effort:** M
+
+### APA-337 [HIGH] Admin-panel 'Backups' feature is a paper capability in production — runtime dependencies absent from the deploy
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The backup implementation is real code (pg_dump + AES-256-GCM + admin.schema_backups
+  ledger + fail-closed audit) but the production deployment gives admin-api no pg_dump binary
+  (Alpine image installs only curl/dumb-init), no persistent /backups volume, and no
+  BACKUP_ENCRYPTION_KEY. UI-triggered and cron backups all land as status='failed'; cron failures
+  are only logged. Either the deploy must ship pg_dump + volume + key to admin-api, or the feature
+  should delegate to the existing pg-backup/wal-g infra containers and the panel should surface
+  THOSE backups.
+- **Evidence:**
+  - `infrastructure/docker/Dockerfile.backend:78`
+  - `docker-compose.droplet.yml:943-1009`
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts:513-560,618-667`
+  - `infrastructure/docker/Dockerfile.pg-backup:6-23 (real backup path lives elsewhere)`
+- **Verification:** CONFIRMED, and the failure is worse than stated. (1) Production images build
+  from infrastructure/docker/Dockerfile.backend.simple (deploy-digitalocean.yml:900,
+  deploy-staging.yml:428) — the auditor cited Dockerfile.backend:78, but BOTH install only
+  curl+dumb-init; no pg*dump anywhere. (2) admin-api in docker-compose.droplet.yml:1002-1007 mounts
+  only NATS certs + JWT key — no /backups volume — and runs as non-root uid 1001, so
+  mkdir('/backups/schemas/...') fails EACCES; that mkdir (backup-restore.service.ts:202) executes
+  BEFORE the try block (line 210), so prod ledger rows stick at status='in_progress' (not 'failed'),
+  the POST returns 500, and cron failures are only logged. (3) BACKUP_ENCRYPTION_KEY is set in zero
+  compose files/env templates/k8s manifests repo-wide, and encryption is mandatory
+  (resolveBackupEncryption forbids plaintext). (4) A fourth missing dependency the auditor missed:
+  the admin_service DB role has grants only on admin/auth/billing/shared — no SELECT on tenant*\*
+  schemas — so pg_dump --schema=tenant_x would fail on permissions even with binary+volume+key.
+  Crons are live (ScheduleModule.forRoot, app.module.ts:178) and write a CRITICAL-severity
+  SCHEMA_BACKUP_CREATE_REQUESTED audit row per tenant per night before failing (self-polluting
+  audit). Blast radius exceeds the panel: tenant-provisioning.service.ts:1014-1036
+  (backupTenantData) fail-closes deprovisioning on backup proof, so tenant offboarding/GDPR cleanup
+  is structurally impossible in production. Severity stays HIGH (not CRITICAL: everything fails
+  closed, no data loss or security bypass, and cluster-level DR genuinely exists via WAL-G +
+  backup-production.yml; not MEDIUM: a SUPER_ADMIN DR surface misrepresents backup posture,
+  deprovisioning is hard-blocked, and audit/ledger pollution accrues nightly).
+- **Root cause:** Not FE-BE drift — FE types, api fns, controller, service, entity, and migration
+  all align. The broken link is service-runtime vs deployment-contract: BackupRestoreService carries
+  four implicit host dependencies (pg_dump binary in the image, a writable persistent /backups
+  volume, BACKUP_ENCRYPTION_KEY env, and tenant-schema SELECT grants for the admin_service role)
+  that are declared in no deployable artifact (Dockerfile package list, compose volume, compose
+  :?-guarded env, DB grant script) and asserted by no boot-time or CI check, so the gap is invisible
+  until a 2AM cron or a UI click. It drifted because production DR authority moved to
+  INFRA-BACKUP-001 (WAL-G continuous archiving on the postgres container + backup-production.yml
+  pg_dump-to-Spaces + tools/scripts/database/backup-databases.sh + the pg-backup image), and the
+  restore half of this very service was migrated to the authority-boundary pattern (executeRestore
+  unconditionally rejects with RUNTIME_RESTORE_AUTHORITY_ERROR, delegating to db-migrate) while the
+  backup half kept its in-process pg_dump execution path. This is an instance of the systemic class
+  'runtime dependency absent from the deploy contract' (spawned binary / env key / volume / DB grant
+  assumed but never declared or gated).
+- **Fix design:** Complete the authority-boundary migration the service already established for
+  restore — admin-api becomes the audited ledger/evidence surface; execution moves to the
+  infrastructure that already holds the toolchain and privileges. Shipping pg_dump+volume+key into
+  admin-api is the wrong branch: it would require granting the web-facing admin_service role SELECT
+  on every tenant schema (tenant-isolation regression vs SEC-015) and would place the backup
+  encryption key in a long-running internet-adjacent container instead of the production-backup
+  GitHub environment. Local fix: (a) Remove the in-process execution path from BackupRestoreService
+  (executeEncryptedPgDump, getBackupEncryptionKey/decode, /backups filesystem I/O, and the @Cron
+  daily/weekly jobs which duplicate INFRA-BACKUP-001's schedule and can only produce failed rows)
+  exactly as executeRestore was reduced; createBackup becomes validate + requireAuditLog + persist a
+  'requested' ledger row in admin.schema_backups. (b) Extend
+  tools/scripts/database/backup-databases.sh (already the shared droplet/pg-backup script with
+  pg_dump, aws-cli, gpg and privileged credentials) with a per-tenant-schema mode: consume
+  'requested' rows / enumerate active schemas, pg_dump --schema=<tenant> encrypted, upload to Spaces
+  beside the WAL-G tree, then complete the ledger row (status, checksum, sizeBytes, storage URI,
+  encryptionKeyId) via psql; backup-production.yml invokes it nightly and via workflow_dispatch for
+  on-demand tenant backups. New admin migration adds nullable storageLocation/executedBy columns to
+  admin.schema_backups (blue-green: nullable first). (c) tenant-provisioning backupTenantData keeps
+  its fail-closed proof unchanged but verifies the completed ledger row written by the real executor
+  — unblocking deprovisioning without weakening the proof. (d) FE: DatabaseManagementPage 'Create
+  Backup' becomes 'Request Backup' with requested→completed lifecycle; the schedule panel surfaces
+  the executor's actual cadence derived from ledger rows instead of admin-api cron fiction; extend
+  services/types/database.ts + services/api/database.ts for the new status/storage fields.
+  Pattern-level fix (tier 3, systemic class): new invariant spec asserting (1) every child_process
+  spawn/execFile of an external binary under apps/\*\*/src maps to a package installed in the image
+  that deploys that service (parse Dockerfile.backend.simple) or lives in a designated executor
+  image (pg-backup/db-migrate), and (2) BackupRestoreService imports no child_process at all
+  (mirroring the restore authority boundary), plus required-env :? guard checks against
+  docker-compose.droplet.yml — making silent paper capabilities of this class build-time detectable.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/entities/database-management.entity.ts`
+  - `apps/admin-api-service/src/migrations/1800900000000-BackupLedgerExecutorEvidence.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts`
+  - `tools/scripts/database/backup-databases.sh`
+  - `.github/workflows/backup-production.yml`
+  - `web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `e2e/tests/integration/runtime-dependency-invariants.spec.ts`
+  - `apps/admin-api-service/src/database-management/__tests__/backup-restore.service.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning.service.spec.ts`
+- **Proof of fix:** New invariant spec e2e/tests/integration/runtime-dependency-invariants.spec.ts:
+  (1) scan apps/\*\*/src for child_process spawn/execFile of external binaries and assert each
+  binary is installed in infrastructure/docker/Dockerfile.backend.simple's package list or the call
+  site is in a designated executor (db-migrate CLI / pg-backup script) — fails today on
+  backup-restore.service.ts:525 spawn('pg_dump'); (2) assert BackupRestoreService has no
+  child_process import (authority boundary, mirroring the existing restore rejection). Extend
+  apps/admin-api-service/src/database-management/**tests**/backup-restore.service.spec.ts:
+  createBackup persists a 'requested' ledger row, never spawns, never reads BACKUP_ENCRYPTION_KEY;
+  no @Cron methods remain on the service. Extend
+  apps/admin-api-service/src/tenant/**tests**/tenant-provisioning.service.spec.ts: deprovision still
+  rejects when the ledger row is not completed/checksummed/encrypted, and proceeds when the
+  executor-written row is complete. Executor side: backup-production.yml workflow_dispatch dry_run
+  exercises the per-schema mode of backup-databases.sh end-to-end (dump produced, ledger UPDATE
+  emitted) without upload.
+- **Effort:** L
+
+### APA-338 [MEDIUM] Hand-written FE types drift systemically from backend responses (no codegen) — three of the drifts silently blank out real data
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** services/types/database.ts and the inline api-function generics were written from an
+  older backend. Confirmed field-level drift: SlowQueryResult object vs array (panel always empty),
+  isIsolated vs valid (always 'Issues found'), backup schedule shape (always 'Not configured'),
+  IndexRecommendation.createStatement missing, TenantSchema/SchemaMigration/DatabaseBackup field
+  mismatches, plus ~14 FE functions targeting nonexistent routes. Because the envelope-unwrapping
+  http-client returns 'unknown-shaped' data as T, none of this fails loudly — it renders wrong. A
+  generated client (OpenAPI from the existing Swagger setup) would make this class of bug
+  impossible.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/database.ts:5-83`
+  - `web/modules/admin-panel/src/services/api/database.ts:56-61,106-115,126-127,172-174,197-204`
+  - `web/modules/admin-panel/src/services/http-client.ts:341-351 (unchecked cast to T)`
+- **Root cause:** FE contract for the whole database section is hand-authored
+  (services/types/database.ts + inline generics in services/api/database.ts) with no generated
+  linkage to the backend, and http-client returns `envelope.data as T` (http-client.ts:348) — an
+  unchecked cast — so any shape/route mismatch renders wrong or blank instead of failing. Two live
+  sub-classes remain after cross-checking all 5 controllers' routes: (a) ~13 FE api functions target
+  routes that exist on NO database-management controller and thus 404 silently —
+  schema.resetSchema/optimizeSchema/analyzeSchema,
+  migration.getMigration/createMigration/runMigration/rollbackMigration/getPendingMigrations,
+  backup.scheduleBackup, monitoring.getDatabaseStats/getTableStats/runVacuum/runAnalyze; (b) backend
+  controller methods have no explicit return type or @ApiResponse DTO (they return
+  `this.svc.method()` untyped, e.g. monitoring 84/118, schema 167), so even with Swagger wired
+  (main.ts:22) the OpenAPI doc carries no typed response bodies to validate the FE against. NOTE:
+  the specific field drifts the finding named (SlowQuery object-vs-array, isIsolated-vs-valid,
+  backup schedule shape, IndexRecommendation.createStatement) are actually consistent in the CURRENT
+  code and consumed correctly by DatabaseManagementPage.tsx — they were hand-patched, which is
+  itself the recurring-drift failure mode, not a permanent fix.
+- **Fix design:** Make wrong shape/route structurally impossible via a generated contract (tier 1),
+  not another hand-patch. (1) Give every database-management controller method an explicit response
+  DTO + @ApiResponse so the already-wired Swagger document emits typed schemas — this is the
+  load-bearing prerequisite; without it codegen yields `unknown`. (2) Add an OpenAPI codegen step
+  (openapi-typescript or openapi-typescript-codegen) as an npm script that regenerates the
+  admin-panel client + types from the emitted OpenAPI JSON, replacing services/types/database.ts and
+  the inline api generics; http-client keeps unwrapping the envelope but its cast is now backed by a
+  generated type that matches the server. (3) CI gate: run codegen in CI and fail on any git diff
+  (drift becomes a build error) — tier 3 for whatever is not yet fully migrated. Immediate cheaper
+  detectable gate for the nonexistent-route sub-class specifically: add an invariant spec that
+  enumerates every path literal in services/api/database.ts and asserts a matching registered route
+  exists on the admin-api-service router, and delete the ~13 dead functions.
+- **Files to change:**
+  - `apps/admin-api-service/src/database-management/controllers/schema.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/migration.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/backup.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+  - `web/modules/admin-panel/src/services/types/database.ts`
+  - `web/modules/admin-panel/src/services/api/database.ts`
+  - `package.json`
+  - `e2e/tests/integration/admin-api-fe-route-contract.spec.ts`
+- **Effort:** L
+
+### APA-339 [LOW] Security posture of the section is otherwise solid (verified, not assumed)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Positive findings recorded for completeness: every /database/\* route is behind the
+  global PlatformAdminGuard (SUPER*ADMIN-only, RS256 verifyAsync with issuer/audience,
+  access-token-type enforcement) plus ThrottlerGuard; no @Public escapes exist in the five
+  controllers; all seven database-management entities declare schema:'admin' and match the Baseline
+  migration column-for-column; the explorer uses a separate read-only DataSource with
+  default_transaction_read_only=on; tenant*<uuid> schemas are structurally unreachable from the
+  explorer (allowlist public/auth/admin/billing + MODULE*SCHEMAS-derived table blocklist + tenant*
+  regex in raw SQL); identifiers are regex-validated and values parameterized throughout;
+  read/export/raw-SQL are fail-closed on audit persistence; nginx /api -> /api/v1 rewrite matches
+  the service prefix exactly.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:283-304`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:78-205`
+  - `apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:46-67,280-322,1230-1233`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:191-213`
+  - `infrastructure/nginx/droplet.conf:377-383`
+- **Root cause:** Not a defect — a positive-posture note recorded for completeness, and
+  spot-checking corroborates it: global APP*GUARD PlatformAdminGuard (SUPER_ADMIN + RS256) plus
+  ThrottlerGuard cover the section (export throttle comment at explorer.controller.ts:542), no
+  @Public escapes in the 5 controllers, the 7 entities declare schema:'admin' matching the Baseline
+  migration, the explorer uses a read-only DataSource, tenant*\* schemas are unreachable
+  (allowlist + blocklist + tenant\_ regex), identifiers are regex-validated (isValidIdentifier
+  1230-1233) and values parameterized (496-497), and read/export/raw-SQL are fail-closed on audit
+  persistence (requireAuditLog awaited at 518).
+- **Fix design:** No code change required; nothing is broken. To keep the posture from silently
+  regressing (tier 3 make-it-detectable), optionally add/confirm two invariant specs: a
+  guard-coverage test asserting no @Public decorator exists on any database-management controller
+  method, and an explorer-access test asserting tenant\_\* schemas and MODULE_SCHEMAS-blocklisted
+  tables are rejected. These lock in the verified behavior but are enhancement, not remediation.
+- **Effort:** S
+
+---
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-MEDIUM-055** — APA-321: `GET /database/backups/schedule` returns a daily/weekly shape
+  (`dailyBackupEnabled`/`weeklyBackupEnabled`/`next*`/`last*`), but the admin-panel hand-mirrored an
+  `{ enabled, schedule, lastRun, nextRun }` literal whose keys don't exist on the wire, so the
+  Backup Schedule card read `scheduleState.data.schedule`/`.enabled` (undefined) and always showed
+  "Not configured" + a "suspended" badge. Fix (same tiers as APA-324): named the backend shape as an
+  exported `BackupScheduleStatus` interface, bound the service + controller
+  (`Promise<BackupScheduleStatus>`), fixed the FE api-type literal (which compile-forces the card
+  rewrite), and rewrote the card to render Daily + Weekly cadences with next/last run. Tier-3:
+  `DatabaseManagementPage.spec.tsx` renders the card from a backend-shaped fixture (red-proven —
+  HEAD renders "Not configured") + `backup-schedule-contract.spec.ts` freezes the exact backend key
+  set. Sibling of APA-320/APA-324.
+- **ADMIN-MEDIUM-054** — APA-320: `GET /database/schemas/:tenantId/validate` returns
+  `{ isIsolated, issues }`, but the admin-panel hand-mirrored it as `{ valid, issues }` and the
+  Validate Isolation button read `result.valid` (undefined), so a correctly-isolated schema reported
+  "Issues found: ". Fix using the strongest tier: renamed the FE api-type field to `isIsolated`,
+  which converts any read of `result.valid` into a **compile error** (tier-1 — the rename can't
+  half-land; verified `TS2339 Property 'valid' does not exist`), and named the backend contract as
+  an exported `SchemaIsolationResult` bound to both the service and controller. Tier-3:
+  `schema-validate-contract.spec.ts` freezes the backend field name (no `valid` key). A fragile
+  schema-modal render test was deliberately omitted — the compile-break is a strictly stronger guard
+  than a render test for a pure field rename. Sibling of APA-321/APA-324.
+- **ADMIN-MEDIUM-053** — APA-324: the Monitoring tab's Index Recommendations card rendered
+  `rec.createStatement` inside a `<code>` block, but the backend `IndexRecommendation` contract
+  carries **no** `createStatement` — runtime is forbidden to run DDL, so it exposes
+  `recommendedAction`/`indexName`/`authority:'db-migrate'` (changes go through the audited
+  db-migrate workflow). The FE had drifted on all three legs (page interface, api-layer generic,
+  render), so the card always showed an empty code block. Root-cause fix: aligned the page's
+  `IndexRecommendation` interface and the `getIndexRecommendations` api generic to the real wire
+  shape, rewrote the render to show a recommendedAction badge + `indexName` + columns + a
+  db-migrate-workflow note, and annotated `monitoring.controller.getIndexRecommendations` as
+  `Promise<IndexRecommendation[]>` so the contract is nameable at the source and any future drift is
+  a FE compile break (tier-1). Tier-3: `DatabaseManagementPage.monitoring.spec.tsx` renders a
+  backend-shaped recommendation and asserts `idx_users_email` + the Add-index badge appear;
+  red-proven (HEAD's empty `createStatement` block means `idx_users_email` never renders). First of
+  the database-mgmt FE-type-drift cluster; APA-320 (schema-isolation `isIsolated` vs `valid`) and
+  APA-321 (backup-schedule shape) are the sibling slices.
+- **ADMIN-MEDIUM-028** — APA-319: the Database-Health "Slow Queries / last hour" check used an
+  inverted time window (`LessThan(now-1h)` under a "last hour" comment, counting rows OLDER than an
+  hour). Root-cause fix: added intent-named `withinLast()`/`olderThan()` FindOperator helpers to
+  `@aquaculture/backend-common/database` (the name carries the predicate direction), repointed the
+  slow-query window to `withinLast` and migrated the three sibling inline sites +
+  `cleanupOldMetrics` to the helpers, and added a no-allowlist `time-window-operator-usage.spec.ts`
+  gate banning inline `<Op>(new Date(Date.now()…))` in `apps/**`. Unit specs pin the helper operator
+  types and the slow-query window direction/thresholds. Tracked separately: `logSlowQuery()` has no
+  callers, so `admin.slow_query_logs` is never written (table-nobody-writes) — the check is
+  non-functional until a real recorder is wired.
+- **ADMIN-HIGH-036** — APA-327: the DB-explorer table export delivered a corrupt JSON file. The
+  global `ResponseInterceptor` maps every handler return into `{success,data,meta}`, and a
+  `StreamableFile` nested inside that object is no longer streamed by Nest. Part 1 (the interceptor
+  passing `StreamableFile`/`Buffer` through untouched) had already landed under ADMIN-CRITICAL-009
+  (RC-1a), fixing the CSV path, but the JSON branch still returned a bare rows array via
+  `@Res({passthrough:true})` + `res.setHeader`, so it was still enveloped — the JSON download
+  delivered `{success,data,meta}` instead of the array. Finished it (Part 2): `exportTableData` now
+  returns a `StreamableFile` for BOTH formats (JSON = `StreamableFile` over
+  `Buffer.from(JSON.stringify(rows))` with `type: application/json` + attachment disposition; CSV
+  likewise via `StreamableFile` options), collapsing the split return to `Promise<StreamableFile>`
+  and deleting the `@Res` passthrough + manual headers (the `Res`/`Response` imports are gone). Both
+  formats now hit the interceptor's binary passthrough, so raw bytes stream uncorrupted (tier-2
+  structural, not a per-endpoint opt-out). New unit test `explorer-export-streamable.spec.ts` boots
+  the controller with a mocked read-only query runner (no DB) and asserts the JSON body parses to a
+  bare array and the CSV body is raw CSV header-first. APA-326 (the L-effort `libs/admin-contracts`
+  endpoint-manifest SSoT) and APA-328 (Edit Row writes the mask sentinel back) remain separate open
+  slices.
+- **ADMIN-MEDIUM-037** — APA-328: the DB-explorer Edit Row wrote the `********` read-mask sentinel
+  back into real sensitive columns. The read path masks credential columns to `********`, but
+  `RowEditorModal` seeded `formData` with that mask and rendered no input for sensitive columns, so
+  `handleSave` sent `{password_hash:'********'}` and `updateRow` executed
+  `UPDATE … SET password_hash='********'` verbatim — with `ENABLE_DB_EXPLORER_WRITES=true`
+  (dev/staging) one edit in `auth.users` silently destroyed the real hash/token. Tier-1
+  (authoritative, backend): added `stripUnchangedMaskedSensitive` — the exact inverse of
+  `maskSensitiveData`, co-located with it — and applied it in `updateRow` (strip, then 400 before
+  any SQL if nothing writable remains) and `insertRow` (strip so the DB default applies). Because
+  the sentinel and classifier are the same ones that produced the mask, no client (even a regressed
+  FE) can overwrite a sensitive column with the mask. Tier-2 (FE, defense-in-depth):
+  `RowEditorModal` seeds sensitive fields blank, renders a password "new value" input ("leave blank
+  to keep current"), and omits blank/masked sensitive columns from the save payload. Tier-3: 6 CRUD
+  mask-symmetry tests in `explorer-security.spec.ts` (red proven). Reachable only in non-production
+  (`ENABLE_DB_EXPLORER_WRITES=true` AND `NODE_ENV!=production`), SUPER_ADMIN-only.
+- **ADMIN-MEDIUM-038** — APA-330: the DB-explorer `insertRow`/`updateRow`/`deleteRow` returned the
+  raw `RETURNING *` row unmasked, so with writes enabled the HTTP response egressed the very
+  `password_hash`/token/secret columns the read path always masks. Fixed with a single
+  `maskRow(row)` choke point (masks by the row's own keys via the same `isSensitiveColumn`
+  classifier, no extra column-info round-trip) that all three write responses now flow through.
+  Landed in the same commit as APA-328 — the two are the write-in and response-out directions of one
+  mask invariant sharing the same co-located SSoT (`maskRow` + `stripUnchangedMaskedSensitive`
+  beside `maskSensitiveData`). Tier-3: `explorer-security.spec.ts` asserts insert/update/delete
+  responses mask a `password_hash`/`api_key` column (red proven). Adjacent still-open: APA-329
+  (HIGH, read/export/raw-SQL audits hardcode `performedBy:'SUPER_ADMIN'`) and APA-331 (MEDIUM, write
+  UI rendered but always 403 in production).
+- **ADMIN-HIGH-039** — APA-329: the DB-explorer READ/EXPORT/RAW_SQL audits hardcoded
+  `performedBy:'SUPER_ADMIN'` with no id/email/IP, even though the request user was available and
+  the write-intent audits already used `getAuthUser(req)`. On the highest-leak-risk SUPER_ADMIN
+  actions (the code's own SOC 2 CC4 evidence), every operator wrote an identical constant, so "which
+  admin exported `auth.users` / ran raw SQL" was unanswerable. Tier-1 fix: generalized the
+  actor-binding helper into a single
+  `auditExplorerAction(req, action, entityType, details, severity?)` that is now the ONLY way any
+  explorer endpoint records an audit — it derives
+  `performedBy`/`performedByEmail`/`ipAddress`/`userAgent` exclusively from the required `Request`,
+  so placeholder/anonymous attribution is structurally impossible; `auditExplorerWriteIntent`
+  delegates to it. Injected `@Req` into `getTableData`/`exportTableData`/`executeQuery`, threaded
+  `req` from `getPublicTableData`, and replaced the three hardcoded blocks (`severity` optional so
+  READ keeps its `determineSeverity` default; EXPORT/RAW_SQL keep WARNING; write INTENT keeps
+  CRITICAL). Tier-3: an `audit actor attribution` describe (the mock guard is registered as an
+  `APP_GUARD` so `req.user` threads — the controller has no `@UseGuards` and `PlatformAdminGuard` is
+  a global guard absent from the unit module) asserts READ/EXPORT/RAW_SQL are attributed to the real
+  operator with a non-null IP/user-agent and that no explorer audit carries the literal while a user
+  is present (red proven). This commit also converted the APA-327
+  `explorer-export-streamable.spec.ts` to a supertest + real-`ResponseInterceptor` end-to-end test
+  (adding `@Req` to `exportTableData` changed its direct-call arity), which strengthens APA-327
+  coverage (a bare-array JSON return would now be enveloped → red). Only APA-331 remains open in
+  this DB-explorer cluster.
+- **ADMIN-MEDIUM-040** — APA-331: the DB-explorer page rendered New Row / Edit / Delete
+  unconditionally, but `assertExplorerWritesEnabled` 403s whenever `ENABLE_DB_EXPLORER_WRITES!=true`
+  or `NODE_ENV=production` — so in production every write control ended in a guaranteed 403 dialog.
+  Tier-2 fix (capability truth flows from the backend so the UI cannot disagree with the server):
+  extracted the write-permission decision into a pure `explorerWritesEnabled()` used by BOTH
+  `assertExplorerWritesEnabled()` (keeping its two specific 403 messages) and a new
+  `capabilities.writesEnabled` field returned from `GET /database/explorer/schemas` (contract
+  widened to `{ schemas, capabilities: { writesEnabled } }` — one round trip, no new endpoint
+  family). The FE types `getExplorerSchemas` to the envelope, stores `writesEnabled` from the
+  initial load (default false), and renders the New Row button, the Actions column header, the
+  per-row Edit/Delete buttons, and the row-editor + delete-confirm modals only when `writesEnabled`
+  — non-optional in the contract, no defensive fallback. Tier-3: `explorer-security.spec.ts` asserts
+  `writesEnabled` is true only with the flag set outside production, false in production regardless
+  of the flag, and false when unset (red proven). Closes the DB-explorer cluster
+  (APA-327/328/329/330/331 all landed this session).
+- **ADMIN-MEDIUM-041** — APA-326 (type-drift half): the admin-panel database types drifted from the
+  backend entities. The phantom-endpoint half (the ~14 FE api fns hitting nonexistent routes) was
+  already resolved by prior APA-254 work (`database.ts` is route-annotated), but the FE types still
+  declared fields the entities never return — `DatabaseBackup` had
+  `type`/`location`/`compressionType`/`encryptionKey`/`createdBy` while the entity returns
+  `backupType`/`filePath`/`isCompressed`/`isEncrypted`/`executedBy` (and
+  `SchemaMigration`/`TenantSchema` drifted likewise). So `DatabaseManagementPage` read undefined and
+  silently showed the wrong value (`backup.fileName || backup.location || backup.id` rendered the
+  id). Fix: rewrote `types/database.ts` to mirror the entities exactly (fields + real
+  `SchemaStatus`/`MigrationStatus`/`BackupStatus`/`BackupType` enums), deleted the page's inline
+  dual-field `SchemaItem`/`MigrationHistoryItem`/`BackupItem` interfaces in favour of the contract
+  types, and fixed every field access to the real field (dropping the dead
+  `|| location`/`|| compressionType`/`|| createdBy` fallbacks and the bogus `'running'` status
+  compare). Tier-3: `tests/invariants/admin-database-types-parity.spec.ts` binds every FE
+  database-type field to a real column on the mapped backend entity (brace-depth-aware) and bans the
+  dead drift names (red proven). Tracked follow-up (out of this commit): the tier-1 shared
+  `libs/admin-contracts` SSoT + route-manifest 1:1 contract test — a larger architectural slice;
+  this commit removes the actual drift and installs the make-detectable gate.

@@ -3,17 +3,24 @@
  *
  * Per-tenant messaging management for SUPER_ADMIN.
  *
- * The tenant listing endpoint (GET /messaging/tenants) returns 501 because
- * cross-tenant messaging aggregation is not yet implemented. This page
- * shows an honest "not yet available" state for the overview table, but
- * provides a working data-export trigger for individual tenants via
- * POST /messaging/tenants/:id/export.
+ * The overview table is backed by GET /messaging/tenants, which proxies the
+ * messaging-service cross-tenant aggregate (message counts 24h/7d/all-time +
+ * active channel counts per tenant, cached backend-side for 60 seconds).
+ * The page also provides a working data-export trigger for individual tenants
+ * via POST /messaging/tenants/:id/export.
+ *
+ * @see ADMIN-HIGH-009
  */
 
 import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
+import type {
+  MessagingTenantsOverview,
+  TenantMessagingOverviewRow,
+} from '../../services/types/messaging';
 
 // ============================================================================
 // Types
@@ -34,6 +41,55 @@ interface ExportResult {
 }
 
 // ============================================================================
+// Sub-components
+// ============================================================================
+
+const OverviewTable: React.FC<{ tenants: TenantMessagingOverviewRow[] }> = ({ tenants }) => (
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead>
+        <tr>
+          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Tenant ID
+          </th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Messages (24h)
+          </th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Messages (7d)
+          </th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Total Messages
+          </th>
+          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Active Channels
+          </th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {tenants.map((tenant) => (
+          <tr key={tenant.tenantId} className="hover:bg-gray-50">
+            <td className="px-4 py-3 text-sm font-mono text-gray-900">{tenant.tenantId}</td>
+            <td className="px-4 py-3 text-sm text-gray-700 text-right">
+              {tenant.messageCount24h.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-sm text-gray-700 text-right">
+              {tenant.messageCount7d.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-sm text-gray-700 text-right">
+              {tenant.totalMessages.toLocaleString()}
+            </td>
+            <td className="px-4 py-3 text-sm text-gray-700 text-right">
+              {tenant.activeChannels.toLocaleString()}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -45,6 +101,14 @@ const MessagingTenantsPage: React.FC = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // ── Tenant overview ──
+  const overviewQuery = useAsyncData<MessagingTenantsOverview>(
+    () => messagingApi.getTenantsOverview(),
+    { cacheKey: 'messaging-tenants-overview', cacheTTL: 15_000 },
+  );
+
+  const tenants = overviewQuery.data?.tenants ?? [];
 
   /** SECURITY: Validate UUID format before sending to API */
   const isValidUuid = (value: string): boolean =>
@@ -82,41 +146,73 @@ const MessagingTenantsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Per-tenant messaging management and controls
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Per-tenant messaging management and controls
+          </p>
+        </div>
+        <Button
+          onClick={() => void overviewQuery.refresh()}
+          disabled={overviewQuery.loading}
+          variant="secondary"
+          size="sm"
+        >
+          {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
+        </Button>
       </div>
 
-      {/* Tenant Overview -- Not Yet Available */}
+      {/* Tenant Overview */}
       <Card>
         <div className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900">
-                Tenant Messaging Overview Not Yet Available
-              </h3>
-              <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                The tenant messaging overview table requires cross-service aggregation
-                that is not yet implemented in the messaging service. This involves
-                collecting per-tenant channel counts, message volumes, active users,
-                and storage usage across tenant boundaries.
+              <h3 className="text-sm font-semibold text-gray-900">Tenant Messaging Overview</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Message volume and active channel counts per tenant, sorted by 24h volume
               </p>
-              <div className="mt-3">
-                <Badge variant="warning">Backend: 501 Not Implemented</Badge>
-              </div>
             </div>
+            {tenants.length > 0 && (
+              <Badge variant="default">{tenants.length.toLocaleString()} tenant(s)</Badge>
+            )}
           </div>
+
+          {overviewQuery.error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-4">
+              <p className="text-sm text-red-700">{overviewQuery.error}</p>
+              {overviewQuery.canRetry && (
+                <Button onClick={() => void overviewQuery.retry()} variant="secondary" size="sm">
+                  Retry
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!overviewQuery.error && overviewQuery.loading && tenants.length === 0 && (
+            <div className="py-10 text-center text-sm text-gray-500">
+              Loading tenant messaging overview...
+            </div>
+          )}
+
+          {!overviewQuery.error && !overviewQuery.loading && tenants.length === 0 && (
+            <div className="py-10 text-center text-sm text-gray-500">
+              No tenant messaging activity recorded yet.
+            </div>
+          )}
+
+          {tenants.length > 0 && <OverviewTable tenants={tenants} />}
+
+          {overviewQuery.data && (
+            <p className="text-xs text-gray-400 mt-4">
+              Aggregated by the messaging service and cached for 60 seconds. Last computed:{' '}
+              {new Date(overviewQuery.data.generatedAt).toLocaleString()}
+            </p>
+          )}
         </div>
       </Card>
 
-      {/* Data Export -- Working */}
+      {/* Data Export */}
       <Card>
         <div className="p-6">
           <h3 className="text-sm font-semibold text-gray-900 mb-1">
@@ -220,21 +316,6 @@ const MessagingTenantsPage: React.FC = () => {
             </div>
           )}
         </div>
-      </Card>
-
-      {/* Architecture Note */}
-      <Card className="p-4 bg-blue-50 border-blue-200">
-        <h3 className="text-sm font-semibold text-blue-900 mb-1">
-          Architecture Note
-        </h3>
-        <p className="text-xs text-blue-700 leading-relaxed">
-          The tenant overview requires a cross-tenant aggregation endpoint in
-          messaging-service that collects channel counts, message volumes,
-          active user counts, and storage usage. This involves querying each
-          tenant schema in isolation and merging results, which needs the
-          multi-tenant query infrastructure to be extended. Until then, use the
-          per-tenant compliance and audit pages for individual tenant visibility.
-        </p>
       </Card>
     </div>
   );

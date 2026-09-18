@@ -91,12 +91,28 @@
       },
       "description": "Git SHAs of commits whose message contains 'Closes: ...#<this-id>'. Populated by closes-footer-check workflow."
     },
+    "rejected_closing_commits": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{7,40}$"
+      },
+      "description": "Git SHAs an override reopen (finding-registry reopen <id> --reject-closure=<sha> --reason=...) rejected as closure evidence. Their 'Closes: ...#<this-id>' trailer must not close this finding again: the close ceremony and the closure derivation (reconcile, closure-drift gate) skip them, so only a NEW closing commit can transition it to RESOLVED."
+    },
     "deadline": {
       "type": ["string", "null"],
       "anyOf": [
-        { "type": "null" },
-        { "type": "string", "format": "date" },
-        { "type": "string", "format": "date-time" }
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
       ],
       "description": "Deadline for BLOCKED state (override protocol) or for tracked planner packages. null otherwise. Accepts either ISO 8601 calendar-date (`YYYY-MM-DD`, the canonical writer convention used by ULTRA-* / RUST-CVE-* / INFRA-CRITICAL-*) OR full RFC 3339 date-time (`YYYY-MM-DDTHH:MM:SSZ`, used by ORPHAN-HIGH-035/039 and ULTRA-HIGH-071 which carry explicit end-of-day timestamps to remove ambiguity about when the day expires). Both shapes convey the same semantic — `date-time` is strictly more precise than `date` — so admitting either is the architectural fix rather than rewriting the three outlier entries (which would corrupt the hash chain). Future writers should default to the calendar-date shape unless they have a reason to encode a specific time-of-day."
     },
@@ -124,27 +140,55 @@
     },
     "narrative": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Free-form multi-paragraph context entries, captured when an incident note is too large for a single `notes` string and is not a precise `file:line` citation that belongs in `evidence`. Optional companion to `evidence`; `evidence` remains the canonical locus for file:line references."
     }
   },
   "allOf": [
     {
-      "if": { "properties": { "state": { "const": "RESOLVED" } }, "required": ["state"] },
-      "then": { "required": ["closed_at", "closing_commits"] }
-    },
-    {
-      "if": { "properties": { "state": { "const": "BLOCKED" } }, "required": ["state"] },
-      "then": { "required": ["owner_user", "deadline"] }
+      "if": {
+        "properties": {
+          "state": {
+            "const": "RESOLVED"
+          }
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["closed_at", "closing_commits"]
+      }
     },
     {
       "if": {
-        "properties": { "severity": { "enum": ["CRITICAL", "HIGH"] } },
+        "properties": {
+          "state": {
+            "const": "BLOCKED"
+          }
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["owner_user", "deadline"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "severity": {
+            "enum": ["CRITICAL", "HIGH"]
+          }
+        },
         "required": ["severity"]
       },
       "then": {
         "required": ["evidence"],
-        "properties": { "evidence": { "minItems": 1 } }
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        }
       }
     }
   ]

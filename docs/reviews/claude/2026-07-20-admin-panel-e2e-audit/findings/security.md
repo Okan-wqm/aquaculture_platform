@@ -1,0 +1,1973 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Security Pages — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## ActivityLogPage — `/admin/security/activity` — verdict: **PARTIAL**
+
+**Chain:** Page -> securityApi.getActivityLogs/getActivityStatsOverview -> GET
+/api/security/activities + /security/activities/stats/overview (nginx droplet.conf:377-382 rewrites
+/api/_ to /api/v1/_, matching admin-api globalPrefix 'api/v1' from
+libs/backend-common/src/bootstrap/create-service-app.ts:610 + VERSION_NEUTRAL in
+apps/admin-api-service/src/main.ts:16-19) -> ActivityLogController ->
+ActivityLoggingService.queryActivities/getActivityStats -> real TypeORM queries against
+admin.activity_logs (entity security.entity.ts:145, table created in
+migrations/1800000000000-Baseline.ts:116-124). Guarded by global PlatformAdminGuard (SUPER_ADMIN,
+app.module.ts:277-290). The query chain is mechanically sound, but NOTHING in the platform ever
+writes admin.activity_logs, so the page is a permanently empty monitoring surface.
+
+**Endpoints exercised:** `GET /security/activities (v1, envelope-wrapped)`;
+`GET /security/activities/stats/overview`;
+`GET /security/activities/:id (defined in FE, unused by page)`;
+`GET /security/activities/user/:userId (FE function targets a route that does not exist on the backend)`
+
+**DB tables:** `admin.activity_logs`
+
+### APA-217 [HIGH] Activity ledger has zero writers — page is permanent false assurance
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** admin.activity_logs is only ever written via POST /security/activities
+  (activity-log.controller.ts:283-288), which sits behind the global SUPER_ADMIN PlatformAdminGuard,
+  so no platform service can feed it. All internal writers (logActivity, logUserAction,
+  logSystemEvent, logConfigurationChange, logDataAccess, recordLoginAttempt, logApiUsage) are
+  defined in ActivityLoggingService but have no callers anywhere in the repo (grep across apps/ and
+  libs/ finds only the definitions); ComplianceService.logComplianceActivity is an explicit stub
+  that only writes to the NestJS Logger ('Would integrate with ActivityLoggingService'). A
+  SUPER_ADMIN opening 'Monitor all system activities, user actions, and security events' sees an
+  empty ledger and zero stats regardless of what actually happened on the platform.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:130-178,222-499 (writers defined, never invoked)`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:1000-1006 (logComplianceActivity stub)`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts:283-288 (only external write path)`
+  - `apps/admin-api-service/src/app.module.ts:277-290 (global SUPER_ADMIN guard blocks service-to-service writes)`
+  - `apps/admin-api-service/src/security/security.module.ts:40-82 (no event-bus consumer; grep for EventPattern/subscribe in security/ returns nothing)`
+- **Verification:** CONFIRMED on every count. (1) The only runtime write path to admin.activity_logs
+  is POST /security/activities
+  (apps/admin-api-service/src/security/controllers/activity-log.controller.ts:283-288), which sits
+  behind the global APP_GUARD PlatformAdminGuard (apps/admin-api-service/src/app.module.ts:283-290);
+  the guard's sole bypass is the @Public() decorator (platform-admin.guard.ts:55,80-87), not present
+  on this controller, and there is no service-identity/HMAC path — so only a human SUPER_ADMIN JWT
+  holder can write, and repo-wide grep for 'security/activities' shows zero service-side callers
+  (only FE reads + docs). (2) All internal writers (logActivity, logUserAction, logSystemEvent,
+  logConfigurationChange, logDataAccess, recordLoginAttempt, logApiUsage, createSession,
+  updateSessionActivity) have zero callers anywhere in apps/ or libs/ — ActivityLoggingService is
+  injected only into ActivityLogController; other grep hits (tenant-activity.service.ts,
+  alert-audit.service.ts) are different classes. (3) ComplianceService.logComplianceActivity
+  (compliance.service.ts:1000-1006) is a Logger-only stub ('Would integrate with
+  ActivityLoggingService'). (4) The security module registers no event subscription; admin-api's
+  only consumers are tenant-erasure and tenant-onboarding-ack handlers. (5) The table exists in the
+  active baseline (src/migrations/1800000000000-Baseline.ts:116-124) and its ONLY insert anywhere is
+  the demo seed infrastructure/sql/seed-security-tables.sql:87 (referenced by no runtime code) —
+  which masked the emptiness in dev. login_attempts and user_sessions read endpoints on the same
+  page are equally writer-less. SEVERITY LOWERED CRITICAL→HIGH: this is a
+  false-assurance/security-monitoring failure (OWASP A09 class), not an exploitable path or data
+  loss — the platform's durable security signals DO exist elsewhere (auth.audit_logs is the
+  documented SoT for login telemetry per
+  apps/auth-service/src/outbox/best-effort-event-publisher.ts:52; observability-service consumes
+  events.security.events.> into structured logs + Prometheus; admin.audit_logs feeds the separate
+  AuditTrail page). The harm is that the operator-facing activity/brute-force surface silently shows
+  nothing during a real incident.
+- **Root cause:** The write side of the FE→BE→DB chain was never built: the ledger was designed
+  read-side-first around a push-HTTP ingestion contract ('external services POST
+  /security/activities') that is structurally unreachable — admin-api's global SUPER_ADMIN guard
+  means no platform service can ever call it, and none does. The platform's real security-signal
+  pipeline was built separately on the event bus (SecurityEventService publishing the typed
+  SecurityEvent union on events.security.events.> from auth/config/billing/gateway, plus
+  auth-service's UserLoggedIn event at authentication.service.ts:498) but was wired only to
+  observability-service (Prometheus counters + structured logs, no queryable persistence), never to
+  admin's ledger. Dev seed data (infrastructure/sql/seed-security-tables.sql) populated the tables
+  manually, so the dead pipeline was invisible in development. This is an instance of the systemic
+  'read-model-table-nobody-writes' class (sibling of config-table-nobody-reads): a queryable surface
+  shipped with its ingestion contract asserted but never proven by any test.
+- **Fix design:** Pattern-level fix: security-activity ingestion becomes event-driven from the
+  platform event bus (the existing SSoT for cross-service security signals) instead of push-HTTP
+  into a guard-protected API; the dead push contract is deleted so the wrong pattern becomes
+  impossible (Tier 1), and correct ingestion becomes automatic on every published security event
+  (Tier 2). Local application: (a) New SecurityActivityIngestionHandler in SecurityModule: a durable
+  NatsEventBus.subscribeTo('events.security.events.>', {durable:true,
+  groupId:'admin-activity-ingest'}) mirroring observability's SecurityEventsConsumerService wiring,
+  plus @EventPattern('events._.UserLoggedIn') / 'events._.UserAccountLocked' /
+  'events._.PasswordResetCompleted' / 'events._.UserDeleted' handlers following the existing
+  tenant-onboarding-ack.handler pattern (admin-api's NATS microservice transport is already
+  connected). (b) A mapSecurityEventToActivity(event: SecurityEvent): LogActivityParams mapping
+  implemented as an exhaustive switch on the eventType discriminator with an assertNever default —
+  adding a new member to the SecurityEvent union fails compilation in admin-api until mapped (Tier 1
+  contract binding, no allowlist drift). AuthLoginFailed/AuthLoginSuccess additionally route through
+  recordLoginAttempt so admin.login_attempts (the brute-force view on the same page) gains a real
+  writer. (c) Delete POST /security/activities + LogActivityDto from activity-log.controller.ts —
+  its stated purpose ('for external services') is structurally impossible under the global guard;
+  keeping it preserves the fiction (FE never calls it, verified). (d) Replace the
+  ComplianceService.logComplianceActivity stub with real injection of ActivityLoggingService (same
+  module, already exported) so compliance actions write the ledger. (e) Strip the fake
+  activity_logs/login_attempts/user_sessions demo rows from
+  infrastructure/sql/seed-security-tables.sql (keep retention policies) so an empty ingestion
+  pipeline is visible in dev instead of masked (Tier 3). (f) Systemic-class gate: a new architecture
+  spec enumerating admin read-model tables surfaced by GET controllers and asserting each has a
+  registered production writer (event-consumer registration or in-module service caller), so the
+  next read-only ledger fails CI instead of shipping as false assurance.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/handlers/security-activity-ingestion.handler.ts`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/__tests__/security-activity-ingestion.handler.spec.ts`
+  - `apps/admin-api-service/src/__tests__/read-model-writers.architecture.spec.ts`
+  - `e2e/tests/integration/activity-ledger-ingestion.spec.ts`
+  - `infrastructure/sql/seed-security-tables.sql`
+- **Proof of fix:** New unit spec
+  apps/admin-api-service/src/security/**tests**/security-activity-ingestion.handler.spec.ts: a
+  fixture for every member of the SecurityEvent union plus
+  UserLoggedIn/UserAccountLocked/PasswordResetCompleted/UserDeleted asserts the handler calls
+  ActivityLoggingService.logActivity (and recordLoginAttempt for login success/failure) with
+  correctly mapped category/severity/ip/userId fields; compile-time exhaustiveness via assertNever
+  guarantees future union members cannot ship unmapped. New integration spec
+  e2e/tests/integration/activity-ledger-ingestion.spec.ts: publish an AuthLoginFailed event on NATS,
+  assert a row lands in admin.activity_logs AND admin.login_attempts and is returned by GET
+  /security/activities and /stats/overview through the envelope. New architecture invariant
+  apps/admin-api-service/src/**tests**/read-model-writers.architecture.spec.ts: asserts every
+  admin-owned ledger table exposed by a GET controller has a registered writer (ingestion handler
+  subscription or in-module caller) and that POST /security/activities no longer exists — the CI
+  gate for the systemic 'table-nobody-writes' class.
+- **Effort:** M
+
+### APA-218 [MEDIUM] 'Unique Users' / 'Unique IPs' stat cards are silently capped at 10
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** The page derives uniqueUsers/uniqueIps from stats.topUsers.length and
+  stats.topIPs.length, but the backend caps both arrays with SQL LIMIT 10. Any deployment with more
+  than 10 users/IPs shows a flat, wrong '10'.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:152-153`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:781-807 (.limit(10) on topUsers and topIPs)`
+- **Verification:** CONFIRMED with one scope correction. FE ActivityLogPage.tsx:152-153 derives
+  uniqueUsers/uniqueIps from stats.topUsers.length / stats.topIPs.length. The call path is fully
+  wired and reachable: securityApi.getActivityStatsOverview() ->
+  apiFetch('/security/activities/stats/overview') -> nginx /api->/api/v1 ->
+  @Controller('security/activities') @Get('stats/overview') (route-shadowing check passed: the
+  earlier @Get(':id') matches only one path segment, so stats/overview reaches the stats handler).
+  Backend getActivityStats() caps both topUsers and topIPs with .limit(10)
+  (activity-logging.service.ts:793,806), and the backend ActivityStats interface (lines 79-88)
+  contains no cardinality field at all — the true unique counts are never computed or returned. The
+  'Unique Users' card renders stats.uniqueUsers at line 610, so any deployment with >10 distinct
+  active users (guaranteed for a cross-tenant SUPER_ADMIN panel) shows a flat wrong '10'. Refutation
+  partially succeeded on scope: there is NO 'Unique IPs' stat card — the four rendered cards are
+  Total Activities, Unique Users, Avg Response, Error Rate; uniqueIps is computed into state but
+  never rendered (latent wrong data only). Severity corrected HIGH->MEDIUM: this is misleading
+  security telemetry on a monitoring page (degrades operator situational awareness) but involves no
+  data exposure, no authz bypass, no exploit path. Same-class adjacent defect on the neighboring
+  line: averageResponseTime is hard-coded to 0 (line 154), so the 'Avg Response' card is equally
+  fabricated — same contract-gap class on the same endpoint.
+- **Root cause:** FE->BE contract gap papered over in the FE mapping layer. The backend
+  ActivityStats contract was designed as a leaderboard response (top-10 actions/users/IPs) and never
+  included cardinality aggregates; when the FE card design needed 'Unique Users'/'Unique IPs', the
+  page's mapping function improvised by reinterpreting a SQL LIMIT 10 leaderboard as a cardinality
+  measure. The type system could not catch this because both are plain numbers legitimately derived
+  from typed arrays — the semantics drifted, not the types. This is an instance of the systemic
+  hand-written FE mirror-type drift class: ActivityStatsOverview in
+  web/modules/admin-panel/src/services/types/security.ts is hand-maintained against the backend's
+  ActivityStats interface with no shared contract or codegen, so nothing prevents the FE from
+  inventing semantics (unique counts, avg response time) the backend never promised.
+- **Fix design:** Fix the contract at the source (tier 1: make the wrong derivation unnecessary and
+  remove it; tier 3: pin the semantic distinction in tests). (1) Backend: extend the ActivityStats
+  interface (activity-logging.service.ts:79-88) with `uniqueUsers: number; uniqueIps: number;` and
+  compute them in getActivityStats() via a COUNT(DISTINCT activity.userId) (WHERE userId IS NOT
+  NULL) and COUNT(DISTINCT activity.ipAddress) select honoring the same tenantId/startDate/endDate
+  filters as the existing aggregates — one additional query builder call returning both counts.
+  While in the same contract, add `averageDurationMs: number` (AVG(activity.duration)) to close the
+  identical gap feeding the always-0 'Avg Response' card (same class, same endpoint, same commit).
+  No controller, entity, migration, or query-DTO change needed — the controller returns the service
+  interface and the aggregates read existing columns. (2) FE types: extend ActivityStatsOverview
+  (services/types/security.ts:117-126) with the same required fields, mirroring the backend
+  interface exactly. (3) FE page: in fetchActivityStats (ActivityLogPage.tsx:145-159), map
+  uniqueUsers/uniqueIps/averageResponseTime directly from the response and DELETE the .length
+  derivations and the hard-coded 0 — the mapping becomes near-identity, which is the tier-2 property
+  (correct behavior is the zero-effort default; there is nothing left to hand-derive). (4) Pattern
+  level: the full systemic fix for hand-written FE mirror types is a shared contract package or
+  OpenAPI codegen for admin-panel — a platform-level program beyond this finding; the local
+  detectability gate is a backend contract spec that seeds >10 distinct users/IPs and asserts
+  uniqueUsers/uniqueIps equal the true distinct counts WHILE topUsers/topIPs stay capped at 10,
+  permanently pinning that the leaderboard is not a cardinality measure so the .length shortcut
+  cannot be reintroduced as 'equivalent'.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+  - `apps/admin-api-service/src/security/__tests__/activity-stats.contract.spec.ts`
+  - `web/modules/admin-panel/src/pages/security/__tests__/ActivityLogPage.stats.spec.tsx`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/security/**tests**/activity-stats.contract.spec.ts (London School,
+  @platform/testing repository mocks per repo convention): stub the query builder so 12 distinct
+  users and 12 distinct IPs exist; assert getActivityStats() returns uniqueUsers === 12 and
+  uniqueIps === 12 while topUsers.length === 10 and topIPs.length === 10, and assert the
+  distinct-count query applies the same tenantId/startDate/endDate predicates as the other
+  aggregates. New FE spec
+  web/modules/admin-panel/src/pages/security/**tests**/ActivityLogPage.stats.spec.tsx: stub
+  securityApi.getActivityStatsOverview with uniqueUsers: 42 and a 10-element topUsers array; assert
+  the 'Unique Users' card renders 42 (fails against current code, which renders 10). Both run under
+  nx affected --target=test.
+- **Effort:** S
+
+### APA-219 [MEDIUM] 'Avg Response' metric hardcoded to 0ms and rendered as a real stat
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** fetchActivityStats sets averageResponseTime: 0 unconditionally; the card shows '0ms'
+  as if measured. Response-time data lives in admin.api_usage_logs, which is also never written.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:154,614-623`
+- **Root cause:** fetchActivityStats hardcodes averageResponseTime:0 because the backend
+  ActivityStats contract (activity-logging.service.ts:79-88, returned verbatim by GET
+  /security/activities/stats/overview) has no response-time field, and ActivityStatsOverview (FE
+  type) has none either. The real response-time store, api_usage_logs.responseTimeMs, is never
+  written: logApiUsage() has zero callers (grep confirms only its definition).
+  activity_logs.duration IS a real column but is unaggregated. So the 'Avg Response' card renders a
+  fabricated 0ms as if measured. Systemic class: a metric surfaced with no data source, sibling of
+  the api_usage_logs table that nobody writes.
+- **Fix design:** Compute a real average in getActivityStats via AVG(activity.duration) FILTER
+  (WHERE duration IS NOT NULL) in the same query builder, and add averageResponseTime: number|null
+  to the ActivityStats interface (null when no samples). Add averageResponseTime to
+  ActivityStatsOverview (FE type). In ActivityLogPage.fetchActivityStats read
+  stats.averageResponseTime; render the card value 'N/A' when null instead of '0ms'. This makes the
+  card reflect measured data (tier 2: correct behavior automatic) and removes the hardcode.
+  Separately flag (tracked finding) that api_usage_logs has no writer — either wire an interceptor
+  to call logApiUsage or drop the dead table; do not leave a metric table nobody populates.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+  - `apps/admin-api-service/src/security/__tests__/activity-logging.service.spec.ts`
+- **Effort:** M
+
+### APA-220 [MEDIUM] ORDER BY built from unvalidated sortBy query param
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** queryActivities interpolates `activity.${sortBy}` directly into orderBy from the
+  request DTO (@IsString only). A bad column name 500s the endpoint and it is a raw-SQL
+  interpolation surface (SUPER_ADMIN-only, but still an injection-shaped hole).
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:661`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts:96-102,249-250`
+- **Root cause:** queryActivities does qb.orderBy(`activity.${sortBy}`, sortOrder)
+  (activity-logging.service.ts:661) where sortBy comes from QueryActivitiesDto.sortBy validated only
+  by @IsString (controller:96-98). TypeORM inserts the orderBy expression raw (not parameterized),
+  so an unknown column 500s the endpoint and the field is a raw-SQL interpolation surface
+  (SUPER_ADMIN-gated, but injection-shaped). Systemic: the identical pattern exists in
+  QueryAuditTrailDto.sortBy (audit-trail.controller.ts:130-131) consumed by
+  AuditTrailService.getAuditTrail (audit-trail.service.ts:283, `log.${sortBy}`).
+- **Fix design:** Tier-1 make-impossible: define a single exported const array of sortable columns
+  for activity_logs (e.g. ACTIVITY_LOG_SORTABLE_COLUMNS =
+  ['createdAt','severity','category','action','userName','ipAddress']) next to the entity. Constrain
+  both DTOs' sortBy with @IsIn(ACTIVITY_LOG_SORTABLE_COLUMNS) so an invalid column is rejected at
+  the ValidationPipe (400, not 500). Add a defensive allowlist guard in both services (fall back to
+  'createdAt' if sortBy not in the set) so the service cannot be reached with an unvalidated column
+  from any future caller. Verification: controller spec posting sortBy='id;DROP' and sortBy='bogus'
+  asserts HTTP 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/__tests__/activity-log.controller.spec.ts`
+- **Effort:** M
+
+### APA-221 [MEDIUM] Export button only dumps the current 50-row page client-side
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** handleExport builds a CSV from the in-memory page slice; the real backend export
+  (POST /security/audit/export with format/date-range, 100k rows) is never called, so 'Export'
+  silently produces an incomplete artifact.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:510-533`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:430-451`
+- **Root cause:** ActivityLogPage.handleExport (510-533) builds a CSV from the in-memory
+  `activities` state, which is only the current 50-row page. The real server export POST
+  /security/audit/export (audit-trail.controller.ts:430-451) — which queries activity_logs with a
+  date range up to 100k rows — is never bound: securityApi has no export function at all. So
+  'Export' silently yields an incomplete artifact. Systemic: AuditTrailPage.handleExport (521-544)
+  has the identical page-slice bug.
+- **Fix design:** Add securityApi.exportActivityTrail(options:{format,startDate,endDate,...})
+  posting to /security/audit/export and returning the response blob (requires http-client to support
+  a non-JSON/blob response path). Rewrite ActivityLogPage.handleExport to call it with the active
+  filters/date range and stream the server blob to download, replacing the client-side slice. Note:
+  the export endpoint's ExportAuditTrailDto requires startDate/endDate (non-optional) — the page
+  must pass its dateRange (defaulting to a sane window) or the DTO must make them optional. Apply
+  the same wiring to AuditTrailPage, but that page displays immutable audit_logs while the export
+  endpoint dumps activity_logs — reconcile per finding p1|i4 before pointing AuditTrail's export at
+  it. Verification: component test asserting handleExport calls the export API (not the local CSV
+  builder).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+- **Effort:** M
+
+### APA-222 [MEDIUM] securityApi.getUserActivities targets a nonexistent route (404)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE defines GET /security/activities/user/:userId but ActivityLogController has no
+  such route (only '', ':id', 'entity/:entityType/:entityId', 'stats/overview',
+  'login-attempts/:ipAddress', 'sessions/user/:userId'). Latent: not called by this page, but any
+  consumer 404s.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/security.ts:45-46`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts:224-341 (route inventory)`
+- **Root cause:** securityApi.getUserActivities (security.ts:45-46) targets GET
+  /security/activities/user/:userId. ActivityLogController exposes only '', ':id',
+  'entity/:entityType/:entityId', POST '', 'stats/overview', 'login-attempts/:ipAddress',
+  'sessions/user/:userId', POST 'sessions/user/:userId/terminate' — no 'user/:userId' route, so the
+  two-segment path /user/{id} matches nothing and 404s. Latent (ActivityLogPage does not call it)
+  but any consumer breaks. Systemic class: hand-written FE client path with no backend route,
+  invisible until called.
+- **Fix design:** The capability already exists: GET /security/activities?userId= (queryActivities
+  filters by userId). Root-cause fix is to eliminate the phantom route — either delete
+  getUserActivities (it is unused) or reimplement it as
+  apiFetch('/security/activities?'+buildQueryString({userId,...})) so it hits the real
+  filtered-query endpoint. Prefer deletion unless a caller is planned. To make the whole class
+  detectable: add an invariant test that parses securityApi's literal paths and asserts each has a
+  matching controller route (route-contract spec), so future FE/BE drift fails CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/__tests__/security-api-routes.spec.ts`
+- **Effort:** S
+
+### APA-223 [LOW] FE type invents fields the entity never returns (userAgent, location, timestamp)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** BackendActivityLog declares userAgent/location/timestamp; the ActivityLog entity has
+  none of these top-level (userAgent lives inside deviceInfo jsonb), so the detail modal's
+  User-Agent section and location fallback can never populate from list data.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/security.ts:65-96`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx:127,137,409-417`
+- **Root cause:** BackendActivityLog (types/security.ts:65-96) declares top-level userAgent,
+  location, and timestamp, none of which the ActivityLog entity returns: userAgent lives nested
+  inside deviceInfo jsonb (entity:202-203; DeviceInfo.userAgent), the geo field is geoLocation (not
+  location), and the time field is createdAt (not timestamp). fetchActivities maps
+  userAgent:log.userAgent (always undefined) and createdAt:log.createdAt||log.timestamp (timestamp
+  dead). Result: the detail modal's User-Agent section (ActivityLogPage:409-417) can never populate
+  from list data. geoLocation already works, so the location fallback is merely dead. FE-type-drift
+  class.
+- **Fix design:** Model the actual contract: add deviceInfo?: { userAgent?: string; ... } to
+  BackendActivityLog and delete the fictional top-level userAgent, location, and timestamp fields
+  (the query returns the full entity including deviceInfo jsonb, so the data is genuinely present
+  nested). In fetchActivities map userAgent: log.deviceInfo?.userAgent and drop the ??log.location /
+  ||log.timestamp fallbacks. This makes the User-Agent section populate from real data. Long-term:
+  generate FE types from the entity/DTO so invented fields are impossible (tier 1).
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx`
+- **Effort:** S
+
+## AuditTrailPage — `/admin/security/audit` — verdict: **PARTIAL**
+
+**Chain:** Entries tab -> GET /security/audit -> AuditTrailController.queryAuditTrail ->
+AuditLogService.query -> admin.audit_logs — a REAL immutable ledger with real platform writers
+(impersonation.service.ts, suspend-tenant.handler.ts, tenant-erasure.handler.ts,
+tenant-provisioning-workflow.service.ts, database-management explorer/backup, analytics reports all
+call auditLogService.log), plus a meta-audit written on every read
+(audit-trail.controller.ts:323-342). Summary -> GET /security/audit/summary ->
+AuditLogService.getStatistics (real GROUP BY). Retention policies -> admin.retention_policies real
+CRUD. Alert-rules tab -> in-memory array, no persistence, no enforcement. Core audit view WORKS
+against real data; filters, alerting, and the management buttons are broken.
+
+**Endpoints exercised:** `GET /security/audit`; `GET /security/audit/summary`;
+`GET /security/audit/retention-policies`; `GET /security/audit/alert-rules`
+
+**DB tables:** `admin.audit_logs`, `admin.retention_policies`,
+`admin.activity_logs (retention target)`
+
+### APA-224 [HIGH] Action filter can never match: lowercase FE values vs UPPERCASE backend enum
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The dropdown sends action=create|read|update|delete|login|logout;
+  AuditLogService.query filters with exact equality (audit.action = :action) against AuditAction
+  values like TENANT_CREATED, USER_UPDATED, LOGIN_SUCCESS. Every filtered query silently returns 0
+  rows — an auditor filtering for deletions concludes none happened. (login/logout doubly so: auth
+  events are written to auth's own ledger, not admin.audit_logs.)
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:695-702`
+  - `apps/admin-api-service/src/audit/audit.service.ts:126-128`
+  - `apps/admin-api-service/src/audit/audit.entity.ts:9-52`
+- **Verification:** Confirmed end-to-end. FE dropdown (AuditTrailPage.tsx:695-702) sends
+  action=create|read|update|delete|login|logout; the value passes verbatim through
+  securityApi.getAuditTrail (services/api/security.ts:57) to GET /security/audit, which is handled
+  by AuditTrailController.queryAuditTrail (audit-trail.controller.ts:347-379) — note: this
+  controller, not the cited audit.controller.ts, is the live path, but both delegate to the same
+  AuditLogService.query. QueryAuditTrailDto.action is only @IsOptional()+@IsString(), so lowercase
+  survives the whitelist ValidationPipe (silent failure, not 400). AuditLogService.query:126-128
+  applies case-sensitive exact equality `audit.action = :action` against admin.audit_logs.action
+  (varchar(100)). Every writer in admin-api-service stores UPPERCASE_SNAKE domain names
+  (TENANT_SUSPENDED, IMPERSONATION_STARTED, TENANT_PROVISIONED, AUDIT_LOG_ACCESSED,
+  TENANT_ERASURE_REQUESTED — several outside the AuditAction enum). No case normalization exists
+  anywhere in the chain, so every non-'all' action filter returns 0 rows and the UI renders "No
+  audit entries found" — false assurance to an auditor on a SUPER_ADMIN compliance surface.
+  login/logout are doubly dead: no LOGIN_SUCCESS/LOGIN_FAILED/LOGOUT writer exists in
+  admin-api-service (auth events go to auth's own ledger); those strings exist only in the enum and
+  getSecurityLogs' filter list. HIGH stands: silent integrity failure of the primary audit-review
+  control (not CRITICAL — no data loss or privilege bypass, and the page's byAction stats cards show
+  contradicting real counts). The severity filter matching (info|warning|critical) is pure
+  coincidence, proving no contract ever bound the FE and BE vocabularies. This is an instance of the
+  systemic FE-type-drift class, compounded by backend-internal drift: AuditLogInput.action is plain
+  string, so writers bypass their own enum.
+- **Root cause:** The FE->BE->DB chain has no shared contract for the audit action vocabulary, so it
+  broke in two places at once. (1) FE link: the dropdown options were hand-invented as generic
+  CRUD/auth verbs (create/read/update/delete/login/logout) from a mock-data-era template, never
+  derived from what the backend stores. (2) BE-internal link: AuditAction exists as an enum in
+  audit.entity.ts but is enforced nowhere — AuditLogInput.action and AuditLogFilter.action are typed
+  `string`, and the column is plain varchar(100), so writers freely invented out-of-enum
+  UPPERCASE*SNAKE names (IMPERSONATION*\*, TENANT_PROVISIONED, AUDIT_LOG_ACCESSED, ...) and the enum
+  itself drifted from the stored reality. With both ends unanchored and QueryAuditTrailDto.action
+  validated only as @IsString(), a vocabulary mismatch is silently accepted and exact-equality
+  filtering guarantees 0 rows. login/logout options additionally reference events that are never
+  written to admin.audit_logs at all (auth-service owns its own ledger). Systemic class: FE-type
+  drift (hand-written FE vocabulary vs backend enum) — the severity filter on the same page matches
+  only by coincidence, confirming the missing-contract pattern.
+- **Fix design:** Bind the action vocabulary into a single typed contract, enforced at write time,
+  query time, and CI — pattern-level fix for the FE-vocabulary-drift class plus the local
+  application.
+
+TIER 1 — make wrong vocabulary impossible at the source (backend): (a) audit.entity.ts: extend
+AuditAction to cover every action actually written today (grep-complete:
+IMPERSONATION_STARTED/ENDED/TERMINATED/EXTENDED/EXPIRED, TENANT_ERASURE_REQUESTED,
+TENANT_CREATE_REQUESTED, TENANT_PROVISIONED, AUDIT_LOG_ACCESSED, plus any others surfaced by the
+invariant below). The column stays varchar(100): this is an append-only legal-hold ledger whose
+historical rows must not be rewritten, and AuditLogService is the sole writer, so TypeScript is the
+correct enforcement boundary (mirrors the farm-service precedent documented in
+tests/invariants/audit-action-exhaustiveness.spec.ts). (b) audit.service.ts: change
+AuditLogInput.action and AuditLogFilter.action from string to AuditAction. Every writer using an
+out-of-enum literal becomes a compile error; determineSeverity()'s action lists become AuditAction[]
+so they can't drift either. (c) Writers (tenant-erasure.handler, suspend-tenant.handler,
+tenant-provisioning-workflow.service, impersonation.service, both audit controllers'
+writeMetaAudit): switch string literals to enum members — forced by (b), no behavior change. (d)
+Query validation: QueryAuditTrailDto.action gets @IsEnum(AuditAction); `actions` gets a
+Transform(split(',')) + @IsEnum(AuditAction, {each:true}); audit.controller.ts's bare
+@Query('action') adopts the same DTO. An out-of-vocabulary filter now fails loudly with 400 instead
+of silently returning 0 rows — the silent-false-negative mode becomes unrepresentable.
+
+TIER 2 — make correct FE options automatic: (e) services/types/security.ts: add an exported
+AuditAction string-literal union mirroring the backend enum; type BackendAuditLog.action and
+getAuditTrail's action param with it (hand-written FE types are the established admin-panel pattern;
+the invariant in (g) pins parity). (f) AuditTrailPage.tsx: delete the hardcoded lowercase option
+list. Populate the Action dropdown from the vocabulary actually present in the data — the page
+already loads summary.byAction (real stored action names with counts), so the options derive from it
+(zero drift by construction, and options that would return 0 rows never appear). Remove login/logout
+entirely: those events are not written to this ledger. getActionColor keys move to the real names
+(e.g. _*DELETED -> red, IMPERSONATION*_ -> purple) via a prefix/suffix classifier rather than an
+exhaustive literal switch.
+
+TIER 3 — make regressions detectable: (g) New tests/invariants/admin-audit-action-vocabulary.spec.ts
+(same file-parse pattern as audit-action-exhaustiveness.spec.ts and
+farm-graphql-fe-be-parity.spec.ts): asserts (1) the FE AuditAction union in
+web/modules/admin-panel/src/services/types/security.ts is value-identical to the backend enum in
+apps/admin-api-service/src/audit/audit.entity.ts; (2) every `action:` literal passed to
+auditLogService.log across apps/admin-api-service/src is a member of the enum (belt-and-braces over
+tsc); (3) FE severity filter options match AuditSeverity values (currently correct only by luck —
+same gate closes the class). (h) Controller spec proving the runtime contract: seed a USER_DELETED
+row -> GET /security/audit?action=USER_DELETED returns it; GET /security/audit?action=delete
+returns 400.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.entity.ts`
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/audit/audit.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts`
+  - `apps/admin-api-service/src/tenant/handlers/suspend-tenant.handler.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `tests/invariants/admin-audit-action-vocabulary.spec.ts`
+  - `apps/admin-api-service/src/security/__tests__/audit-trail.controller.spec.ts`
+- **Proof of fix:** New invariant spec tests/invariants/admin-audit-action-vocabulary.spec.ts: (1)
+  FE AuditAction union (web/modules/admin-panel/src/services/types/security.ts) is value-identical
+  to backend AuditAction enum (apps/admin-api-service/src/audit/audit.entity.ts); (2) every action
+  literal passed to auditLogService.log in apps/admin-api-service/src is an enum member; (3) FE
+  severity options match AuditSeverity values. Plus new controller spec
+  apps/admin-api-service/src/security/**tests**/audit-trail.controller.spec.ts: GET
+  /security/audit?action=USER_DELETED returns a seeded USER_DELETED row; action=delete is rejected
+  400 by @IsEnum validation (silent-empty regression impossible). Compile gate: npm run type-check
+  fails if any writer passes a non-enum action once AuditLogInput.action is typed AuditAction.
+- **Effort:** M
+
+### APA-225 [HIGH] Alert Rules tab is decorative: in-memory rules, evaluation never runs, channels are stubs
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Rules live in a service-instance array (lost on restart, per-replica divergent);
+  createAlertRule ids are Date.now() strings. The only evaluation path, checkAlerts(), has zero
+  callers in the repo, and triggerAlert only logs 'Would send email alert'/'Would send Slack alert'.
+  The page presents Active rules with recipients (security@company.com) implying real alerting that
+  does not exist — false assurance on a security control.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:94,109-176,871-917,922-938,979-1003`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:532-564`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:887-956`
+- **Verification:** Verified all three legs against current code. (1) Rules are a service-instance
+  array (audit-trail.service.ts:94) seeded with 5 hardcoded 'active' defaults (109-176);
+  createAlertRule mints Date.now() IDs (894); state is lost on restart and diverges per replica. (2)
+  checkAlerts() (922-938) has zero callers repo-wide (grep hits only its definition and the audit
+  doc); the natural call site ActivityLoggingService (activity-logging.service.ts:130-196) does not
+  inject AuditTrailService. (3) triggerAlert (979-1003) is a stub — all real sends commented out,
+  only 'Would send email/Slack' logs. FE (AuditTrailPage.tsx:887-956) renders green 'Active' badges,
+  hardcodes triggeredCount:0/createdAt:'' in fetchAlertRules (176-189), and the Add/Edit/Delete
+  buttons have no onClick handlers. Refutations failed: alert-engine is tenant-scoped farm alerting
+  (different domain); notification-service's auth-event lockout handler is independent and never
+  evaluates these rules; no audit-alert-rule entity or migration exists (baseline has only
+  admin.error_alert_rules). Severity stays HIGH: a SUPER_ADMIN security-monitoring control
+  (failed-login storms, privilege escalation, mass deletion alerts) presents as operational while
+  doing nothing — false assurance on a security control, silently missed incidents. Not CRITICAL
+  because there is no direct exploit/data-exposure path. Systemic class confirmed: 'decorative
+  notification channel' also in error-tracking sendEmailNotification (log-only) and
+  compliance.service overdue alerts (commented out).
+- **Root cause:** UI-first scaffolding drift inside admin-api-service: the controller/service pair
+  was stubbed (in-memory array, log-only channels) so the FE alerts tab would render, and the final
+  three links of the chain were never built — (a) persistence: no @Entity/migration for audit alert
+  rules, so CRUD mutates process memory; (b) evaluation wiring: ActivityLoggingService (the single
+  ActivityLog write path) never calls AuditTrailService.checkAlerts, so rules are structurally
+  unreachable; (c) dispatch: admin-api-service has no shared path to notification-service, so
+  triggerAlert degraded to logger stubs. The drift is provable as divergence from the same service's
+  own precedent: the sibling error-tracking module persisted admin.error_alert_rules and wired
+  checkAlertRules into its ingestion path (error-tracking.service.ts:172), but audit-trail copied
+  only the API surface, not the architecture. The missing platform dispatch path (typed event to
+  notification-service) is the systemic root: three admin-api-service modules independently stubbed
+  'send email/slack' because no correct default existed.
+- **Fix design:** Pattern-level fix (tier 2 — make correct behavior automatic) plus local
+  application. PATTERN: create one real dispatch path from admin-api-service to notification-service
+  and make evaluation automatic at the persistence point, so a rule that exists is necessarily
+  evaluated and a triggered rule necessarily dispatches. LOCAL: (1) Persist rules — new
+  AuditAlertRuleEntity with @Entity({ schema: 'admin', name: 'audit_alert_rules' }) (uuid PK, name,
+  description, isActive, conditions jsonb, alertChannels, recipients, cooldownMinutes,
+  lastTriggeredAt, triggerCount, createdAt/updatedAt), registered in the security module, plus a new
+  migration in apps/admin-api-service/src/migrations/ (mirroring the error_alert_rules baseline
+  precedent). Convert AuditTrailService CRUD to repository-backed async methods; delete
+  initializeDefaultAlertRules from the constructor and ship the 5 defaults as migration seed rows so
+  they are durable, editable, and identical across replicas. (2) Wire evaluation — inject the
+  evaluation into ActivityLoggingService's write path so both logActivityImmediate and flushBuffer
+  evaluate saved rows via checkAlerts (called with the persisted ActivityLog after save); persist
+  lastTriggeredAt/triggerCount on trigger so cooldowns survive restarts and the FE 'Triggered N
+  times / Last triggered' becomes real data. (3) Real dispatch — replace triggerAlert's
+  switch-of-stubs with publishing a PlatformAuditAlertTriggered event via createBaseEvent() on the
+  already-registered EventBusModule (app.module.ts:180); add the flat event interface to
+  libs/event-contracts (export from index.ts) plus a JSON Schema validator in schemas/
+  (trust-boundary crossing); add an audit-alert-triggered handler in notification-service
+  (precedent: alert-triggered.handler.ts) that routes to the existing email/push/SMS services per
+  rule.alertChannels/recipients. This same event+handler path is the shared fix for the systemic
+  class (error-tracking and compliance channel stubs migrate to it — open sibling tracked findings).
+  (4) FE contract — extend BackendAuditAlertRule with triggerCount/createdAt/updatedAt, remove the
+  hardcoded triggeredCount:0/createdAt:'' in fetchAlertRules, add create/update/delete fns to
+  services/api/security.ts, and wire the Add Rule/Edit/Delete buttons to them (they currently have
+  no handlers). Controller DTOs already validate; keep them and align field names with the entity.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/entities/audit-alert-rule.entity.ts`
+  - `apps/admin-api-service/src/migrations/<next-ts>-AuditAlertRules.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `libs/event-contracts/src/admin-events.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/event-contracts/src/schemas/platform-audit-alert-triggered.schema.ts`
+  - `apps/notification-service/src/notification/event-handlers/audit-alert-triggered.handler.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `apps/admin-api-service/src/security/__tests__/audit-alerting.spec.ts`
+  - `apps/notification-service/src/notification/event-handlers/__tests__/audit-alert-triggered.handler.spec.ts`
+- **Proof of fix:** New spec apps/admin-api-service/src/security/**tests**/audit-alerting.spec.ts
+  (London school): (a) alert-rule CRUD round-trips through the mocked AuditAlertRule repository — no
+  in-memory array remains (assert getAlertRules issues repo.find, restart-survival by construction);
+  (b) ActivityLoggingService invokes checkAlerts for every persisted log on BOTH
+  logActivityImmediate and flushBuffer paths (mock AuditTrailService, assert called with the saved
+  ActivityLog) — this is the gate that makes 'evaluation never runs' impossible to regress; (c) a
+  matching activity publishes PlatformAuditAlertTriggered via the mocked event bus using
+  createBaseEvent, and persists lastTriggeredAt/triggerCount; cooldown suppresses re-publish. New
+  spec
+  apps/notification-service/src/notification/event-handlers/**tests**/audit-alert-triggered.handler.spec.ts:
+  the handler dispatches to email/push per alertChannels/recipients (asserts no log-only branch
+  exists). Contract side: JSON-schema validator test in libs/event-contracts for the new event.
+  Existing e2e/tests/integration/schema-invariants.spec.ts automatically enforces
+  admin.audit_alert_rules placement (schema declared, not public); the migration-vs-entity drift
+  validator covers the new table at cold start. FE: fetchAlertRules mapping test asserting
+  triggerCount/lastTriggeredAt come from the API payload, not literals.
+- **Effort:** L
+
+### APA-226 [MEDIUM] DB errors render as clean empty audit data
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** AuditLogService.query catches all exceptions and returns {data:[],total:0} with a
+  200; the page then shows 'No audit entries found' — a DB outage is indistinguishable from a clean
+  ledger on a compliance surface. AuditTrailService.getAuditSummary has the same catch-and-zero
+  pattern ('Return empty summary on error to prevent 500').
+- **Evidence:**
+  - `apps/admin-api-service/src/audit/audit.service.ts:199-211`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:416-432`
+- **Root cause:** AuditLogService.query (audit.service.ts:199-211) wraps the whole query in
+  try/catch and returns {data:[],total:0,...} with HTTP 200 on any DB error;
+  AuditTrailService.getAuditSummary (audit-trail.service.ts:416-432) does the same 'return empty
+  summary on error to prevent 500'. On the AuditTrailPage compliance surface, a DB outage is then
+  indistinguishable from a genuinely empty ledger — the page renders 'No audit entries found' and
+  zeroed stats. Catch-and-zero on a read path is the systemic anti-pattern.
+- **Fix design:** Remove both catch-and-zero blocks and let the exception propagate so Nest returns
+  500 (wrapped by ResponseInterceptor as an error envelope). The FE already uses Promise.allSettled
+  with an error UI (AuditTrailPage:449-514) and will surface the failure instead of a fake-empty
+  ledger. Keep logging the error before rethrowing. Verification: service specs that mock the
+  repository/queryBuilder to throw and assert query()/getAuditSummary() reject rather than resolving
+  to zeros; optionally an e2e asserting the endpoint returns 500 on a forced DB error.
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+- **Effort:** M
+
+### APA-227 [MEDIUM] Add/Edit/Delete buttons for retention policies and alert rules have no handlers
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** 'Add Policy', 'Add Rule', and all Edit2/Trash2 buttons render with no onClick — the
+  management UI is dead even though real backend CRUD endpoints exist (POST/PUT/DELETE
+  /security/audit/retention-policies, /alert-rules).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:823-828,854-861,889-894,922-929`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:476-523,540-564`
+- **Root cause:** On AuditTrailPage the 'Add Policy' (824), 'Add Rule' (890), and every Edit2/Trash2
+  button (855-861, 923-929) render with no onClick — the retention-policy and alert-rule management
+  UI is entirely inert even though backend CRUD exists (audit-trail.controller.ts POST/PUT/DELETE
+  retention-policies:476-505 and alert-rules:540-564). Compounding: securityApi only has
+  retention-policy CRUD; it has NO alert-rule create/update/delete functions (only getAlertRules),
+  so the alert side has no client binding at all. Dead-control class.
+- **Fix design:** Wire real handlers: add create/edit/delete form modals for retention policies
+  calling the existing
+  securityApi.createRetentionPolicy/updateRetentionPolicy/deleteRetentionPolicy, and add the missing
+  securityApi.createAlertRule/updateAlertRule/deleteAlertRule functions plus modals for alert rules.
+  Refresh via loadData() after mutations. Caveat to fix at the source: AuditTrailService alert rules
+  are an in-memory array (initializeDefaultAlertRules; createAlertRule pushes to memory) so CRUD is
+  non-durable and resets on restart — persist alert rules as a proper @Entity (schema 'admin', new
+  migration) so writes survive, otherwise the wired buttons mutate volatile state. Verification:
+  component tests asserting each button invokes its API; service test asserting alert-rule CRUD
+  persists.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts`
+- **Effort:** L
+
+### APA-228 [MEDIUM] Retention Policies tab governs a table the page never shows (and one with no writers)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Retention policies archive/delete admin.activity_logs
+  (AuditTrailService.applyRetentionPolicy), not the displayed immutable admin.audit_logs — which is
+  explicitly never purged (purgeOldLogs refuses). The tab implies retention control over the audit
+  entries listed next to it; it actually controls the never-written activity ledger. FE mapping also
+  mislabels: archiveBeforeDelete = archiveAfterDays !== undefined is true even when the column is
+  null.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:814-862`
+  - `apps/admin-api-service/src/audit/audit.service.ts:463-475`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:161-174`
+- **Root cause:** The 'Retention Policies' tab sits on the Audit Trail page whose 'Audit Entries'
+  tab lists immutable audit_logs (AuditLog via /security/audit → AuditLogService.query). But
+  retention policies govern a DIFFERENT table: AuditTrailService.applyRetentionPolicy
+  archives/deletes activity_logs (ActivityLog, audit-trail.service.ts:814-862), and the displayed
+  audit_logs are explicitly never purged (audit.service.ts purgeOldLogs:469-475 refuses). So the tab
+  implies retention control over the entries shown while actually controlling the activity ledger.
+  Additionally the FE mapping archiveBeforeDelete = policy.archiveAfterDays !== undefined
+  (AuditTrailPage:169) is always true because JSON serializes a null column as null (null !==
+  undefined === true), so every policy shows 'Archive Before Delete: Yes' even when archiveAfterDays
+  is null. Two-audit-systems-conflated class.
+- **Fix design:** Fix the mapping bug: archiveBeforeDelete should reflect a real archive stage —
+  policy.archiveAfterDays != null (covers both null and undefined). Fix the semantic mismatch:
+  relabel the tab/section to make explicit these policies govern activity logs, not the immutable
+  audit trail shown alongside (e.g. 'Activity Log Retention'), and add a note that the immutable
+  audit_logs ledger is retained indefinitely (never purged). Longer term, the two ledgers (immutable
+  AuditLog in audit/ and mutable ActivityLog in security/) should be presented on separate surfaces
+  so retention scope is unambiguous. Verification: unit test on the mapper asserting
+  archiveBeforeDelete is false when archiveAfterDays is null/undefined and true when a number.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+- **Effort:** M
+
+### APA-229 [LOW] 'Total Entries' is actually a 30-day count
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** GET /security/audit/summary defaults startDate to end-30d, so totalLogs is a 30-day
+  window presented as 'Total Entries'.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:417-420`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:143-144,606-611`
+- **Root cause:** GET /security/audit/summary defaults startDate to end-30d
+  (audit-trail.controller.ts:417-420) and AuditLogService.getStatistics applies that window to
+  totalLogs via baseWhere+dateWhere (audit.service.ts:377). The FE renders summary.totalLogs as
+  'Total Entries' (AuditTrailPage:143-144,606-611), so a 30-day count is presented as the all-time
+  total.
+- **Fix design:** Make 'Total Entries' truthful: compute totalLogs in getStatistics WITHOUT the date
+  filter (all-time count for the tenant scope), keeping last24Hours and the windowed breakdowns
+  as-is (last24Hours is already computed with its own window, so the pattern exists). The windowed
+  byAction/bySeverity/etc remain 30-day, which is fine as breakdowns. Alternatively, if a windowed
+  total is intended, relabel the FE card to 'Entries (30d)'. Prefer the backend all-time total to
+  match the existing label. Verification: getStatistics spec asserting totalLogs ignores start/end
+  while last24Hours respects its window.
+- **Files to change:**
+  - `apps/admin-api-service/src/audit/audit.service.ts`
+  - `apps/admin-api-service/src/audit/__tests__/audit.service.spec.ts`
+- **Effort:** S
+
+### APA-230 [LOW] Alert-rule card renders Invalid Date and fake trigger count
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** fetchAlertRules maps createdAt:'' (formatDate('') = Invalid Date) and
+  triggeredCount:0 always ('Triggered: 0 times' regardless of history).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx:176-189,941-950`
+- **Root cause:** fetchAlertRules (AuditTrailPage:176-189) maps triggeredCount:0 unconditionally and
+  createdAt:'' because the backend AuditAlertRule contract (audit-trail.service.ts:36-54) carries
+  neither a trigger count nor a createdAt — rules are in-memory defaults with only lastTriggeredAt.
+  The card then always shows 'Triggered: 0 times' regardless of history. (Note: the createdAt:'' →
+  formatDate('') Invalid Date is NOT actually rendered — the alerts card at 932-950 shows
+  Threshold/Actions/Triggered/Last Triggered but not createdAt — so that sub-claim is not
+  user-visible; the fabricated trigger count IS.) Contract-lacks-field / fabricated-value class.
+- **Fix design:** Track and expose real data at the source: add triggeredCount (incremented in
+  triggerAlert, audit-trail.service.ts:979) and createdAt to the alert-rule model, which requires
+  persisting alert rules as an entity (they are currently a volatile in-memory array — see p1|i3),
+  then add triggeredCount/createdAt to BackendAuditAlertRule (FE type) and read them in
+  fetchAlertRules. Until persistence lands, remove the fabricated triggeredCount display rather than
+  show a constant 0 (do not render a metric with no backing data). Drop the dead createdAt:''
+  mapping. Verification: service test asserting triggeredCount increments on trigger; component test
+  asserting the card reflects the returned count.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+- **Effort:** M
+
+## CompliancePage — `/admin/security/compliance` — verdict: **PARTIAL**
+
+**Chain:** Data-requests tab: GET/PUT/POST /security/compliance/data-requests\* -> ComplianceService
+-> admin.data_requests (real table, Baseline migration:140-143), with JWT-derived actor identity (C6
+fix) and real verify/reject/complete mutations wired from the modal — this flow genuinely works.
+Reports tab: POST/GET /security/compliance/reports -> admin.compliance_reports, generation computes
+from real data-request/incident counts plus compliance checks (2 automated GDPR checks, 6 honest
+'partial' manual-attestation rows — COMPLIANCE-MEDIUM-002 cure; NOT hardcoded-compliant). Checks
+tab: GET /security/compliance/checks/gdpr. However: search 400s the list, both the Reports 'Key
+Findings' block and the entire Checks tab crash React on a requirement-object contract drift, and
+all five stat cards are hardcoded zeros.
+
+**Endpoints exercised:** `GET /security/compliance/data-requests`;
+`POST /security/compliance/data-requests/:id/verify`;
+`POST /security/compliance/data-requests/:id/complete`;
+`PUT /security/compliance/data-requests/:id`; `GET /security/compliance/reports`;
+`GET /security/compliance/checks/:framework`;
+`GET /security/compliance/data-requests/stats (exists but shadowed and unused)`
+
+**DB tables:** `admin.data_requests`, `admin.compliance_reports`,
+`admin.security_incidents (report metrics)`, `admin.activity_logs (injected, unused for checks)`
+
+### APA-231 [HIGH] Typing in the search box 400s the whole data-request list
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** fetchDataRequests sends searchQuery, but QueryDataRequestsDto has no searchQuery
+  field and the platform-wide ValidationPipe runs whitelist:true + forbidNonWhitelisted:true — any
+  search yields a 400 'property searchQuery should not exist', the Promise.allSettled branch fails,
+  and the GDPR request list disappears behind an error.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:136`
+  - `web/modules/admin-panel/src/services/api/security.ts:80-81`
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts:123-161 (no searchQuery)`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461 (whitelist + forbidNonWhitelisted defaults)`
+- **Verification:** Confirmed end-to-end. FE: CompliancePage.tsx:609 passes searchQuery into
+  fetchDataRequests (line 136), securityApi.getDataRequests (services/api/security.ts:80-81)
+  serializes it via buildQueryString (http-client.ts:376-397 — sends any non-empty value). BE:
+  QueryDataRequestsDto (compliance.controller.ts:123-161) has no searchQuery property;
+  admin-api-service main.ts passes no validationPipeOverrides, so the global pipe defaults
+  (create-service-app.ts:458-461, wired at :787) apply with whitelist:true +
+  forbidNonWhitelisted:true — an undecorated query key yields a deterministic 400 ('property
+  searchQuery should not exist'). ComplianceService.getDataRequests (compliance.service.ts:243-288)
+  has no search support either, so no alternate path exists. Impact is worse than the title
+  suggests: with rows already loaded, the rejection is SILENT (error only renders when
+  dataRequests.length===0), leaving a stale list client-filtered to the first 20 rows — a GDPR
+  data-subject request beyond page 1 becomes invisibly unfindable despite statutory deadlines; with
+  an empty list the whole page collapses to the error screen and Retry re-fails. Every keystroke
+  re-fires the failing call. All sibling security list endpoints (activities, audit, monitoring
+  events, threat intel) accept searchQuery, confirming the FE reasonably assumed a uniform contract.
+  Trivially reachable, compliance-critical, silent-wrong-results mode: HIGH stands.
+- **Root cause:** FE-to-BE contract drift at the query-parameter level: the admin-panel's
+  hand-written param type for getDataRequests declares searchQuery (mirroring the uniform search
+  contract that every other security list endpoint — activity-log.controller.ts:90,
+  audit-trail.controller.ts:118, security-monitoring.controller.ts:193/349 — actually implements),
+  but the compliance data-requests endpoint never implemented search: no DTO field, no service-layer
+  clause. The platform-wide forbidNonWhitelisted pipe correctly converts that drift into a hard 400.
+  The drift went undetected because this is a systemic class: hand-written FE param types in
+  web/modules/admin-panel/src/services/api/\* have no build-time link to backend @Query() DTO
+  whitelists — the existing contract gate
+  (apps/admin-api-service/src/**tests**/contract-validation.spec.ts) statically matches FE apiFetch
+  URLs to controller routes but checks only path+method, never query-param keys, so param-level
+  drift is invisible to CI.
+- **Fix design:** Implement the missing search capability at the contract source (do NOT strip the
+  FE param — the user intent is search, and the columns exist; no migration needed). LOCAL FIX: (1)
+  compliance.controller.ts — add to QueryDataRequestsDto: @IsOptional() @IsString() searchQuery?:
+  string; (identical decorator pattern to QueryActivityLogsDto:88-90) and pass searchQuery:
+  query.searchQuery through queryDataRequests into the service. (2) compliance.service.ts
+  getDataRequests — add searchQuery?: string to the options type and, mirroring the established
+  audit-trail pattern (audit-trail.service.ts:265-270), add: if (searchQuery)
+  qb.andWhere('(request.requesterName ILIKE :search OR request.requesterEmail ILIKE :search OR
+  request.requestNumber ILIKE :search OR request.description ILIKE :search)', { search:
+  `%${searchQuery}%` }) — all four columns exist on the DataRequest entity
+  (security.entity.ts:589,611,614,618). (3) CompliancePage.tsx — remove the client-side searchTerm
+  re-filter in filteredRequests (lines 703-707): once the server searches description/requestNumber
+  too, the client name/email-only re-filter would incorrectly hide server matches; server becomes
+  the single search authority (status/type client filters may stay as they mirror server filters
+  exactly). PATTERN-LEVEL FIX (systemic class: FE-param-type vs DTO-whitelist drift, Tier 3
+  make-it-detectable): extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts — it
+  already statically pairs FE apiFetch calls with backend controller routes via the TS compiler API;
+  add query-param key extraction from each FE api fn's typed params object and assert every key is a
+  decorated (class-validator) property of the matched endpoint's @Query() DTO class. This turns
+  every future whitelist-vs-FE param drift across ALL admin endpoints into a CI failure instead of a
+  runtime 400.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `apps/admin-api-service/src/security/__tests__/compliance-data-requests-search.spec.ts`
+- **Proof of fix:** Two gates. (1) New spec
+  apps/admin-api-service/src/security/**tests**/compliance-data-requests-search.spec.ts: boot the
+  ComplianceController through a Nest testing module with a ValidationPipe constructed from the
+  production defaults (whitelist:true, forbidNonWhitelisted:true, transform:true — same options as
+  configureValidationPipe in create-service-app.ts) and supertest GET
+  /security/compliance/data-requests?searchQuery=jane — must return 200 (fails with 400 before the
+  fix); London-School-assert ComplianceService.getDataRequests receives searchQuery and that the
+  query builder adds the ILIKE clause over requesterName/requesterEmail/requestNumber/description.
+  (2) Extended contract gate in apps/admin-api-service/src/**tests**/contract-validation.spec.ts:
+  the new query-param-key-vs-DTO-whitelist assertion must FAIL on the pre-fix tree (getDataRequests
+  declares searchQuery, QueryDataRequestsDto lacks it) and pass after — proving the systemic class
+  is now build-time detectable for every admin endpoint, not just this one. Run via nx affected
+  --target=test.
+- **Effort:** M
+
+### APA-232 [HIGH] Compliance Checks tab crashes: backend returns requirement as an OBJECT, page renders it as a React child
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** GET /security/compliance/checks/gdpr returns ComplianceCheckResult[] = {requirement:
+  ComplianceRequirement(object), status, details, evidence?, remediation?}. The hand-written FE type
+  (security.ts:185-186) invents {id, category, requirement:string, description, lastChecked,
+  nextReview}; mapComplianceCheck spreads the raw object, so check.requirement is an object and
+  <p>{check.requirement}</p> throws 'Objects are not valid as a React child', blanking the tab.
+  id/category/lastChecked/nextReview are all undefined (React keys undefined, 'Invalid Date').
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:41-57,700-767`
+  - `web/modules/admin-panel/src/services/api/security.ts:185-186`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:251-275,1109-1135`
+- **Verification:** Every link verified against current code. Backend:
+  compliance.controller.ts:431-436 (@Controller('security/compliance') + @Get('checks/:framework'),
+  registered in security.module.ts:64) returns ComplianceCheckResult[] untransformed;
+  compliance.service.ts:51-57 defines `requirement: ComplianceRequirement` as a nested object and
+  all branches of checkRequirement (700-767) return `requirement: req`. FE: apiFetch
+  (services/http-client.ts:341-349) unwraps the {success,data} envelope to the raw array;
+  fetchComplianceChecks (CompliancePage.tsx:162-177) sees Array.isArray true and maps via
+  mapComplianceCheck, whose `{...check}` spread (line 270) preserves `requirement` as an object;
+  `status` is a valid union member so the coercion passes it untouched. Render:
+  `<p>{check.requirement}</p>` at line 1124 throws 'Objects are not valid as a React child'; grep
+  confirms zero ErrorBoundary in admin-panel src, so the throw escapes to the shell boundary and
+  blanks the whole admin-panel view. key={check.id} undefined and formatDate(undefined)→'Invalid
+  Date' confirmed as secondary symptoms. The invented inline generic at
+  services/api/security.ts:185-186 (id/category/requirement:string/lastChecked/nextReview — the
+  latter two having no backend concept at all) makes the drift invisible to tsc. One refinement to
+  the auditor's detail: the crash fires when the user clicks the Checks tab (render is tab-gated;
+  data loads on mount), not on initial page load — deterministic either way. Severity HIGH stands:
+  guaranteed crash that takes down the entire Compliance page (GDPR operational surface) for
+  SUPER_ADMIN, with the blast radius exceeding the tab due to the missing local boundary.
+- **Root cause:** The FE→BE type link broke: the hand-written response type in
+  web/modules/admin-panel/src/services/api/security.ts:185-186 was invented (flat {id, category,
+  requirement:string, description, status, lastChecked, nextReview}) rather than transcribed from
+  the backend's actual ComplianceCheckResult (nested requirement object, no timestamps —
+  compliance.service.ts:51-57), and `apiFetch<T>`'s generic is an unchecked assertion so tsc
+  validates nothing across the wire. mapComplianceCheck then spreads the raw object instead of
+  projecting, carrying the drift straight into JSX. It drifted because admin-panel types are
+  hand-maintained per-endpoint with no contract gate for this endpoint — a confirmed instance of the
+  systemic FE hand-written-type-drift class (envelope/shape mismatch family) that
+  tests/invariants/admin-security-runtime-contract.spec.ts already gates for sibling endpoints
+  (compliance reports, monitoring enums) but not for compliance checks. The fictitious
+  lastChecked/nextReview fields also reveal the UI was designed against an imagined API: checks
+  execute live per request, so the backend genuinely owns a check timestamp but has no next-review
+  concept.
+- **Fix design:** Fix the contract at the source, consume the canonical shape on the FE, and gate
+  the drift class in CI. (1) Backend: add `checkedAt: string` (ISO 8601, stamped in
+  runComplianceChecks when each check executes) to `ComplianceCheckResult` in compliance.service.ts
+  — the only field the UI legitimately needs that the contract lacks; the nested
+  `requirement: ComplianceRequirement` stays canonical (report generation at line 546 already
+  consumes it). Controller needs no change; its `Promise<ComplianceCheckResult[]>` return picks the
+  field up. Do NOT add `nextReview` — no backend concept exists and inventing one server-side would
+  be fiction; drop it from the UI. (2) FE types: add `BackendComplianceRequirement` +
+  `BackendComplianceCheckResult` to services/types/security.ts mirroring the backend exactly ({
+  requirement: {id; framework; requirement; description; category; isMandatory; verificationMethod};
+  status: 'compliant'|'non_compliant'|'partial'|'not_applicable'; details: string; evidence?:
+  string; remediation?: string; checkedAt: string }); replace the invented inline literal in
+  services/api/security.ts:186 with `apiFetch<BackendComplianceCheckResult[]>`. (3) FE mapper:
+  rewrite mapComplianceCheck (CompliancePage.tsx:251-275) as an explicit projection — no spread:
+  id=r.requirement.id, category=r.requirement.category, requirement=r.requirement.requirement,
+  description=r.requirement.description, status=r.status (typed union, allowed-list coercion becomes
+  unnecessary), details/evidence/remediation passed through, lastChecked=r.checkedAt. Remove
+  `nextReview` from the UI ComplianceCheck interface and the render at line 1134; render `details`
+  (and `remediation` on non_compliant rows) which the backend already provides and the page
+  currently discards. (4) Delete the speculative `{checks:[...]}` wrapper-unwrap branch
+  (CompliancePage.tsx:170-175) — a compat shim for a shape the backend never returns; keep the
+  strict is-array throw as a tier-3 trust-boundary assertion. (5) Pattern gate: extend
+  tests/invariants/admin-security-runtime-contract.spec.ts (the repo's established gate for exactly
+  this drift class on these pages) with a compliance-checks block asserting: backend
+  ComplianceCheckResult contains `checkedAt`; services/api/security.ts uses
+  `BackendComplianceCheckResult[]` and no longer contains the invented
+  `lastChecked: string; nextReview: string` inline literal; CompliancePage's mapComplianceCheck
+  contains `r.requirement.requirement` projection and neither `...check` spread nor `nextReview`;
+  the FE status union matches the backend union members.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.spec.tsx`
+  - `tests/invariants/admin-security-runtime-contract.spec.ts`
+- **Proof of fix:** Extend tests/invariants/admin-security-runtime-contract.spec.ts with a new block
+  'INVARIANT: compliance checks consume the canonical ComplianceCheckResult contract' asserting: (a)
+  compliance.service.ts's ComplianceCheckResult contains `checkedAt`; (b) services/api/security.ts
+  uses `BackendComplianceCheckResult[]` for getComplianceChecks and no longer contains the invented
+  `nextReview` inline literal; (c) CompliancePage.tsx's mapComplianceCheck projects
+  `r.requirement.requirement` and contains neither a `...check`/`...r` spread nor `nextReview`; (d)
+  the FE status union in services/types/security.ts lists exactly
+  compliant|non_compliant|partial|not_applicable. Plus a component test
+  web/modules/admin-panel/src/pages/security/**tests**/CompliancePage.spec.tsx that renders the
+  Checks tab against a fixture typed as BackendComplianceCheckResult[] (nested requirement object,
+  checkedAt set) and asserts the requirement title, category, status badge, and details text render
+  without throwing — this reproduces the exact object-as-React-child crash red-first against the
+  pre-fix mapper. Both run under nx affected --target=test; the invariants dir runs every PR.
+- **Effort:** M
+
+### APA-233 [HIGH] Reports 'Key Findings' has the same object-render crash — and monthly cron guarantees reports exist
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** mapComplianceReport maps finding.category ?? finding.requirement — for persisted
+  detailedFindings.complianceResults, category is undefined and requirement is the full requirement
+  object, so category/description become objects rendered at CompliancePage.tsx:1061-1062 -> React
+  crash. Since generateMonthlyReports auto-creates a GDPR report on the 1st of every month, the
+  Reports tab is expected to crash in any running deployment.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:221-232,1044-1072`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:541-584,933-951`
+  - `web/modules/admin-panel/src/services/types/security.ts:167-176 (type declares category/description that backend results lack)`
+- **Verification:** Confirmed end-to-end by reading the code. Backend ComplianceCheckResult
+  (compliance.service.ts lines 51-57) has requirement as a nested ComplianceRequirement object (not
+  a string) plus details and remediation, and has NO top-level category or description.
+  generateComplianceReport (541-584) stores the array verbatim into detailedFindings, a jsonb column
+  (security.entity.ts line 756), and getComplianceReports (601-628) returns full entities via
+  getManyAndCount with detailedFindings intact. In mapComplianceReport (CompliancePage.tsx 221-232)
+  finding.category is undefined at runtime so the expression finding.category then
+  finding.requirement resolves to the requirement object, assigned to both category and description;
+  the toPrimitiveString guard (line 110) is applied to the violations branch (211-219) but NOT to
+  this resultFindings branch. At render (1061-1062) the object is emitted as a React child, so React
+  throws Objects are not valid as a React child. No ErrorBoundary exists anywhere in admin-panel/src
+  (grep empty), so the Reports tab hard-crashes. generateMonthlyReports (Cron on the 1st of every
+  month, lines 933-951) auto-creates a GDPR report, guaranteeing at least one crashing report; GDPR
+  yields 8 findings so findings length is above zero and the first sliced finding crashes. Graded
+  HIGH not CRITICAL: it is a UI-tab crash, not data loss or a security-boundary breach, but it makes
+  the entire Reports tab unusable with certainty.
+- **Root cause:** Hand-written FE type drift against a backend-owned persisted JSON shape.
+  web/modules/admin-panel/src/services/types/security.ts declares detailedFindings.complianceResults
+  items as flat optional strings (requirement as string, category and description as optional
+  strings), but the backend persists the ComplianceCheckResult shape where requirement is a full
+  ComplianceRequirement OBJECT and the human-readable fields live at requirement.requirement,
+  requirement.category and requirement.description, with the check message in details and the fix in
+  remediation. Because the FE type lies, the mapper fallback of finding.requirement reads an object
+  and TypeScript cannot catch it, and the mapper omits the toPrimitiveString guard on this branch
+  even though it applies that guard on the sibling violations branch, so the object flows straight
+  into JSX. Same object-render-crash class as sibling i1: an unvalidated hand-written interface-DTO
+  whose shape was never pinned to the backend contract.
+- **Fix design:** Fix the contract at the source and make an object structurally unable to reach
+  JSX. Step 1: correct the FE type in services/types/security.ts so
+  detailedFindings.complianceResults items match the real shape - requirement as a nested object
+  (id, framework, requirement, description, category, isMandatory, verificationMethod), status as
+  the backend union, plus details string and optional remediation string; drop the fictional flat
+  category/description/recommendation strings. This makes the compiler see requirement as an object
+  so the finding.requirement fallback no longer type-checks as a string. Step 2: fix the
+  resultFindings branch of mapComplianceReport to read the correct nested paths and route EVERY
+  rendered field through the existing toPrimitiveString guard - category from
+  requirement.requirement or requirement.category, description from details, recommendation from
+  remediation. Because toPrimitiveString returns a string for objects and undefined, the mapper
+  output (typed category and description as string) can never contain an object, which is a tier-1
+  local guarantee. Step 3, pattern-level for the i1/i2 class: hoist toPrimitiveString into a shared
+  mapper util so every security mapper uses one render-safety guard, and export mapComplianceReport
+  (or extract mappers into a testable module) so its output invariant can be unit-tested. The
+  deepest tier-1 (a shared cross-boundary contract type for ComplianceCheckResult consumed by both
+  apps/admin-api-service and the FE) is a larger extraction tracked separately; the type-correction
+  plus guard plus invariant test closes this finding and detects the whole class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.mapper.spec.ts`
+- **Proof of fix:** Add
+  web/modules/admin-panel/src/pages/security/**tests**/CompliancePage.mapper.spec.ts: build a
+  BackendComplianceReport fixture whose detailedFindings.complianceResults uses the REAL backend
+  ComplianceCheckResult shape (requirement as a nested object, details and remediation strings, no
+  top-level category or description), call mapComplianceReport, and assert for every mapped finding
+  that typeof category is string and typeof description is string (and that category equals the
+  requirement name and description equals details). This fails on current code (category and
+  description are objects) and passes after the fix. Add a companion React Testing Library render
+  test that renders the Reports tab with such a report and asserts it does not throw and shows the
+  requirement name as the Key Findings title. Extending an invariant to scan security mappers for
+  un-guarded object fields would cover the i1/i2 class platform-wide.
+- **Effort:** M
+
+### APA-234 [HIGH] All five compliance stat cards are hardcoded zeros while a real stats endpoint sits unused
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** fetchDataRequests fabricates stats {pendingRequests:0, inProgressRequests:0,
+  completedRequests:0, overdueRequests:0, averageResolutionTime:0}; only totalRequests is real. The
+  backend GET /security/compliance/data-requests/stats computes all of these for real. 'Overdue: 0'
+  on a GDPR SLA dashboard is false assurance.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:143-154,761-818`
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts:354-365`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:439-502`
+- **Verification:** Confirmed against real wiring, and the finding is understated. (1)
+  CompliancePage.tsx:146-153 hardcodes pending/inProgress/completed/overdue/averageResolutionTime to
+  literal 0; only totalRequests is real (and it is merely the paginated total, which is
+  filter-dependent). Stat cards at 761-818 render these zeros. (2) The FE api layer
+  services/api/security.ts has no getDataRequestStats method at all, so the real aggregate
+  ComplianceService.getDataRequestStats (compliance.service.ts:439-502, real
+  byStatus/overdueCount/avgResponseDays/completionRate) is never called. (3) LATENT SECOND BUG:
+  @Get('data-requests/:id') (controller line 239) is declared before @Get('data-requests/stats')
+  (line 354). NestJS registers routes in method-declaration order and Express matches
+  first-registered-first with :id capturing one segment, so GET .../data-requests/stats is
+  dispatched to getDataRequest('stats') -> findOne({where:{id:'stats'}}) against a uuid PK
+  (security.entity.ts:585) -> Postgres 22P02 invalid input syntax for type uuid -> 500. The endpoint
+  is thus not just unused but currently unreachable; a naive FE-only fix would fail. This is genuine
+  false assurance on a GDPR/DSAR SLA dashboard ('Overdue: 0'), warranting HIGH; it is not CRITICAL
+  (no auth bypass, cross-tenant leak, or data loss).
+- **Root cause:** Two links of the FE->BE->DB chain are broken and reinforce each other, an instance
+  of two systemic classes. Systemic class A (hardcoded-placeholder / dead-endpoint): the admin-panel
+  renders confident literal zeros instead of wiring to a backend aggregate that already exists —
+  securityApi never exposed getDataRequestStats, and fetchDataRequests fabricated the stats object
+  rather than mapping a real response. Systemic class B (static route declared after a param route
+  -> silently shadowed): compliance.controller.ts declares @Get('data-requests/:id') before the
+  static @Get('data-requests/stats'); NestJS/Express first-match-wins ordering makes the static path
+  unreachable, and because the PK is uuid the shadow surfaces as a 500 rather than a clean 404. Both
+  drifted because the FE hand-writes its types/api and never had a contract test asserting that the
+  stats endpoint is (a) reachable and (b) consumed, and the backend never had a route-ordering
+  invariant.
+- **Fix design:** Fix the whole chain at the source, addressing both systemic classes. BACKEND (make
+  the endpoint reachable - Tier 1): in compliance.controller.ts move the static GET routes
+  (data-requests/stats and data-requests/status/overdue) ABOVE the @Get('data-requests/:id') param
+  route so the router cannot capture 'stats' as an id. Give the stats handler an explicit return
+  type (CLAUDE.md requires explicit return types): define and export an interface
+  DataRequestStatsResponse ({ total; byStatus: Record<DataRequestStatus,number>; byType:
+  Record<DataRequestType,number>; avgResponseDays; overdueCount; completionRate }) from the service
+  and annotate both ComplianceService.getDataRequestStats and the controller method with it, so the
+  wire shape is a named contract rather than an inferred literal. FRONTEND (wire the real endpoint
+  and delete the fabricated zeros - Tier 2, make correct behavior the default): add
+  BackendDataRequestStats to services/types/security.ts mirroring DataRequestStatsResponse (kills
+  hand-type drift); add securityApi.getDataRequestStats(params?) in services/api/security.ts calling
+  /security/compliance/data-requests/stats (returns the unwrapped envelope data); in
+  CompliancePage.tsx fetchDataRequests, fetch list and stats in parallel via Promise.all (root rule:
+  batch independent calls) and MAP the real response into ComplianceStats (totalRequests=total,
+  pendingRequests=byStatus.pending, inProgressRequests=byStatus.in_progress,
+  completedRequests=byStatus.completed, overdueRequests=overdueCount,
+  averageResolutionTime=avgResponseDays), removing the hardcoded 0 literals entirely. DETECTION
+  (Tier 3, prevent regression of both classes): add a controller route-ordering/reachability
+  regression spec (boot the Nest app or inspect route metadata) asserting GET
+  .../data-requests/stats resolves to the stats handler and returns the stats keys, never routing
+  into getDataRequest; and an FE test asserting getDataRequestStats is invoked and the five cards
+  render the mapped non-zero values. Optionally generalize the ordering check into an architecture
+  invariant that flags any static route registered after a param route that would capture it.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `apps/admin-api-service/src/security/controllers/__tests__/compliance-route-ordering.spec.ts`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.stats.spec.tsx`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/security/controllers/**tests**/compliance-route-ordering.spec.ts: a
+  Nest e2e/supertest test (or route-metadata assertion) that boots the compliance controller with a
+  mocked ComplianceService and asserts GET /api/v1/security/compliance/data-requests/stats returns
+  200 and delegates to complianceService.getDataRequestStats (never to getDataRequest, i.e. no
+  NotFound/500 uuid error) — this pins the reordering and proves the endpoint is reachable at its
+  own path. Add web/modules/admin-panel/src/pages/security/**tests**/CompliancePage.stats.spec.tsx:
+  mock securityApi.getDataRequestStats to return {total:12,
+  byStatus:{pending:3,in_progress:2,completed:5,rejected:2,expired:0}, overdueCount:4,
+  avgResponseDays:6.5, ...} and assert the five stat cards render 12/3/2/5/4 and
+  averageResolutionTime maps from avgResponseDays, and that getDataRequestStats was called (guards
+  against re-introducing hardcoded zeros). Both specs run under nx affected --target=test.
+- **Effort:** M
+
+### APA-235 [MEDIUM] GET data-requests/stats is route-shadowed by data-requests/:id
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** @Get('data-requests/:id') is declared before @Get('data-requests/stats'), so /stats
+  resolves as id='stats' and throws NotFoundException('Data request not found: stats'). Latent today
+  (FE never calls it) but blocks the correct fix for the zeros above.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts:239-244 (declared first),354-365 (shadowed)`
+- **Root cause:** In compliance.controller.ts the parameterized route @Get('data-requests/:id')
+  (line 239) is declared BEFORE the static route @Get('data-requests/stats') (line 354).
+  NestJS/Express matches in declaration order, so a GET /data-requests/stats binds :id='stats',
+  calls complianceService.getDataRequest('stats'), and throws NotFoundException('Data request not
+  found: stats'). Same latent hazard applies to /data-requests/status/overdue (line 346) which only
+  survives because 'status/overdue' is a two-segment path. This is an instance of the systemic
+  'static route shadowed by a param route' class — the correct fix for the CompliancePage
+  stats-zeros finding is blocked until this is reordered.
+- **Fix design:** Tier-1/3: move ALL static/literal sub-paths (data-requests/stats,
+  data-requests/status/overdue) above @Get('data-requests/:id') so the specific routes win. To make
+  the wrong ordering detectable rather than relying on reviewer vigilance, add a
+  controller-route-ordering invariant spec that reflects over the controller's route metadata (via
+  Reflector/PATH_METADATA) and asserts no static segment route is registered after a same-prefix
+  ':param' route. Prefer this over renaming stats to a query flag so the URL contract is preserved.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/compliance.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/__tests__/compliance.controller.route-order.spec.ts`
+- **Effort:** S
+
+### APA-236 [MEDIUM] Status filter offers states the backend does not have
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Dropdown includes 'identity_verification' and 'processing'; backend DataRequestStatus
+  is pending|in_progress|completed|rejected|expired (DB CHECK constraint). Selecting them silently
+  returns an empty list (status is @IsString, no 400).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:877-884`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts:65,578`
+- **Root cause:** CompliancePage.tsx status dropdown (lines 877-884) offers 'identity_verification'
+  and 'processing', but the backend DataRequestStatus union (security.entity.ts:65) is only
+  pending|in_progress|completed|rejected|expired and is backed by a DB CHECK constraint.
+  QueryDataRequestsDto.status is @IsString (no enum validation), so selecting those two values
+  passes ValidationPipe, is sent as a filter, matches zero rows, and silently returns an empty list.
+  This is an instance of the systemic 'FE offers values the backend does not accept' drift class,
+  compounded by an unvalidated interface DTO.
+- **Fix design:** Tier-1: make the option set impossible to drift by sourcing it from a single
+  DataRequestStatus SSoT. Export the DataRequestStatus union as a runtime const-array (readonly
+  tuple) shared/mirrored in the admin-panel security types, drive the dropdown <option> list from
+  that array (removing identity_verification/processing), and type the FE filter state as
+  DataRequestStatus|'all'. On the backend, tighten QueryDataRequestsDto.status from @IsString to
+  @IsEnum(DataRequestStatus) so an out-of-domain value returns 400 instead of an empty 200. Add a
+  test asserting the FE option values are a subset of the backend enum.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `apps/admin-api-service/src/security/dto/query-data-requests.dto.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** S
+
+### APA-237 [MEDIUM] Expired GDPR download URLs are never actually cleared
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** expireDownloadUrls cron does .set({ downloadUrl: undefined }) — TypeORM does not
+  translate undefined into NULL in UPDATE set clauses, so the hourly job either no-ops or errors and
+  PII export links outlive downloadExpiresAt.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:956-969`
+- **Root cause:** compliance.service.ts expireDownloadUrls cron (lines 956-969) does
+  createQueryBuilder().update(DataRequest).set({ downloadUrl: undefined }). TypeORM's
+  UpdateQueryBuilder omits undefined values from the SET clause rather than emitting NULL; with only
+  one set field that yields an empty SET and throws UpdateValuesMissingError (or at best no-ops).
+  Either way the expired GDPR/PII export links are never nulled, so download URLs outlive
+  downloadExpiresAt — a real PII-retention defect on the hourly job.
+- **Fix design:** Tier-1/2: replace .set({ downloadUrl: undefined }) with an explicit SQL NULL:
+  .set({ downloadUrl: () => 'NULL' }) (raw-value function form), keeping the existing WHERE
+  downloadExpiresAt < now AND downloadUrl IS NOT NULL guard so result.affected stays meaningful. Add
+  a service integration test that seeds an expired row with a non-null downloadUrl, runs
+  expireDownloadUrls(), and asserts the persisted column is NULL and affected===1 (guards the
+  general 'undefined is not NULL in TypeORM UPDATE' trap).
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/__tests__/compliance.service.expire-urls.spec.ts`
+- **Effort:** S
+
+### APA-238 [MEDIUM] Generate Report / Download / Run Assessment buttons are dead
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** None of these three buttons has an onClick, though real endpoints exist (POST
+  /security/compliance/reports, GET /checks/:framework). Report generation is only reachable via the
+  monthly cron.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx:979-984,1019-1022,1096-1099`
+- **Root cause:** In CompliancePage.tsx the 'Generate Report' button (line 980), per-report
+  'Download' button (line 1019), and 'Run Assessment' button (line 1096) render with no onClick
+  handler, so they are dead UI. Real endpoints exist (POST /security/compliance/reports for
+  generation, GET /security/compliance/checks/:framework for assessment), meaning report generation
+  is only reachable via the monthly cron and the checks tab cannot be refreshed on demand. Instance
+  of the systemic 'FE control with no wired backend call' class.
+- **Fix design:** Tier-2: wire each button to its existing api function. 'Run Assessment' calls the
+  checks/:framework endpoint and reloads the checks list; 'Generate Report' calls POST reports
+  (framework + period) then refetches reports; 'Download' needs a real artifact source — either
+  surface the report's stored downloadUrl/exportUrl field or add a GET reports/:id/export endpoint
+  if none exists (confirm before assuming), and have the button open it. Add loading/disabled states
+  so the click has feedback. Add a page test asserting each button has an onClick that invokes the
+  corresponding api service fn.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/CompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.actions.spec.tsx`
+- **Effort:** M
+
+### APA-239 [LOW] Non-GDPR frameworks silently reuse the GDPR requirement set; dead broken Not() helper
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** getRequirements returns GDPR_REQUIREMENTS for every framework (documented). File also
+  carries an unused local Not() returning {$not:value}, which is not a valid TypeORM operator if
+  ever used.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:648-661,1009-1012`
+- **Root cause:** compliance.service.ts getRequirements (lines 648-661) returns GDPR_REQUIREMENTS
+  for every ComplianceType via the default branch, so KVKK/SOC2/ISO27001/CCPA/HIPAA/PCI/SOX
+  assessments silently reuse the GDPR requirement set (documented in-code). Separately, a
+  module-local Not() helper (lines 1009-1012) returns { $not: value }, which is not a valid TypeORM
+  operator; grep confirms it has zero call sites, so it is dead code that would silently produce a
+  wrong WHERE if ever wired in. LOW.
+- **Fix design:** Tier-1 for the dead helper: delete the local Not() function outright (if a NOT
+  filter is ever needed, import TypeORM's Not from 'typeorm' — never a hand-rolled {$not}). For the
+  framework reuse: since divergence is currently documented (Tier-4) but structurally invisible,
+  make it detectable — replace the catch-all default with an explicit switch arm per ComplianceType
+  returning a named requirement set (initially aliasing GDPR_REQUIREMENTS where intentional) so a
+  newly added framework fails to compile until an author consciously maps it, and add a test
+  asserting getRequirements(framework).length>0 and that non-GDPR frameworks are explicitly
+  enumerated rather than falling through.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/__tests__/compliance.service.requirements.spec.ts`
+- **Effort:** S
+
+## SecurityDashboardPage — `/admin/security/threats` — verdict: **PARTIAL**
+
+**Chain:** Page -> getMonitoringDashboard + getHealthScore + getSecurityEvents +
+getSecurityIncidents + getThreatIndicators -> GET
+/security/monitoring/{dashboard,health-score,events,incidents,threat-intelligence} ->
+SecurityMonitoringService -> real TypeORM queries on admin.security_events / security_incidents /
+threat_intelligence (entities security.entity.ts:262,382,501; Baseline migration:125-139). Health
+score is computed in the controller from dashboard counts — NOT from observability-service; no
+external threat/metric source exists. The chain is mechanically real, but every input table is
+structurally unpopulated, so the dashboard is a permanent green light.
+
+**Endpoints exercised:** `GET /security/monitoring/dashboard`;
+`GET /security/monitoring/health-score`; `GET /security/monitoring/events`;
+`GET /security/monitoring/incidents`; `GET /security/monitoring/threat-intelligence`
+
+**DB tables:** `admin.security_events`, `admin.security_incidents`, `admin.threat_intelligence`,
+`admin.login_attempts`, `admin.api_usage_logs`, `admin.user_sessions`
+
+### APA-240 [CRITICAL] Threat-detection supply chain is dead — dashboard always reports 100/'healthy' (false assurance)
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** security_events only get created by (a) POST /security/monitoring/events and POST
+  /analyze/login — both behind the global SUPER_ADMIN guard, and auth-service contains no call to
+  any admin-api security endpoint (grep of apps/auth-service/src for analyze/login|ADMIN_API_URL:
+  zero hits); (b) anomaly detectors reading admin.login_attempts — a table with no writers
+  (recordLoginAttempt has no callers); (c)
+  checkApiAbuse/checkSessionHijacking/checkThreatIntelligence — the first two have zero callers, the
+  third only fires from a manual GET check endpoint; (d) threat feeds — updateThreatFeeds is a stub
+  logging 'Would update threat feed'. Result: events, incidents (auto-escalation only triggers from
+  events), and threat indicators are永-empty; getHealthScore computes over zeros and returns score
+  100 'healthy' with a full green gauge no matter what attacks actually occur. A real brute-force
+  against auth-service is invisible here.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:318-339 (analyzeLoginAttempt),543-629 (checkApiAbuse/checkSessionHijacking: no callers per repo grep),1107-1117 ('Would update threat feed' stub)`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:353-399 (recordLoginAttempt: sole login_attempts writer, never called)`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts:690-708 (analyze endpoint SUPER_ADMIN-guarded),762-865 (health score arithmetic over dashboard zeros -> 100)`
+  - `apps/admin-api-service/src/app.module.ts:277-290 (global PlatformAdminGuard)`
+  - `apps/auth-service/src: grep 'analyze/login|admin-api.*security|ADMIN_API_URL' -> no matches`
+- **Verification:** Every link of the claimed dead chain verified by direct reads and repo-wide
+  greps. (1) admin.login_attempts has exactly one writer, ActivityLoggingService.recordLoginAttempt
+  (activity-logging.service.ts:353), with zero callers; likewise logApiUsage (:453) and
+  createSession (:508) for api_usage_logs/user_sessions — so every anomaly detector
+  (checkBruteForce, checkCredentialStuffing, checkGeoAnomaly, checkTimeAnomaly in
+  security-monitoring.service.ts:344-538) counts over permanently empty tables. (2)
+  analyzeLoginAttempt's only caller is POST /security/monitoring/analyze/login (controller:690),
+  behind the global APP_GUARD PlatformAdminGuard (app.module.ts:277-290); grep for 'analyze/login'
+  across the repo hits only the controller — auth-service never calls it and has no admin-api HTTP
+  client. (3) auth-service emits only best-effort UserLoggedIn success telemetry
+  (authentication.service.ts:498) with no consumer (admin-api's only NATS handlers are
+  tenant-erasure/tenant-onboarding-ack/policy); LOGIN_FAILED is written to auth.audit_logs, never
+  read by the admin security module; no failed-login event contract exists in libs/event-contracts.
+  (4) checkApiAbuse/checkSessionHijacking: zero callers (grep); checkThreatIntelligence fires only
+  from manual GET threat-intelligence/check/:ip. (5) updateThreatFeeds (service:1108-1117) is a stub
+  logging 'Would update threat feed'. Consequently security_events/incidents/threat-intel stay
+  empty; getHealthScore (controller:762-865) over zeros yields 94 (incidents 100x30 + critical
+  100x25 + 'stable' trend 75x25 + mitigation 100x20 = 93.75), and FE mapHealthStatus
+  (SecurityDashboardPage.tsx:189-193) maps >=85 to 'healthy' — permanent green gauge. Minor
+  corrections to the finding: score is 94 not 100, and platform-level compensating controls exist
+  (auth-service account lockout, Prometheus auth_login_attempts_total SLO alerts), so a brute force
+  is not invisible platform-wide — but the SUPER_ADMIN security pane, the surface operators would
+  actually consult, fabricates 'healthy' regardless of real attacks, and its entire feature area is
+  non-functional. False assurance on the primary security-monitoring surface warrants keeping
+  CRITICAL.
+- **Root cause:** The chain broke at the auth-service → admin-api service boundary: the security
+  module was built dashboard-first against admin-schema telemetry tables (login_attempts,
+  api_usage_logs, user_sessions) on the assumption that a producer existed ('writer EVENT/SYSTEM'
+  per docs/reviews/db-audit/db-audit-platform-admin/2026-07-11), but no producer contract was ever
+  defined. There is no LoginAttempted/LoginFailed event in libs/event-contracts, no NATS
+  subscription in admin-api's security module, and the only ingestion endpoints (POST
+  /security/monitoring/events, POST analyze/login) sit behind the global SUPER_ADMIN guard, making
+  service-to-service ingestion structurally impossible. Auth-service treats auth.audit_logs as its
+  SoT and fans out only a consumer-less UserLoggedIn success event. Nothing detects the gap because
+  no test asserts the supply chain end-to-end — contract tests validate event shapes, not that
+  consumed tables have live producers. This is an instance of the systemic
+  'table-with-readers-but-no-writer' class (sibling of the config-table-nobody-reads findings).
+- **Fix design:** Tier 1/2 fix: make ingestion automatic via the platform's existing event backbone,
+  and make 'no telemetry' impossible to render as 'healthy'. (A) Contract at the source: add a flat
+  LoginAttempted event (ADR-006, createBaseEvent, PascalCase) to
+  libs/event-contracts/src/auth-events.ts with fields {emailMasked, ipAddress, success,
+  failureReason?, userId?, tenantId?, geo?} plus a JSON Schema validator in
+  schemas/auth-events.schema.ts (trust-boundary crossing) and index export. (B) Producer:
+  auth-service publishes LoginAttempted on BOTH success and failure paths in
+  authentication.service.ts via the existing BestEffortEventPublisher (auth.audit_logs remains SoT;
+  add 'LoginAttempted' to its allowlist). (C) NATS SSoT: add publish (auth) + subscribe (admin-api)
+  permissions for events.\*.LoginAttempted in infrastructure/nats/services.yaml and regenerate
+  nats.conf via scripts/nats/generate-nats-conf.py in the same commit (ADR-015 — note the prod
+  permission-violation precedent on UserLoggedIn). (D) Consumer: new
+  apps/admin-api-service/src/security/handlers/login-attempt.handler.ts subscribing via
+  @platform/event-bus, validating against the JSON schema, then recordLoginAttempt(...) +
+  analyzeLoginAttempt(...) — this single consumer revives brute-force, credential-stuffing, geo and
+  time detection, event creation, and incident auto-escalation because they all read
+  admin.login_attempts. (E) Remove the now-redundant SUPER_ADMIN-only POST analyze/login endpoint
+  and delete the fabricated threat-feed machinery (initializeFeeds list + updateThreatFeeds cron
+  stub that stamps lastUpdated without doing anything); threat indicators are driven by internal
+  detection (addThreatIndicator) — external feed integration becomes a tracked finding with
+  owner+deadline, not a stub pretending to run. (F) Honest health score (pattern-level fix for the
+  false-assurance class): extend the health-score contract with required telemetry liveness —
+  service computes lastSeenAt per source (max(createdAt) of login_attempts / api_usage_logs /
+  user_sessions) and returns dataStatus 'live'|'stale'|'no_data'; controller returns it as a
+  required field; FE BackendSecurityHealthScore type updated so mapDashboardData cannot compile
+  without handling it; HealthGauge renders an explicit 'No telemetry' state instead of a green gauge
+  when dataStatus !== 'live'. A monitoring dashboard must distinguish 'quiet because safe' from
+  'quiet because deaf'. (G) checkApiAbuse/checkSessionHijacking still have no producers (gateway
+  rate-limit and session telemetry): wire gateway-api's throttler rejection path to publish an
+  ApiRateLimitExceeded event consumed by the same admin-api handler layer, or — if that cannot land
+  in this PR — delete the two dead methods and open a tracked CRITICAL/HIGH finding with
+  owner+deadline per repo discipline; never leave uncalled detectors implying coverage. (H) Systemic
+  gate: integration spec publishing a synthetic LoginAttempted through the event-bus test harness
+  asserting a login_attempts row, threshold-crossing security_event, and incident escalation; plus
+  extend nats-invariants to assert every event type the admin security module subscribes to has a
+  granted publisher in services.yaml (prevents future dead-supply-chain drift).
+- **Files to change:**
+  - `libs/event-contracts/src/auth-events.ts`
+  - `libs/event-contracts/src/schemas/auth-events.schema.ts`
+  - `libs/event-contracts/src/schemas/__tests__/auth-events.schema.spec.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/auth-service/src/modules/authentication/services/authentication.service.ts`
+  - `apps/auth-service/src/outbox/best-effort-event-publisher.ts`
+  - `infrastructure/nats/services.yaml`
+  - `infrastructure/docker/nats/nats.conf`
+  - `apps/admin-api-service/src/security/handlers/login-attempt.handler.ts`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts`
+  - `apps/admin-api-service/src/security/__tests__/security-telemetry-pipeline.integration.spec.ts`
+  - `e2e/tests/integration/nats-invariants.spec.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+- **Proof of fix:** 1) New
+  apps/admin-api-service/src/security/**tests**/security-telemetry-pipeline.integration.spec.ts:
+  publish 6 failed LoginAttempted events for one email via the @platform/event-bus test harness ->
+  assert admin.login_attempts rows exist, a brute_force_attempt security_event is created, and a
+  critical distributed attack escalates to a security_incident; also assert GET health-score returns
+  dataStatus 'no_data' with an empty DB and never 'healthy' semantics FE-side (FE type makes this
+  compile-enforced). 2) Extend libs/event-contracts/src/schemas/**tests**/auth-events.schema.spec.ts
+  with LoginAttempted valid/invalid fixtures. 3) Extend
+  e2e/tests/integration/nats-invariants.spec.ts: for each subject subscribed by admin-api security
+  handlers, services.yaml grants a matching publish permission to exactly one producer service
+  (regenerated nats.conf sentinel check already covered). 4) Auth-service unit spec
+  (authentication.service.spec.ts) asserts BestEffortEventPublisher.publish called with
+  LoginAttempted on both wrong-password and success paths. 5) nx affected --target=test &&
+  --target=lint green; npm run type-check proves the FE BackendSecurityHealthScore change forces the
+  no-data gauge handling.
+- **Effort:** L
+
+### APA-241 [MEDIUM] 'Critical (24h)' and 'Blocked (24h)' cards actually show all-time counts
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** dashboard.criticalEvents and threatsBlocked are unbounded counts (no createdAt
+  filter) but the cards label them as 24h figures.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:941-950`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:210-218,763-795`
+- **Root cause:** security-monitoring.service.ts getSecurityDashboardStats computes criticalEvents
+  (lines 942-944, where threatLevel='critical') and threatsBlocked (lines 948-950, where
+  autoMitigated=true) as unbounded all-time counts — neither has a createdAt filter, though last24h
+  is computed at line 936 and used for eventsLast24h. SecurityDashboardPage.tsx maps them to
+  criticalEvents24h/blockedAttacks24h (lines 212,216) and renders cards labelled 'Critical (24h)'
+  (line 769) and 'Blocked (24h)' (line 791). All-time figures are presented as 24h measurements.
+  Instance of the systemic 'card label claims a time window the query does not apply' class (shares
+  root with p3|i3).
+- **Fix design:** Tier-1: make the field name carry the window so label and data cannot diverge. Add
+  createdAt: MoreThan(last24h) to the criticalEvents and threatsBlocked count queries (and rename
+  the SecurityDashboardStats/BackendSecurityDashboardStats fields to
+  criticalEvents24h/threatsBlocked24h so the 24h semantics are encoded in the contract), then the FE
+  mapper and cards line up truthfully. If an all-time critical count is also wanted, add it as a
+  separately named field rather than overloading. Add a service test asserting a critical event
+  older than 24h is excluded from criticalEvents24h.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/services/__tests__/security-monitoring.dashboard.spec.ts`
+- **Effort:** M
+
+### APA-242 [MEDIUM] Incident field drift: FE reads columns the entity does not have
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE type BackendSecurityIncident declares
+  affectedUsers/relatedEvents/remediation/resolvedAt; the entity has
+  affectedUsersCount/relatedSecurityEvents/remediationSteps and no resolvedAt. Incident cards
+  therefore always show '0 users affected' and never show remediation/related events even when data
+  exists. Timeline actor field also drifts (backend 'actor' vs FE 'user').
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/security.ts:240-259`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts:421-422,457-458,468,481-482`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:279-299,932-935`
+- **Root cause:** FE-type drift vs entity. BackendSecurityIncident (security.ts:240-259) declares
+  affectedUsers/relatedEvents/remediation/resolvedAt, but the SecurityIncident entity
+  (security.entity.ts) exposes affectedUsersCount (421-422), relatedSecurityEvents (457-458),
+  remediationSteps (467-468, a jsonb step[] not a string) and has NO resolvedAt column. The API
+  returns the entity as-is, so mapSecurityIncident (SecurityDashboardPage.tsx:279-299) reads
+  undefined for all four — incident cards always show '0 users affected' (line 934) and never
+  surface remediation/related events even when populated. Timeline actor also drifts: entity stores
+  { actor } (482) while the FE type declares { user? } (252). Instance of the systemic 'hand-written
+  FE type drifted from backend entity/response' class.
+- **Fix design:** Tier-1 root fix: align the FE type and mapper to the actual response field names —
+  affectedUsersCount, relatedSecurityEvents, remediationSteps (typed as the
+  {step,completed,completedAt}[] jsonb shape, not string), timeline actor as 'actor' — and drop
+  resolvedAt (or derive a display timestamp from closedAt/recoveredAt which DO exist, 443-444).
+  Systemically, close the drift class: introduce a shared response contract / codegen so admin-panel
+  security types are generated from the backend DTO instead of hand-copied; at minimum add a
+  structural type-parity test that asserts BackendSecurityIncident keys are a subset of the entity's
+  persisted columns. Fixing field names at the source (mapper + type together) is required, not a
+  defensive rename in one place.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** M
+
+### APA-243 [MEDIUM] 'Affected Tenants' hardcoded 0; 'Unique IPs' capped at 10
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** mapDashboardData sets affectedTenants: 0 unconditionally and uniqueSourceIps =
+  topSourceIPs.length, which the backend caps with LIMIT 10 — both cards present placeholder math as
+  measurements.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:210-219`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:1000-1009 (.limit(10))`
+- **Root cause:** SecurityDashboardPage.tsx mapDashboardData hardcodes affectedTenants: 0 (line 218)
+  and derives uniqueSourceIps from topSourceIPs.length (line 217), but topSourceIPs is capped by the
+  backend query's .limit(10) (security-monitoring.service.ts:1008) — so 'Unique IPs' can never
+  exceed 10 and 'Affected Tenants' is a literal placeholder. Both cards present placeholder math as
+  measurements. Note the entity DOES carry an affectedTenants simple-array column
+  (security.entity.ts:414-415), so a real aggregate is derivable. Instance of the systemic
+  'placeholder constant rendered as a real metric' class (shares root with p3|i1).
+- **Fix design:** Tier-2: compute the values on the backend and expose them as first-class
+  SecurityDashboardStats fields. Add a dedicated uniqueSourceIps count (SELECT COUNT(DISTINCT
+  event.ipAddress)) independent of the LIMIT-10 topSourceIPs list, and an affectedTenants count
+  (COUNT DISTINCT tenantId across security events, or distinct expansion of
+  incident.affectedTenants) to the stats contract; the FE mapper then reads real fields instead of
+  .length and the 0 literal. Do not repurpose the top-N list for a cardinality metric. Add a service
+  test asserting uniqueSourceIps > 10 when >10 distinct IPs exist.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `apps/admin-api-service/src/security/services/__tests__/security-monitoring.dashboard.spec.ts`
+- **Effort:** M
+
+### APA-244 [LOW] Status/search filters exist as dead state; resolved-count only scans first incident page
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** statusFilter/searchTerm have no UI controls (\_setStatusFilter/\_setSearchTerm
+  unused), and resolvedIncidents counts status==='closed' within the default 20-row first page only.
+  Event modal 'Tenant' always shows N/A (no tenantName in entity or response).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx:582-583,607,530`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:909 (limit=20 default)`
+- **Root cause:** Three coupled LOW defects on SecurityDashboardPage. (a) statusFilter/searchTerm
+  state exists (lines 582-583) and IS passed to fetchSecurityEvents (591-592), but the setters are
+  named \_setStatusFilter/\_setSearchTerm and are never called — there is no UI control, so both are
+  permanently 'all'/'' (dead filters). (b) resolvedIncidents is computed at line 607 by filtering
+  incidentsValue for status==='closed', but incidentsValue comes from fetchIncidents() with no
+  limit, so it counts only the backend's default first page (queryIncidents limit=20, service
+  line 909) — resolved count is capped/undercounted. (c) The event modal 'Tenant' field (line 530)
+  reads event.tenantName, but mapSecurityEvent (245-263) never maps tenantName and no such field
+  exists on the event entity/response, so it is always 'N/A'.
+- **Fix design:** Tier-2/1: (a) either add real <select>/search inputs bound to
+  setStatusFilter/setSearchTerm (rename off the underscore) so the already-plumbed server-side
+  filtering works, or delete the dead state and its params — no half-wired state. (b) Source
+  resolvedIncidents from a server-side aggregate (the incidents/stats/summary endpoint already
+  computes byStatus with limit=10000) instead of counting a 20-row page. (c) For tenant display,
+  either add tenantName to the event response/mapper via a join to the tenant record and map it, or
+  remove the Tenant field — don't render a permanent N/A. Add a page test covering the filter
+  controls actually driving fetch params and resolvedIncidents matching the stats endpoint.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+- **Effort:** M
+
+## Cross-cutting findings
+
+### APA-245 [HIGH] Admin security telemetry ledgers have no producers anywhere in the platform
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** admin.activity_logs, admin.login_attempts, admin.api_usage_logs, admin.user_sessions,
+  and admin.security_events are fully modelled (entities with schema:'admin', Baseline migration,
+  indexed) and fully queryable, but no service, interceptor, middleware, or NATS consumer anywhere
+  in the monorepo writes to them: ActivityLoggingService's write methods have zero callers;
+  auth-service never calls admin-api's ingest endpoints (and cannot — the global PlatformAdminGuard
+  demands a SUPER_ADMIN user JWT on every route, including the POST ingest endpoints); the
+  SecurityModule registers no event-bus subscription. Two of the four security pages (Activity Log,
+  Security Dashboard) and the retention/alerting machinery are therefore built on structurally empty
+  tables — the admin panel presents an 'all clear' security posture that reflects nothing. This is
+  an architectural gap (missing ingestion pipeline / event contract from auth-service, gateway-api,
+  and other services into the admin security schema), not a UI bug.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:130-499 (all writers defined, none invoked — repo-wide grep)`
+  - `apps/admin-api-service/src/app.module.ts:277-290 (APP_GUARD PlatformAdminGuard blocks machine-to-machine ingest)`
+  - `apps/admin-api-service/src/security/security.module.ts:40-82 (no consumers/subscriptions)`
+  - `apps/auth-service/src: grep for admin-api security endpoints -> no matches`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:116-163 (tables exist and are real)`
+- **Verification:** Verified against real wiring. All five tables (admin.activity_logs,
+  security_events, login_attempts, api_usage_logs, user_sessions) are created + indexed in
+  1800000000000-Baseline.ts under schema 'admin' and registered in TypeOrmModule.forFeature. Every
+  write method is uncalled in production code: recordLoginAttempt, logApiUsage,
+  updateSessionActivity, admin createSession have zero callers repo-wide (grep confirms only
+  definitions/tests); logActivity + specialized loggers are self-referential with no external entry;
+  createSecurityEvent/analyzeLoginAttempt are reachable only via the security/monitoring HTTP
+  controller. The only write paths are HTTP POST endpoints (security/activities,
+  security/monitoring/events, security/monitoring/analyze/login), none marked @Public(), so the
+  global APP_GUARD PlatformAdminGuard (verified: honors IS_PUBLIC_KEY else requires RS256
+  SUPER_ADMIN JWT) blocks machine ingest; no service references those routes. SecurityModule
+  registers no NATS/event-bus consumer (imports only ScheduleModule, AuditLogModule, TypeOrmModule).
+  compliance.service.ts:1004 is a comment, not a call. auth-service DOES hold the signal
+  (failedLoginAttempts/lockouts on auth.users, Redis sessions) but never bridges it into the admin
+  schema. Finding is real. Downgraded CRITICAL->HIGH: this is a
+  security-observability/false-assurance gap, not an exploitable defect — the enforcement control
+  (auth-service lockout) still works; what is missing is central detection/visibility/forensics. No
+  data loss, auth bypass, or privilege escalation, so CRITICAL over-grades it; HIGH reflects a
+  serious multi-tenant security-monitoring blind spot presenting a false 'all clear'.
+- **Root cause:** The producer link of the FE->BE->DB chain was never built. The admin security
+  schema was modelled destination-first: entities, Baseline migration, indexes, query controllers,
+  retention cron, and alerting were all landed, but the ingestion pipeline was deferred and never
+  shipped. The only machine-writable door — HTTP POST ingest — is architecturally unreachable to
+  real producers because the global PlatformAdminGuard demands a SUPER_ADMIN user JWT, which
+  auth-service/gateway-api do not (and should not) hold. No event contract exists to carry the
+  domain signals (login succeeded/failed, session created/terminated, request served, threat
+  detected) onto the shared event bus, and SecurityModule registers no consumer to sink them. This
+  is a systemic class: a modelled ledger with read+retention machinery but no producer (self-empty
+  telemetry). It drifted because the read side was demoed against an empty table that looks
+  identical whether the platform is secure or unmonitored.
+- **Fix design:** Umbrella / pattern-level fix — build event-driven ingestion, not HTTP push
+  (per-stream detail lives in the sibling security.md instance findings: Activity Log page, Security
+  Dashboard, login_attempts writer, api-usage interceptor, session tracking).
+
+Tier-1/2 (impossible/automatic): (1) Add flat event contracts in libs/event-contracts
+(UserLoginSucceeded/Failed, SessionCreated/Terminated, SecurityThreatDetected, ApiRequestServed) via
+createBaseEvent(), export from index.ts, add JSON Schema validators for the trust-boundary crossing.
+(2) Producers emit via outbox/event-bus at existing call sites: auth-service at its
+failedLoginAttempts/lockout + session points; gateway-api from its request pipeline for API-usage
+telemetry; any detector emits SecurityThreatDetected. (3) admin-api SecurityModule registers NATS
+consumers (the missing subscription) that map each event onto the existing zero-caller
+ActivityLoggingService / SecurityMonitoringService writers — making the ledgers the automatic sink.
+Because ingestion is bus-driven with cert-CN identity (ADR-015), no SUPER_ADMIN JWT is needed, so
+the guard is satisfied correctly rather than weakened; the HTTP POST endpoints remain only for
+manual admin entry.
+
+Tier-3 (detectable): add an architecture invariant asserting every security telemetry table has a
+registered producer/consumer, and a contract/integration test asserting each published event lands a
+row — so a modelled-but-unfed ledger fails CI going forward.
+
+- **Files to change:**
+  - `libs/event-contracts/src/security-events.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/event-contracts/src/schemas/security-events.schema.ts`
+  - `apps/auth-service/src/modules/authentication/services/authentication.service.ts`
+  - `apps/auth-service/src/modules/authentication/services/token.service.ts`
+  - `apps/auth-service/src/modules/authentication/services/account.service.ts`
+  - `apps/gateway-api/src`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `apps/admin-api-service/src/security/consumers/security-telemetry.consumer.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/security/**tests**/integration/security-telemetry-ingestion.spec.ts:
+  publish each new contract event onto the test event bus and assert a row lands in each of the five
+  admin telemetry tables (activity_logs, login_attempts, api_usage_logs, user_sessions,
+  security_events). Add architecture invariant
+  apps/admin-api-service/src/**tests**/e2e/security-telemetry-producers.architecture.spec.ts
+  asserting every telemetry entity/table has a registered consumer subscription in SecurityModule
+  (fails when a ledger has no producer). Extend event-contract validation in e2e/tests/integration/
+  (alongside schema-invariants.spec.ts) to cover the new security events. Add producer-side unit
+  tests in auth-service/gateway-api asserting emission at the lockout/session/request call sites.
+- **Effort:** L
+
+### APA-246 [HIGH] Security alerting/notification layer is stubbed end-to-end
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Every outbound alerting path in the security domain is a log-only stub:
+  AuditTrailService.triggerAlert ('Would send email alert', 'Would send Slack alert', 'Would trigger
+  webhook', 'Would send SMS alert'), checkOverdueRequests ('In production, send notifications'),
+  updateThreatFeeds ('Would update threat feed'), and alert rules themselves are in-memory
+  (non-persisted, per-replica, evaluation path checkAlerts never called). The admin panel surfaces
+  these as configured, active controls. No integration with notification-service exists for any
+  security alert.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:979-1003,871-917`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts:912-928`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:1104-1117`
+- **Verification:** Confirmed on every surface. (1) audit-trail.service.ts:979-1003: all four alert
+  channels are logger stubs ('Would send email/Slack/webhook/SMS alert') with real dispatch
+  commented out. (2) checkAlerts (line 922) has zero callers repo-wide —
+  ActivityLoggingService.logActivity/logActivityImmediate/flushBuffer are the only ActivityLog
+  writers and never invoke it, so rules are never even evaluated. (3) alertRules is a private
+  in-memory array seeded in the constructor with 5 hardcoded rules; controller CRUD
+  (GET/POST/PUT/DELETE /security/audit/alert-rules) mutates it live — non-persisted, per-replica,
+  Date.now() IDs. (4) compliance.service.ts:912-928 checkOverdueRequests cron only logs, with 'In
+  production, send notifications' comment. (5) security-monitoring.service.ts:1107-1116
+  updateThreatFeeds logs 'Would update threat feed' then stamps feed.lastUpdated = new Date() on an
+  in-memory array — actively fabricating feed freshness. (6) FE AuditTrailPage 'alerts' tab renders
+  rules with 'Active' badges/recipients/triggered counts via services/api/security.ts:178 —
+  presenting a dead control as live. (7) No alternate path: no notification-service integration
+  exists in the admin security domain; observability-service has no security alerting; meanwhile
+  AdminOutboxModule, @platform/outbox, event-contracts, and notification-service's AlertTriggered
+  handler precedent all exist unused. Reachable false-assurance failure of a security control
+  (privilege-escalation/mass-deletion/failed-login alerts silently never fire) — HIGH is the correct
+  grade; not CRITICAL because it causes no direct data exposure or privilege escalation by itself.
+- **Root cause:** The BE→notification-service link of the chain was never built: the security domain
+  was scaffolded UI-first against a demo-grade service (in-memory arrays, 'Would send' logs), and
+  the controller + FE were wired to it as if it were real. The platform-level dispatch contract
+  already exists (AdminOutboxModule via @platform/outbox, libs/event-contracts,
+  notification-service's AlertTriggered NATS handler precedent) but the security services never
+  adopted it. Drift persisted because nothing at build/test time distinguishes 'persisted +
+  dispatched' from 'in-memory + logged' — the controller returns the identical envelope either way.
+  This is an instance of the systemic 'stubbed-control-presented-as-live' class (sibling of
+  config-table-nobody-reads): the admin panel surfaces a control whose write path exists but whose
+  act path does not.
+- **Fix design:** Tier 1/2 — make correct behavior structural, reusing existing platform
+  infrastructure. (a) Persist alert rules: add AuditAlertRuleEntity (schema: 'admin' —
+  platform-level service declares schema explicitly) to security.entity.ts with typed columns (name,
+  description, isActive, conditions jsonb, alertChannels, recipients, cooldownMinutes,
+  lastTriggeredAt); new migration creating admin.audit_alert_rules with an idempotent seed of the 5
+  default rules; refactor AuditTrailService CRUD onto the repository and delete the in-memory
+  array + initializeDefaultAlertRules. (b) Wire evaluation into the single write path: extract
+  checkAlerts/matchesRule into an AuditAlertEvaluationService invoked by ActivityLoggingService
+  after flushBuffer persists a batch and in logActivityImmediate; persist cooldown via a guarded
+  UPDATE (WHERE lastTriggeredAt IS NULL OR lastTriggeredAt < :cooldownBoundary) so multi-replica
+  deployments cannot double-fire. (c) Real dispatch, delivery-guaranteed: replace the four 'Would
+  send' branches with a transactional outbox write (existing AdminOutboxModule) publishing a new
+  flat PlatformAuditAlertTriggered event (createBaseEvent, added to
+  libs/event-contracts/src/security/security-events.ts + index, JSON Schema validator in schemas/ —
+  it crosses the admin→notification trust boundary); notification-service adds
+  platform-audit-alert.handler.ts mirroring alert-triggered.handler.ts, dispatching via
+  NotificationDispatcherService. Fix the channel contract at the source: narrow alertChannels in the
+  entity, contract, DTO, and FE type to exactly the channels NotificationDispatcherService supports
+  — no silently-dropped 'slack'/'webhook' options. (d) checkOverdueRequests publishes
+  ComplianceRequestOverdue (compliance-events.ts) through the same outbox; notification-service
+  handles it. (e) updateThreatFeeds: remove the fabricated feed.lastUpdated stamp and the in-memory
+  feed list; either persist admin.threat_intel_feeds where lastUpdated is set only by a real fetch
+  and the FE truthfully renders a not_configured state, or remove the feeds surface BE+FE in the
+  same change — the fabricated timestamp goes regardless. (f) Align the FE: BackendAuditAlertRule in
+  services/types + AuditTrailPage's local AlertRule shape (enabled/condition/threshold drift) to the
+  backend contract. Tier 3 — make the class detectable: new
+  tests/invariants/no-stubbed-controls.spec.ts failing on stub markers (/Would
+  (send|trigger|update)|In production,/) anywhere under apps/admin-api-service/src, gating the whole
+  systemic class, plus the pipeline specs below.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+  - `apps/admin-api-service/src/security/entities/index.ts`
+  - `apps/admin-api-service/src/migrations/1801600000000-CreateAuditAlertRules.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/compliance.service.ts`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts`
+  - `apps/admin-api-service/src/security/security.module.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `libs/event-contracts/src/security/security-events.ts`
+  - `libs/event-contracts/src/security/index.ts`
+  - `libs/event-contracts/src/compliance-events.ts`
+  - `libs/event-contracts/src/schemas/`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/notification-service/src/notification/event-handlers/platform-audit-alert.handler.ts`
+  - `apps/notification-service/src/notification/event-handlers/compliance-overdue.handler.ts`
+  - `apps/notification-service/src/app.module.ts`
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx`
+  - `tests/invariants/no-stubbed-controls.spec.ts`
+  - `apps/admin-api-service/src/security/__tests__/audit-alert-pipeline.spec.ts`
+  - `apps/notification-service/src/notification/event-handlers/__tests__/platform-audit-alert.handler.spec.ts`
+- **Proof of fix:** New apps/admin-api-service/src/security/**tests**/audit-alert-pipeline.spec.ts:
+  (a) persisting an ActivityLog matching an active rule writes exactly one
+  PlatformAuditAlertTriggered outbox row whose payload passes the contract's JSON Schema validator;
+  (b) a second matching log inside cooldownMinutes writes none; (c) rule CRUD round-trips through
+  the repository (restart survival — new service instance sees the same rules). New
+  apps/notification-service/src/notification/event-handlers/**tests**/platform-audit-alert.handler.spec.ts
+  (London-school): valid event → NotificationDispatcherService called with sanitized fields; invalid
+  tenantId → skipped. New tests/invariants/no-stubbed-controls.spec.ts: greps
+  apps/admin-api-service/src for /Would (send|trigger|update)|In production,/ and fails on any hit —
+  proves the stubs are gone and gates the systemic class. Existing
+  e2e/tests/integration/schema-invariants.spec.ts must stay green with the new
+  admin.audit_alert_rules table (schema: 'admin' declared). nx affected --target=test and
+  --target=lint green.
+- **Effort:** L
+
+### APA-247 [MEDIUM] Actor attribution hardcoded to 'admin' on audit-relevant mutations
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** createRetentionPolicy/updateRetentionPolicy pass createdBy/updatedBy 'admin' ('Would
+  come from auth context') and updateIncident records actor 'admin'/'Admin User' — on a service
+  whose whole purpose is attribution, retention-policy changes and incident-response timeline
+  entries cannot be traced to the operator who made them, while the same file already demonstrates
+  the JWT pattern (compliance controller C6 fixes).
+- **Evidence:**
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts:481-495`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts:547-558`
+- **Root cause:** Actor attribution hardcoded on audit-relevant mutations. audit-trail.controller.ts
+  createRetentionPolicy passes createdBy: 'admin' (line 483, '// Would come from auth context') and
+  updateRetentionPolicy passes 'admin' (line 495); security-monitoring.controller.ts updateIncident
+  passes 'admin'/'Admin User' (lines 555-556). These write the operator identity into
+  retention-policy records and incident-response timeline entries on a service whose entire purpose
+  is attribution, so those changes cannot be traced to the acting SUPER_ADMIN. This is an instance
+  of the systemic 'hardcoded actor / unresolved auth context' class — and the correct pattern
+  already exists in the same codebase: compliance.controller.ts uses
+  getAuthUserId(req)/getAuthUser(req) with @Req() (the C6 fix, lines 231/279-282).
+- **Fix design:** Tier-2/3: apply the existing getAuthUser(req) helper. Inject @Req() req: Request
+  into createRetentionPolicy/updateRetentionPolicy/updateIncident, resolve userId (throw
+  UnauthorizedException if absent) and displayName (name||email||id) exactly as
+  compliance.controller does, and pass those through instead of the string literals. Systemically
+  make the drift detectable: add an invariant/ESLint or AST test over
+  apps/admin-api-service/src/security/controllers/\*\* that fails on a literal 'admin'/'Admin User'
+  or the comment 'Would come from auth context' being passed as a createdBy/updatedBy/actor
+  argument, so no future mutation controller can re-hardcode identity.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/__tests__/actor-attribution.invariant.spec.ts`
+- **Effort:** S
+
+### APA-248 [MEDIUM] Hand-written FE response types drift systematically (no codegen)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** services/types/security.ts diverges from backend shapes in every direction found in
+  this audit: BackendSecurityIncident (4 renamed/missing fields), getComplianceChecks inline type
+  (object requirement, invented id/category/lastChecked/nextReview -> React crashes),
+  BackendComplianceReport.detailedFindings (category/description that persisted results lack),
+  BackendActivityLog (invented userAgent/location/timestamp), getSecurityDashboard inline type
+  (threatLevel/unresolvedEvents/blockedThreats/recentEvents/topThreats — none exist in
+  SecurityDashboardStats). The security.ts api layer itself carries '// Fix:' comments documenting
+  previously-shipped path mismatches, confirming this drift is chronic. Guard status, for the
+  record, is solid: every security endpoint sits behind the global RS256 SUPER_ADMIN
+  PlatformAdminGuard + ThrottlerGuard.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/security.ts:65-96,157-182,240-259`
+  - `web/modules/admin-panel/src/services/api/security.ts:69,76,85-86,145,160-168 (in-code fix comments and stale getSecurityDashboard shape)`
+  - `apps/admin-api-service/src/security/services/security-monitoring.service.ts:65-89 (actual SecurityDashboardStats)`
+- **Root cause:** FE response types in web/modules/admin-panel/src/services/types/security.ts are
+  hand-authored with no binding to the backend's real response shapes — no codegen, no shared
+  contract — so every backend rename/omission diverges silently. Concretely confirmed:
+  getSecurityDashboard() (security.ts:160-168) declares
+  threatLevel/unresolvedEvents/blockedThreats/recentEvents/topThreats, but GET
+  /security/monitoring/dashboard returns SecurityDashboardStats
+  (security-monitoring.service.ts:65-89), which contains none of those names except activeIncidents
+  — it is a stale second copy of the very endpoint getMonitoringDashboard() already types correctly
+  against BackendSecurityDashboardStats. The in-code '// Fix:' comments (security.ts:69,76,85,145)
+  show the drift is chronic (paths were hand-corrected once already). This is a SYSTEMIC class
+  (FE-type drift / no-codegen), not a one-off — same failure mode spans BackendSecurityIncident,
+  getComplianceChecks, BackendComplianceReport.detailedFindings, BackendActivityLog.
+- **Fix design:** Establish one source of truth for admin-api response contracts consumed by BOTH
+  sides, designed at the pattern level. Tier 1 (make impossible): extract the response view shapes
+  (SecurityDashboardStats, ComplianceReport findings, ActivityLog/SecurityIncident view DTOs, etc.)
+  into a shared contract lib (e.g. libs/admin-contracts, dual-aliased like backend-common), type
+  controller return values against them, and have the FE import them directly — a rename then breaks
+  compilation on both sides. Where the shared TS package cannot cross the FE/BE build boundary, tier
+  2/3: annotate controller DTOs with @nestjs/swagger, emit the OpenAPI document at build, and run
+  openapi-typescript to generate web/modules/admin-panel/src/services/types/generated/_.ts, deleting
+  the hand-written Backend_ interfaces. Locally: delete the stale getSecurityDashboard() inline
+  shape (dead duplicate of getMonitoringDashboard on the same route) and realign drifted types. Add
+  a CI invariant that fails when a hand-written Backend\* type is used where a generated/shared one
+  exists, so drift is detectable at build time.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/security.ts`
+  - `web/modules/admin-panel/src/services/api/security.ts`
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts`
+  - `libs/admin-contracts/src/security/*.ts`
+  - `tests/invariants/admin-fe-type-codegen.spec.ts`
+- **Effort:** L
+
+### APA-249 [MEDIUM] Unvalidated sortBy interpolated into ORDER BY in two query builders
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** queryActivities (reachable from GET /security/activities?sortBy=...) and
+  AuditTrailService.getAuditTrail interpolate the caller-supplied sortBy string directly into
+  orderBy(`alias.${sortBy}`). Minimum impact: 500 on unknown column; it is also a raw-SQL
+  interpolation point behind a single role check.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts:661`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:283`
+- **Root cause:** sortBy is accepted as a free-form @IsOptional()@IsString() query param
+  (QueryActivitiesDto sortBy, activity-log.controller.ts:96-98; audit-trail.controller.ts:129-131 —
+  note sortOrder next to it IS guarded with @IsIn(['ASC','DESC']), sortBy is not) and forwarded
+  unchanged (activity-log.controller.ts:249, service option sortBy) into
+  qb.orderBy(`activity.${sortBy}`) (activity-logging.service.ts:661) and qb.orderBy(`log.${sortBy}`)
+  (audit-trail.service.ts:283). TypeORM does NOT parameterize the ORDER BY column expression, so the
+  caller-supplied string is interpolated raw into SQL. Reachable via GET
+  /security/activities?sortBy=... and the audit-trail query. Minimum impact: unknown column → 500;
+  genuinely a raw-SQL interpolation surface behind only the SUPER_ADMIN role guard. Systemic class:
+  unvalidated-DTO / dynamic-ORDER-BY interpolation, present at two callsites and a likely pattern
+  elsewhere.
+- **Fix design:** Make an invalid sort column unrepresentable rather than sanitizing at the sink.
+  Define a per-entity allowlist of sortable columns as a shared const tuple (e.g.
+  ACTIVITY_LOG_SORT_COLUMNS = ['createdAt','severity','category','action','userName'] as const)
+  colocated with the ActivityLog entity, and validate at the DTO boundary with
+  @IsIn(ACTIVITY_LOG_SORT_COLUMNS) on sortBy in BOTH QueryActivitiesDto and the audit-trail query
+  DTO — the already-active ValidationPipe (whitelist:true + forbidNonWhitelisted:true) then rejects
+  anything else with 400 (tier 1/3). Belt-and-braces in each service: narrow the sortBy option type
+  to the same union and clamp to 'createdAt' before orderBy so the raw-interpolation sink can never
+  receive an unvetted string even if a future caller bypasses the DTO. Both callsites import the
+  single shared allowlist so drift can't reintroduce the gap.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/controllers/activity-log.controller.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+  - `apps/admin-api-service/src/security/services/activity-logging.service.ts`
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/entities/security.entity.ts`
+- **Effort:** M
+
+### APA-250 [LOW] PDF export is a plaintext placeholder served as application/pdf
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** exportAuditTrail 'pdf' format returns the string 'PDF Export - N audit entries' with
+  mimeType application/pdf — a compliance officer downloading a PDF audit export gets a corrupt
+  one-line file.
+- **Evidence:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts:553-559,641-646`
+- **Root cause:** exportAuditTrail advertises 'pdf' in AuditExportOptions.format
+  (audit-trail.service.ts:25-34) and in ExportAuditTrailDto, but the pdf branch (553-559) returns
+  generatePDFPlaceholder() — the literal string `PDF Export - ${logs.length} audit entries`
+  (643-646) — served with Content-Type application/pdf (controller sets result.mimeType,
+  audit-trail.controller.ts:448). The type union promises a format capability the implementation
+  does not deliver, so a compliance officer downloads a corrupt one-line file.
+- **Fix design:** Make the advertised format match real capability (tier 1). Preferred: implement
+  real PDF generation with a proper library (pdfkit / pdf-lib) that streams a valid PDF of the same
+  columns the CSV path emits, so the application/pdf contract holds — this is the compliance-correct
+  deliverable. If PDF generation is explicitly not implemented this cycle, instead REMOVE 'pdf' from
+  the AuditExportOptions.format union AND the ExportAuditTrailDto @IsIn list so the API structurally
+  cannot request a format it cannot produce (tracked with owner+deadline), and delete
+  generatePDFPlaceholder(). Do not keep returning a placeholder string behind an application/pdf
+  header under any 'for now'.
+- **Files to change:**
+  - `apps/admin-api-service/src/security/services/audit-trail.service.ts`
+  - `apps/admin-api-service/src/security/controllers/audit-trail.controller.ts`
+- **Effort:** M
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-HIGH-085** — APA-232 + APA-233: one drift, two crash sites.
+  `ComplianceCheckResult.requirement` is a nested `ComplianceRequirement` OBJECT; the panel's
+  hand-written type declared it a string and invented
+  `id`/`category`/`description`/`lastChecked`/`nextReview` at the top level, and `apiFetch<T>`'s
+  generic is an unchecked assertion so tsc validated none of it. `mapComplianceCheck` then SPREAD
+  the raw row into `<p>{check.requirement}</p>` — React refuses an object as a child, and
+  admin-panel has no error boundary, so the throw escapes to the shell and blanks the page. The
+  Reports tab crashed identically, because `generateComplianceReport` stores those same rows
+  verbatim into the `detailedFindings` jsonb column and a monthly cron guarantees one exists; its
+  mapper omitted the `toPrimitiveString` guard that the sibling `violations` branch already applied.
+  Both mappers are explicit projections now,
+  `BackendComplianceRequirement`/`BackendComplianceCheckResult` mirror the backend shape, and the
+  backend gains the one field the UI legitimately needed (`checkedAt`, stamped per check).
+  `nextReview` is deleted rather than invented — checks execute live per request and the platform
+  has no scheduled-review concept. `details` and `remediation` are rendered: the backend always sent
+  them, and the table previously said what was being checked but never what the check found. Gate:
+  `admin-security-runtime-contract` gains a compliance-checks block (red-proved, 4 of 5 cases), and
+  its stale `PaginatedAuditLogs` assertion is re-pointed at `IStandardPaginatedResult<AuditLog>`.
+
+- **ADMIN-MEDIUM-056** — APA-247: actor identity on three audit-relevant SUPER_ADMIN mutations —
+  retention-policy create/update (`audit-trail.controller.ts`) and security-incident update
+  (`security-monitoring.controller.ts`) — was hardcoded to `'admin'`/`'Admin User'` (with a "Would
+  come from auth context" placeholder), so every such audit record attributed a real operator's
+  action to a fictitious identity, defeating audit-trail integrity and non-repudiation. The correct
+  pattern was already landed in the sibling `compliance.controller.ts`. Fix: derived the actor from
+  the request's RS256-verified JWT via `getAuthUser(req)` (subject id for `createdBy`/`updatedBy`;
+  id + `name||email||id` for the incident timeline), throwing `UnauthorizedException` when absent —
+  no entity/migration change (the actor columns already exist). Tier-3:
+  `actor-attribution.invariant.spec.ts` scans every security controller and fails on any hardcoded
+  `'admin'`/`'Admin User'` actor literal or the placeholder comment; red-proven (fails on both
+  controllers on HEAD, `activity-log`/`compliance` already comply).
+- **ADMIN-CRITICAL-016** — APA-240: the security dashboard fabricated a green "healthy" score over
+  empty telemetry tables. Partial fix landed (honest `dataStatus` liveness → FE renders "No
+  telemetry"; threat-feed stub deleted); the ingestion supply-chain revival (LoginAttempted event →
+  NATS → admin-api consumer) is tracked with an architecture-of-record in docs/adr/047.
+- **ADMIN-MEDIUM-032** — Phase-1 RC-5 status-vocabulary drift (APA-236): the CompliancePage
+  data-request status filter offered `identity_verification`/`processing` (states the backend
+  `DataRequestStatus`/`admin.data_requests` CHECK never has) and omitted `expired`, and
+  `QueryDataRequestsDto.status` was `@IsString`, so those filters silently returned an empty 200.
+  Made `DATA_REQUEST_STATUSES` a runtime SSoT array (backend `security.entity.ts` + FE mirror),
+  tightened the DTO to `@IsIn(DATA_REQUEST_STATUSES)` (out-of-domain → 400), drove the dropdown from
+  the array, and added the no-allowlist parity gate `admin-data-request-status-vocab.spec.ts` (red
+  proven). Same architecture as ADMIN-MEDIUM-031. APA-224 (HIGH audit-action) + APA-162 (messaging
+  action) remain separate RC-5 slices.
+- **ADMIN-HIGH-033** — Phase-1 RC-5 audit-action-vocabulary drift (APA-224): the AuditTrailPage
+  action filter offered generic lowercase verbs (`create`/`read`/`update`/`delete`/`login`/`logout`)
+  while `admin.audit_logs` stores UPPERCASE*SNAKE `AuditAction` values (`TENANT_SUSPENDED`,
+  `IMPERSONATION_STARTED`, …), so every filtered audit query matched zero rows — false assurance to
+  an auditor on a SUPER_ADMIN compliance surface. Fixed by (1) extending the backend `AuditAction`
+  enum (`audit.entity.ts`) to cover every non-dynamic action actually written across the 16
+  `auditLogService.log()` call sites (tenant request/provisioned/erasure, the five impersonation
+  lifecycle actions, the three database-explorer actions, the schema backup/restore actions,
+  audit-log-accessed); (2) tightening both query paths — `audit-log-query.dto.ts` (GET /audit-logs)
+  and `QueryAuditTrailDto` (GET /security/audit) — from `@IsString` to `@IsEnum(AuditAction)` so an
+  out-of-vocabulary action 400s at the boundary instead of silently matching zero rows; (3) driving
+  the dropdown from `AUDIT_ACTION_FILTER_OPTIONS` (real values) and recolouring `getActionColor` by
+  real action family; (4) the no-allowlist parity gate `admin-audit-action-vocab.spec.ts` binding
+  every FE filter value to the backend enum and banning the dead lowercase verbs (red proven).
+  TRACKED follow-ups (with concrete blockers): the tier-1 retyping of `AuditLogInput.action`
+  `string → AuditAction` to prevent backend-internal writer drift is blocked by a DYNAMIC action at
+  `explorer.controller.ts:340`
+  (`` `DATABASE_EXPLORER*${operation.toUpperCase()}\_INTENT` ``) that must first be restructured into a static enum mapping; and `QueryAuditTrailDto.actions`(comma-separated multi-select, unused by the dropdown) retains`@IsString`.
+  Same architecture as ADMIN-MEDIUM-031/032. APA-162 (messaging action) remains a separate RC-5
+  slice.
+- **ADMIN-MEDIUM-042** — APA-224 write-side tier-1 (completes the tracked follow-up of
+  ADMIN-HIGH-033): `AuditLogInput.action` was a free-form `string`, so any backend writer could
+  persist an action string that drifts out of the `AuditAction` vocabulary the AuditTrail filter
+  matches against. The blocker at the time was the explorer write-intent action being built at
+  runtime (`` `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT` ``); restructurable only after
+  the APA-329 refactor gave one audit sink. Fix: added the three `DATABASE_EXPLORER_*_INTENT` enum
+  members, replaced the dynamic action with a static `Record<ExplorerWriteOperation, AuditAction>`
+  map (and retyped `auditExplorerAction`'s param to `AuditAction`), retyped `AuditLogInput.action`
+  `string → AuditAction`, and migrated all 17 `auditLogService.log` writers (explorer,
+  backup-restore, tenant-provisioning, suspend-tenant ×4, tenant-erasure, impersonation ×5, the two
+  `AUDIT_LOG_ACCESSED` meta-audits) to enum members — compile-driven, since a string literal is not
+  assignable to the enum. Tier-3: `tests/invariants/admin-audit-action-typed.spec.ts` pins
+  `AuditLogInput.action` as `AuditAction` (never `string`) and bans the dynamic explorer action (red
+  proven). The 68 explorer + 134 impersonation/audit specs stay green; the
+  `admin-audit-action-vocab` gate still holds with the 3 new members.
+- **ADMIN-LOW-035** — APA-244: three coupled truth defects on SecurityDashboardPage. (a)
+  `statusFilter`/`searchTerm` were dead state — passed to `fetchSecurityEvents` but their setters
+  were `_setStatusFilter`/`_setSearchTerm` (underscore-prefixed to dodge `no-unused-vars`) with no
+  UI control, so both were permanently
+  `all`/``. Renamed the setters off the underscore and wired a status `<select>`(all/new/investigating/resolved/dismissed, matching`mapStatusFilter`) plus the shared-ui debounced `SearchInput`; the escape hatch is gone so `no-unused-vars`now enforces they stay wired. (b) The "Resolved" tile counted`status==='closed'`within only the first ~20-row incidents page — silently capped. Moved the aggregate to the source:`getSecurityDashboardStats`now returns`resolvedIncidents` as a server-side count over the whole incident table (`In(['recovered','closed'])`), `BackendSecurityDashboardStats`gains the field,`mapDashboardData`reads it, and the FE page-count override is deleted. (c) The event modal's "Tenant" field read`event.tenantName`, which `BackendSecurityEvent`never returns (always N/A) — removed the phantom`tenantName`from the FE`SecurityEvent`type and rendered the real`tenantId`("Platform-wide" when genuinely null). New backend unit test`security-monitoring.dashboard-stats.spec.ts`pins`resolvedIncidents`
+  to the recovered/closed count. Independent of the empty-ledger producer gap
+  (ADMIN-CRITICAL-016/APA-245, tracked/infra-blocked).

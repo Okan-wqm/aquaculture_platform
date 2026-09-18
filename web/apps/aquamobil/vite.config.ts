@@ -91,15 +91,6 @@ export default defineConfig({
       // bare-specifier resolution hazard the farm-shared dedupe comment below
       // documents.
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
-      // Brand SSoT (web/shared-ui/src/config/brand.ts): a zero-dependency
-      // constant, aliased to the ONE file rather than the shared-ui barrel so
-      // the standalone bundle never drags the design system (and a second
-      // React) in. Same posture as the shared-contracts entry above.
-      '@aquaculture/shared-ui/brand': resolve(__dirname, '../../shared-ui/src/config/brand.ts'),
-      // Shared i18n (provider + typed `t()` over the `m.*` mobile keys merged
-      // into the shared-ui catalogue). Aliased to the i18n folder, not the
-      // barrel; it imports only React (deduped below) and its locale maps.
-      '@aquaculture/shared-ui/i18n': resolve(__dirname, '../../shared-ui/src/i18n'),
     },
     // Dedupe React across the aliased farm-shared boundary.
     //

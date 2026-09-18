@@ -16,14 +16,13 @@ import { AccessLogService } from './access-log.service';
  *   2. Provides AccessLogService at the DI container.
  *   3. Exports the service so AccessLogMiddleware can inject it.
  *
- * Then in AppModule.configure(), services apply
- * `consumer.apply(AccessLogMiddleware).forRoutes('*')` — same shape
- * the existing CorrelationIdMiddleware / TenantContextMiddleware
- * uses. The invariant test
- * `tests/invariants/access-log-middleware-mounted.spec.ts` (added
- * alongside) enforces that every service in the canonical list
- * either applies the middleware or is in an exception list with
- * a justified comment.
+ * The MOUNT is owned by the bootstrap factory (ADR-0006): every service
+ * declaring `serviceVisibility: 'public'` gets `AccessLogMiddleware`
+ * installed ahead of its Nest middleware by `mountEdgeHardening`
+ * (`libs/backend-common/src/bootstrap/edge-hardening.ts`), and the factory
+ * refuses to boot a public service whose AppModule does not import this
+ * module. `tests/invariants/public-service-edge-hardening.spec.ts` derives
+ * the public set from nginx and enforces both halves.
  *
  * # Why @Global and forRoot()
  *

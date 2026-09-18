@@ -8,14 +8,17 @@
  *   - DELETE /messaging/compliance/legal-holds/:id
  *   - GET  /messaging/retention/policies
  *   - PUT  /messaging/retention/policies/:id
- *   - GET  /messaging/monitoring/stats  (returns 501 until real-time metrics infra)
+ *   - GET  /messaging/monitoring/stats
+ *   - GET  /messaging/tenants
  *   - GET  /messaging/audit
  *
  * @see ADR-012 Phase 3
+ * @see ADMIN-HIGH-009 (monitoring stats + tenants overview)
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
 import type { PaginatedResult } from '../types';
+import type { MessagingMonitoringStats, MessagingTenantsOverview } from '../types/messaging';
 
 // ============================================================================
 // Types -- Compliance
@@ -54,7 +57,6 @@ export interface CreateLegalHoldInput {
   reason: string;
   legalMatterId: string;
   legalMatterDescription?: string;
-  requestedBy?: string;
   expiresAt?: string;
 }
 
@@ -230,12 +232,22 @@ export const messagingApi = {
   // ── Monitoring ──
 
   /**
-   * Fetch monitoring stats.
-   * IMPORTANT: This endpoint currently returns 501 (Not Implemented)
-   * because real-time metrics infrastructure is not yet available.
+   * Platform-wide messaging monitoring statistics: message volume totals
+   * (24h / 7d / all-time), active channels, the per-tenant breakdown and
+   * transactional-outbox health. Cached backend-side for 60 seconds.
    */
-  getMonitoringStats: (): Promise<unknown> =>
-    apiFetch<unknown>('/messaging/monitoring/stats'),
+  getMonitoringStats: (): Promise<MessagingMonitoringStats> =>
+    apiFetch<MessagingMonitoringStats>('/messaging/monitoring/stats'),
+
+  // ── Tenant Overview ──
+
+  /**
+   * Per-tenant messaging overview (message counts 24h / 7d / all-time plus
+   * active channel counts), sorted by 24h volume descending. Cached
+   * backend-side for 60 seconds.
+   */
+  getTenantsOverview: (): Promise<MessagingTenantsOverview> =>
+    apiFetch<MessagingTenantsOverview>('/messaging/tenants'),
 
   // ── Audit ──
 
@@ -274,19 +286,4 @@ export const messagingApi = {
     apiFetch<AiPersonaDefinition[]>(
       `/messaging/personas?${buildQueryString({ tenantId })}`,
     ),
-
-  /**
-   * Update an AI persona configuration.
-   * IMPORTANT: Currently returns 501 (Not Implemented) because personas are static.
-   * @param personaId - Persona identifier
-   * @param updates - Fields to update
-   */
-  updatePersona: (
-    personaId: string,
-    updates: Record<string, unknown>,
-  ): Promise<unknown> =>
-    apiFetch<unknown>(`/messaging/personas/${personaId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }),
 };

@@ -110,7 +110,9 @@ fn b3_quota_error_variants_present() {
 
 /// **Phase B-3 / Batch #272 (SensAuthManager session_quota field):** the
 /// `SensAuthManager` struct MUST hold an `Arc<SessionQuota>` field +
-/// the `active_leases` Mutex map for token-keyed lease tracking.
+/// the `active_leases` Mutex map keeping every issued lease alive.
+/// EDGE-HIGH-018: the map is keyed by the lease's unique `lease_id`, NOT
+/// the per-operator-constant token (which collided and dropped leases).
 #[test]
 fn b3_sens_auth_manager_holds_quota() {
     let src = read_source("src/opc_ua_sens_auth_manager.rs");
@@ -124,9 +126,8 @@ fn b3_sens_auth_manager_holds_quota() {
     assert!(
         src.contains("active_leases:"),
         "B-3 WIRE INVARIANT VIOLATED: SensAuthManager does not hold \
-         `active_leases` per-token registry. Without it, future \
-         session-close callbacks (Phase B-3.5) have no lease lookup \
-         channel — leases would only release via TTL fail-safe."
+         the `active_leases` registry. Without it, issued leases would \
+         only release via the TTL fail-safe."
     );
 }
 

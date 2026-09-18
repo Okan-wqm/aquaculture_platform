@@ -44,8 +44,9 @@ import { withTenantContext } from '@aquaculture/backend-common/context';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { toEventIso,
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import {
+  toEventIso,
   createBaseEvent,
   type MortalityAlertRaisedEvent,
   type MortalityRecordedEvent,
@@ -110,14 +111,16 @@ export class MortalityRecordedListener
     // EVENT_BUS is provided globally by EventBusModule (@Global). @Optional()
     // keeps the listener constructible in unit tests / NATS-less harnesses;
     // subscription is then skipped with a warning rather than crashing boot.
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
     // RedisService (RedisModule @Global) backs the inbound idempotency claim so a
     // crash-before-ack redelivery does not write a duplicate AlertHistory row.
     // @Optional() + narrowed Pick type keeps the listener constructible in
     // Redis-less harnesses (claim degrades to best-effort) and lets unit tests
     // pass a minimal double with no cast.
-    @Optional() @Inject(RedisService)
+    @Optional()
+    @Inject(RedisService)
     private readonly redisService?: Pick<RedisService, 'setNx' | 'del'>,
   ) {}
 
@@ -148,16 +151,17 @@ export class MortalityRecordedListener
    *
    * Fault-tolerant by design: a failure in alerting/statistics must never
    * affect the already-committed mortality record (the outbox guarantees the
-   * source write landed). Errors are logged and swallowed so NATS does not
-   * redeliver a poison message indefinitely.
+   * source write landed). A failure is a bounded retry (the idempotency claim
+   * is released first), dead-lettered once the consumer's delivery budget is
+   * spent — never a silent acknowledgement (PLAT-HIGH-902).
    */
-  async handle(event: MortalityRecordedEvent): Promise<void> {
+  async handle(event: MortalityRecordedEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'MortalityRecorded event has missing/invalid tenantId — skipping to ' +
           'prevent cross-tenant statistics corruption.',
       );
-      return;
+      return HandlerOutcome.terminate('MortalityRecorded: missing or invalid tenantId');
     }
 
     this.logger.log(
@@ -177,7 +181,7 @@ export class MortalityRecordedListener
         `[MortalityRecorded] eventId=${event.eventId} already processed — ` +
           'skipping to avoid a duplicate mortality alert.',
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     try {
@@ -193,17 +197,20 @@ export class MortalityRecordedListener
         await this.refreshBatchMortalityStats(event);
       });
 
-      this.logger.log(
-        `[MortalityRecorded] Successfully processed batch=${event.batchId}`,
-      );
+      this.logger.log(`[MortalityRecorded] Successfully processed batch=${event.batchId}`);
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Release the claim so a legitimate redelivery can retry the side effects
+      // Release the claim so the redelivery can retry the side effects
       // rather than being permanently suppressed by a transient failure.
       await this.releaseEvent(event);
       this.logger.error(
         `[MortalityRecorded] Failed to process batch=${event.batchId}: ` +
           `${(error as Error).message}`,
         (error as Error).stack,
+      );
+      return HandlerOutcome.retry(
+        `MortalityRecorded: side effects failed for batch ${event.batchId}`,
+        error,
       );
     }
   }
@@ -231,9 +238,7 @@ export class MortalityRecordedListener
         MortalityRecordedListener.DEDUP_TTL_SECONDS,
       );
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim failed (treating as won): ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim failed (treating as won): ${(error as Error).message}`);
       return true;
     }
   }
@@ -246,9 +251,7 @@ export class MortalityRecordedListener
     try {
       await this.redisService.del(this.dedupKey(event));
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim release failed: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim release failed: ${(error as Error).message}`);
     }
   }
 
@@ -313,9 +316,7 @@ export class MortalityRecordedListener
     });
     const quantityBeforeMortality = (batch?.currentQuantity ?? 0) + event.quantity;
     const todayRate =
-      quantityBeforeMortality > 0
-        ? (todayCount / quantityBeforeMortality) * 100
-        : 0;
+      quantityBeforeMortality > 0 ? (todayCount / quantityBeforeMortality) * 100 : 0;
 
     return { todayCount, todayRate, weeklyAverage, trend };
   }
@@ -334,10 +335,7 @@ export class MortalityRecordedListener
     if (event.quantity >= thresholds.singleEventQuantity) {
       alerts.push({
         type: 'single_event',
-        severity:
-          event.quantity >= thresholds.singleEventQuantity * 2
-            ? 'critical'
-            : 'warning',
+        severity: event.quantity >= thresholds.singleEventQuantity * 2 ? 'critical' : 'warning',
         message: `Single mortality event of ${event.quantity} fish recorded`,
       });
     }
@@ -408,17 +406,13 @@ export class MortalityRecordedListener
 
     for (const alert of alerts) {
       const raised: MortalityAlertRaisedEvent = {
-        ...createBaseEvent<MortalityAlertRaisedEvent>(
-          'MortalityAlertRaised',
-          event.tenantId,
-          {
-            causationId: event.eventId,
-            correlationId: event.correlationId,
-            userId: event.userId,
-            aggregateId: event.batchId,
-            aggregateType: 'Batch',
-          },
-        ),
+        ...createBaseEvent<MortalityAlertRaisedEvent>('MortalityAlertRaised', event.tenantId, {
+          causationId: event.eventId,
+          correlationId: event.correlationId,
+          userId: event.userId,
+          aggregateId: event.batchId,
+          aggregateType: 'Batch',
+        }),
         batchId: event.batchId,
         tankId: event.tankId,
         alertType: alert.type,
@@ -436,23 +430,16 @@ export class MortalityRecordedListener
   /**
    * Refresh batch mortality-by-cause statistics for observability/dashboards.
    */
-  private async refreshBatchMortalityStats(
-    event: MortalityRecordedEvent,
-  ): Promise<void> {
+  private async refreshBatchMortalityStats(event: MortalityRecordedEvent): Promise<void> {
     const batch = await this.batchRepository.findOne({
       where: { id: event.batchId, tenantId: event.tenantId },
     });
     if (!batch) {
-      this.logger.warn(
-        `Batch ${event.batchId} not found for mortality-stats refresh`,
-      );
+      this.logger.warn(`Batch ${event.batchId} not found for mortality-stats refresh`);
       return;
     }
 
-    const causeStats = await this.getMortalityByCause(
-      event.tenantId,
-      event.batchId,
-    );
+    const causeStats = await this.getMortalityByCause(event.tenantId, event.batchId);
     this.logger.debug(
       `Batch ${event.batchId} mortality by cause: ` +
         Object.entries(causeStats)

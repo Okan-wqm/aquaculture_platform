@@ -656,6 +656,17 @@ describe('VfdDraftBar', () => {
 // VfdProgrammingPage Tests
 // ============================================================================
 
+const REAL_DEVICES = [
+  { id: '11111111-1111-4111-8111-111111111111', name: 'Pump drive', brand: 'Danfoss', model: 'FC302' },
+  { id: '22222222-2222-4222-8222-222222222222', name: 'Aerator drive', brand: 'ABB', model: 'ACS580' },
+];
+
+/** Mutable so each case can present a loading / empty / populated tenant. */
+let mockDeviceListState: {
+  data: { items: typeof REAL_DEVICES } | undefined;
+  isLoading: boolean;
+} = { data: { items: REAL_DEVICES }, isLoading: false };
+
 describe('VfdProgrammingPage', () => {
   // We import the page lazily in Module.tsx, so test the component directly
   // and mock the hooks to avoid GraphQL calls
@@ -709,6 +720,14 @@ describe('VfdProgrammingPage', () => {
     }),
   }));
 
+  // SENSOR-HIGH-062: the page reads its device list from the real `vfdDevices`
+  // query now, so the suite controls that list the same way it controls every
+  // other hook here. It used to render three hardcoded devices and select the
+  // non-UUID `vfd-1` on mount, which is what these tests were asserting.
+  vi.mock('../hooks/useVfdRegistration', () => ({
+    useVfdDevices: () => mockDeviceListState,
+  }));
+
   vi.mock('../hooks/useVfdAutomationRules', () => ({
     useVfdAutomationRules: () => ({
       rules: [makeRule()],
@@ -730,6 +749,8 @@ describe('VfdProgrammingPage', () => {
   // Import after mocks are set up
   let VfdProgrammingPage: React.ComponentType;
   beforeEach(async () => {
+    mockDeviceListState = { data: { items: REAL_DEVICES }, isLoading: false };
+    useVfdProgrammingStore.setState({ selectedVfdDeviceId: null });
     const mod = await import('../pages/VfdProgrammingPage');
     VfdProgrammingPage = mod.VfdProgrammingPage;
   });
@@ -769,8 +790,63 @@ describe('VfdProgrammingPage', () => {
     );
 
     const selector = screen.getByTestId('device-selector') as HTMLSelectElement;
-    await userEvent.selectOptions(selector, 'vfd-2');
+    await userEvent.selectOptions(selector, REAL_DEVICES[1]!.id);
 
-    expect(useVfdProgrammingStore.getState().selectedVfdDeviceId).toBe('vfd-2');
+    expect(useVfdProgrammingStore.getState().selectedVfdDeviceId).toBe(REAL_DEVICES[1]!.id);
+  });
+
+  it('lists the tenant\u2019s real drives, not a hardcoded three (SENSOR-HIGH-062)', () => {
+    render(
+      <MemoryRouter>
+        <VfdProgrammingPage />
+      </MemoryRouter>,
+    );
+
+    const options = Array.from(
+      (screen.getByTestId('device-selector') as HTMLSelectElement).options,
+    );
+    expect(options.map((o) => o.value)).toEqual(REAL_DEVICES.map((d) => d.id));
+    // Brand and model disambiguate two drives a site may have named alike.
+    expect(options[0]!.textContent).toBe('Pump drive \u2014 Danfoss \u2014 FC302');
+  });
+
+  it('auto-selects a real device id, never a placeholder the backend cannot resolve', () => {
+    // `vfd-1` was selected on mount and is not a UUID, so the Parameters tab
+    // errored and every other tab rendered empty against a device that does not exist.
+    render(
+      <MemoryRouter>
+        <VfdProgrammingPage />
+      </MemoryRouter>,
+    );
+
+    expect(useVfdProgrammingStore.getState().selectedVfdDeviceId).toBe(REAL_DEVICES[0]!.id);
+  });
+
+  it('selects nothing while the list is still loading', () => {
+    mockDeviceListState = { data: undefined, isLoading: true };
+
+    render(
+      <MemoryRouter>
+        <VfdProgrammingPage />
+      </MemoryRouter>,
+    );
+
+    expect(useVfdProgrammingStore.getState().selectedVfdDeviceId).toBeNull();
+    expect(screen.getByText('Loading drives\u2026')).toBeTruthy();
+  });
+
+  it('says a tenant has no drives instead of offering an empty picker', () => {
+    mockDeviceListState = { data: { items: [] }, isLoading: false };
+
+    render(
+      <MemoryRouter>
+        <VfdProgrammingPage />
+      </MemoryRouter>,
+    );
+
+    const selector = screen.getByTestId('device-selector') as HTMLSelectElement;
+    expect(selector.disabled).toBe(true);
+    expect(screen.getByText('No VFD drives registered')).toBeTruthy();
+    expect(useVfdProgrammingStore.getState().selectedVfdDeviceId).toBeNull();
   });
 });

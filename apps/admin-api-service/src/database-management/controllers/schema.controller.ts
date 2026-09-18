@@ -4,6 +4,8 @@
  * Tenant schema oluşturma, yönetim ve izolasyon endpoint'leri.
  */
 
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -20,45 +22,29 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 
 import { Roles } from '../../decorators/roles.decorator';
 import { getAuthUser } from '../../shared/authenticated-request';
-import { SchemaStatus } from '../entities/database-management.entity';
+import { SchemaSummaryDto } from '../dto/schema-summary.dto';
 import { SchemaManagementService } from '../services/schema-management.service';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
-class CreateSchemaDto {
-  @IsNotEmpty()
-  @IsString()
-  @IsUUID()
-  tenantId!: string;
-}
-
 class SyncSchemasDto {
-  @IsOptional()
-  @IsUUID()
-  tenantId?: string;
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   modules?: string[];
 }
-
-class UpdateSchemaStatusDto {
-  @IsNotEmpty()
-  @IsEnum(['creating', 'active', 'suspended', 'deleted', 'migrating'])
-  status!: SchemaStatus;
-}
-
-// ============================================================================
-// Controller
-// ============================================================================
 
 @ApiTags('Database Management')
 @Controller('database/schemas')
@@ -81,51 +67,41 @@ export class SchemaController {
   }
 
   @Get('summary')
-  async getSchemaSummary() {
+  @ApiOkResponse({ type: SchemaSummaryDto })
+  async getSchemaSummary(): Promise<SchemaSummaryDto> {
     return this.schemaService.getSchemaSummary();
   }
 
   @Get(':tenantId')
-  async getSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async getSchema(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.schemaService.getSchemaByTenantId(tenantId);
   }
 
   @Get(':tenantId/info')
-  async getSchemaInfo(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async getSchemaInfo(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.schemaService.getSchemaInfo(tenantId);
   }
 
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async createSchema(@Body() dto: CreateSchemaDto) {
-    if (!dto.tenantId) {
-      throw new BadRequestException('tenantId is required');
-    }
-    return this.schemaService.createTenantSchema(dto.tenantId);
-  }
-
+  @AuditedOperation({ resource: 'Schemas', action: 'SYNC' })
+  @RequiresCapability('security-ops')
   @Post('sync')
-  async syncSchemas(@Body() dto: SyncSchemasDto) {
-    return this.schemaService.syncExistingTenantSchemas(dto.tenantId, dto.modules);
-  }
-
-  @Post(':tenantId/suspend')
-  async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
-    return this.schemaService.suspendSchema(tenantId);
-  }
-
-  @Post(':tenantId/activate')
-  async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
-    return this.schemaService.activateSchema(tenantId);
+  async syncSchemas(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: SyncSchemasDto,
+  ) {
+    return this.schemaService.syncExistingTenantSchemas(tenantId, dto.modules);
   }
 
   // SECURITY: destructive action requires confirmation token and audit
+  @AuditedOperation({ resource: 'Schema', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':tenantId')
   @Roles('SUPER_ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSchema(
     // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Req() req: Request,
     @Query('hardDelete') hardDelete?: string,
     // SECURITY: Confirmation token required for hard delete to prevent accidental
@@ -163,13 +139,8 @@ export class SchemaController {
   // ============================================================================
 
   @Get(':tenantId/validate')
-  async validateSchemaIsolation(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async validateSchemaIsolation(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.schemaService.validateSchemaIsolation(tenantId);
-  }
-
-  @Post(':tenantId/refresh-stats')
-  async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
-    return this.schemaService.updateSchemaStats(tenantId);
   }
 
   // ============================================================================
@@ -190,6 +161,8 @@ export class SchemaController {
   // Backfill
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Schema', action: 'BACKFILL_TRACKING_RECORDS' })
+  @RequiresCapability('security-ops')
   @Post('backfill-tracking')
   async backfillTrackingRecords() {
     return this.schemaService.backfillTrackingRecords();

@@ -8,8 +8,15 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { createHash } from 'node:crypto';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  deriveEventId,
+  projectPersistedReadings,
+  type EventId,
+  type PersistedReadingMetric,
+} from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -49,11 +56,52 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+
+import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenant-tombstone.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
+
+/**
+ * SENSOR-HIGH-118: the exact topic filters the MQTT listener subscribes.
+ *
+ * Exported as the SSoT — the sensor_service ACL grants (mqtt-auth.service)
+ * and its parameterized unit tests are derived from this list, so the ACL
+ * and the subscription set cannot drift apart. One denied filter used to
+ * fail the whole single-packet SUBSCRIBE (SUBACK 0x80) and silently kill
+ * ALL ingestion.
+ */
+export const SENSOR_SERVICE_SUBSCRIPTION_FILTERS: readonly string[] = [
+  // Sensor data topics
+  'sensors/#', // All sensor data
+  'aquaculture/+/sensors/#', // Tenant-specific sensors
+  '+/+/+/temperature-array', // Array sensor pattern
+
+  // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
+  // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
+  'tenants/+/devices/+/telemetry', // Device telemetry (CPU, RAM, Disk, Temp)
+  'tenants/+/devices/+/status', // Device status (online/offline)
+  'tenants/+/devices/+/response', // Command response (legacy singular)
+  'tenants/+/devices/+/responses', // Command response (plural - Edge Agent v2.0+)
+  'tenants/+/devices/+/io_data', // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
+  'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
+  'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
+  'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
+];
+
+/**
+ * Legacy edge/ filters — subscribed only when LEGACY_EDGE_TOPICS_ENABLED.
+ * These topics lack tenant enforcement (see D04 SEC-M01 note at the push site).
+ */
+export const LEGACY_EDGE_SUBSCRIPTION_FILTERS: readonly string[] = [
+  'edge/+/heartbeat', // Device heartbeat (health metrics)
+  'edge/+/birth', // Device birth certificate
+  'edge/+/death', // Device death (LWT - Last Will Testament)
+  'edge/+/response', // Command response from device (legacy singular)
+  'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
+];
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data
@@ -146,6 +194,38 @@ interface TenantEdgeStatusPayload {
   agent_version?: string;
   /** Edge agent includes uptime in status messages */
   uptime_seconds?: number;
+}
+
+/**
+ * Marks a failure of the DURABLE leg of message handling (the metric write
+ * transaction). Only these propagate out of handleMessage: an unpersisted
+ * reading must not be PUBACKed — the MQTT ack gate force-redelivers it from
+ * the persistent session. Non-durable failures (parse, fan-out) stay
+ * swallow-and-ack until the Task 1.6 disposition/DLQ contract classifies
+ * them (SENSOR-CRITICAL-086).
+ */
+class DurableWriteError extends Error {}
+
+/**
+ * Stable, key-sorted JSON rendering so the same logical payload always
+ * hashes to the same digest (Task 1.4 seed input).
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
+  return `{${entries.join(',')}}`;
+}
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
 /**
@@ -252,19 +332,28 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
+    // Task 1.8: erased-tenant tombstone — trailing optional so the
+    // `new`-based unit-test harness (positional args) stays untouched.
+    @Optional()
+    private readonly tombstone: ErasedTenantTombstoneService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
-    // Bind message handler to this instance
+    // Bind message handler to this instance. The promise is RETURNED, not
+    // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
+    // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
+    // here would ack a message that was never durably persisted.
     this.messageHandler = (topic: string, message: Buffer) => {
-      this.handleMessage(topic, message).catch((error: Error) => {
-        this.logger.error(
-          `Unhandled error in message handler for topic ${topic}: ${error.message}`,
-          error.stack,
-        );
-      });
+      this.mqttClient?.recordMessageReceived();
+      return this.handleMessage(topic, message)
+        .then(() => {
+          this.mqttClient?.recordMessageProcessed();
+        })
+        .catch(() => {
+          this.mqttClient?.recordMessageFailed();
+        });
     };
   }
 
@@ -352,35 +441,15 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Subscribe to wildcard topic patterns
-    const topics = [
-      // Sensor data topics
-      'sensors/#', // All sensor data
-      'aquaculture/+/sensors/#', // Tenant-specific sensors
-      '+/+/+/temperature-array', // Array sensor pattern
-
-      // Edge device topics - Tenant-prefixed pattern (Edge Agent v2.0 default)
-      // Pattern: tenants/{tenantId}/devices/{deviceCode}/{messageType}
-      'tenants/+/devices/+/telemetry', // Device telemetry (CPU, RAM, Disk, Temp)
-      'tenants/+/devices/+/status', // Device status (online/offline)
-      'tenants/+/devices/+/response', // Command response (legacy singular)
-      'tenants/+/devices/+/responses', // Command response (plural - Edge Agent v2.0+)
-      'tenants/+/devices/+/io_data', // I/O tag canlı değerleri (Edge Agent → Frontend bridge)
-      'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
-      'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
-      'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
-    ];
+    // Subscribe to wildcard topic patterns (SENSOR_SERVICE_SUBSCRIPTION_FILTERS
+    // is the single source of truth — the ACL grant list and its unit tests
+    // are derived from it, see SENSOR-HIGH-118).
+    const topics = [...SENSOR_SERVICE_SUBSCRIPTION_FILTERS];
 
     // Legacy edge/ topics (D04 SEC-M01): only subscribe when explicitly enabled
     // These topics lack tenant enforcement — migrate devices to tenant-prefixed topics
     if (this.legacyEdgeTopicsEnabled) {
-      topics.push(
-        'edge/+/heartbeat', // Device heartbeat (health metrics)
-        'edge/+/birth', // Device birth certificate
-        'edge/+/death', // Device death (LWT - Last Will Testament)
-        'edge/+/response', // Command response from device (legacy singular)
-        'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
-      );
+      topics.push(...LEGACY_EDGE_SUBSCRIPTION_FILTERS);
       this.logger.warn(
         'Legacy edge/ topic subscriptions are ENABLED. ' +
           'These topics lack tenant enforcement. ' +
@@ -453,6 +522,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Task 1.8 (erasure tombstone): an erased tenant's late messages are
+      // ACK-dropped — persisting them would recreate the just-erased
+      // schema's data and enqueue a fresh outbox row (Swiss-cheese erasure).
+      if (this.tombstone?.isErased(sensor.tenantId)) {
+        this.logger.warn(
+          `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
+        );
+        return;
+      }
+
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 
@@ -463,15 +542,31 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       const now = new Date();
 
-      // Save reading
-      await this.saveReading(sensor, data);
+      // Save reading. A failure here means the reading was NOT durably
+      // persisted — it must propagate (wrapped in DurableWriteError) so the
+      // MQTT ack gate holds PUBACK and the persistent session redelivers
+      // (SENSOR-CRITICAL-086). Everything else in this handler stays
+      // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
+      const persistedMetrics = await this.saveReading(sensor, data).catch((error: Error) => {
+        throw new DurableWriteError(
+          `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
+        );
+      });
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, now);
 
-      // Publish real-time event for WebSocket clients
-      await this.publishSensorReadingEvent(sensor, data, now);
+      // Publish real-time event for WebSocket clients, projected from the rows
+      // saveReading persisted (SENSOR-CRITICAL-111). `data` is passed on only
+      // as the identity input: a redelivery of the SAME wire message must keep
+      // collapsing onto one eventId.
+      await this.publishSensorReadingEvent(sensor, persistedMetrics, data, now);
     } catch (error) {
+      if (error instanceof DurableWriteError) {
+        // Not durable → no ack → redelivery. The ack gate in
+        // MqttClientService.forceRedelivery owns the reconnect.
+        throw error;
+      }
       this.logger.error(`Error handling MQTT message: ${(error as Error).message}`);
     }
   }
@@ -1735,10 +1830,27 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   private async publishSensorReadingEvent(
     sensor: Sensor,
-    data: Record<string, unknown>,
+    persisted: readonly PersistedReadingMetric[],
+    identity: Record<string, unknown>,
     timestamp: Date,
   ): Promise<void> {
     if (!this.eventBus) {
+      return;
+    }
+
+    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading just
+    // wrote, never from the wire payload. That is what makes the published
+    // value the CALIBRATED one and carries the farm/pond/tank the alert
+    // engine's rule query fails closed without.
+    const projection = projectPersistedReadings(persisted);
+    if (projection.mappedCount === 0) {
+      // No stored channel maps onto the flat shape (flow_rate, orp, co2 …).
+      // Publishing an empty reading is not a no-op: the alert engine reads it
+      // as "nothing is wrong" and auto-resolves open INFO/LOW incidents as
+      // "returned to normal". The metrics are persisted either way.
+      this.logger.debug(
+        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading published`,
+      );
       return;
     }
 
@@ -1747,16 +1859,62 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         ...createBaseEvent('SensorReading', sensor.tenantId, {
           aggregateId: sensor.id,
           aggregateType: 'Sensor',
+          // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
+          // producer ts + canonical payload digest, so a re-emission of the
+          // SAME reading (e.g. after the MQTT ack gate redelivers and the
+          // row already upserted) collapses onto one eventId instead of
+          // double-firing downstream effects. The EDGE-assigned
+          // sourceEventId (Task 1.7) is the durable long-term answer; this
+          // fallback binds to the payload's own ts when present.
+          eventId: this.deriveLegacyReadingEventId(sensor, identity, timestamp),
         }),
+        eventType: 'SensorReading' as const,
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
-        readings: data,
-        version: 1,
+        ...projection.fields,
+        ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
+        ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
+        ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
+        ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
       });
       this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {
       this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Deterministic identity for the legacy MQTT path (plan Task 1.4):
+   * tenant + sensor + producer timestamp + payload SHA-256. The producer
+   * ts prefers the payload's own `ts`/`timestamp`/`producerTs` field; the
+   * receive time is the fallback (documented limitation: a redelivered
+   * legacy payload without its own ts gets a fresh receive-time identity —
+   * the edge-assigned sourceEventId removes that ambiguity).
+   */
+  private deriveLegacyReadingEventId(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): EventId {
+    const producerTs = this.extractProducerTs(data) ?? receivedAt.toISOString();
+    const payloadSha = sha256Hex(canonicalJson(data));
+    return deriveEventId([sensor.tenantId, sensor.id, producerTs, payloadSha].join('\u0000'));
+  }
+
+  private extractProducerTs(data: Record<string, unknown>): string | null {
+    for (const key of ['ts', 'timestamp', 'producerTs']) {
+      const raw = data[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return new Date(raw).toISOString();
+      }
+      if (typeof raw === 'string' && raw.length > 0) {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -2069,8 +2227,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Save sensor reading to database using narrow table format
    * Each channel value becomes a separate row in sensor_metrics
    */
-  private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
-    await runInTenantTransaction(
+  private async saveReading(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+  ): Promise<PersistedReadingMetric[]> {
+    return runInTenantTransaction(
       this.dataSource,
       'sensor',
       sensor.tenantId,
@@ -2078,6 +2239,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         const now = new Date();
         const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
         const metrics: SensorMetricInput[] = [];
+        // SENSOR-CRITICAL-111: the reading event is projected from these rows,
+        // so the channel key is captured here where the channel is in scope —
+        // the metric row itself carries only the channel UUID.
+        const persisted: PersistedReadingMetric[] = [];
 
         for (const channel of channels) {
           const rawValue = channel.dataPath
@@ -2125,6 +2290,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             sourceProtocol: 'mqtt',
             sourceTimestamp: now,
           });
+
+          persisted.push({
+            channelKey: channel.channelKey,
+            value: calibratedValue,
+            farmId: sensor.farmId,
+            pondId: sensor.pondId,
+            tankId: sensor.tankId,
+          });
         }
 
         if (metrics.length > 0) {
@@ -2132,6 +2305,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         }
 
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+        return persisted;
       },
     );
   }

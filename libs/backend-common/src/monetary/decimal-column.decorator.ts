@@ -1,5 +1,5 @@
-import { Column, ColumnOptions } from 'typeorm';
 import Decimal from 'decimal.js';
+import { Column, ColumnOptions } from 'typeorm';
 
 /**
  * TypeORM value transformer that converts between Decimal.js and
@@ -17,11 +17,27 @@ export class DecimalValueTransformer {
    * Called when writing to the database.
    * Converts Decimal to its string representation for PostgreSQL.
    *
+   * `undefined` is passed through as `undefined`, NOT collapsed into `null`.
+   * TypeORM asks the transformer about every column it is about to write, and
+   * only an `undefined` result leaves the column out of the INSERT so its
+   * DEFAULT applies (`InsertQueryBuilder`: `value === undefined` → `DEFAULT`,
+   * anything else → a bound parameter). Returning `null` for an unprovided
+   * value writes an explicit NULL, which every `NOT NULL DEFAULT '0'` money
+   * column rejects — `payments.refunded_amount`, `invoices.amount_paid` and
+   * `subscription_module_items.discount_amount` are all declared that way and
+   * were all unwritable unless the caller named them.
+   *
+   * An explicit `null` still writes NULL: clearing a nullable money column is
+   * a deliberate value, not an omission.
+   *
    * @param value - Decimal value from the application
-   * @returns String for PostgreSQL or null
+   * @returns String for PostgreSQL, null to clear, undefined to take the DEFAULT
    */
-  to(value: Decimal | null | undefined): string | null {
-    if (value === null || value === undefined) {
+  to(value: Decimal | null | undefined): string | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
       return null;
     }
     return value.toString();

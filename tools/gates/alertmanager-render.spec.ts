@@ -15,11 +15,12 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SCRIPT = join(REPO_ROOT, 'scripts/monitoring/render-configs.sh');
 const COMMITTED = join(REPO_ROOT, 'infrastructure/monitoring/droplet/alertmanager.yml');
@@ -48,7 +49,7 @@ function render(env: Record<string, string>): { status: number; stderr: string; 
       config: readFileSync(target, 'utf8'),
     };
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 }
 
@@ -147,6 +148,6 @@ void test('is idempotent — a second run changes nothing', () => {
 
     assert.equal(readFileSync(target, 'utf8'), first);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 });

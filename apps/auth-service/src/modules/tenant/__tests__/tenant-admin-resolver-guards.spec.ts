@@ -69,6 +69,26 @@ describe('TenantAdminResolver — Guard Decorators', () => {
     expect(roles).not.toContain(Role.MODULE_USER);
   });
 
+  // ADR-046: the tenant auth-security policy surface carries the same
+  // TenantAdminOrHigher gate as every sibling tenant-admin operation.
+  it('tenantSecurityPolicy should require TenantAdminOrHigher', () => {
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'tenantSecurityPolicy');
+    expect(roles).toBeDefined();
+    expect(roles).toContain(Role.SUPER_ADMIN);
+    expect(roles).toContain(Role.TENANT_ADMIN);
+    expect(roles).not.toContain(Role.MODULE_MANAGER);
+    expect(roles).not.toContain(Role.MODULE_USER);
+  });
+
+  it('updateTenantSecurityPolicy should require TenantAdminOrHigher', () => {
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'updateTenantSecurityPolicy');
+    expect(roles).toBeDefined();
+    expect(roles).toContain(Role.SUPER_ADMIN);
+    expect(roles).toContain(Role.TENANT_ADMIN);
+    expect(roles).not.toContain(Role.MODULE_MANAGER);
+    expect(roles).not.toContain(Role.MODULE_USER);
+  });
+
   it('rejects an MFA-unverified SUPER_ADMIN site-assignment mutation from a signed effective tenant', async () => {
     const targetTenantId = '22222222-2222-4222-8222-222222222222';
     const audit: IAuditLogService = {

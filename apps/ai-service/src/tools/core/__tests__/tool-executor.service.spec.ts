@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { collaborator } from '@aquaculture/testing';
+import type { ToolRegistryService } from '../../tool-registry.service';
+import type { AuditService } from '../../../audit/audit.service';
 import { ToolExecutorService } from '../tool-executor.service';
 import {
   ActuationPolicy,
@@ -40,7 +43,10 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
   };
 
   const registry = { getTool: jest.fn() };
-  const service = new ToolExecutorService(registry as never, { logToolExecution } as never);
+  const service = new ToolExecutorService(
+    collaborator<ToolRegistryService>(registry, 'ToolRegistryService'),
+    collaborator<AuditService>({ logToolExecution }, 'AuditService'),
+  );
 
   const ctx = (policy: ActuationPolicy): ToolExecutionContext => ({
     tenantId: 't1',

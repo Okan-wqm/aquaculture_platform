@@ -440,16 +440,30 @@ describe('useVfdChangeSets', () => {
     });
   });
 
-  it('applies an approved change set', async () => {
-    const applied = createMockChangeSet({ status: VfdChangeSetStatus.APPROVED });
-    mockGraphqlFetch.mockResolvedValueOnce({ approveVfdChangeSet: applied });
+  it('exposes no apply call, because approval is what applies a change set', () => {
+    // This asserted the defect: `applyChangeSet` existed and re-sent
+    // `approveVfdChangeSet`. No `applyVfdChangeSet` mutation exists on the schema
+    // — VfdChangeSetSchedulerService applies an approved set on the
+    // `vfd.changeset.approved` event, with a 30s sweep as the crash-durable
+    // backstop. So a second approve on an APPROVED set hits
+    // `assertStatus(..., PENDING_APPROVAL, 'approve')` and is rejected: the button
+    // could only ever error, on a set that was already on its way to the drive.
+    const { result } = renderHook(() => useVfdChangeSets());
+
+    expect('applyChangeSet' in result.current).toBe(false);
+  });
+
+  it('approving is the whole trigger — one mutation, no follow-up call', async () => {
+    const approved = createMockChangeSet({ status: VfdChangeSetStatus.APPROVED });
+    mockGraphqlFetch.mockResolvedValueOnce({ approveVfdChangeSet: approved });
 
     const { result } = renderHook(() => useVfdChangeSets());
 
     await act(async () => {
-      await result.current.applyChangeSet('cs-001');
+      await result.current.approveChangeSet('cs-001');
     });
 
+    expect(mockGraphqlFetch).toHaveBeenCalledTimes(1);
     expect(result.current.selectedChangeSet?.status).toBe(VfdChangeSetStatus.APPROVED);
   });
 

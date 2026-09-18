@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 'typeorm';
 import { ObjectType, Field, ID, GraphQLISODateTime } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
@@ -20,6 +14,10 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 // (ruleId equality + triggeredAt range with DESC ordering).
 @Index(['ruleId', 'triggeredAt'], { spatial: false, unique: false })
 @Index(['severity', 'acknowledged'])
+// Task 1.5 idempotency: one alert per (rule, source reading event). A
+// redelivered SensorReading (deterministic eventId, Task 1.4) hits this
+// constraint instead of double-firing notifications.
+@Index('uq_alert_history_rule_source_event', ['ruleId', 'sourceEventId'], { unique: true })
 export class AlertHistory {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -29,6 +27,15 @@ export class AlertHistory {
   @Column({ name: 'rule_id' })
   @Index()
   ruleId!: string;
+
+  /**
+   * The SensorReading event's own (deterministic) eventId that fired this
+   * alert — the idempotency half of the (rule_id, source_event_id) unique
+   * key. Nullable only for rows predating the column (legacy backfill).
+   */
+  @Field({ nullable: true })
+  @Column({ name: 'source_event_id', type: 'uuid', nullable: true })
+  sourceEventId?: string;
 
   @Field()
   @Column({ name: 'rule_name' })

@@ -21,6 +21,7 @@ import {
   JobExecutionLog,
   JobQueue,
 } from './entities';
+import { ErrorCaptureProjectionHandler } from './handlers/error-capture-projection.handler';
 import {
   GlobalSettingsService,
   PerformanceMonitoringService,
@@ -60,6 +61,10 @@ import {
     PerformanceMonitoringService,
     ErrorTrackingService,
     JobQueueService,
+    // ADMIN-HIGH-014: the sink for `events.*.ServiceErrorCaptured`. A PROVIDER,
+    // not a controller — EventHandlerRegistryModule discovers @SubscribeTo over
+    // DiscoveryService.getProviders().
+    ErrorCaptureProjectionHandler,
   ],
   exports: [
     GlobalSettingsService,

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import hashlib
+import subprocess
 from pathlib import Path
 
 from aria_kernel.workspace import canonical_identity, canonical_identity_source, canonicalize_remote_url
@@ -174,6 +176,23 @@ class CanonicalIdentityOfflineFallbackTests(unittest.TestCase):
         )
         source = canonical_identity_source(repo)
         self.assertEqual(source["source"], "remote_url")
+
+    def test_root_commit_identity_and_diagnostic_retain_the_hash_recipe(self) -> None:
+        repo = git_fixtures.make_local_git_repo(self.tmp, name="local", remote_url=None, initial_commit=True)
+        root_commit = subprocess.run(
+            ["git", "rev-list", "--max-parents=0", "HEAD"], cwd=repo,
+            capture_output=True, text=True, check=True,
+        ).stdout.splitlines()[0]
+        seed = "local-root:" + root_commit
+        self.assertEqual(canonical_identity_source(repo), {"source": "root_commit_sha", "normalized": seed})
+        self.assertEqual(canonical_identity(repo), hashlib.sha256(seed.encode()).hexdigest()[:16])
+
+    def test_basename_fallback_preserves_public_value_and_diagnostic(self) -> None:
+        repo = self.tmp / "unversioned"
+        repo.mkdir()
+        seed = "local-basename:unversioned"
+        self.assertEqual(canonical_identity_source(repo), {"source": "basename", "normalized": seed})
+        self.assertEqual(canonical_identity(repo), hashlib.sha256(seed.encode()).hexdigest()[:16])
 
 
 class CanonicalIdentityWorktreeIndependentTests(unittest.TestCase):

@@ -1,0 +1,1702 @@
+# SUPER_ADMIN Panel Audit — Remediation Architecture — 2026-09-05
+
+- **Scope:** `web/modules/admin-panel` (50 pages), `apps/admin-api-service` (34 controllers, 603
+  routes), the `admin` schema, and the ingress / kernel / billing / auth seams they depend on.
+- **Method:** 5 phases, 24 agent runs (Phase 0 inventory → 1a/1b/1c correctness → 2 security → 3
+  quality → 4 synthesis → 5a architectural-arbiter). Every CRITICAL claim was re-verified by grep
+  against the repository before it was relayed. Read-only audit; no code changed in the audit
+  itself.
+- **Directive of record (owner, 2026-09-05):** no patches. Every remediation is a Tier-1/Tier-2
+  architectural fix that carries a Tier-3 CI gate and is tested at unit, integration, contract, e2e
+  and invariant level. Findings are not fixed one button or one field at a time.
+- **Registry:** the 26 umbrella findings below are appended to
+  `docs/reviews/_registry/findings.jsonl` (cycle `2026-09-05-superadmin-audit`). Every remediation
+  commit carries a `Closes:` trailer pointing at one of them.
+- **Arbiter ADRs:** `docs/recommendations/architectural-arbiter/2026-09-05-adr-0006-…` through
+  `-adr-0017-…`.
+
+## 0. Türkçe Özet
+
+50 sayfanın **hiçbiri** eksiksiz çalışmıyor: 15 DEGRADED, 16 BROKEN, 18 FAKE. Sayfaların bir katman
+altında 41 UI aksiyonu, 118 client fonksiyonu ve 168 backend route ölü. Kanonik bulgu sayısı 56
+CRITICAL + 56 HIGH; bunlar 17 kök neden kümesine ve 12 hakem kararına indirgendi.
+
+Ana bulgu: ADR-002 "tek internet girişi gateway-api" diyor; nginx `/api/` isteklerini doğrudan
+admin-api-service'e yönlendiriyor. Erişim logu, iç başlık temizleme, act-as, MFA step-up ve kara
+liste guard'ı admin yüzeyinin girişi olmayan serviste monte edilmiş. Impersonation, MFA, yetki
+modeli ve edge sertleştirme kararlarının dördü de bu tek çelişkiden türüyor.
+
+Üretimde çalışan yedek yok. Her iki admin projesi CI'da hem lint hem test karantinasında; hiçbir
+gate PR'da çalışmıyor. Tenant oluşturma NATS ACL eksikliği yüzünden her seferinde 502 veriyor.
+
+## 1. Headline
+
+| dimension                   | result                                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Pages                       | 50 audited: WORKS **0**, DEGRADED 15, BROKEN 16, FAKE 18, unresolved 1                                                                  |
+| Verdict                     | FIX 23, REBUILD 18, DELETE 8                                                                                                            |
+| Dead surface one layer down | 41 UI actions, 118 client functions, 168 backend routes                                                                                 |
+| Canonical findings          | 56 CRITICAL + 56 HIGH (SA-001…SA-115) + 118 MEDIUM/LOW in 14 classes                                                                    |
+| Root-cause clusters         | 17 (C1–C17)                                                                                                                             |
+| Arbiter rulings             | ARCH-CRITICAL-000 + R1–R12; factual conflicts C1–C7 resolved                                                                            |
+| Tests actually run          | admin-api-service 920 pass / 39 skip; admin-panel 132 pass; coverage 31.66% statements; both projects quarantined from CI lint AND test |
+| Production backups          | none functional                                                                                                                         |
+
+## 2. Findings (registry IDs) → architectural fix → gate
+
+Each finding is an umbrella for one systemic root cause. The fix is the Tier-1/2 mechanism; the gate
+is the Tier-3 CI assertion that makes regression fail a PR. Ruling numbers (Rn) refer to the arbiter
+ADRs; cluster numbers (Cn) to the Phase-4 synthesis.
+
+## SEC-CRITICAL-161 — Two internet-reachable ingresses
+
+**State:** OPEN · **Wave:** W1 · **ADR:** 0006 (supersedes ADR-002 in part)
+
+`infrastructure/nginx/droplet.conf:423-433` proxies `/api/` straight to admin-api-service.
+`tests/invariants/strip-internal-headers-mounted.spec.ts:75-79` excludes admin-api behind a `//
+Future:` comment; `access-log-middleware-mounted.spec.ts:20-21` calls gateway-api the single
+ingress. `TRUST_PROXY` defaults to `'false'` and admin-api never sets it, so every `byIp` rate-limit
+bucket is one global bucket.
+
+**Fix (Tier-1 + Tier-2):** `bootstrapService` applies an edge-hardening bundle
+(StripInternalHeaders, AccessLog, RequestContext, required `TRUST_PROXY`) to every service declaring
+`serviceVisibility: 'public'`. The public set is derived from `droplet.conf` upstreams, never
+hand-listed. The two mount invariants are merged and their hand lists deleted. Dead CSRF middleware
+is deleted platform-wide.
+**Gate:** `tests/invariants/public-service-edge-hardening.spec.ts` parses nginx and asserts each
+proxied upstream boots with the bundle and sets `TRUST_PROXY` in the droplet compose.
+**Depends on:** DATA-CRITICAL-016 (retention) — mounting AccessLog on admin-api without a working
+`shared.access_logs` policy grows an unbounded table.
+
+## SEC-CRITICAL-162 — Impersonation is decorative (R1)
+
+**State:** OPEN · **Wave:** W2 · **ADR:** 0007
+
+Zero occurrences of `impersonat*` in gateway-api. The minted token has no consumer.
+`admin.impersonation_sessions` carries a blanket `BEFORE UPDATE OR DELETE` refusal trigger
+(`1800000000000-Baseline.ts:266-277`) that six service paths violate. `EffectiveTenantMiddleware`
+already enforces the whole control set (UUID, tenant ACTIVE fail-closed, MFA step-up, HMAC-bound
+effective tenant).
+
+**Fix (Tier-1):** delete the module (controller, service, entities, tables, page, client, CORS
+header, and the debug-tools sub-module under it). Promote `EffectiveTenantMiddleware` +
+`CaptureRequestedTenantMiddleware` into `libs/backend-common/src/middleware/`; mount on every public
+ingress. Reason and ticket move to `X-Act-As-Reason` / `X-Act-As-Ticket`, persisted in
+`shared.audit_logs` (`actorHomeTenantId`, `actedOnTenantId`, `mfaVerified`).
+**Gate:** `tests/invariants/cross-tenant-authority-ssot.spec.ts` — exactly one act-as implementation
+repo-wide, mounted on every nginx-derived ingress, zero `impersonation_session` references outside
+migrations.
+
+## SEC-CRITICAL-163 — No MFA model for platform admins (R5)
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0011 (cutover clause `proposed` — human decision)
+
+**Fix:** auth-service `TokenService` refuses to mint a `SUPER_ADMIN` access token for a user without
+`mfaEnabled` (Tier-1). Step-up for cross-tenant (existing, `effective-tenant.middleware.ts:186-192`)
+and for irreversible operations via `@Destructive({ requiresFreshMfa: true })` +
+`DestructiveActionGuard`. `security.mfa_enabled` config key and
+`impersonation_sessions.mfaCompleted` are deleted.
+**Gate:** `tests/invariants/platform-admin-mfa-ssot.spec.ts` — mint refusal asserted as unit
+behaviour; every `@Destructive({irreversible})` route resolves through the guard; no
+`MFA_REQUIRED_FOR_CROSS_TENANT=false` in any committed env; zero readers of `mfa_enabled`.
+**Human decision required:** enrolment cutover date (`SUPER_ADMIN_MFA_ENFORCED_AT`) and the
+locked-out-operator break-glass procedure.
+
+## SEC-HIGH-164 — Single SUPER_ADMIN bit is the whole authorization model (R10, C6)
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0016
+
+**Fix:** `auth.platform_capability_grants` projected into a `platformCapabilities` JWT claim at mint
+(same path as `modules` / `resourcePermissions`; revocation rides the existing durable token
+invalidation). Closed enum `billing-ops | support-ops | security-ops | platform-read-only |
+break-glass` (≤ 4 h, fresh MFA). `@RequiresCapability` + `PlatformCapabilityGuard` as the third
+`APP_GUARD`, ANDed after an untouched `PlatformAdminGuard`, so a grant can never widen.
+`@Destructive({scope, dualControl, dryRunDefault, requiresTypedConfirmation})` + `destructive_runs`
+WORM ledger modelled on `cleanup_runs`.
+**Gate:** `tests/invariants/platform-capability-coverage.spec.ts` — every mutating admin route
+carries a capability via reflected metadata; ratcheting allowlist `{route, owner, expiry,
+findingId}`.
+
+## SEC-HIGH-165 — IP access rules enforced by nothing (R4)
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0010
+
+**Fix (Tier-1):** delete both stacks — gateway `IpWhitelistGuard` (unregistered, fail-open,
+IPv4-only, in-memory Map with no writer) and `admin.ip_access_rules` with its controller, service,
+entity, page and client. IP restriction, if required, is an nginx `allow`/`deny` block.
+**Gate:** `tests/invariants/no-dead-guards.spec.ts` — every `CanActivate` in `apps/**` and `libs/**`
+is an `APP_GUARD`, in a `@UseGuards()`, or allowlisted with `{owner, expiry, reason}`.
+
+## SEC-HIGH-166 — Login rate-limit tier keyed to REST paths while login is GraphQL
+
+**State:** OPEN · **Wave:** W0
+
+`rate-limit.config.ts:66` binds the login tier to `/api/auth/login` and `/auth/login`.
+Authentication is a GraphQL operation, so the tier never engages.
+**Fix:** the tier is bound to the GraphQL login operation name resolved from the parsed document,
+sharing one declaration with the auth-service resolver; `TRUST_PROXY` becomes required for public
+services (SEC-CRITICAL-161).
+**Gate:** invariant that every rate-limit tier path or operation resolves to a registered route or
+GraphQL operation.
+
+## DATA-CRITICAL-015 — PROTECTED_TABLES misclassification; phantom ADR-018 (R2, C7)
+
+**State:** OPEN · **Wave:** W2 · **ADR:** 0008 (creates the missing `018-protected-tables-ssot`
+record)
+
+**Principle (binding):** a table is listed iff it is write-once at row granularity AND physically
+carries `id` + `legalHold`. Column-scoped triggers are rejected; mutable aggregates are split into a
+lifecycle row plus append-only event rows (`cleanup_runs` / `cleanup_run_events` precedent).
+**Fix:** remove `admin.impersonation_sessions` with its drop; add `admin.activity_logs` and
+`admin.tenant_activities` (legalHold, canonical two triggers, `performedBy NOT NULL` blue-green);
+add the 10 missing mandatory columns to `admin.audit_logs`.
+**Gate:** `tests/invariants/audit-immutability-triggers.spec.ts` iterates `PROTECTED_TABLES` and
+asserts legalHold, both triggers, and that no repository `.save`/`.update` in the fleet targets a
+listed entity.
+
+## DATA-CRITICAL-016 — Three retention engines; the compliance window has never executed (R6, C10)
+
+**State:** OPEN · **Wave:** W1 · **ADR:** 0012 (promotes ADR-024 to Accepted)
+
+`retention-bootstrap.module.ts:58,97` register `timestampColumn: 'created_at'`; the physical column
+is `"createdAt"`, so the 7-year and 90-day policies raise and are swallowed.
+`audit-trail.service.ts:807-866` is a second 03:00 engine with no legal hold and no `@Min`. Eight
+ad-hoc crons dispose outside any registry.
+**Fix (Tier-1):** `RetentionEnforcementService` is the single owner. Delete runtime CRUD,
+`admin.retention_policies`, `RetentionPoliciesPage` and the eight crons.
+`registerRetentionPolicy<T>({ entity, timestampProperty: keyof T })` derives schema, table and
+column from `EntityMetadata`, so a wrong column name cannot compile. `legalHoldClause` is required
+whenever the entity carries `legalHold`.
+**Gate:** `tests/invariants/retention-authority-ssot.spec.ts` — one retention cron in the fleet;
+every protected table with a policy has a legal-hold clause; every timestamped table in
+`MODULE_SCHEMAS` has a policy or an allowlisted `{owner, expiry, reason}` entry.
+
+## INFRA-CRITICAL-164 — No functional production backup (R3, C12/C15)
+
+**State:** OPEN · **Wave:** W1 · **ADR:** 0009
+
+**Fix (Tier-1):** WAL-G + `tools/scripts/database/*` is the sole backup and restore authority.
+Delete the admin-api backup subsystem (service, controller, 3 entities, `admin.schema_backups`,
+`admin.schema_restores`, 3 crons, backup/restore/PITR UI); re-point `fk_cleanup_runs_backup` at the
+WAL-G epoch; strike `database-restore-drill.md:548`.
+**Gate:** single-authority assertion in
+`tests/invariants/backup-restore-verification-contract.spec.ts` — nothing outside
+`tools/scripts/database/` and the two DR workflows may spawn `pg_dump`/`pg_restore` or declare a
+backup cron.
+**Sequencing:** gates every destructive migration in this plan.
+
+## INFRA-CRITICAL-170 — nginx and service route tables disagree on five production paths
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0006 (edge topology derived from nginx)
+
+**Evidence:** `infrastructure/nginx/droplet.conf` forwarded `/api/upload/*` verbatim to a gateway
+serving `/api/v1/upload/*`; `/api/csp-report` to a controller mounted at `/api/v1/api/csp-report`;
+`/install/*` and `/api/devices/*` — the surface the installer script and the Rust edge agent call —
+to a sensor service serving them under `/api/v1`; `/api/v2/ai/*` to a gateway proxy that never
+existed (`routes/v2` is an empty module and the AI chat REST path became NATS long ago); and the
+SCADA websocket, for which the client and sensor-service had agreed on a dedicated `/scada-ws/`
+engine.io path precisely so nginx could route it, had no nginx location at all. Each 404s in
+production while every unit test stays green, because nothing compared the two tables. Surfaced
+while closing the W0 open item on the upload path.
+
+**Fix (Tier-2):** nginx rewrites `/api/upload/` to `/api/v1/upload/` (the rewrite the admin
+catch-all already uses); gateway-api excludes `api/csp-report` from its global prefix as marine
+does; sensor-service excludes `install/*` and `api/devices/*` as it does `mqtt/*`; the dead
+`/api/v2/ai/` location, the gateway's `api/v2/{*path}` validator route, the empty `routes/v2`
+module, the unregistered `api/v1/sensors` proxy controller and ai-service's exclusions for the
+retired path are deleted; nginx gains a `/scada-ws/` websocket location to sensor-service.
+
+**Gate:** `tests/invariants/nginx-route-resolution.spec.ts` derives the nginx location table (path,
+modifier, rewrite, upstream) and every public service's served route table from source, and asserts
+both directions — every proxied location resolves after its rewrite to a route the upstream serves,
+and every route a public service serves outside its prefix is covered by an nginx location unless
+the kernel marks it Docker-internal, the service catalog marks its `/graphql` a federated subgraph,
+or `.claude/allowlists/internal-only-http-routes.yaml` declares it with a reason.
+
+## INFRA-HIGH-165 — CI quarantine policy is ungoverned prose (R12)
+
+**State:** OPEN · **Wave:** W0 · **ADR:** 0017
+
+**Fix (Tier-1 in the consumer):** every `knownUnstableProjects` value becomes `{ owner, expiry,
+findingId, reason }`; `write-affected-target-report.mjs` exits 1 on a malformed, expired,
+unknown-finding or RESOLVED-finding entry. The test quarantine of admin-api-service and admin-panel
+is lifted immediately on measured evidence. Per-spec quarantine only; lint ramp admin-panel first;
+coverage baselines untouched in the same PR.
+**Gate:** the consumer itself, plus `tests/invariants/ci-quarantine-schema.spec.ts` so an expired
+entry fails a normal PR even when the affected set omits the project.
+
+## INFRA-HIGH-166 — Production is fail-closed by accident (SA-068, C15)
+
+**State:** OPEN · **Wave:** W0
+
+`ENABLE_DEBUG_TOOLS`, `ENABLE_DB_EXPLORER_WRITES`, `ENABLE_RAW_SQL_EXPLORER`,
+`DATABASE_READONLY_USER`, `BACKUP_ENCRYPTION_KEY` and admin-api `TRUST_PROXY` are absent from
+`docker-compose.droplet.yml`; nothing pins their absence or presence.
+**Fix:** a declared per-service environment manifest (required / forbidden / pinned-false), asserted
+at boot and diffed against the droplet compose by an invariant. A subsystem that cannot function
+without a variable refuses to start.
+
+## BILLING-CRITICAL-011 — Two plan catalogues; money in jsonb (R7, C10)
+
+**State:** IN-PROGRESS · **Wave:** W4 · **ADR:** 0013 (extends ADR-037; reverses the
+`apps/billing-service/CLAUDE.md` ownership clause)
+
+All four tables have moved (discount codes, module pricing, the plan catalogue, custom plans). What
+remains under this ID is the `PlanPricing` snapshot shape, re-attributed to BILLING-CRITICAL-012 —
+see the closing note below.
+
+**Fix (Tier-1):** `billing.plans` is the sole catalogue of record for plan id, price, cycle and
+Stripe ids. Delete `admin.plan_definitions`, `module_pricing`, `custom_plans`, `discount_codes`;
+migrate their data into billing with `numeric(12,2)` + `CHECK`, ISO-4217 currency, `discountPercent
+BETWEEN 0 AND 100`. Admin keeps authoring and forwards commands.
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` — no plan/price/discount entity outside
+billing; no money-typed field inside `jsonb`/`simple-json` fleet-wide; Stripe ids in exactly one
+entity.
+
+**Implementation note — the discount catalogue (landed 2026-09-06):** the first of the four tables
+has moved. `billing.discount_codes` and `billing.discount_redemptions` are created by
+`apps/billing-service/src/database/migrations/1802000000000-CreateDiscountCatalogue.ts`, which also
+copies the `admin` rows;
+`apps/admin-api-service/src/migrations/1809200000000-RetireAdminDiscountCatalogue.ts` then
+re-verifies every source row by id in billing and RAISES rather than dropping if one is missing
+(`SCHEMA_REGISTRY` runs billing at slot 8 and admin at slot 11, so the copy always precedes the
+drop). `MODULE_SCHEMAS` and the tenant-erasure registry moved with them — a redemption is erased by
+`tenant_id`, the code itself is platform reference data.
+
+The value model is the part worth stating. `admin.discount_codes.discountValue` was one
+`numeric(10,2)` holding a percentage for one row and an amount of money for the next, so no CHECK
+could constrain it (`150` was a legal 150% and a legal $150 at once) and the two non-monetary kinds
+had nowhere to put their number — `calculateDiscountAmount` returned a silent `0` for `free_months`
+and `free_trial_extension`, so a "2 months free" code reported success and discounted nothing. Each
+kind now has its own column (`percent_off numeric(5,2)`, `amount_off` via the platform
+`MoneyColumn`, `free_months`, `trial_extension_days`) under one CHECK asserting that exactly the
+matching one is populated, with ISO-4217 `currency` and `CHECK (current_redemptions <=
+max_redemptions)` so the database refuses an over-redemption even if code races. **Deviation from
+ADR-0013, deliberate:** the ADR specified `numeric(12,2)`; money uses `MoneyColumn`
+(`numeric(19,4)`), which is the platform's money SSoT — introducing a second money precision inside
+`billing` would be the drift the finding is about — and a percentage, not being money, gets
+`numeric(5,2)`, the widest column that cannot hold a nonsense rate. The contract mirrors the split
+as a discriminated union (`BillingDiscountValue` in
+`libs/event-contracts/src/billing-admin-commands.ts`), so a mixed payload does not typecheck, and
+every amount crosses the wire as an exact decimal string.
+
+Two real defects were fixed rather than carried across. The redemption path had a TOCTOU: it
+validated, inserted a redemption, then read-modify-wrote `currentRedemptions`, so two requests
+racing on the last remaining use both passed and both redeemed; `DiscountCodeService.apply` now
+takes the code row `FOR UPDATE` before asking any rule, so concurrent redeemers of one code
+serialise. And `appliesTo` had two decorative members: `upgrades_only` and `new_subscriptions_only`
+were never checked anywhere, so both permitted every redemption, and `specific_plans` was only
+checked when a plan happened to be named. The rule is now "a restriction that cannot be evaluated
+REFUSES" — the caller states a `subscriptionChange` (`new` / `upgrade` / `other`) or the restricted
+code is refused.
+
+Seven commands
+(`request.billing.admin.{create,update,deactivate,bulkCreate,generate,validate,apply}DiscountCode*`)
+carry the writes; admin-api holds only read-only external entities (`schema: 'billing'`,
+`synchronize: false` — the contract `apps/admin-api-service/CLAUDE.md` states) and forwards. A code
+refused by a rule comes back as `success: true, valid: false` with a typed reason, so the panel
+renders "expired" instead of a 502. `PricingCalculatorService` stopped re-implementing the
+arithmetic and validating against a fabricated `'system-quote'` tenant: it asks billing for the
+amount, and a `discountCode` quoted without a tenant is refused rather than previewed against
+nobody. Both the OpenAPI artifact and the admin-panel client were regenerated; the ten discount
+routes are `$ref`-typed on both sides and `services/types/billing.ts` now derives `DiscountCode`,
+`DiscountAppliesTo` and `DiscountDuration` from the contract (the last two were nominal TypeScript
+enums, the same class of drift as `DiscountType` in W3).
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` — a catalogue table has exactly one writable
+entity and it is in `billing`; a migrated table leaves no `admin` declaration behind, in the
+entities or in `MODULE_SCHEMAS`; the discount catalogue holds no money inside jsonb; every remaining
+money-in-jsonb site on the billing surface and every duplicated Stripe identifier is governed by
+`.claude/allowlists/money-in-jsonb.yaml` (owner + expiry + finding + reason, ceiling 24, entries
+only shrink). Deliberately NOT fleet-wide: a name-based money detector cannot tell `totalFeedGiven`
+(kilograms) from `totalAmount` (currency), so running it over farm-service would be a heuristic
+dressed as an invariant; the billing surface is where the words mean money and is the surface this
+finding is about.
+
+**Still open under this finding (owner okan, deadline 2026-12-31):** `admin.plan_definitions`,
+`admin.module_pricing` and `admin.custom_plans` have NOT moved — they follow the same template in
+W4b, and the twenty-four allowlist entries plus the four duplicated Stripe identifiers are the
+machine-readable list of what that wave removes. `billing.plans.pricing` is still a jsonb price
+matrix (four of those entries); normalising it into per-cycle rows is part of the same wave.
+
+**Implementation note — the module price sheet and the quote (landed 2026-09-06):** the second of
+the four tables has moved, and the arithmetic moved with it. `billing.module_prices` +
+`module_price_metrics` + `module_price_tier_multipliers` replace `admin.module_pricing`, whose
+`pricingMetrics` and `tierMultipliers` were two `jsonb` columns of `number`s: no CHECK could reach a
+negative price or a tier multiplier of 40, a duplicate metric on one sheet was representable, no
+index could reach a price, and every arithmetic step ran on doubles because a jsonb number IS one.
+Now a sheet is a row, each metric is a row with `numeric(19,4) CHECK (price >= 0)` and a
+`metric_type` CHECKed against the fifteen the contract declares, and each tier multiplier is a row
+with `numeric(6,4) CHECK (multiplier > 0 AND multiplier <= 10)`. Migrations:
+`1802400000000-CreateModulePriceSheet` expands the jsonb arrays with `jsonb_array_elements` /
+`jsonb_each_text` and aborts on anything it cannot represent exactly;
+`1809300000000-RetireAdminModulePricing` re-verifies every sheet AND every metric by id in billing
+before dropping.
+
+**Four copies of the same multiplication became one.** `PricingCalculatorService` (admin-api),
+`CustomPlanService.calculatePlanPricing`, `CreateTenantPage` and `CustomPlanBuilderPage` each read
+the sheet and computed a price in floats. The two frontend copies were the worst: `CreateTenantPage`
+ignored the tier multiplier entirely and rendered ITS total, not the server's, falling back to it
+silently whenever the API call failed; `CustomPlanBuilderPage` hardcoded 0.7 / 0.9 / 1.0 multipliers
+that came from no sheet at all. Both showed operators a price the server would not charge. billing
+now owns `quoteModuleSelection`, every step is `Decimal`, the tier discount is computed from the
+list price rather than recovered by dividing the discounted price back out (the float trap, and 0/0
+= NaN on a zero multiplier), and each line is rounded once to the currency's own minor unit. The
+calculator, the seed's fifth copy of the default price table, and `admin.module_pricing`'s entity
+are deleted. `PricingMetricType` moved to `libs/event-contracts` as a union with its labels and
+quantity map; the admin-panel derives it from the generated contract and gained the two members
+every hand-written copy had been missing (`per_gb_transfer`, `per_workflow`).
+
+`BillingProvisioningModuleItem`'s three money fields are exact decimal strings now: they are
+billing's own quote travelling back to billing, and the round trip through IEEE-754 was the one
+place a priced item could disagree with the quote an operator approved. That the round trip happens
+at all is redundancy BILLING-CRITICAL-003 removes when provisioning moves onto
+`CreateSubscriptionHandler`; until then it is at least lossless. The one remaining widening is
+`sumModuleItemsTotal`, which sums in `Decimal` and converts once into
+`billing.subscriptions.pricing.basePrice` — still a jsonb `number`, still in the allowlist.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to the three new tables, adds a rule
+that the retired `admin.module_pricing` name may not reappear in any entity or in `MODULE_SCHEMAS`,
+and asserts that the tables ADR-0013 has already normalised contribute no money-in-jsonb site at all
+— not even a governed one. The allowlist ceiling dropped 24 → 23 as `module_pricing`'s entry
+disappeared, which is the ratchet working: the gate FAILED on the stale entry before it was removed.
+
+**Implementation note — the plan catalogue (landed 2026-09-06):** the third of the four tables has
+moved, and with it the last duplicated Stripe identifier. `admin.plan_definitions` was a SECOND
+catalogue whose ids no runtime path ever resolved — `create-subscription.handler`,
+`change-subscription-plan.handler`, `billing-scheduler.service` and the provisioning handler all
+resolve `billing.plans` — carrying its own `stripeProductId` / `stripePriceIds` (a Stripe object has
+one owner; two writable homes means two services can mint a product for the same plan) and a
+four-cycle price matrix inside a `jsonb` column where no CHECK could reject a negative price or a
+`discountPercent` of 400.
+
+`1802500000000-MergePlanCatalogue` folds it in. Identity is `billing.plans.name`, the catalogue's
+own UNIQUE business key: a definition whose name matches UPDATES the live plan, so the operator's
+authored copy lands on the row the runtime actually uses, and one whose name is new is INSERTed
+keeping its id. The price matrix expands into `billing.plan_cycle_prices` — one row per (plan,
+cycle), `numeric(19,4)` prices under `CHECK (>= 0)` and `discount_percent` CHECKed into [0, 100] —
+and `features.addOns[]`, which was money nested two levels inside a features blob, becomes
+`billing.plan_add_ons` rows. `1809400000000-RetireAdminPlanDefinitions` re-verifies by name that
+every definition, every cycle it priced and every add-on it sold has a counterpart, RAISES rather
+than dropping if one is missing, re-points `admin.plan_module_assignments.plan_id` and
+`admin.custom_plans.base_plan_id` at the surviving billing id (the merge discards a matched
+definition's own id), drops their FK constraints — admin does not constrain another service's table
+— and only then drops the table.
+
+**Three shapes collapsed into one.** `PlanTier`, `BillingCycle` and `PlanVisibility` were declared
+on the deleted entity and imported by eleven admin files; `BillingCycle` in particular existed
+twice, as an admin TypeScript `enum` and as the contract's string union, and
+`tenant-provisioning-workflow.service` carried two enum-to-enum mappers whose only job was to
+convert between them. `BILLING_CYCLES` and `BILLING_PLAN_VISIBILITIES` are now runtime-enumerable
+consts beside their unions in `@platform/event-contracts`, each pinned to its union by a
+compile-time parity type, so a `class-validator` `@IsIn`, a TypeORM `enum:` column and the contract
+all read one list. Both mappers are deleted.
+
+The write DTOs follow: `pricing` (a fixed four-cycle object of floats) became `cyclePrices:
+PlanCyclePriceDto[]` of exact decimal strings, `features.addOns` became a top-level `addOns` of
+priced rows, and `PERCENT_STRING` was tightened from "up to three digits" to the [0, 100] the
+columns CHECK — it had been accepting 999.99 for discount codes too. `POST /billing/plans/seed` is
+gone: seeding the catalogue is billing's own boot-time concern (`PlanSeedService`), and an admin
+route seeding a second catalogue was the finding in miniature. The admin-panel's hand-written
+`PlanDefinition` / `PlanPricing` / `PlanLimits` / `PlanFeatures` are replaced by the generated
+contract types (four of CONTRACT-CRITICAL-003's sixteen shadow types), and `PlanManagementPage`
+renders every cycle the plan is actually sold on, in the plan's own currency, through a shared
+decimal formatter — it previously read `plan.pricing.monthly.basePrice` unconditionally and
+formatted with a hardcoded `'USD'` and `minimumFractionDigits: 0`, which rendered a $19.99 plan as
+"$20".
+
+One defect was found while writing the billing-side spec: `PlanCatalogService` re-read the plan
+after a write without its relations, so the snapshot returned by `createPlan` / `updatePlan` /
+`deprecatePlan` carried `cyclePrices: []` — indistinguishable on the wire from a plan with no prices
+at all. Every read of a plan now loads its priced children.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to `plan_cycle_prices` and
+`plan_add_ons` and adds `plan_definitions` to the retired names that may not reappear. Both
+duplicated Stripe identifiers left the allowlist, so `duplicateStripeIdentifiers` is down to the two
+`admin.tenant_billing_info` entries that BILLING-CRITICAL-012 owns.
+
+**Implementation note — custom plans (landed 2026-09-06):** the last of the four tables has moved,
+and BILLING-CRITICAL-011's table list is now empty. `admin.custom_plans` held the whole priced
+selection inside ONE `jsonb` column — every module's `subtotal` and every line item's `unitPrice`
+and `total` — where a jsonb number IS an IEEE-754 double and no CHECK can reach it, and priced it in
+admin with the fourth float copy of billing's own arithmetic. `1802600000000-MoveCustomPlans`
+creates `billing.custom_plans` + `custom_plan_modules` + `custom_plan_line_items`, keeps the plan's
+id (nothing outside billing resolves one), resolves `basePlanId` against the merged `billing.plans`
+— an id that resolves to nothing becomes NULL rather than a dangling FK — and expands the jsonb
+selection into rows; `1809500000000-RetireAdminCustomPlans` re-verifies every plan AND every priced
+module by id before dropping.
+
+**One rule now prices a negotiated plan.** The discount was applied in three places that had to
+agree: `CustomPlanService.calculateFinalTotal`, the entity's own `calculateDiscount()`, and
+`CustomPlanBuilderPage` in the browser. The browser's copy was wrong outright — its annual figure
+took the fixed discount off TWELVE times where the server takes it off once, so an operator
+negotiating "$500/mo off" was shown a yearly price $5,500 below what billing would charge.
+`quoteModuleSelection` now accepts `negotiatedDiscountPercent` / `negotiatedDiscountAmount`, applies
+them in `Decimal` and returns the total; the builder quotes with them and renders the number it gets
+back, and `CustomPlanService.create/update` store that same number. There is no second
+implementation left to drift. `roundToCurrency`, which had two byte-identical copies inside
+billing-service, moved to `@aquaculture/backend-common/monetary` beside `getCurrencyScale`.
+
+**Four defects fixed rather than carried across.** (a) `discountPercent` was an unbounded `number`
+on a `numeric(5,2)` column: 400 was storable, and `Math.max(0, …)` turned it into a plan priced at
+zero instead of an error — it is CHECKed into [0, 100] now and refused at the DTO, the service and
+the column. (b) Nothing in the platform ever set a plan to `expired`, and `isValid()` existed but
+was called from nowhere, so `getCustomPlanByTenant` returned plans whose `validTo` had passed years
+earlier as the tenant's current price — the window is part of the query now, and activation refuses
+a lapsed plan. (c) `clonePlan` spread the source row wholesale and took no actor, so a clone was
+credited to whoever wrote the original and carried its rejection reason and subscription id; it is
+credited to the operator who cloned it and starts clean. (d) `submitForApproval` recorded no actor
+at all. Separately, `admin.custom_plans` carried the base-plan reference in TWO columns —
+`"basePlanId"`, which the ORM wrote, and `base_plan_id`, which the FK was built on and nothing ever
+populated; the plan-catalogue drop migration re-points both, having originally re-pointed only the
+dead one.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to the three new tables and adds
+`custom_plans` to the names that may not reappear under `schema: 'admin'`. The money-in-jsonb
+ceiling dropped 23 → 22 as `CustomPlanModule.subtotal` disappeared — the gate FAILED on the stale
+entry before it was removed, which is the ratchet working.
+
+**Still open under this finding (owner okan, deadline 2026-12-31):** the twelve `PlanPricing`
+allowlist entries were RE-ATTRIBUTED from this finding to BILLING-CRITICAL-012 rather than closed:
+`billing.plans.pricing` is not the per-cycle matrix (that is now rows) but the flat per-unit rate
+card a subscription snapshots at signup, byte-identical in shape to `billing.subscriptions.pricing`
+and `scheduled_plan_changes.pricing`. Normalising one without all three would split the snapshot, so
+all three move together with the subscription money path. The allowlist ceiling is unchanged at 23
+for that reason — this wave removed no money-in-jsonb site, and saying otherwise would be the audit
+theater the traceability rule exists to prevent.
+
+## BILLING-HIGH-014 — Provisioning raw-INSERTs a subscription; no billing command is idempotent
+
+**State:** OPEN · **Wave:** W4c · **ADR:** 0014
+
+**Evidence:** main closed BILLING-CRITICAL-010 independently of this wave (`63619406e`) with
+`StripeSubscriptionProvisionerService`, which mints a tenant's Stripe objects and fills
+`stripe_customer_id` / `stripe_subscription_id`. It did not touch the write itself:
+`billing-admin-nats.handler.ts:693` still runs `INSERT INTO billing.subscriptions` beside the
+`@CommandHandler`s that do the same thing properly — telling Stripe nothing beyond the mint, writing
+no outbox event, projecting nothing onto `auth.tenants` and validating no state transition under a
+lock. Separately, no admin billing command carries an `idempotencyKey`, so every NATS retry of a
+refund, an invoice or a plan change executes again; `billing.command_receipts` does not exist.
+
+**Why it is a finding rather than part of W4:** the wave's own gate,
+`tests/invariants/billing-command-contract-ssot.spec.ts`, is already written and already fails
+against main's tree on exactly this line — which is the finding, not an accident. Landing it means
+extracting the writer against main's provisioner rather than transplanting the audit branch's
+`SubscriptionWriterService`, and `create-subscription.handler` reaches the table through the
+repository rather than raw SQL, so "both paths use one writer" has to be designed here, not
+cherry-picked. Shipping the gate without that work would be a weakened gate; shipping the writer
+without the gate would be a fix nothing holds in place.
+
+**Fix (Tier-1/Tier-2):** one writer for `billing.subscriptions`, taking the caller's
+`EntityManager` so the GraphQL path and operator provisioning share it across their different
+transactions, with `ensureStripeObjects` ahead of either; then `BillingAdminCommandMeta` gains a
+required `idempotencyKey` + `correlationId`, and a `BillingCommandReceiptInterceptor` bound to every
+NATS controller writes a `(tenantId, commandType, idempotencyKey)` receipt before acting, so
+at-most-once is the default rather than something 32 handler methods each remember.
+The implementation exists on `claude/superadmin-panel-audit-dm2t1v` at `c7f82ec77` and is the
+starting point, not the answer.
+
+**Gate:** `tests/invariants/billing-command-contract-ssot.spec.ts`, landing with the fix.
+
+## BILLING-CRITICAL-012 — Raw SQL against subscriptions; dead Stripe reconciliation
+
+**State:** OPEN · **Wave:** W4 · **ADR:** 0014 (depends on 0013)
+
+**Fix (Tier-1):** provisioning via `CreateSubscriptionHandler` (FREE is the only non-Stripe tier).
+Delete the three raw-SQL blocks in favour of Cancel / Reactivate / ExtendTrial handlers. Fix the
+five webhook consumers to read `internalTenantId` through a shared constant (producer rename
+rejected — it would orphan every existing Stripe object) plus a real customer-lookup fallback.
+`BillingAdminCommandMeta` gains required `idempotencyKey` + `correlationId`, receipts on all eight
+commands. Seed `billing.plans` for every cycle.
+**Gate:** `tests/invariants/billing-command-contract-ssot.spec.ts` — sender type, consumer pattern
+and NATS grant derived from one declaration; metadata-key symmetry; no raw write to
+`billing.subscriptions` outside a command handler.
+
+**Implementation note — the webhook metadata asymmetry (landed 2026-09-06):** the first and most
+damaging half of this finding. `StripeApiService` binds the tenant into Stripe metadata under
+`internalTenantId`; all five webhook consumers read `metadata.tenantId` and warn-and-returned when
+it was absent — which it always was. **Every Stripe webhook this platform ever received was
+discarded**: no payment was recorded from Stripe, no subscription was ever moved to PAST_DUE or
+CANCELLED by Stripe, and no refund reached a payment row. It never surfaced because a
+warn-and-return is indistinguishable from a webhook for somebody else's object.
+
+The producer's key is NOT renamed — every Stripe object the platform has created carries it, and a
+rename would orphan all of them. Both sides read `STRIPE_TENANT_METADATA_KEY` from
+`libs/backend-common/src/billing/stripe-metadata.ts` instead. But renaming the read alone would have
+fixed the symptom and kept the flaw: Stripe metadata is writable by anyone who can reach the Stripe
+account, so a tenant id read out of it is an association hint, never proof (SECREV-CRITICAL-001).
+Each handler now resolves the tenant from the LOCAL row that owns the Stripe object — a payment by
+its payment-intent id, an invoice by its Stripe invoice id, a subscription by its Stripe
+subscription id — and `readStripeTenantHint` cross-checks the claim, logging a disagreement at ERROR
+without letting it change the outcome. `handlePaymentIntentSucceeded` additionally stopped depending
+on a `metadata.invoiceId` that no producer has ever written: it reaches the invoice through the
+payment intent's own `invoice` field, or through a payment row already opened for the same intent.
+
+**The service had no test at all** — that is how the defect survived; the only spec covered the
+controller's signature check, idempotency and routing. `stripe-webhook.service.spec.ts` adds
+thirteen, and nine of them FAIL against the pre-fix service, which is the evidence that they pin the
+behaviour rather than describe it.
+
+**Implementation note — the three raw-SQL lifecycle blocks (landed 2026-09-06):** cancel, reactivate
+and extend-trial each ran a raw `UPDATE billing.subscriptions` in the admin NATS handler while the
+corresponding CQRS handler sat unused. Every one of them told Stripe nothing, wrote no outbox event,
+projected nothing onto `auth.tenants` and validated no state transition under a lock — and each
+`WHERE tenant_id = $n AND is_deleted = false` named no subscription id, so a tenant with more than
+one row had all of them written.
+
+Concretely: a "reactivated" tenant kept its cancelled entitlements while Stripe went on stopping the
+subscription at period end; a tenant granted another fourteen trial days was invoiced on the
+ORIGINAL date, mid-trial, because Stripe never heard about the extension; and that same statement
+set `current_period_end = trial_end`, which on a monthly plan silently moved the next invoice date
+and on a plan whose period ran past the trial moved it BACKWARDS.
+
+`CancelSubscriptionCommand` gained the `cancelImmediately` the admin path had always offered — and
+the Stripe idempotency key now carries it, so a scheduled cancellation followed by an immediate one
+is not replayed as the first. `ReactivateSubscriptionHandler` and `ExtendSubscriptionTrialHandler`
+are new: Stripe-aware (`cancelAtPeriodEnd: false` and `trial_end` respectively, both added to the
+canonical client's `updateSubscription`, which mirrors Stripe's own), outbox-writing, projecting,
+and re-checking the state transition under the row lock rather than in a read that raced the write.
+The trial extension adds days in UTC arithmetic instead of `setDate`, which gains or loses an hour
+across a daylight-saving boundary, and sets `proration_behavior: 'none'` so moving a trial end does
+not raise an invoice.
+
+Twenty tests were added across the three handlers, each one asserting something the raw statements
+did not do.
+
+**Gate (parts i + ii of the ADR's three):** the new invariant derives every one of the 32
+`BILLING_ADMIN_COMMAND_SUBJECTS` members' sender, consumer `@MessagePattern` and `services.yaml`
+grant from the one subject map (96 assertions), and holds the metadata key to a single declaration:
+the producer may not write it as a literal, the webhook consumer may not reach into a Stripe
+object's metadata by hand, and no Stripe-surface file may read the old key. Verified by reverting
+both files — three assertions fail. Part (iii), "no raw write to `billing.subscriptions` outside a
+`@CommandHandler`", lands with the provisioning move: the three lifecycle `UPDATE`s are gone, and
+the one remaining raw statement is the provisioning `INSERT` that ADR-0014's first decision
+replaces. A gate carrying a carve-out for the exact statement it exists to forbid would be theatre,
+so it lands when the carve-out would not be needed.
+
+## CONTRACT-CRITICAL-004 — No machine-readable FE↔BE contract
+
+**State:** OPEN · **Wave:** W2 (class DTOs) / W3 (artifact) · **ADR:** 0015
+
+**Fix (Tier-1):** all 29 interface-typed `@Body()` parameters become classes with class-validator
+decorators, with DB CHECK / length / `inet` constraints in the same migration set. OpenAPI is
+emitted from Nest DTOs via the existing `SwaggerModule.createDocument` into a committed
+`apps/admin-api-service/openapi.json`; `openapi-typescript` generates `src/services/generated/`;
+`services/types/*`, `contract-validation.spec.ts` and `KNOWN_EXCEPTIONS` are deleted. One
+`Paginated<T>` and the seven enums live in `libs/event-contracts`; `AuditLogInput.action` becomes
+`AuditAction`.
+**Gates:** `tests/invariants/admin-openapi-artifact-parity.spec.ts` (byte-equality of artifact and
+generated client) and `admin-body-dto-is-class.spec.ts` (no `@Body()`/`@Query()` resolving to
+`Object`).
+
+**Implementation note — class DTOs (landed 2026-09-07):** the hard precondition is done. The 21
+remaining `interface`-typed `@Body()` parameters (of the 29; eight were converted in W2/W3 as their
+routes were touched) are classes with class-validator decorators, nested one level down as well:
+`apps/admin-api-service/src/billing/dto/billing.dto.ts` gains the twelve billing bodies plus
+thirteen nested value objects (plan limits, per-cycle pricing, features and add-ons, pricing
+metrics, tier multipliers, module quantities and selections, billing address, invoice line items and
+tax), `modules/dto/module-request.dto.ts` and `messaging/dto/messaging-admin.dto.ts` are new, and
+the three email-template bodies join `settings/dto/email-template.dto.ts`. Every nested shape is
+reached through `@ValidateNested` + `@Type`, so `whitelist` / `forbidNonWhitelisted` apply at every
+level rather than only at the envelope — a legal hold can no longer be opened with an empty reason,
+a retention window is bounded to 1–3650 days, and a plan tier must be a `PlanTier`. No DTO declares
+an actor (`createdBy` / `updatedBy` / `changedBy`): the ESLint rule `no-actor-in-input-dto` makes
+that a build error, so a body that claims one is now REFUSED (400) rather than silently overwritten,
+which is the stronger half of ADMIN-CRITICAL-102; `billing.controller.spec.ts` asserts the refusal
+and the JWT-sourced actor separately. Three bodies that carried a raw `tenantId`
+(`PlanChangeRequest`, `CreateCustomPlanDto`, `CreateInvoiceDto`, plus the two email-template bodies)
+now use the `@TenantIdCarrier()` + `@TenantParam('body')` form from ADMIN-CRITICAL-103. Gate:
+`tests/invariants/admin-body-dto-is-class.spec.ts` over `tests/invariants/lib/dto-resolution.ts` —
+every unkeyed `@Body()` / `@Query()` must resolve, through imports, barrels and path aliases, to a
+`class` carrying at least one class-validator decorator on itself or an ancestor; an unresolvable
+type fails rather than being assumed good. Still open under this finding: the committed
+`openapi.json` artifact and its Nx target, the `openapi-typescript` client for admin-panel with
+`services/types/*` deleted, the single `Paginated<T>` envelope, and the retirement of
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the artifact (landed 2026-09-07):** `apps/admin-api-service/openapi.json` is
+committed and generated by `nx run admin-api-service:openapi`
+(`tools/openapi/generate-admin-openapi.cjs` → `src/openapi/generate-openapi.ts`). The app is created
+in Nest PREVIEW mode: the full module graph is built and every controller registered, but no
+provider is instantiated and no lifecycle hook runs, so generation touches neither Postgres, Redis
+nor NATS and takes about twelve seconds anywhere. The runner registers `@nestjs/swagger/plugin` as a
+TypeScript transformer before the module graph loads — without it a Nest DTO's shape stays in its TS
+types and class-validator decorators and every schema is `{}`, which is the same vacuous contract an
+interface DTO produced. The document now carries 401 paths and 148 schemas with real properties:
+`required` lists, `minLength`/`maxLength` from the validators, enum members from the enums, and
+`$ref`s into the nested value objects. The `DocumentBuilder` configuration moved to
+`libs/backend-common/src/bootstrap/openapi-config.ts` so the served document and the artifact are
+built by one function, and `@TenantIdCarrier()` now also describes itself to OpenAPI as an optional
+uuid string — the wire contract carries the key even though the handler's type for it is
+`undefined`. Gate: `tests/invariants/admin-openapi-artifact-parity.spec.ts` regenerates and asserts
+byte-equality with the committed file, that every controller route appears in it, and that NO schema
+is empty — the last is what stops a silently dropped transformer from making a vacuous artifact
+agree with itself. The artifact is in `.prettierignore` because reformatting it would break that
+equality. Debt, tracked under this finding (owner okan, deadline 2026-12-31): the runtime build is
+plain `tsc`, which cannot apply the transformer, so the dev-only `/docs` UI shows the same routes
+with thinner schemas than the artifact; closing it means adding the plugin to
+`tools/build/build-service.sh` for every service. Still open: the `openapi-typescript` client for
+admin-panel with `services/types/*` deleted, the single `Paginated<T>` envelope, and retiring
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the generated client (landed 2026-09-07):**
+`web/modules/admin-panel/src/services/generated/admin-api.ts` is produced from the artifact by
+`openapi-typescript` (`nx run admin-panel:openapi-client`), and the parity gate now asserts that
+link too: a client regenerated from a stale artifact fails the same spec. Responses are typed as
+well as requests — moving the 56 DTO classes that were declared inside `*.controller.ts` files into
+sibling `dto/*.dto.ts` files was the precondition, because the `@nestjs/swagger` plugin visits a
+file EITHER as a controller (typing responses) or as a model (typing DTOs), never as both, so a DTO
+beside its routes cost that whole controller's response schemas. The artifact now carries 334 typed
+responses and 185 schemas, none empty. Consumption has started where it proves the most:
+`services/contract.ts` exposes `ApiSchema<'Name'>`, and eleven hand-written request types in
+`services/types/*` are now aliases of it. The compiler immediately found five real drifts that had
+been invisible, and each is fixed rather than cast away: the custom-plan builder and the discount
+page were sending a hardcoded `createdBy: 'admin'` (a fabricated actor the server now REFUSES,
+ADMIN-CRITICAL-008); the tenant-create form's tier union contained `custom`, which `POST /tenants`
+does not accept, so that path could only ever have 400'd; the tenant-detail edit form prefilled a
+`custom` tier into an update body that rejects it, and now leaves it unset behind an
+`isEditableTenantTier` guard; and two TypeScript `enum`s (`DiscountType`, `TenantProvisioningState`)
+were nominal, so their members were not assignable to the strings the API actually exchanges — both
+are now unions derived from the contract with a const object preserving every call site. Still open
+under this finding (owner okan, deadline 2026-12-31): the remaining sixteen hand-written types in
+`services/types/*` that shadow a generated schema (entities like `Tenant`, `SupportTicket`,
+`FeatureToggle`) are not yet aliased — each has a wide page-level blast radius and is its own
+change; the single `Paginated<T>` envelope; and retiring `contract-validation.spec.ts` with its
+`KNOWN_EXCEPTIONS`, which stays until those pages are migrated so the URL-shape check is not lost in
+the meantime.
+
+## ADMIN-CRITICAL-102 — Actor from client strings; 273 mutations unaudited
+
+**State:** OPEN · **Wave:** W2
+
+**Fix:** actor is never a DTO property (banned property names enforced structurally) and comes from
+`@CurrentUser` only; the awaited transaction-aware `AuditedOperationInterceptor` is adopted across
+admin-api; `audit.service.log` becomes `logOrThrow` by default; the audit-forgery endpoint is
+deleted.
+**Gate:** `tests/invariants/admin-mutation-audit-coverage.spec.ts` (reflected metadata, ratcheting
+allowlist); admin-api added to `SERVICES_REQUIRED` in `audited-operation-module-wired.spec.ts`.
+
+## ADMIN-CRITICAL-103 — tenantId is a transport value; erasure is structurally impossible (C9)
+
+**State:** OPEN · **Wave:** W3
+
+**Fix:** `@TenantParam()` resolves the id to a verified ACTIVE `auth.tenants` row before any handler
+runs. Erasure targets become an explicit per-table registry (`tenant-column | cascade-via |
+excluded-with-reason`).
+**Gate:** every table in `MODULE_SCHEMAS[].tables` is classified in the erasure registry; e2e erases
+a tenant holding support threads, invoices and audit rows.
+
+**Implementation note (landed 2026-09-05):** `@TenantParam(source, { key?, optional?, allow? })`
+(kernel `decorators/`) attaches `VerifiedTenantPipe` (kernel `tenant/`), which resolves the id
+through the `TENANT_ACTIVE_CHECK` port bound by admin-api's global `TenantLookupModule` (read-only
+`auth.tenants`, D14): missing → 400 unless optional, non-UUID → 400, unknown → 404, and a lifecycle
+check — a mutation admits ACTIVE only unless the route states `allow` (lifecycle, provisioning,
+billing and schema routes say `'any'`), a read admits every existing tenant. 115
+`@Param('tenantId')` / `@Query('tenantId')` sites, the tenant controller's 15 `:id` routes and 23
+body DTOs (`tenantId` removed from the class, taken by `@TenantParam('body')` on the handler) were
+converted; the ESLint rule `no-unverified-tenant-param` (admin scope, error) and
+`tests/invariants/admin-tenant-param-verified.spec.ts` keep the raw forms out. Erasure:
+`libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-table-policy.ts` — every
+source-schema target declares `tenant-column | cascade-via | excluded(reason)` for every registered
+table; the executor refuses to construct on an incomplete set, confirms every named column against
+`information_schema` before deleting, orders cascade children before parents without relying on a
+database FK, and derives nothing from column names;
+`tests/invariants/tenant-erasure-table-policy.spec.ts` checks completeness and that every named
+column is declared in source. Not done here: bulk `tenantIds[]` bodies (bulk suspend/activate,
+broadcast targets) still pass arrays the pipe does not resolve (owner okan, W3, this finding); the
+live e2e that erases a tenant holding support threads, invoices and audit rows needs the running
+platform and is not written in this session — the kernel cascade spec
+(`tenant-erasure-target-executor.cascade.spec.ts`) covers the same paths against a fake database.
+
+## ADMIN-CRITICAL-104 — Email template preview iframe has no sandbox (SA-008)
+
+**State:** OPEN · **Wave:** W0
+
+`EmailTemplatesPage.tsx:317` renders operator-editable HTML via `srcDoc` with no `sandbox`, a
+same-origin path to the SUPER_ADMIN token.
+**Fix:** one `SandboxedPreview` component in shared-ui that structurally sets the sandbox and is the
+only permitted way to render untrusted HTML; ESLint rule banning raw `srcDoc` /
+`dangerouslySetInnerHTML` under `web/**`.
+**Gate:** the lint rule plus a component test asserting the sandbox attribute cannot be omitted.
+
+## ADMIN-HIGH-105 — No shared admin-panel query/mutation primitive
+
+**State:** RESOLVED · **Wave:** W8a
+
+**Correction (W8a).** The audit called this adoption of an existing primitive.
+It was not: `useAdminQuery` / `useAdminMutation` hard-coded `graphqlClient` as
+their transport, while 46 of 46 pages read over REST through
+`services/adminApi`. There was no primitive for them to adopt, and the three
+that existed were never exported from `hooks/index.ts`, so no page could reach
+them either. `@tanstack/react-query` was imported without being declared — a
+phantom dependency resolving only through the federation shared-scope.
+
+A second correction: this is a data-boundary finding, not only an ergonomics
+one. `useAsyncData` caches cross-tenant SUPER_ADMIN data (billing metrics, audit
+logs with their tenant list, usage rollups — 17 slices over 8 pages) in a
+module-scoped `Map` whose only clear-on-logout path was an `aquaculture:logout`
+window event that nothing in the repository dispatches.
+
+**Landed (W8a):** the primitives take a query/mutation FUNCTION and own the
+cache contract, with `useAdminGraphQLQuery` / `useAdminGraphQLMutation` as
+adapters for the three GraphQL surfaces; the barrel exports all of them; the
+dependency is declared at the federation-pinned `5.90.10`; the `useAsyncData`
+cache joins `registerLogoutCleanup`, the authority `logoutCleanup()` drains;
+three sensor-module caches with the same defect join it too.
+
+**Split (W8b).** This finding's subject was the missing PRIMITIVE, and W8a
+closed it: the primitive exists, fits the REST transport its pages actually
+use, is exported from `hooks/index.ts`, and is gated. Adopting it across every
+page is a separate and much larger piece of work, so it carries its own id —
+**ADMIN-HIGH-121** — rather than holding this one open for months. The
+registry required that split before it would accept W8a's merged trailer,
+which is the closure-drift gate doing exactly its job.
+
+Two corrections to the count while splitting: the ratchet had listed two
+`pages/__tests__/*.spec.tsx` files as pages (a page's spec imports the api
+client in order to mock it), so the real total is 44, not 46; and W8b migrated
+the first two.
+
+## ADMIN-HIGH-121 — admin-panel pages reach the network outside the data layer
+
+**State:** RESOLVED (by the ratchet) · **Wave:** W8b onward · **Owner:** okan
+**Deadline:** 2026-12-31
+
+**Why RESOLVED with pages still listed.** The registry derives state from
+merged history — a merged `Closes:` trailer means closed — so a finding that
+every wave of a long migration references cannot stay open. What answers
+this finding architecturally is not "every page has moved" but the pair that
+makes moving them inevitable: the primitive exists, and every page that has not
+moved is named in
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml` with an owner, an expiry
+and a ceiling that only decreases. ADMIN-HIGH-108 closed the same way while 31
+cron sites were still listed in `unleased-scheduled-jobs.yaml`. The allowlist,
+not the finding's state, is the record of what is left.
+
+A page is unmigrated when it imports an admin API client directly and names
+neither `useAdminQuery` nor `useAdminMutation`. Until it moves, a write cannot
+invalidate the reads it affected — lists go stale until something else happens
+to refetch — and its results land in a second cache rather than the shell's
+`QueryClient`, which is the boundary ADMIN-HIGH-105 closed for the migrated
+pages only.
+
+**Correction to C7 (W8c).** The plan's C7 credited `SecurityDashboardPage` with
+no longer zero-filling because it uses `Promise.allSettled` and surfaces a
+`failures[]` list. It collects one; the render discards it. All three
+multi-query security pages showed their partial failure only under `error &&
+<content>.length === 0`, so the case that actually happens — some queries
+succeed, one fails — showed empty sections with no indication anything failed.
+On the security dashboard that is an operator reading "no incidents" and "no
+threat indicators" off requests that never returned. Closed by the shared
+`QueryFailureNotice` component, which owns the banner-vs-full-page condition
+once for every admin page.
+
+## ADMIN-HIGH-122 — the compliance page displayed four fabricated zeros
+
+**State:** OPEN · **Wave:** W9 · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`/security/compliance/data-requests` returns a page of rows and a total,
+nothing more, so `fetchDataRequests` built a `ComplianceStats` whose only real
+field was `totalRequests` — pending, in-progress, completed and OVERDUE were
+literal `0`. On a GDPR surface "0 overdue data-subject requests" is a regulated
+claim the endpoint gives no basis for.
+
+W8d stops the claim: the fields are `number | null` and the cards render an em
+dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
+resolution-time average, which belongs to W9.
+
+**Landed (W8b–W8o):** 16 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
+SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
+PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage, JobQueuePage,
+ErrorTrackingPage, FeatureTogglesPage, MaintenancePage, EmailTemplatesPage and
+ReportsPage — the last of which the audit's correction C8 had already
+established is backed by a real controller, so its migration is the plain
+kind: a queued execution now polls to completion instead of sitting at
+"pending" until the operator reloads. SystemSettingsPage follows, whose last
+two call sites — the System tab's `/settings/system/info` read and the SMTP
+test send — were all that kept the second cache alive on a page whose settings
+half already went through the primitives. admin-panel gained a
+`tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
+gate had ever read a spec in this package, and the compiler's first pass found a
+pre-existing spec asserting against a `Tenant` shape with two fields the
+contract lacks and one required field missing.
+
+**Remaining:** 21 pages, in three domain batches (tenant 1, billing 11,
+messaging 9 — the system batch is finished), governed by
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
+contract for server-side pagination, sort and dataset-scoped aggregates follows
+the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
+page that reaches the network without the data layer is listed with owner,
+expiry and reason under a ceiling that only decreases; every module-scoped cache
+in `web/` reaches the logout authority; `@tanstack/react-query` is declared
+wherever it is imported, at the federation-pinned version; the barrel keeps
+exporting the primitives.
+
+## ADMIN-HIGH-134 — a card counting a field the endpoint never returns
+
+**State:** OPEN → closed by W8t · **Wave:** W8t · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The server's `OnboardingStatus` is
+`'not_started' | 'in_progress' | 'completed' | 'skipped'`. The admin-panel's
+`TenantOnboarding.status` said
+`'not_started' | 'in_progress' | 'completed' | 'stalled'`. Two consequences,
+independent of each other:
+
+- `getOnboardingStats` returns `{total, notStarted, inProgress, completed,
+skipped, avgCompletionPercent, avgCompletionDays, completionByStep}`; the
+  client type declared `{notStarted, inProgress, completed, stalled,
+avgCompletionDays}`. So the **"Stalled" card read `undefined` on every load**
+  and the page's zero-filled default rendered `0` forever — on the card an
+  operator reads to find the tenants that are stuck. `totalTenants` was summed
+  from four fields while the server was already sending `total`, and that sum
+  could never include a skipped tenant.
+- The status filter offered a `stalled` option the service never sets, so
+  filtering by it always returned nothing, and every tenant whose onboarding
+  was skipped arrived carrying a status the union did not admit, with no badge
+  to render it.
+
+The spec type gate is what caught it: a fixture using the real `'skipped'`
+status would not compile against the frontend type.
+
+Both halves are aligned to the server's shapes now, the card reads "Skipped",
+`totalTenants` comes from `stats.total`, and the filter's options come from the
+corrected union.
+
+## ADMIN-CRITICAL-133 — the user surface rejected every role but one
+
+**State:** OPEN → closed by W8r · **Wave:** W8r · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The platform defines four roles in `Role` — `SUPER_ADMIN`, `TENANT_ADMIN`,
+`MODULE_MANAGER`, `MODULE_USER` — the same four `auth-service`'s
+`assertRoleHierarchy` ranks. `apps/admin-api-service/src/users/dto/users.dto.ts`
+retyped that list four times:
+
+```ts
+@IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
+```
+
+`MANAGER` and `VIEWER` are not roles. `MODULE_MANAGER` and `MODULE_USER` are,
+and this rejected both. Every one of these returned **400**:
+
+- creating a user at the New User form's default role, `MODULE_USER`;
+- changing any user to a module role;
+- inviting anyone below `TENANT_ADMIN`;
+- **filtering the user list** by a module role.
+
+Two more copies of the same vocabulary had drifted their own way. The
+role-template catalogue published six templates, including `SUPERVISOR` and
+`OPERATOR` — the only two marked `isSystem: false`, neither a `Role`, neither
+ranked by any hierarchy — and the invite form renders whatever the catalogue
+returns, so both appeared as choices that could only fail. And the frontend's
+`InviteUserDto` declared `invitedBy` **required**, so its one caller sent
+`invitedBy: 'system'`; the server's DTO does not declare it and admin-api runs
+`ValidationPipe({ forbidNonWhitelisted: true })`, so every invitation was
+rejected before reaching a handler — while the server had been taking the
+inviter from `req.user.id` all along, which is the only value that can be
+trusted on an audited action.
+
+Fixed at the root rather than by correcting four lists. `PLATFORM_ROLES` and
+`INVITABLE_ROLES` are derived from the enum with `Object.values`, so a role
+added to `Role` is validated and invitable without anyone remembering.
+`RoleTemplate.code` is typed `Role`, which is what turned the two phantom
+templates into compile errors. The frontend derives `PlatformRole` from a
+runtime list proved equal to the generated contract in both directions by a
+type-level assertion, `isPlatformRole` narrows the two `<select>` handlers
+instead of asserting, and `invitedBy` is typed `never` so it cannot be sent.
+
+**Gate:** `apps/admin-api-service/src/users/__tests__/role-vocabulary.spec.ts`
+— every role the catalogue publishes is accepted by create, update and invite;
+every legacy code is refused; `SUPER_ADMIN` is not invitable.
+
+## ADMIN-HIGH-132 — four platform totals computed from the first hundred rows
+
+**State:** OPEN → closed by W8q · **Wave:** W8q · **Owner:** okan
+**Deadline:** 2026-12-31
+
+```tsx
+const schemasState = useAsyncData(() => databaseApi.getSchemas({ page: 1, limit: 100 }) …);
+…
+<div>Total Schemas</div><div>{schemas.length}</div>
+<div>Active</div>      <div>{schemas.filter((s) => s.status === 'active').length}</div>
+<div>Total Size</div>  <div>{formatBytes(schemas.reduce((sum, s) => sum + s.sizeBytes, 0))}</div>
+<div>Total Tables</div><div>{schemas.reduce((sum, s) => sum + s.tableCount, 0)}</div>
+```
+
+Past a hundred tenants none of those four is a total. They are the listed
+page's subtotals, printed under the word "Total" on the screen a platform
+admin reads to know how large the estate is.
+
+The server has owned the aggregate all along — `GET /database/schemas/summary`
+— and three separate things kept it out of reach:
+
+- the admin-panel's hand-written type for it named four fields the server has
+  never returned (`{total, active, suspended, deleted}` against the actual
+  `{totalSchemas, activeSchemas, suspendedSchemas, totalSizeBytes,
+avgSizeBytes}`);
+- the route's inline return-type annotation left `"200": {}` in the OpenAPI
+  artifact, so no gate could see that drift — the swagger plugin describes
+  classes, not inline object types;
+- the summary carried no table count, so the fourth card had no server owner
+  even if the other three had been wired.
+
+All three are fixed at the root: a `SchemaSummaryDto` class with
+`@ApiOkResponse`, `totalTableCount` added, the handler rewritten as one
+`COUNT … FILTER … SUM` aggregate instead of `find()` plus four passes in Node,
+and the frontend type sourced through `ApiSchema<'SchemaSummaryDto'>` so the
+next rename is a compile error. The cards render an em dash when the aggregate
+has not loaded, and the list header says "showing N of M" so the table never
+reads as the estate.
+
+Two smaller things on the same page went with it. "Create Schema" sat in the
+header with no `onClick` — admin-api exposes no create-schema route, so it
+could never have worked, and a dead button on a provisioning screen reads as a
+silent failure. And the isolation check handed its result to `alert()`: a
+dialog that cannot be copied out of, is dismissed by the Enter key, and takes
+the issue list with it. It renders in the detail panel now.
+
+## ADMIN-MEDIUM-131 — four CSV exports that misalign their own columns
+
+**State:** OPEN · **Wave:** unassigned · **Owner:** okan
+**Deadline:** 2026-12-31
+
+```ts
+// security/AuditTrailPage.tsx — no escaping at all
+[
+  e.id,
+  formatDate(e.createdAt),
+  e.action,
+  e.entityType,
+  e.entityId,
+  e.severity,
+  e.userName || '',
+  e.ipAddress || '',
+].join(',');
+```
+
+Six admin-panel pages build a CSV and they spell the escape rule six ways.
+`AuditLogPage`, `InvoicesPage` and `QueryEditor` each carry a correct
+`escapeCsvCell` — quote-wrap on a comma, quote or newline, doubling inner
+quotes. `MessagingAuditPage` wraps only `details`; `ActivityLogPage` wraps only
+`action`; `AuditTrailPage` and `BillingReportsPage` wrap nothing.
+
+On the audit trail the unescaped columns include `action` and `userName`, so a
+row recorded for `deleted pond, tank 4` pushes severity, user and IP one column
+to the right in the file an auditor reads — silently, in a document whose whole
+purpose is to be the record.
+
+The fix is one `toCsv(headers, rows)` beside `saveBlob` in
+`services/blob-client.ts`, adopted at all six sites with the four hand-rolled
+escapers deleted. `QueryEditor` is exempt: it is on the W10 kill list with no
+consumer but its own barrel re-export.
+
+Raised in W8p, which gave the seven blob downloads one `saveBlob` authority.
+Escaping is a different defect class from the download mechanics and needs its
+own conversion and tests, so it is registered rather than folded in.
+
+## ADMIN-HIGH-130 — a disabled email template that was still sending
+
+**State:** OPEN → closed by W8m · **Wave:** W8m · **Owner:** okan
+**Deadline:** 2026-12-31
+
+```ts
+await settingsApi.updateEmailTemplate(template.id, { isActive: !template.isActive });
+setTemplates(templates.map((t) => (t.id === template.id ? { ...t, isActive: !t.isActive } : t)));
+// catch: console.error(...) and nothing else
+```
+
+The row flipped whether or not the server agreed, and a refusal produced a
+console line and no banner, no revert, no retry. So an operator who deactivated
+a customer-facing template saw it go inactive while the platform still had it
+enabled and still sending — the failure mode where the screen reports success
+for a write that did not happen.
+
+The toggle and the save both go through `useAdminMutation` with
+`invalidateKeys` now, so the list is the server's, and a refusal is reported on
+the page. The save's success banner moved behind the awaited mutation as well:
+it used to be announced beside a `loadTemplates()` call the handler never
+awaited.
+
+## ADMIN-HIGH-129 — maintenance windows recorded the operator's clock, not the platform's
+
+**State:** OPEN → closed by W8l · **Wave:** W8l · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Every write on the maintenance page discarded the updated window the endpoint
+returns and wrote its own row:
+
+```ts
+await systemSettingsApi.startMaintenance(maintenance.id);
+setMaintenanceList(
+  list.map((m) =>
+    m.id === maintenance.id
+      ? { ...m, status: 'in_progress', actualStart: new Date().toISOString() }
+      : m,
+  ),
+);
+```
+
+`actualStart` and `actualEnd` are the platform's record of when it went into
+maintenance and came out. They were being filled in **from the operator's
+browser clock**, for a transition the server may have performed at a different
+moment — or, on a 200 that did not change the status, not performed at all.
+Extend was worse: it recomputed `scheduledEnd` and ADDED to
+`estimatedDurationMinutes` locally, so a window's own duration drifted upward
+with each click regardless of what the server recorded.
+
+All five writes go through `useAdminMutation` with `invalidateKeys` now, so the
+row on screen is the one the server holds. The five `console.error` calls and
+the corner toast went with them; a rejected action is reported on the page,
+where the row it concerns is.
+
+## ADMIN-HIGH-128 — the error page reported no unresolved errors, then counted down from it
+
+**State:** OPEN → closed by W8j · **Wave:** W8j · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Two defects, one shape.
+
+**Zeros for a read that failed.** The stats object was seeded with four zeros
+and RESET to four zeros by the catch, so a failed `/system/errors/dashboard`
+displayed "0 unresolved" and "0 critical" — on the screen an operator opens to
+find out whether anything is broken — with the failure itself in a fixed toast
+in the bottom-right corner. The counts are `number | null` now and render an em
+dash, and the failed read is named where the operator is looking.
+`todayErrors` had the same problem in a subtler form: it was the last trend
+point `|| 0`, so an empty series read as "no errors today" about a window
+nobody had measured.
+
+**Arithmetic on a server aggregate.** Resolve and ignore each spliced the
+updated group into local state and then did
+`unresolvedErrors: prev.unresolvedErrors - 1`. That count is computed by the
+server; if an action did not change it — an already-acknowledged group, a
+different definition of "unresolved" — the card drifted further from the truth
+with every click, and nothing on the page ever corrected it. All three writes
+go through `useAdminMutation` with `invalidateKeys`, so the number comes back
+from the source that owns it.
+
+## ADMIN-HIGH-127 — the job queue reported no failures for a dashboard it had not read
+
+**State:** OPEN → closed by W8i · **Wave:** W8i · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three defects, found while migrating the page.
+
+1. **Six zeros for a failed read.** `defaultDashboard` was installed by the
+   catch whenever `/system/jobs/dashboard` failed. "Failed Today: 0" is the one
+   number an operator reads on this screen to decide nothing is wrong, and it
+   was shown for a dashboard that had not loaded — above an error line the same
+   handler set, easy to miss beneath four confident cards. Deleted; a failed
+   read renders the failure.
+
+2. **Writes that patched the screen instead of the server.** Each handler
+   rewrote local state — `setJobs(jobs.map(...))` after a retry,
+   `setDashboard({ ...queues: map(...) })` after a pause — so a row showed a
+   status the backend had never confirmed, while the queue counters beside it
+   kept their pre-action values. All four writes go through `useAdminMutation`
+   with `invalidateKeys`, and a rejected action is reported next to the table
+   rather than in a fixed-position toast in the corner of the window.
+
+3. **A contract field with no fields.** `JobProgress` was an interface, and the
+   OpenAPI generator's swagger plugin can only describe classes, so
+   `BackgroundJob.progress` reached the frontend as `Record<string, never>` —
+   and the page read `job.progress.percentage` through a type that says the
+   property cannot exist. It is a class now; the artifact and the generated
+   client carry the four fields. No DDL: the column is jsonb and its stored
+   shape is unchanged.
+
+## ADMIN-HIGH-125 — the analytics dashboard rendered a platform of zeros, twice over
+
+**State:** OPEN → frontend closed by W8h; server half owned by W9 · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`getDefaultData()` built a complete dashboard of about forty zeros — MRR, ARR,
+LTV, churn rate, uptime among them — and the page rendered it whenever
+`/analytics/dashboard` failed. The `catch` that installed it also swallowed the
+error, so there was no banner: a platform whose billing source was unreachable
+displayed "$0 MRR", "0% churn" and "0% uptime" as facts, on the screen an
+operator uses to judge the business.
+
+The server degrades the same way one layer down. `getDashboardSummary` fetches
+five sources with `Promise.allSettled` and substitutes
+`getDefaultTenantMetrics` / `getDefaultUserMetrics` /
+`getDefaultFinancialMetrics` / `getDefaultSystemMetrics` /
+`getDefaultUsageMetrics` — all zeros — for any that throws, listing only the
+section NAME in `unavailable[]`.
+
+**W8h closes the frontend half.** `getDefaultData()` is deleted; a failed
+summary renders `QueryFailureNotice` rather than a dashboard; every formatter
+returns an em dash for an absent value; a KPI trend arrow renders only when
+there is a change behind it (the tenants card had a hardcoded `trend="up"`);
+uptime is computed from the health read that answered instead of the summary's
+zero; and a section named in `unavailable[]` is treated as UNKNOWN, so the
+server's own signal decides what is shown instead of annotating the zeros it
+replaced.
+
+**The server half is now its own finding, ADMIN-HIGH-126**, so the debt is
+tracked by an OPEN row rather than by the notes of a resolved one. Those five
+default objects also feed `reports.service.ts` snapshot aggregation, so
+widening the metric interfaces to `number | null` carries report averaging math
+with it — a W9 change, not one to bolt onto a page migration. No operator sees
+those zeros on the analytics dashboard any more; every other consumer of
+`GET /analytics/dashboard` still does.
+
+## ADMIN-HIGH-124 — the landing page reported an empty platform when its reads failed
+
+**State:** OPEN → closed by W8g · **Wave:** W8g · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`AdminDashboard` fetched five endpoints with `Promise.allSettled`, mapped every
+rejection to `null`, and then wrote, under a comment reading _"Calculate metrics
+with fallbacks"_:
+
+```ts
+const platformMetrics = metrics?.platform || {
+  totalTenants: 0,
+  activeTenants: 0,
+  totalUsers: 0,
+  eventsLast24h: 0,
+  apiCallsLast24h: 0,
+};
+```
+
+The page's only `setError` call sat in a `catch` that `allSettled` can never
+reach. So a rejected `/system/metrics` rendered the platform's **first screen**
+as a platform with no tenants, no users and no traffic in the last 24 hours —
+with nothing on screen to say a request had failed. The cards render an em dash
+now, and `QueryFailureNotice` names the read that failed.
+
+Two smaller defects went with it. The "Active Tenants" card already printed a
+dash, but only when `activeTenants` and `totalTenants` were BOTH zero — so a
+platform that genuinely had no tenants yet was displayed as a failure; the test
+is whether the request answered, not what it answered. And the page built an
+`AbortController` it handed to no request: `systemApi.getMetrics`,
+`getServicesHealth`, `getCircuitBreakers` and `usersApi.getStats` took no
+signal, so aborting discarded a response that had already been fetched.
+
+**Gate:** the page's own spec — the signal reaches all five reads, four cards
+say unknown when the metrics and user-statistics reads fail, a real zero still
+renders as zero, and a breaker reset invalidates the breaker slice and nothing
+else.
+
+## ADMIN-HIGH-123 — perfect health from no measurements, and a dead time-range selector
+
+**State:** OPEN → closed by W8f · **Wave:** W8f · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three claims the page made without evidence, found while migrating it to the
+data layer. They are one finding because they share a cause: a default
+substituted for a measurement is indistinguishable, on screen, from the
+measurement.
+
+1. **Health of 100 from nothing.** The page read
+   `currentSnapshot.overallHealthScore ?? 100`, and `calculateHealthScore`
+   returned 100 minus the alert deductions whether or not it had a snapshot to
+   score — so a platform that had never recorded a measurement told its
+   operator that system health was perfect, in 48-point type. The function now
+   takes the metrics it scores instead of a persisted row and returns
+   `number | null`; that shape also fixes `createPerformanceSnapshot`, which
+   passed `null` while holding the freshly measured metrics and therefore
+   stored a score computed from nothing.
+
+2. **A control that changed only the label.** The page sent `?start=…&end=…`
+   to an endpoint whose parameters are `startDate` and `endDate`. An unknown
+   query parameter is not an error — it is ignored — so all five options
+   returned the server's default last hour, and the chart under "Son 24 Saat"
+   showed one. The query object is typed through `ApiQuery<>` from the
+   generated contract now, so the next rename is a compile error rather than a
+   silent no-op. The window is also computed at fetch time, so an
+   auto-refreshing "last 5 minutes" advances with the clock instead of
+   re-requesting the five minutes that were current when the option was
+   chosen.
+
+3. **Unmeasurable reported as zero.** A failed `statfs` reported an empty
+   disk, an unreachable fleet reported "0 of 0 containers healthy" over a 0 ms
+   latency nobody had timed, and `podRestarts` — which this service has no
+   Kubernetes API access to read — reported 0 restarts. All six are
+   `number | null` now, and `containerCount` counts the endpoints PROBED, so
+   an unreachable fleet reads "0 of 10".
+
+**Gate:** `performance-honest-metrics.spec.ts` (extended with the health-score
+and infrastructure cases) and the page's own spec, which pins the parameter
+names, the em dash where the score used to be 100, and a partial failure that
+no longer blanks the page.
+
+## ADMIN-HIGH-106 — Retired stores left as 410/409/501 stubs; route shadowing (C4, C5)
+
+**State:** OPEN · **Wave:** W3
+
+**Fix:** retirement deletes route and client in the same commit as the store; a route-registration
+linter orders static segments before parameterised ones.
+**Gate:** no controller method body reduces to a thrown Gone / Conflict / NotImplemented; smoke gate
+that every FE-called route returns something other than 404/410/501 on a booted app.
+
+**Implementation note (landed 2026-09-07):** every route that existed only to refuse is deleted with
+its service method, DTO, frontend client and page control in one commit: the whole
+tenant-configuration stack (controller, service, DTOs, entity file, the provisioning saga's fake
+`create_default_config` step, the admin-panel page, route and client — it synthesised defaults on
+read and answered 410 on write); the nine system-settings write routes and the
+`SystemSettingService` writers behind them; the global-config CRUD routes, `PUT provisioning-config`
+and the `ConfigCategory`/`ConfigValueType` vocabulary (the env-backed `GET provisioning-config`
+stays: sensor-service's installer-script generator reads it); the messaging AI Dashboard page and
+the persona toggle; `GET tenants/approaching-limits` (501) with its query, handler and client; the
+409 refusals — `POST billing/subscriptions`, `process-renewals`, `invoices/update-overdue`, four
+schema routes (create, suspend, activate, refresh-stats), three migration routes (run, rollback,
+batch run) — with the `never`-typed service methods behind them, the unreferenced
+`SchemaMigrationService`, the provisioning saga's `create_schema` step that could only throw, and
+every frontend button that called them. Custom-plan activation, which called the retired
+`createSubscription` writer and therefore could never activate a plan, now sends billing-service's
+`ProvisionTenantSubscription` command with the plan's priced modules and the plan discount allocated
+across them; both command identifiers derive from the plan id so a retry replays billing's receipt
+(`custom-plan.activation.spec.ts`). Two literal routes shadowed by `data-requests/:id` (`stats`)
+were reordered.
+
+**Correction at land time (2026-09-07):** the audit counted three messaging 501s — `GET
+messaging/monitoring/stats`, `GET messaging/tenants` and the monitoring page behind them — in the
+deletion set. Main answered them instead: `258856330` gave both routes real cross-tenant aggregates
+from messaging-service, cached there for 60 seconds (ADMIN-HIGH-009). A route that returns real data
+is not a stub, so those two routes, their client functions and the Monitoring and Tenants pages
+stay. The deletion set shrinks to the AI Dashboard page and the persona toggle, which still have no
+producer.
+
+**Gates:** `tests/invariants/admin-no-stub-routes.spec.ts` (no `NotImplementedException` in
+admin-api; `GoneException` only in the allowlisted report-download expiry; no route handler whose
+body reduces to a throw, a `throw*` helper call, or a `never` type) and
+`tests/invariants/admin-route-registration-order.spec.ts` (a parameterised route declared before a
+literal sibling it would match fails, within a controller and across controllers sharing a prefix),
+both over `tests/invariants/lib/admin-route-table.ts` (TypeScript-AST route enumeration). The FE↔BE
+contract test's `matchPath` no longer treats a frontend literal as matching a backend parameter, so
+a client for `/jobs/scheduled` can no longer pass against `/jobs/:id`; the two clients that did were
+deleted.
+
+## ADMIN-HIGH-107 — Permissive physical types in the admin schema (C11)
+
+**State:** RESOLVED — all five classes landed in W6 · **Wave:** W6 (moved from W2)
+
+**Fix:** one forward migration per class (timestamptz, uuid tenantId, numeric
+money, real arrays, inet) landed together with the decorators.
+**Gate:** `tests/invariants/admin-physical-types.spec.ts`.
+
+**The finding described this as new drift. It is not — it is a fix that was
+undone.** `1781900000000-ConvertAuditColumnsToTimestamptz` converted the audit
+columns across eight services in 2026. It now sits in `.archive/`, squashed
+into `1800000000000-Baseline`, and that baseline declares
+`"createdAt" TIMESTAMP NOT NULL DEFAULT now()` — the pre-fix type. The reason
+is the actual defect: the migration corrected the DATABASE and nobody corrected
+the ENTITIES, whose bare `@CreateDateColumn()` has a Postgres driver default of
+`timestamp`, so regenerating the baseline from entity metadata regenerated the
+bug. auth-service shows 14 columns reverted the same way, billing-service 7.
+
+That is why the gate pins the DECORATOR, not the DDL: a DDL-only check would
+have passed on the day the fix was undone, because the DDL was correct — it was
+correct in a migration a squash then replaced.
+
+**Landed (W6):**
+
+| class       | scope                                 | outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| timestamptz | 81 columns / 35 tables; 73 decorators | migration `1809600000000` + every decorator; `snapshotDate` stays `'date'` — a calendar day is a different thing and now says so                                                                                                                                                                                                                                                                                                                                                                                       |
+| uuid        | 14 of 26 id-shaped varchars           | migration `1809700000000`, which COUNTS non-uuid rows per column and RAISES with table, column and count rather than letting the cast fail mid-deploy                                                                                                                                                                                                                                                                                                                                                                  |
+| inet        | 4 `varchar(45)` IP columns            | migration `1809800000000`. Removing the W5 projection's `'unknown'` placeholder exposed THREE detectors that read the address straight into a TypeORM `where` — and TypeORM drops a `where` key whose value is `undefined`, so the first address-less signal would have counted the whole window and raised a critical brute-force against nobody                                                                                                                                                                      |
+| arrays      | 13 `simple-array` columns             | migration `1809900000000` → `text[]`. `simple-array` is not a Postgres type: TypeORM comma-joins into `text` with no escaping, so an element containing a comma becomes two on the next read. The two live `tags` filters already used the array-overlap operator `&&`, which has no `text` form — both the activity-log list and the audit-trail list returned a 500 on `?tags=` and never filtered anything                                                                                                          |
+| money       | 2 `numeric(10,2)`                     | migration `1810000000000` RETIRES `admin.tenant_billing_info` instead of widening it. Its only writer, `createOrUpdateBillingInfo`, had zero callers, so the table was empty and the tenant-detail billing block was blank for every tenant (DB-ADMIN-MEDIUM-005). Rounding a column in an empty table is not a fix; the read path moved to `billing.subscriptions` + `billing.invoices` per D14, which removes the columns rather than re-typing them. The last two `duplicateStripeIdentifiers` waivers went with it |
+
+**Not converted, deliberately:** the ~20 admin-owned jsonb SCALAR arrays. They
+are already stored as a structured type Postgres can index and query; the
+corruption this class was about is specific to the comma-joined text
+representation. Converting `error_groups.affectedTenants` / `affectedReleases`
+in particular would mean rewriting the `jsonb_build_array` / `@>` upsert SQL in
+`error-tracking.service.ts`, which is a change to working code for no defect —
+so it stays, and the gate scopes to arrays that are not already jsonb.
+
+**Split out:** `InvoiceReadOnly`'s four `numeric(12,2)` columns widen through
+`parseFloat` on the way in (ADMIN-MEDIUM-120). They are billing-owned DDL, but
+the transformer is admin's own; three consumers read it, one of them
+`getFinancialMetrics`, which W11 makes an exact SQL aggregate.
+
+**Split out:** the actor columns (`performedBy`, `createdBy`, `updatedBy`) are
+NOT a uuid problem — see ADMIN-MEDIUM-117.
+
+**Fleet-wide:** the same baseline reversal stands in auth-service and
+billing-service. Their DDL, their wave.
+
+## ADMIN-MEDIUM-117 — An actor column is a union with no type (W6 split)
+
+**State:** OPEN · **Owner:** okan · **Deadline:** 2027-03-31
+
+`users.service.ts:678` writes `performedBy: 'admin-api-service'` and
+`security-monitoring.service.ts:758` writes `createdBy: 'system'`, alongside
+real user uuids in the same `varchar(100)`. Both writes are CORRECT: an audit
+actor may be a service, and a detector-raised incident has no human author.
+
+So no single scalar type fits, and the W6 uuid conversion stopped at this family
+deliberately — forcing it to uuid would mean minting a fake uuid for `'system'`,
+replacing an honest string with a dishonest identifier, and converting one
+member while leaving its twin would be worse.
+
+**Fix:** an actor is `{ kind: 'user' | 'service', id }`. An `actor_kind` column
+beside the id, a CHECK binding kind to the id's shape, and one helper that
+writes the pair so no callsite decides for itself.
+**Carried by:** `ACTOR_COLUMNS` in `tests/invariants/admin-physical-types.spec.ts`,
+whose own case fails when an entry names a column that no longer exists — the
+exemption cannot outlive its subject.
+
+## ADMIN-MEDIUM-120 — The billing mirrors widen money through parseFloat (W6 split)
+
+**State:** OPEN · **Owner:** okan · **Deadline:** 2027-03-31
+
+`InvoiceReadOnly`'s `subtotal`, `total`, `amountPaid` and `amountDue`
+(`analytics/entities/external/invoice.entity.ts:46,49,52,55`) are
+`numeric(12,2)` behind `DecimalTransformer`, which widens through `parseFloat`.
+The value leaves Postgres exact and reaches the service as an IEEE-754 double,
+before `getFinancialMetrics` (`analytics.service.ts:476`) sums it in a JS loop.
+
+The `numeric(12,2)` DDL is billing's and stays billing's — but the transformer
+is admin's own code and swapping it for the platform's exact
+`DecimalValueTransformer` needs no DDL change at all, because a `numeric` column
+reads losslessly into a Decimal. What it does need is the three consumers moved
+with it: `analytics.service.ts`, `invoice-management.service.ts` and
+`tenant-detail.service.ts`.
+
+**Fix:** sequence it with W11's `getFinancialMetrics` rewrite — that query
+becomes a SQL aggregate, which is where the exactness actually has to hold, and
+converting the transformer separately would touch the same three files twice.
+
+## ADMIN-HIGH-108 — Crons without leader election, heartbeat or lease (C12)
+
+**State:** OPEN · **Wave:** W3
+
+**Fix:** `@LeaderOnly()` / `pg_try_advisory_lock` primitive in backend-common placed beside
+`CronHeartbeatService` so adopting one forces the other; job claiming via `FOR UPDATE SKIP LOCKED`;
+shared batched-delete helper.
+**Gate:** every `@Cron` / `@Interval` in the fleet is leader-wrapped and heartbeated;
+`CronJobNeverRan` / `CronJobFailingEveryRun` rules are the runtime half.
+
+**Implementation note (landed 2026-09-07):** the primitive is one decorator, `@ScheduledJob({ name,
+cron | every, scope? })` (`libs/backend-common/src/scheduling/`), which applies the NestJS schedule
+decorator itself and wraps the tick in `ScheduledJobRunner.run`: a Postgres transaction-scoped
+advisory lock keyed on (service, job) — `pg_try_advisory_xact_lock(hashtext(service),
+hashtext(job))`, released with the transaction and therefore with a crashed replica's connection —
+and `CronHeartbeatService.track` for the tick that wins; a losing replica records
+`outcome="skipped"`. The decorator is typed against `HasScheduledJobRunner`, so a class without a
+`scheduledJobs` runner does not compile, and every job name is declared at boot so `CronJobNeverRan`
+has a series to alert on. `scope: 'each-replica'` is for per-process housekeeping (the
+error-tracking cooldown map) and skips the lock, never the heartbeat. All 21 admin-api scheduled
+methods (13 classes) are converted; `ScheduledJobModule.forRoot({ serviceName: 'admin-api-service'
+})` is registered. Job claiming in `JobQueueService` is one transaction — `SELECT … FOR UPDATE SKIP
+LOCKED`, dependency check, the RUNNING transition — so two replicas or two overlapping ticks cannot
+execute the same row (`job-queue.claim.spec.ts`). The single retention authority now disposes in
+ctid-addressed batches through the shared `deleteInBatches` helper
+(`libs/backend-common/src/database/batched-delete.ts`). Gate:
+`tests/invariants/scheduled-jobs-leased.spec.ts` over
+`tests/invariants/lib/scheduled-method-table.ts` (TypeScript-AST enumeration of every
+`@Cron`/`@Interval`/`@Timeout`/`@ScheduledJob` in apps, libs and platform libs): a raw decorator
+fails unless it is a governed entry in `.claude/allowlists/unleased-scheduled-jobs.yaml` (owner,
+expiry 2026-12-31, ADMIN-HIGH-013, ceiling that only decreases, entries that must still exist);
+admin-api may have no entries; job names must be literal, well-formed and unique per service; every
+service declaring a `@ScheduledJob` registers the module; `CronHeartbeatService` is reached only
+through the runner. The three existing cron invariants now count `@ScheduledJob` as a scheduler
+entry point. The runtime half (`CronJobNeverRan`, `CronJobFailingEveryRun` in
+`infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`) already exists and now covers
+every admin job by construction. Not done here: the 67 raw scheduler sites in the other eight
+services and the two platform libs are frozen in the ratchet with owner okan and expiry 2026-12-31
+under this finding; each converts by adding the runner and swapping the decorator, and the ratchet
+fails when one is converted without its entry being removed.
+
+## ADMIN-HIGH-109 — Detective stores with no producer (C16)
+
+**State:** OPEN (close ceremony pending merge) · **Wave:** W5
+
+**Fix per store:** outbox-backed projection from auth-service login/session events, or delete the
+store with its detector and dashboard. No middle state.
+
+**The finding understated it in one place and overstated it in another, and both corrections are
+load-bearing.**
+
+_Understated — the transport did not exist._ The audit assumed a projection was a
+matter of writing a consumer. It was not: `apps/admin-api-service/src/main.ts`
+passes no `natsTransport` to `bootstrapService`, so Nest attaches no NATS server
+strategy and **every `@EventPattern` in admin-api binds to nothing, silently**.
+The first fix shipped a projection that never received a message, and the
+tenant-onboarding ACK ledger had been dead the same way — meaning the
+provisioning saga has been recording every service as never having acknowledged.
+Deeper still, the platform's own declarative alternative (`@SubscribeTo` +
+`EventHandlerRegistryModule`, documented as fail-closed) had **zero production
+users because it could not be imported**: it declared `@Module({})` while
+injecting `DiscoveryService`, which `EventBusModule` imports but does not
+re-export, so any service importing it failed at boot. Its only test registered
+it as a _provider_ beside a root-imported `DiscoveryModule`, proving the
+discovery logic while hiding the wiring defect.
+
+_Overstated — three of the five named stores have live producers._
+`performance_metrics` / `performance_snapshots` are written by a per-minute
+`@ScheduledJob`, and `database_metrics` by a five-minute one. What was actually
+wrong on that surface was not an absent producer but **fabricated readings**:
+`getDatabaseMetrics` hard-coded `avgQueryTime: 0` and `slowQueryCount: 0` in its
+SUCCESS path, its catch-all returned zeros plus a made-up pool size of 100, and
+`getApplicationMetrics` defaulted an empty window's Apdex to `|| 1` — a perfect
+score, above every threshold, from a table nobody was writing.
+
+**Also found, not in the audit:** `sessions.cleanup-expired`, an hourly
+`@ScheduledJob` taking an advisory lock to expire rows in a table no code has
+ever inserted into; and `reportError` carried four defects that had never fired
+because it had no callers — a non-atomic read-then-insert against a UNIQUE
+fingerprint index, an inverted alert window (`LessThan(windowStart)`), a full
+alert-rule table scan on every call, and an unmasked untruncated message written
+into a `varchar(500)` column in a table the tenant-erasure registry excludes.
+
+**Disposition per store:**
+
+| store                                      | outcome                                                                                                                                                                                                    |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.login_attempts`                     | projected from `events.security.events.auth.login.*`, idempotent on the source event id, 90-day window                                                                                                     |
+| `admin.api_usage_logs`                     | projected from `events.security.events.rate_limit.exceeded`, same shape, 30-day window                                                                                                                     |
+| `admin.user_sessions`                      | **deleted** — no session-lifecycle event exists to project from, `sessionToken` is NOT NULL + UNIQUE with no wire value to fill it, and `auth.refresh_tokens` already holds every field with a real writer |
+| `admin.error_groups` / `error_occurrences` | given the fleet-wide `ServiceErrorCaptured` ingress                                                                                                                                                        |
+| `admin.performance_*` / `database_metrics` | producers were live; the _readings_ were fabricated and are now `number \| null`                                                                                                                           |
+
+**Gates:** `detective-store-has-producer.spec.ts` (a writer must be REACHED from
+a runtime entry point, which is the assertion that would have caught this — the
+writers existed and were correct, with zero callers);
+`nats-inbound-binding.spec.ts` (an `@EventPattern` in a service with no
+`natsTransport` is a build failure); `error-capture-ingress.spec.ts`;
+`performance-metrics-honesty.spec.ts`.
+
+## PLAT-CRITICAL-917 — Every `@SubscribeTo` subscriber dead-letters every message it receives
+
+- **PLAT-CRITICAL-912** — the id this finding was raised and fixed under, and the id its
+  commits' `Closes:` trailers name. The registry allocated 914 when the row was re-appended
+  onto main's chain; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
+
+**State:** OPEN · **Wave:** W5 · **ADR:** —
+
+**Evidence:** PLAT-HIGH-902 made a delivery outcome a VALUE: `IEventHandler.handle()` returns a
+`HandlerOutcome`, and `foldHandlerOutcomes` treats a return that is not one as a contract violation
+and TERMINATES the message — dead-lettered on delivery 1, never retried
+(`platform/libs/event-bus/src/interfaces/handler-outcome.ts:131`,
+`nats-event-bus.ts:1419-1437`). Every `@SubscribeTo` method in the repository returned
+`Promise<void>`, so every method-level subscriber pushed `undefined` into that fold — including
+admin-api's `TenantOnboardingAck` / `TenantOnboardingFailed` handlers, which is the tenant
+provisioning acknowledgement path. Both registration paths converge on one registry
+(`subscribeTo` pushes into `this.handlers`, which the delivery loop reads), so nothing rescued it.
+
+It compiled because `nats.module.ts` bound the method through a bare `Function`, whose `any` return
+satisfies `IEventHandler` structurally. The class-level `@EventHandler` path never had the problem:
+a handler there implements the interface, and the compiler checks it. Typing the method-level bind
+honestly, while landing the security-signal subscribers, is what surfaced it.
+
+**Fix (Tier-1):** the constraint goes on the DECORATOR, not the registrar — `@SubscribeTo` applies
+only to a method returning `Promise<HandlerOutcome>`, so the gap is a compile error at the
+subscriber, which is the only place that can decide what its outcome is. A cast in the registrar
+would have documented the contract without enforcing it. The existing subscribers then say what
+they mean rather than defaulting: an already-projected signal acks with a reason, a login signal
+carrying no email terminates because no redelivery can add one, the error-capture sink acks its own
+failure with the reason its docblock had already argued for, and the rest ack.
+
+**Gate:** the decorator's type. No spec can regress this without the compiler refusing first.
+
+## OBS-CRITICAL-007 — The admin observability path does not exist (C13)
+
+- **OBS-CRITICAL-003** — the id this finding was raised under in the audit, and the id its
+  closing commit's `Closes:` trailer names. The registry allocated the next free OBS
+  sequence, 007; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
+
+**State:** OPEN — two of four clauses remain, split into OBS-HIGH-005 and
+OBS-HIGH-006 · **Wave:** W5 (partial)
+
+**The headline was wrong.** admin-api **does** expose Prometheus `/metrics`
+(`app.module.ts` imports `ServiceMetricsModule`, whose middleware applies to
+every route), **is** scraped (`droplet/file_sd/aqua-services.json`), and **is**
+covered by the fleet-wide RED rules, which select `namespace="aquaculture"` and
+group `by (app)`. The 15 `wiki.internal` runbook URLs are in
+`prometheus/alerts/slo-alerts.yml`, a Kubernetes `PrometheusRule` CRD that no
+compose file deploys and which contains no admin-api rules at all.
+
+**Landed:** four admin-api-specific SLO rules
+(`droplet/rules/70-admin-api-slo.yml`) on series the code actually emits, plus
+their runbook — deliberately _not_ repeating the baseline, since two alerts per
+incident is how a rota learns to silence a receiver. Fabricated readings on the
+in-app surfaces are gone (see ADMIN-HIGH-109).
+
+**Also found, not in the audit:** `NotificationChannelFailing` selects
+`http_requests_total{...,status=~"5.."}`; the emitted label is `status_code`, so
+that alert had never been able to fire. `10-service-health.yml` records fixing
+the identical mistake when these rules were extracted — a one-off correction
+that came back as a class of bug, so it now has a gate:
+`alert-rules-select-real-series.spec.ts` asserts every metric a rule selects is
+emitted somewhere and every label it constrains on the shared HTTP families is
+one the metrics service declares.
+
+**Not done, and why — tracked, not deferred:**
+
+- **OBS-HIGH-005 (OTLP tracing).** `enableTelemetry: true` is inert without
+  `ENABLE_TRACING=true`, and no OTLP collector is deployed on the droplet at
+  all. Setting it would produce a silent retry loop (no `diag.setLogger` exists,
+  so export errors reach the no-op logger) plus a `process.exit(0)` SIGTERM
+  handler racing `app.enableShutdownHooks()`. The collector is the fix; the flag
+  is not.
+- **OBS-HIGH-006 (log sink, and with it the Grafana dashboard).**
+  `docker-compose.monitoring.yml` advertises a `monitoring-full` profile that
+  "adds grafana + loki + alloy" and defines none of the three. Grafana is
+  deployed by no compose file, k8s manifest or helm template. Authoring dashboard
+  JSON now would produce a file, not a panel — which is why W5 shipped the alert
+  rules, which run through the deployed Prometheus and Alertmanager, and not the
+  dashboard.
+
+**Gate:** every scraped service scrapeable; every alert metric registered; every
+`runbook_url` resolves to `docs/runbooks/`.
+
+## OBS-CRITICAL-008 — StructuredLoggerService emits the message argument unmasked (SA-054)
+
+**State:** OPEN · **Wave:** W0
+
+`structured-logger.service.ts:72-86` masks context values; `:133-146` passes the message through
+verbatim.
+**Fix:** the message goes through the same `maskPii` boundary in `writeLog`; unit test proves a
+PII-bearing message is masked on every level. Must precede any log shipping.
+
+## PLAT-CRITICAL-911 — BeginProvisioning is missing from the admin-api NATS publish grant (SA-032)
+
+**State:** OPEN · **Wave:** W0
+
+`services.yaml:317-327` lacks `request.auth.tenant.BeginProvisioning`; every tenant creation 502s
+after the 15 s request timeout.
+**Fix:** add the grant and regenerate `nats.conf` in one commit; extend the provisioning SSoT
+invariant so every subject a service publishes (derived from the command contract) must appear in
+that service's publish ACL.
+
+## INFRA-MEDIUM-171 — The changed-file lint gate skips module-boundary rules on the base side
+
+**State:** OPEN · **Wave:** W3 · **ADR:** —
+
+**Evidence:** `scripts/ci/lint-changed-files.mjs` is the blocking lint gate on every pull request:
+it checks out `origin/main` into a scratch worktree, lints the base version of each changed file
+there, and fails the build on any error the head version reports and the base version does not. The
+worktree is freshly added, so it carries no Nx project graph — and `@nx/enforce-module-boundaries`,
+finding none, does not fail: it prints `No cached ProjectGraph is available. The rule will be
+skipped.` and reports zero. Head runs in the real checkout, where the graph is warm. Every
+module-boundary violation already on main therefore reads as `base=0, head=1` and blocks the first
+pull request that happens to touch the file. This wave hit it on the `backend-common` ↔ `outbox`
+cycle: both of its edges (`schema-manager.service.ts` importing the erasure proof-ledger table name,
+`tenant-erasure-target.module.ts` importing `OutboxPublisher`, and `event-bus` importing
+`backend-common/nats` on the way back) are unchanged main code. Warming the graph inside a pristine
+`origin/main` worktree makes the base side report the identical error, which is the proof.
+
+**Fix (Tier-3):** the gate builds the graph in the base worktree before linting — one
+`nx show projects` with the daemon disabled, so it cannot answer from the real checkout's socket —
+and treats a graph that fails to materialise as fatal rather than continuing with the rule silently
+off. Both sides now run the same rules, the same way, and the base-vs-head delta means what the
+gate's own docblock says it means. The cycle it uncovered stays open debt, owned where it lives.
+
+## CLAUDE-LOW-017 — CLAUDE.md "Migration Runners" matches no service (ARCH-LOW-012, C7)
+
+**State:** OPEN · **Wave:** W7
+
+**Fix:** shrink the Tier-4 text to a pointer at
+`libs/backend-common/src/database/typeorm-config.factory.ts` + `apps/db-migrate`; extend
+`claude-md-accuracy.spec.ts` to resolve `<svc>` against the real service list.
+
+## 3. Execution order (dependency topology)
+
+| wave                                      | content                                                                                                                                             | edge                                                                                                                                                                    |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W0 — make measurement trustworthy**     | INFRA-HIGH-141 (lift stale test quarantine, governed policy); OBS-CRITICAL-004; INFRA-HIGH-142; ADMIN-CRITICAL-015; SEC-HIGH-061; PLAT-CRITICAL-902 | a gate on a quarantined project never runs; tenant creation must work before anything downstream is testable; two live pre-auth paths are independent of all other work |
+| **W1 — recoverability + topology**        | INFRA-CRITICAL-140 (backups); DATA-CRITICAL-013 (retention); SEC-CRITICAL-056 (edge bundle)                                                         | nothing may drop a table while no restore path exists; AccessLog on admin-api needs working retention                                                                   |
+| **W2 — write boundary + authority**       | class DTOs (CONTRACT-CRITICAL-003 precondition) + ADMIN-HIGH-012 migrations; SEC-CRITICAL-057; DATA-CRITICAL-012; ADMIN-CRITICAL-008                | class DTOs re-arm ValidationPipe fleet-wide in one change; audit must fail closed before the destructive ledger is a control                                            |
+| **W3 — contract, authz, execution model** | CONTRACT-CRITICAL-003 artifact; SEC-CRITICAL-058; SEC-HIGH-059; SEC-HIGH-060; ADMIN-CRITICAL-009; ADMIN-HIGH-011; ADMIN-HIGH-013                    | generation precedes FE cleanup; MFA and capabilities mount on the single act-as authority                                                                               |
+| **W4 — money**                            | BILLING-CRITICAL-002 then BILLING-CRITICAL-003                                                                                                      | `CreateSubscriptionHandler` resolves `billing.plans`; receipts before catalogue migration                                                                               |
+| **W6 — physical types**                   | ADMIN-HIGH-107 (all five classes landed) → ADMIN-MEDIUM-117, ADMIN-MEDIUM-120                                                                       | the type is the cheapest constraint; the decorator is what a baseline squash reads                                                                                      |
+| **W5 — detective stores + observability** | ADMIN-HIGH-014 (landed); OBS-CRITICAL-003 (partial → OBS-HIGH-005, OBS-HIGH-006)                                                                    | honest replacement before deleting the dishonest window                                                                                                                 |
+| **W6 — FE architecture**                  | ADMIN-HIGH-010                                                                                                                                      | consumes the generated contract                                                                                                                                         |
+| **W7 — kill list + docs**                 | §4; CLAUDE-LOW-016                                                                                                                                  | dead set is machine-derived after W3                                                                                                                                    |
+| **W8 — read path**                        | materialised rollups, parallel capped health fan-out, indexes, per-request connection scope                                                         | index after the type conversions                                                                                                                                        |
+
+Critical path: `INFRA-HIGH-165 → DATA-CRITICAL-016 → SEC-CRITICAL-161 → SEC-CRITICAL-162 →
+{SEC-CRITICAL-163, SEC-HIGH-164}` and `INFRA-HIGH-165 → CONTRACT-CRITICAL-004 → BILLING-CRITICAL-011
+→ BILLING-CRITICAL-012`, with INFRA-CRITICAL-164 gating the destructive half of every wave.
+
+## 4. Kill list
+
+**Delete by ruling:** impersonation module + 3 tables + page + debug-tools sub-module (0007);
+`ip_access_rules` + page + gateway `IpWhitelistGuard` (0010); admin backup subsystem +
+`schema_backups` / `schema_restores` (0009); `retention_policies` + runtime CRUD + page + 8 ad-hoc
+crons (0012); `admin.plan_definitions` / `module_pricing` / `custom_plans` / `discount_codes`
+migrated to billing (0013); dead CSRF middleware platform-wide (0006); `security.mfa_enabled` key +
+`mfaCompleted` (0011); `services/types/*` + `contract-validation.spec.ts` + `KNOWN_EXCEPTIONS`
+(0015).
+
+**Delete outright (no consumer verified):** DebugToolsPage + `debugApi` + 5 debug tables (archive
+encrypted or discard — they hold raw tenant SQL, bodies and `Set-Cookie` headers);
+PerformanceDashboardPage + `performance_metrics` / `performance_snapshots` + snapshot cron;
+FeatureTogglesPage + `feature_toggles`; backup/restore/PITR UI + routes; migration
+run/rollback/batch panel; `QueryEditor.tsx` + explorer SQL executor + explorer row CRUD;
+`AdminLayout.tsx`, `admin-nav-items.tsx`, `TenantSelect` / `TenantMultiSelect` / `useTenants`,
+`useMessaging`, `useAnnouncements`, admin-panel `graphql/messaging-operations.ts`; 118 dead client
+functions; `settings.controller.ts` write half; schema create/suspend/activate routes (fold into the
+tenant saga); cache flush; versions deploy/rollback + `system_versions`; `GET
+/maintenance/check?isSuperAdmin=`; `logSlowQuery` / `recordRequestMetric` /
+`aggregateRequestMetrics`; `createOrUpdateBillingInfo` + `tenant_billing_info`; in-memory alert-rule
+CRUD; `loki-values.yaml`; login-success-ratio SLO rule; 15 `wiki.internal` runbook URLs;
+`impersonation_sessions.originalSessionToken`; shadow FK columns `custom_plans.base_plan_id` /
+`plan_module_assignments.plan_id`; `shared.user_permissions` resurrection in the Baseline.
+
+**Delete with a coupled decision:** TenantConfigurationPage, ProvisioningSettingsPage,
+MessagingMonitoring / AiDashboard / AiPersonas pages (delete the route first); ~~ErrorTrackingPage
+(delete unless a reporter is wired)~~ (W5 wired the reporter: the fleet-wide `ServiceErrorCaptured`
+ingress); `useAsyncData` (after W6); ~~`login_attempts` / `user_sessions` / `api_usage_logs` +
+detectors~~ (ADMIN-HIGH-109 — decided in W5: the first and third are projected from the security
+stream, `user_sessions` is deleted); `slow_query_logs` / `database_metrics` (with the
+`pg_stat_statements` decision); `maintenance_modes` (if maintenance moves to the gateway);
+`password-reset.controller.ts` (second un-rate-limited pre-auth ingress); `tenants.ts
+deactivate/archive` (adopt with `@Destructive` or delete both sides); 168 dead backend routes as a
+set after W3; K8s alert rule files (port useful rules to `droplet/rules` first); Grafana dashboards
+(rebuild).
+
+**Keep behind break-glass:** explorer export (`explorer.controller.ts:543-647`) — needs a
+justification field, formula-prefix escaping and a default ORDER BY. `/database/schemas/sync` moves
+to a CLI runbook.
+
+## 5. Page status matrix (summary)
+
+| status         | pages                                                                                                                                                                                                                                                                                                          |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DEGRADED (FIX) | TenantManagement, TenantDetail, Modules, AnalyticsDashboard, Tickets, Messaging inbox, BillingDashboard, Invoices, Payments, CustomPlanBuilder, ModulePricing, UsageDashboard, BillingReports, ActivityLog, SystemSettings                                                                                     |
+| BROKEN         | CreateTenant (NATS ACL), UserManagement, Onboarding, DatabaseManagement, DatabaseExplorer, EmailTemplates, SubscriptionManagement, DiscountCode, CustomPlansList, MessagingAiPersonas, MessagingRetention, MessagingAudit, AuditLog, Maintenance, JobQueue, ErrorTracking                                      |
+| FAKE           | AdminDashboard, TenantConfiguration, Impersonation, Reports, Announcements, IpAccessRules, ProvisioningSettings, PlanManagement, MessagingMonitoring, MessagingAiDashboard, MessagingCompliance, MessagingTenants, SecurityDashboard, AuditTrail, Compliance, FeatureToggles, PerformanceDashboard, DebugTools |
+
+The full per-page evidence (finding IDs per page, verdicts, per-agent reports) lives in the session
+artefacts and is summarised by the umbrella findings above.
+
+## 6. Corrections to earlier phases (verified)
+
+- `adminRoutes.ts` is LIVE (imported by AdminDashboard and AnalyticsDashboardPage) — not deletable.
+- Per-tenant migration run/rollback and the explorer raw query are UNREACHABLE (unconditional throw
+  / `NODE_ENV`), which strengthens the deletion case.
+- Explorer `ALLOWED_SCHEMAS` excludes `tenant_*`; the composite-PK defect is real within the four
+  allowed schemas; `auth.users` and `auth.tenants` remain fully readable and exportable.
+- Deactivating a user DOES revoke sessions on both admin paths; the defects are labelling and
+  attribution.
+- Retention exists for several tables Phase 1b listed as unbounded, but as ad-hoc crons outside the
+  registry with no legal hold — a third engine, not compliance.
+- `docs/adr/018-protected-tables-ssot.md` cited by `protected-tables.ts:64` does not exist.
+
+## 7. Human decisions required
+
+1. **SEC-CRITICAL-163 cutover:** enrolment date and break-glass procedure for a locked-out operator.
+2. **Ownership reassignments** (prompt-writer task): data-expert ← retention lib; billing-expert ←
+   catalogue tables (admin-expert secondary); platform-kernel-expert ← edge bundle;
+   auth-security-expert ← promoted effective-tenant middleware.
+3. **Quarantine owners and expiries:** every remaining `knownUnstableProjects` entry now names an
+   owner and an expiry; the fleet-wide lint entries were assigned to the repository owner with a
+   2026-12-31 expiry and INFRA-HIGH-165 as their finding.
+
+## 8. Not audited
+
+notification-service, tenant-admin twin pages, shell `ROLE_HIERARCHY`, accessibility, i18n, load
+under traffic, the 32nd top-level page (unnamed in the corpus). The aquamobil copy of
+`messaging-operations.ts` is out of scope for this review.

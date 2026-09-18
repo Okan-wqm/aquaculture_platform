@@ -1,4 +1,4 @@
-import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
+import type { BillingCycle, BillingPlanTier } from '@platform/event-contracts';
 
 /**
  * Subscription status enum - matches billing-service
@@ -80,7 +80,7 @@ export interface ReminderConfig {
  */
 export interface SubscriptionFilters {
   status?: SubscriptionStatus[];
-  planTier?: PlanTier[];
+  planTier?: BillingPlanTier[];
   billingCycle?: BillingCycle[];
   autoRenew?: boolean;
   search?: string;
@@ -145,45 +145,4 @@ export interface SubscriptionModuleConfig {
   quantities: ModuleQuantities;
   lineItems?: ModuleLineItem[];
   subtotal: number;
-}
-
-/**
- * Create subscription request DTO
- */
-export interface CreateSubscriptionDto {
-  tenantId: string;
-  planTier?: PlanTier;
-  billingCycle?: BillingCycle;
-  modules: SubscriptionModuleConfig[];
-  monthlyTotal: number;
-  currency?: string;
-  trialDays?: number;
-  discountCode?: string;
-  createdBy?: string;
-}
-
-/**
- * Create subscription result
- */
-export interface CreateSubscriptionResult {
-  success: boolean;
-  subscription: {
-    id: string;
-    tenantId: string;
-    status: SubscriptionStatus;
-    planTier: PlanTier;
-    billingCycle: BillingCycle;
-    monthlyPrice: number;
-    trialEndDate?: Date;
-    currentPeriodStart: Date;
-    currentPeriodEnd: Date;
-  };
-  moduleItems: Array<{
-    id: string;
-    moduleId: string;
-    moduleCode: string;
-    quantities: ModuleQuantities;
-    monthlyPrice: number;
-  }>;
-  message: string;
 }

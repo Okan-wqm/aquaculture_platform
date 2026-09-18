@@ -6,7 +6,6 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 export enum ActivityType {
   CREATED = 'created',
@@ -56,14 +55,26 @@ export class TenantActivity {
   @Column({ type: 'jsonb', nullable: true })
   newValue?: Record<string, unknown>;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  performedBy?: string;
+  /**
+   * ADR-0008: an activity row without an actor is not evidence. NOT NULL
+   * since migration 1808600000000 (legacy rows backfilled as 'system:legacy').
+   */
+  @Column({ type: 'varchar', length: 100 })
+  performedBy!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   performedByEmail?: string;
 
   @CreateDateColumn({ type: 'timestamp with time zone' })
   createdAt!: Date;
+
+  /**
+   * Litigation-hold flag (ADR-0008). Mirror of the DB-level guard installed by
+   * migration 1808600000000 (canonical UPDATE refusal + legal-hold DELETE
+   * refusal); honoured by the retention kernel's disposal predicate.
+   */
+  @Column({ type: 'boolean', default: false })
+  legalHold!: boolean;
 }
 
 // Tenant Notes Entity
@@ -97,49 +108,4 @@ export class TenantNote {
   // BUG-011 fix: track when a note was last edited so edit history is visible
   @UpdateDateColumn({ type: 'timestamp with time zone' })
   updatedAt!: Date;
-}
-
-// Tenant Billing Info (simplified - full billing would be in billing-service)
-@Entity('tenant_billing_info', { schema: 'admin' })
-@Index(['tenantId'])
-export class TenantBillingInfo {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid', unique: true })
-  tenantId!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  billingCycle!: string; // monthly, yearly
-
-  // DecimalTransformer: monthlyAmount tracks billed amount per billing cycle.
-  // Used in revenue dashboards; string accumulation corrupts totals.
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  monthlyAmount!: number;
-
-  @Column({ type: 'varchar', length: 3, default: 'USD' })
-  currency!: string;
-
-  @Column({ type: 'varchar', length: 50, default: 'pending' })
-  paymentStatus!: string; // active, pending, overdue, cancelled
-
-  @Column({ type: 'timestamp with time zone', nullable: true })
-  nextBillingDate?: Date;
-
-  @Column({ type: 'timestamp with time zone', nullable: true })
-  lastPaymentDate?: Date;
-
-  // DecimalTransformer: lastPaymentAmount is displayed in admin dashboard and compared
-  // against outstanding balance. Nullable; transformer returns null for null values safely.
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  lastPaymentAmount?: number;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  stripeCustomerId?: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  stripeSubscriptionId?: string;
-
-  @CreateDateColumn({ type: 'timestamp with time zone' })
-  createdAt!: Date;
 }

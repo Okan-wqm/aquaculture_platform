@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 export type TrendResolution = 'raw' | '1m' | '5m' | '15m' | '1h' | '1d';
 
@@ -40,6 +41,15 @@ interface CacheEntry {
 }
 
 const trendCache = new Map<string, CacheEntry>();
+
+// SECURITY (ADMIN-HIGH-105's gate, same class as the sensor stores below/above):
+// this cache is module-scoped, so it outlives every component that reads it and
+// would hand one tenant's SCADA trend series to the next principal on the
+// same tab. It joins the two authorities the rest of this module already uses —
+// `logoutCleanup()` drains the logout registry, and `onTenantChange` fires on a
+// tenant switch that does not log out.
+registerLogoutCleanup(() => trendCache.clear());
+onTenantChange(() => trendCache.clear());
 
 function buildCacheKey(query: TrendQuery, resolution: TrendResolution): string {
   return `${query.deviceCode}:${query.tagNames.sort().join(',')}:${query.startTime.getTime()}:${query.endTime.getTime()}:${resolution}`;

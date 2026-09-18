@@ -127,19 +127,17 @@ impl LicenseCacheStore {
                 .map_err(|e| LicenseCacheError::Io(format!("mkdir {}: {}", parent.display(), e)))?;
         }
 
-        let conn = Connection::open(path)
-            .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
-
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| LicenseCacheError::KeyDerivation(format!("{}", e)))?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| LicenseCacheError::SqlCipher(format!("PRAGMA key: {}", e)))?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key, DEFAULT profile).
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            path,
+            "license_cache",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )
+        .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
 
         conn.execute_batch(
             "
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS license_cache (
                 singleton_key        TEXT PRIMARY KEY CHECK (singleton_key = 'the-one-row'),
                 signed_manifest_json TEXT NOT NULL,
@@ -207,54 +205,28 @@ impl LicenseCacheStore {
                 .map_err(|e| LicenseCacheError::Io(format!("mkdir {}: {}", parent.display(), e)))?;
         }
 
-        // Pull v1 inputs unconditionally — the resolver
-        // only USES them on the v1 / missing-manifest
-        // path; v2 path ignores. Mirrors the v2 shim's
-        // caller contract from Batch #332 + the
-        // OfflineQueue adoption from Batch #13.
-        let machine_id = crate::machine_id::read()
-            .map_err(|e| LicenseCacheError::KeyDerivation(format!("machine_id read: {}", e)))?;
-        // The v1 secret-key bytes come from the SSoT
-        // module `crate::db_secret` (Batch #14
-        // extraction). Single read path shared across
-        // all 4 SQLCipher consumers — no per-consumer
-        // duplication of the env-override + permissions
-        // discipline.
-        let secret_key = crate::db_secret::read_or_create_v1_secret()
-            .map_err(|e| LicenseCacheError::KeyDerivation(format!("secret_key read: {}", e)))?;
-        let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-            machine_id: machine_id.into_bytes(),
-            secret_key,
-        };
-
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory's
+        // resolver path (device-bound per ADR-031: deployment_uuid required,
+        // program_artifact_sha256 None). The factory assembles the v1 inputs
+        // internally and owns the PRAGMA key + durability sequence.
         let ctx = crate::db_migration::consumer_context::ConsumerContext {
             deployment_uuid,
             program_artifact_sha256: None,
         };
 
-        let resolved = crate::db_migration::consumer_key_resolver::resolve_consumer_pragma_key(
+        let conn = crate::db::sqlcipher_factory::open_resolved(
             path,
             crate::keystore::purpose::KeyPurpose::SqlCipherLicenseCache,
             &ctx,
             keystore.as_ref(),
-            &v1_inputs,
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
         )
         .await
-        .map_err(|e| LicenseCacheError::KeyDerivation(format!("resolver: {}", e)))?;
-
-        let conn = Connection::open(path)
-            .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
-        conn.execute_batch(&format!(
-            "PRAGMA key = \"x'{}'\";",
-            resolved.pragma_key_hex.as_str()
-        ))
-        .map_err(|e| LicenseCacheError::SqlCipher(format!("PRAGMA key: {}", e)))?;
+        .map_err(|e| LicenseCacheError::KeyDerivation(format!("factory open_resolved: {}", e)))?
+        .conn;
 
         conn.execute_batch(
             "
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS license_cache (
                 singleton_key        TEXT PRIMARY KEY CHECK (singleton_key = 'the-one-row'),
                 signed_manifest_json TEXT NOT NULL,
@@ -716,6 +688,7 @@ mod tests {
         // Pre-seed the DB encrypted under v2.
         {
             let conn = Connection::open(&db_path).expect("open seed");
+            // INVARIANT-ALLOW: sqlcipher-test-seed — seeds a v2-encrypted fixture.
             conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", v2_hex))
                 .expect("apply v2 key");
             conn.execute_batch(

@@ -108,7 +108,7 @@ class ControlFolds(_Store):
     def test_I_V12_CTRL_02_cancelled_state_and_operator_domain(self) -> None:
         req = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="p",
-            must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1",
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1",
             base_dir=self.tools,
         )
         self.assertEqual(derive_request_state(request_id=req["request_id"], base_dir=self.tools), "PENDING")
@@ -188,8 +188,12 @@ class ProgressIsSanitized(_Store):
         self.assertNotIn(token, json.dumps(row))
         self.assertIn("github_pat", row["redaction_types"])
         self.assertEqual([t["tool_name"] for t in row["tool_uses"]], ["Bash", "Edit"])
-        self.assertEqual(row["tool_uses"][0]["command_family"], "git_push")
-        self.assertTrue(row["tool_uses"][0]["external_effect"])
+        # ARIA-HIGH-124 — every `git push` is refused BY NAME inside the
+        # sandbox (`command_policy` deny rule `git_push_any`, family
+        # `kernel_authority`); deny rules classify first, so the row names
+        # the hazard, and a refused command carries no external effect.
+        self.assertEqual(row["tool_uses"][0]["command_family"], "kernel_authority")
+        self.assertFalse(row["tool_uses"][0]["external_effect"])
         self.assertEqual(row["tool_uses"][1]["files_touched"], ["/w/apps/x.py"])
         self.assertLessEqual(len(row["text_preview"]), progress.TEXT_PREVIEW_CHARS)
         result = progress.sanitize_stream_event({"type": "result", "subtype": "success", "total_cost_usd": 0.42, "num_turns": 7, "duration_ms": 1200, "result": "long transcript text"})
@@ -273,7 +277,7 @@ class TelemetryAndAssets(_Store):
         from aria_kernel.agent_invocations import create_agent_invocation_request
 
         create_agent_invocation_request(target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="p",
-                                        must_satisfy=[{"id": "x", "criterion": "y"}], allowed_scope=["apps/**"], convergence_id="c", base_dir=self.tools)
+                                        must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="c", base_dir=self.tools)
         self.assertIn("aria_agent_requests", self._emitted_names())
         text = telemetry._prometheus(telemetry._store_metrics(self.tools))
         self.assertIn("aria_executor_paused 0", text.replace("{}", ""))

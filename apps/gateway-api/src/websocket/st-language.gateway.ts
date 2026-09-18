@@ -12,6 +12,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+import { WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,8 +45,15 @@ interface STRequest {
 }
 
 interface STResponse {
-  type: 'diagnostics' | 'hover' | 'completions' | 'formatted'
-    | 'outline' | 'definition' | 'references' | 'error';
+  type:
+    | 'diagnostics'
+    | 'hover'
+    | 'completions'
+    | 'formatted'
+    | 'outline'
+    | 'definition'
+    | 'references'
+    | 'error';
   requestId: string;
   data: unknown;
   processingTimeMs?: number;
@@ -102,9 +110,7 @@ const MAX_CONNECTIONS_PER_TENANT = 10;
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: MAX_MESSAGE_SIZE,
 })
-export class STLanguageGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -126,9 +132,11 @@ export class STLanguageGateway
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // SEC-MEDIUM-082 (2026-08-23 scan №18): hard revocation re-check backs
+    // the idle/idle-timeout lifecycle this gateway already enforces.
+    private readonly tokenRevalidator: WsTokenRevalidator,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   // -----------------------------------------------------------------------
@@ -171,6 +179,18 @@ export class STLanguageGateway
         return;
       }
 
+      // SEC-MEDIUM-082 (№18): periodic revocation re-check.
+      this.tokenRevalidator.register(client.id, {
+        tenantId,
+        userId,
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`ST socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
+      });
+
       this.clients.set(client.id, {
         socket: client,
         tenantId,
@@ -197,6 +217,7 @@ export class STLanguageGateway
   }
 
   handleDisconnect(client: Socket): void {
+    this.tokenRevalidator.unregister(client.id);
     this.clients.delete(client.id);
     this.clearIdleTimer(client.id);
     this.logger.log(`Client ${client.id} disconnected`);
@@ -207,10 +228,7 @@ export class STLanguageGateway
   // -----------------------------------------------------------------------
 
   @SubscribeMessage('st:request')
-  async handleStRequest(
-    client: Socket,
-    payload: STRequest,
-  ): Promise<STResponse> {
+  async handleStRequest(client: Socket, payload: STRequest): Promise<STResponse> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return this.errorResponse('unknown', 'UNAUTHORIZED', 'Client not authenticated');
@@ -256,7 +274,15 @@ export class STLanguageGateway
       );
     }
 
-    const validTypes = ['analyze', 'hover', 'complete', 'format', 'outline', 'definition', 'references'];
+    const validTypes = [
+      'analyze',
+      'hover',
+      'complete',
+      'format',
+      'outline',
+      'definition',
+      'references',
+    ];
     if (!validTypes.includes(payload.type)) {
       return this.errorResponse(
         payload.requestId,
@@ -271,7 +297,10 @@ export class STLanguageGateway
     const startTime = Date.now();
 
     try {
-      const natsReply = await this.delegateToNats(clientData.tenantId, payload) as NatsLanguageReply;
+      const natsReply = (await this.delegateToNats(
+        clientData.tenantId,
+        payload,
+      )) as NatsLanguageReply;
 
       // Check if the NATS handler returned an error
       if (natsReply.success === false && natsReply.error) {
@@ -282,15 +311,17 @@ export class STLanguageGateway
         type: this.mapRequestTypeToResponseType(payload.type),
         requestId: payload.requestId,
         data: natsReply.data,
-        processingTimeMs: natsReply.processingTimeMs ?? (Date.now() - startTime),
+        processingTimeMs: natsReply.processingTimeMs ?? Date.now() - startTime,
       };
     } catch (error) {
       const internalMessage = (error as Error).message ?? 'Internal error';
-      this.logger.error(
-        `ST request failed for tenant ${clientData.tenantId}: ${internalMessage}`,
-      );
+      this.logger.error(`ST request failed for tenant ${clientData.tenantId}: ${internalMessage}`);
       // Do not leak internal error details to client
-      return this.errorResponse(payload.requestId, 'INTERNAL_ERROR', 'Language service request failed');
+      return this.errorResponse(
+        payload.requestId,
+        'INTERNAL_ERROR',
+        'Language service request failed',
+      );
     }
   }
 
@@ -423,11 +454,7 @@ export class STLanguageGateway
     return map[type] ?? 'error';
   }
 
-  private errorResponse(
-    requestId: string,
-    code: STErrorCode,
-    message: string,
-  ): STResponse {
+  private errorResponse(requestId: string, code: STErrorCode, message: string): STResponse {
     return {
       type: 'error',
       requestId,

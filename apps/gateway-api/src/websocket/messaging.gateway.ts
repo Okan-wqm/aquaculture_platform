@@ -20,6 +20,7 @@ import {
   type GetMessageForBroadcastResponse,
   type MessageEnvelope,
 } from '@platform/event-contracts';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 // Types
 
@@ -148,6 +149,9 @@ export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnG
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18)
+    private readonly connectionLimiter: TenantConnectionLimiter,
+    private readonly tokenRevalidator: WsTokenRevalidator,
     @Optional()
     @Inject('REDIS_SERVICE')
     private readonly redisService?: { getClient(): PresenceRedisClient },
@@ -212,6 +216,28 @@ export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
       const userId = payload.sub;
       const tenantId = payload.tenantId;
+
+      // SEC-MEDIUM-073 (№26): per-tenant ceiling.
+      if (!this.connectionLimiter.register(tenantId, client.id)) {
+        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
+        client.emit('error', { message: 'Too many connections for this tenant' });
+        client.disconnect();
+        return;
+      }
+
+      // SEC-MEDIUM-082 (№18): hard revocation re-check every cycle — the
+      // soft reAuth protocol (best effort, no deadline) stays, but logout /
+      // logout-all / suspension no longer depends on the client answering.
+      this.tokenRevalidator.register(client.id, {
+        tenantId,
+        userId,
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`Messaging socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
+      });
 
       this.clients.set(client.id, {
         socket: client,
@@ -281,7 +307,9 @@ export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
   async handleDisconnect(client: Socket): Promise<void> {
     const clientData = this.clients.get(client.id);
+    this.tokenRevalidator.unregister(client.id);
     if (clientData) {
+      this.connectionLimiter.release(clientData.tenantId, client.id);
       // MSGFIX-FAZ3 3.4: DECR the per-user connection counter; only the
       // 1→0 transition (last live socket for that user) clears presence.
       // A user's OTHER device disconnecting no longer marks them offline.

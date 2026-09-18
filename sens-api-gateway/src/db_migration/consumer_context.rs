@@ -148,7 +148,9 @@ pub fn context_bytes_for_purpose<'a>(
     ctx: &'a ConsumerContext,
 ) -> Result<&'a [u8], ConsumerContextError> {
     match purpose {
-        KeyPurpose::SqlCipherOfflineQueue | KeyPurpose::SqlCipherLicenseCache => {
+        KeyPurpose::SqlCipherOfflineQueue
+        | KeyPurpose::SqlCipherLicenseCache
+        | KeyPurpose::SqlCipherScadaDisplay => {
             // Device-bound — deployment UUID required.
             if ctx.deployment_uuid.is_empty() {
                 return Err(ConsumerContextError::DeploymentUuidRequired { purpose });

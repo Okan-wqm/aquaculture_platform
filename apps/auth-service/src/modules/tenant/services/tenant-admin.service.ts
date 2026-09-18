@@ -20,6 +20,7 @@ import { RefreshToken } from '../../authentication/entities/refresh-token.entity
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../../authentication/entities/user-site-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { WebAuthnCredential } from '../../authentication/entities/webauthn-credential.entity';
 import {
   isEffectiveUserSiteAssignmentAt,
   readEffectiveUserSiteAssignments,
@@ -40,6 +41,7 @@ import {
   TableDataResult,
   GetTableDataInput,
 } from '../dto/tenant-admin.dto';
+import { TenantSecurityPolicy, UpdateTenantSecurityPolicyInput } from '../dto/tenant-policy.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { FarmSiteAssignmentValidator } from './farm-site-assignment-validator.service';
@@ -943,6 +945,213 @@ export class TenantAdminService {
     }
 
     return saved;
+  }
+
+  // =========================================================
+  // Tenant auth-security policy (ADR-046)
+  // =========================================================
+
+  /**
+   * Read the EFFECTIVE tenant auth-security policy (ADR-046). The nullable
+   * `enforce_mfa` column collapses to its enforced meaning here (NULL → false)
+   * so no consumer re-implements the default.
+   */
+  async getSecurityPolicy(tenantId: string): Promise<TenantSecurityPolicy> {
+    const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found');
+    }
+    return {
+      enforceMfa: tenant.enforceMfa === true,
+      sessionTimeoutMinutes: tenant.sessionTimeoutMinutes ?? null,
+    };
+  }
+
+  /**
+   * Update the tenant auth-security policy (ADR-046).
+   *
+   * WRITE SHAPE: a column-scoped `update()` on exactly the two policy columns,
+   * NOT a whole-entity `save()`. The tenant row's lifecycle columns (status,
+   * plan, the suspension trio) belong to the command-receipt/FSM path; writing
+   * the whole entity here would let a self-service policy edit carry a stale
+   * snapshot of those columns back into the table.
+   *
+   * REVOCATION-ON-FLIP: when `enforceMfa` transitions false/NULL → true the
+   * sessions of this tenant's users WITHOUT a second factor are terminated
+   * through the same durable primitive `deactivateUser` uses — refresh rows
+   * revoked under the canonical User→RefreshToken lock order AND the user's
+   * access-token invalidation epoch advanced (durable outbox intent + an
+   * immediate Redis write). That closes the residual window where an
+   * already-issued access token would outlive the flip. Their next login walks
+   * the enrollment gate (`mfaSetupRequired` + an `mfa_setup` token).
+   *
+   * `sessionTimeoutMinutes` REDUCTIONS apply at the next rotation: existing
+   * refresh rows keep their persisted expiresAt, and every subsequent
+   * issuance/rotation clamps to MIN(configured TTL, policy) — sliding
+   * idle-timeout semantics (see TokenService.generateTokens).
+   */
+  async updateSecurityPolicy(
+    tenantAdminId: string,
+    tenantId: string,
+    input: UpdateTenantSecurityPolicyInput,
+  ): Promise<TenantSecurityPolicy> {
+    const admin = await this.userRepository.findOne({ where: { id: tenantAdminId } });
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
+    if (!tenant) {
+      throw new NotFoundException('Tenant not found');
+    }
+
+    const wasEnforced = tenant.enforceMfa === true;
+    const nextEnforceMfa = input.enforceMfa ?? tenant.enforceMfa ?? null;
+    const nextSessionTimeoutMinutes =
+      input.sessionTimeoutMinutes ?? tenant.sessionTimeoutMinutes ?? null;
+
+    await this.tenantRepository.update(
+      { id: tenantId },
+      {
+        enforceMfa: nextEnforceMfa,
+        sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+      },
+    );
+
+    const enforcementFlippedOn = !wasEnforced && nextEnforceMfa === true;
+    const revokedUserIds = enforcementFlippedOn
+      ? await this.terminateSessionsOfUsersWithoutMfa(tenantId)
+      : [];
+
+    // SECURITY AUDIT: policy changes are audit-logged like the sibling
+    // tenant-admin mutations. A flip carries WARNING severity and the blast
+    // radius so an operator can see how many sessions it terminated.
+    try {
+      await this.auditLogService.log({
+        tenantId,
+        performedBy: tenantAdminId,
+        performedByEmail: admin.email,
+        action: 'TENANT_SECURITY_POLICY_UPDATED',
+        entityType: 'Tenant',
+        entityId: tenantId,
+        details: {
+          enforceMfa: nextEnforceMfa,
+          sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+          enforcementFlippedOn,
+          revokedUserCount: revokedUserIds.length,
+          timestamp: new Date().toISOString(),
+        },
+        severity: enforcementFlippedOn ? AuditLogSeverity.WARNING : AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to log audit event TENANT_SECURITY_POLICY_UPDATED: ${(error as Error).message}`,
+      );
+    }
+
+    return {
+      enforceMfa: nextEnforceMfa === true,
+      sessionTimeoutMinutes: nextSessionTimeoutMinutes,
+    };
+  }
+
+  /**
+   * ADR-046 revocation-on-flip: terminate every session of this tenant's users
+   * that have NOT enrolled a second factor. Users WITH a factor keep their
+   * sessions — they already satisfy the policy.
+   *
+   * A user with a registered WebAuthn credential satisfies enforcement exactly
+   * as the login gate defines it, so the candidate set is
+   * `mfaEnabled = false AND no webauthn credential`. The credential test runs
+   * as one NOT EXISTS in the same statement rather than per user.
+   *
+   * Each candidate is terminated with the canonical credential-mutation fence
+   * (User row FOR UPDATE → RefreshToken revoke → durable invalidation intent),
+   * so a concurrent mint cannot slip a replacement token past the revoke.
+   */
+  private async terminateSessionsOfUsersWithoutMfa(tenantId: string): Promise<string[]> {
+    const candidates = await this.userRepository
+      .createQueryBuilder('user')
+      .select('user.id', 'id')
+      .where('user.tenantId = :tenantId', { tenantId })
+      .andWhere('user.mfaEnabled = false')
+      .andWhere((qb) => {
+        // Entity-driven subquery (not literal SQL): the table and column names
+        // come from WebAuthnCredential's metadata, so a rename is a compile
+        // error rather than a silently over-broad revocation.
+        const credentialSubQuery = qb
+          .subQuery()
+          .select('1')
+          .from(WebAuthnCredential, 'credential')
+          .where('credential.userId = user.id')
+          .getQuery();
+        return `NOT EXISTS ${credentialSubQuery}`;
+      })
+      .getRawMany<{ id: string }>();
+
+    const terminated: string[] = [];
+    for (const candidate of candidates) {
+      const intent = await this.dataSource.transaction(async (manager) => {
+        const user = await lockUserForCredentialMutation(
+          manager,
+          this.userRepository,
+          candidate.id,
+          tenantId,
+        );
+        if (!user) {
+          return null;
+        }
+        const invalidatedAt = new Date();
+        await revokeActiveRefreshTokens(
+          manager,
+          this.refreshTokenRepository,
+          user.id,
+          invalidatedAt,
+          'Tenant MFA enforcement enabled',
+        );
+        const invalidationIntent = createCredentialInvalidationIntent(
+          user,
+          invalidatedAt,
+          'tenant-mfa-enforcement-enabled',
+          // The contract's reason vocabulary has no MFA-policy member and
+          // adding one would skew the event schema across a rolling deploy.
+          // 'logout_all_devices' states exactly what happened to the user;
+          // WHY it happened is carried by the TENANT_SECURITY_POLICY_UPDATED
+          // audit entry.
+          'logout_all_devices',
+        );
+        await this.durableUserTokenInvalidation.enqueue(manager, invalidationIntent);
+        return invalidationIntent;
+      });
+
+      if (!intent) {
+        continue;
+      }
+      terminated.push(intent.userId);
+      const [immediate] = await Promise.allSettled([
+        this.durableUserTokenInvalidation.applyImmediately(intent),
+      ]);
+      if (immediate.status === 'rejected') {
+        // The durable outbox intent already committed, so the epoch converges
+        // on replay; log the request-path miss without failing the policy write.
+        this.logger.error(
+          JSON.stringify({
+            event: 'tenant_mfa_enforcement_immediate_invalidation_failed',
+            userId: intent.userId,
+            errorType: immediate.reason instanceof Error ? immediate.reason.name : 'UnknownError',
+          }),
+        );
+      }
+    }
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'tenant_mfa_enforcement_enabled',
+        tenantId,
+        terminatedSessionUserCount: terminated.length,
+      }),
+    );
+    return terminated;
   }
 
   // =========================================================

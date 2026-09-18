@@ -17,7 +17,6 @@ import { useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
-import { Card, Skeleton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStaffSummary } from '@/hooks/useStaffSummary';
 
@@ -63,8 +62,8 @@ function formatShortDate(isoDate: string | null): string {
 /** Skeleton loading placeholder for the leave balance card. */
 function LeaveBalanceSkeleton(): JSX.Element {
   return (
-    <div aria-busy="true" aria-label="Loading leave balance">
-      <Skeleton variant="tile" />
+    <div className="space-y-3" aria-busy="true" aria-label="Loading leave balance">
+      <div className="h-20 rounded-xl skeleton" />
     </div>
   );
 }
@@ -90,7 +89,7 @@ export function StaffHubPage(): JSX.Element {
       label: 'Status',
       value: isClockedIn ? 'On Duty' : 'Off Duty',
       ariaLabel: isClockedIn ? 'Attendance status: on duty' : 'Attendance status: off duty',
-      valueColor: isClockedIn ? 'text-ok' : 'text-ink-3',
+      valueColor: isClockedIn ? 'text-green-300' : 'text-white/75',
       isLoading,
     },
     {
@@ -119,19 +118,28 @@ export function StaffHubPage(): JSX.Element {
 
   return (
     <ErrorBoundary fallbackTitle="Staff Error">
-      <div>
-        <HubHeader title="Staff" subtitle={subtitle} icon={Users}>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <HubHeader
+          title="Staff"
+          subtitle={subtitle}
+          icon={Users}
+          gradient="from-indigo-700 via-indigo-600 to-indigo-500"
+        >
           <KpiStrip items={kpiItems} />
         </HubHeader>
 
-        <main className="px-4 space-y-5">
+        <main className="px-5 pt-4 space-y-5">
           {!isOnline && (
-            <p className="text-center text-warn text-meta font-medium">Data may be outdated</p>
+            <p className="text-center text-amber-500 dark:text-amber-400 text-xs font-medium">
+              Data may be outdated
+            </p>
           )}
 
           {/* Quick Actions */}
           <section aria-label="Quick actions">
-            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">Quick Actions</h2>
+            <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+              Quick Actions
+            </h2>
             <QuickActionGrid
               actions={[
                 {
@@ -139,28 +147,28 @@ export function StaffHubPage(): JSX.Element {
                   path: '/attendance',
                   icon: MapPin,
                   label: 'Clock In/Out',
-                  tone: 'accent',
+                  gradient: 'from-emerald-500 to-emerald-600',
                 },
                 {
                   feature: 'leave',
                   path: '/leave/request',
                   icon: CalendarOff,
                   label: 'Leave Request',
-                  tone: 'neutral',
+                  gradient: 'from-indigo-500 to-indigo-600',
                 },
                 {
                   feature: 'schedule',
                   path: '/schedule',
                   icon: Calendar,
                   label: 'My Schedule',
-                  tone: 'accent',
+                  gradient: 'from-sky-500 to-sky-600',
                 },
                 {
                   feature: 'leave',
                   path: '/leave',
                   icon: Clock,
                   label: 'My Leaves',
-                  tone: 'neutral',
+                  gradient: 'from-violet-500 to-violet-600',
                 },
               ]}
             />
@@ -168,44 +176,47 @@ export function StaffHubPage(): JSX.Element {
 
           {/* Leave Balance Summary Card */}
           <section aria-label="Leave balance">
-            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">Leave Balance</h2>
+            <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+              Leave Balance
+            </h2>
 
             {isLoading ? (
               <LeaveBalanceSkeleton />
             ) : (
-              <Card className="p-4">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-body font-semibold text-ink-1">Remaining Days</span>
-                  <span className="text-display font-mono font-bold text-acc tabular-nums">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                    Remaining Days
+                  </span>
+                  <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">
                     {totalLeaveRemaining}
                   </span>
                 </div>
 
                 {/* WHY: Progress bar gives a visual sense of leave consumption.
-                    The accent fill = remaining balance relative to total. This is
-                    an approximation since we only have the remaining count. */}
+                    Green fill = remaining balance relative to total. This is an
+                    approximation since we only have the remaining count. */}
                 <div
-                  className="h-2 bg-surface-2 rounded-full overflow-hidden mb-3"
+                  className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden mb-3"
                   role="progressbar"
                   aria-valuenow={totalLeaveRemaining}
                   aria-valuemin={0}
                   aria-label={`${totalLeaveRemaining} leave days remaining`}
                 >
                   <div
-                    className="h-full bg-acc rounded-full motion-safe:transition-all motion-safe:duration-500"
+                    className="h-full bg-indigo-500 rounded-full motion-safe:transition-all motion-safe:duration-500"
                     style={{ width: `${leaveProgressPercent}%` }}
                   />
                 </div>
 
                 <button
-                  type="button"
                   onClick={() => navigate('/leave')}
-                  className="flex items-center gap-1 text-body font-semibold text-acc min-h-touch touch-feedback"
+                  className="flex items-center gap-1 text-sm font-semibold text-indigo-600 dark:text-indigo-400 min-h-[44px]"
                 >
                   View Details
                   <ChevronRight size={16} />
                 </button>
-              </Card>
+              </div>
             )}
           </section>
         </main>

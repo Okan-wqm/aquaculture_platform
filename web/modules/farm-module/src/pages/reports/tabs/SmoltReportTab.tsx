@@ -249,7 +249,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
 interface FishCountsStepProps {
   formData: SmoltFormData;
   onChange: (data: Partial<SmoltFormData>) => void;
-  tanks: Tank[];
+  tanks: readonly Tank[];
   prefillUnits?: SmoltPrefillUnit[];
   unitsMeta?: ReportFieldMeta;
 }

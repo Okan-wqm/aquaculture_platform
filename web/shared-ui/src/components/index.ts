@@ -11,6 +11,9 @@ export type { ButtonProps } from './Button';
 export { Card, CardGrid, MetricCard } from './Card';
 export type { CardProps, CardGridProps, MetricCardProps } from './Card';
 
+export { Avatar } from './Avatar';
+export type { AvatarProps } from './Avatar';
+
 // Table
 export { Table } from './Table';
 export type { TableProps, TableColumn } from './Table';
@@ -149,6 +152,10 @@ export type { ConfiguredBrowserRouterProps } from './ConfiguredBrowserRouter';
 // ApiError - Error display component
 export { ApiError } from './ApiError';
 export type { ApiErrorProps } from './ApiError';
+
+// SandboxedHtmlPreview - the only permitted renderer for untrusted HTML (ADMIN-CRITICAL-104)
+export { SandboxedHtmlPreview } from './SandboxedHtmlPreview';
+export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
 export { VisuallyHidden, FocusTrap, RouteAnnouncer } from './a11y';

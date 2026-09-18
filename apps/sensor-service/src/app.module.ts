@@ -8,8 +8,14 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { AccessLogEntity, AccessLogModule, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+
+import {
+  MqttAuthCacheInvalidationHook,
+  PublishedOutboxPurgeHook,
+  SensorErasureModule,
+} from './compliance/erasure/erasure.module';
 import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -67,6 +73,7 @@ import {
 } from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
+import { FeedingWindowModule } from './feeding-window/feeding-window.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import { TimescaleModule } from './timescale/timescale.module';
@@ -145,9 +152,16 @@ import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
 import { LoRaDevice } from './edge-device/entities/lora-device.entity';
 import { TenantProvisioningKey } from './edge-device/entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './edge-device/entities/device-event.entity';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -192,6 +206,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             // OutboxNotifyListener.onModuleInit getMetadata(SensorOutbox) throws
             // ("No metadata for SensorOutbox"), crash-looping sensor-service boot.
             SensorOutbox,
+            // ADR-0006: shared.access_logs — written by the factory-mounted
+            // AccessLogMiddleware; this explicit list disables autoLoadEntities.
+            AccessLogEntity,
             Sensor,
             SensorProtocol,
             SensorDataChannel,
@@ -341,7 +358,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       useFactory: buildEventBusConfig,
     }),
     SensorOutboxModule,
-    TenantErasureTargetModule.forService('sensor-service'),
+    TenantErasureTargetModule.forService('sensor-service', {
+      // Task 1.8: purge the tenant's PUBLISHED outbox rows + drop the MQTT
+      // auth cache entries mapping to the erased tenant, atomically with
+      // the erasure.
+      imports: [SensorErasureModule],
+      postErasureHooks: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook],
+    }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.
@@ -355,6 +378,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'sensor-service' }),
 
     // Event Emitter — single forRoot() for the entire service
     EventEmitterModule.forRoot(),
@@ -416,6 +442,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Data ingestion module (MQTT listener, data processing)
     IngestionModule,
+    // W7/FARM-MEDIUM-271 — pre-meal oxygen readiness: the real consumer of
+    // farm's MealWindowUpcoming (previously a dead-end event).
+    FeedingWindowModule,
 
     // TimescaleDB lifecycle: creates the sensor.metrics_1min/1hour/1day
     // continuous aggregates over sensor_metrics at bootstrap (the rollup views

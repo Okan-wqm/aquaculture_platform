@@ -5,13 +5,6 @@ const ADMIN_API_URL = getEnvString(import.meta.env.VITE_ADMIN_API_URL) ?? '/api'
 
 const SHARED_AUTH_STATE_KEY = '__AQUACULTURE_AUTH_STATE_V2__';
 
-const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-]);
-
 interface BlobApiError extends Error {
   status?: number;
   code?: string;
@@ -183,12 +176,6 @@ const getAuthHeader = (): Record<string, string> => {
 
 const generateRequestId = (): string => crypto.randomUUID();
 
-const getCsrfTokenFromCookie = (): string | null => {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-};
-
 const createApiError = (
   message: string,
   status?: number,
@@ -253,13 +240,6 @@ export async function apiFetchBlob(
       headers['X-Tenant-Id'] = tenantId;
     }
 
-    if (CSRF_PROTECTED_METHODS.has(method)) {
-      const csrfToken = getCsrfTokenFromCookie();
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-    }
-
     const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
       ...options,
       credentials: 'include',
@@ -295,5 +275,34 @@ export async function apiFetchBlob(
       filename: filenameMatch?.[1],
       contentType: response.headers.get('content-type') || 'application/octet-stream',
     };
+  }
+}
+
+/**
+ * Hand a downloaded blob to the browser as a file.
+ *
+ * Seven admin-panel call sites wrote this eight-line dance independently and
+ * three of them got it wrong in a way nothing surfaces:
+ * `security/ActivityLogPage` and `security/AuditTrailPage` never called
+ * `revokeObjectURL`, so every export pinned its blob in memory for the tab's
+ * lifetime; two others never appended the anchor to the document, which
+ * Firefox requires before a synthetic click does anything.
+ *
+ * None of that is a decision a page should be making, so it stops being one.
+ * The anchor is appended, clicked, removed and the object URL revoked in every
+ * case — including when the click throws, which is why the revoke sits in a
+ * `finally`.
+ */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }

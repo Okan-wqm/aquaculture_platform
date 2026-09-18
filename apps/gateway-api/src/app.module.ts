@@ -13,10 +13,12 @@ import {
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
-  AccessLogMiddleware,
+  CaptureRequestedTenantMiddleware,
   CorrelationIdMiddleware,
+  EffectiveTenantMiddleware,
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
+  TENANT_ACTIVE_CHECK,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
@@ -68,11 +70,6 @@ import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
-import { CsrfMiddleware } from './middleware/csrf.middleware';
-import {
-  CaptureRequestedTenantMiddleware,
-  EffectiveTenantMiddleware,
-} from './middleware/effective-tenant.middleware';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
@@ -223,7 +220,8 @@ function positiveIntConfig(
           //   - AuditLogEntity   → shared.audit_logs, written by the global
           //                        AuditedOperationInterceptor.
           //   - AccessLogEntity  → shared.access_logs, written by the
-          //                        AccessLogMiddleware mounted in configure()
+          //                        AccessLogMiddleware the bootstrap factory
+          //                        mounts for public services (ADR-0006)
           //                        (one row per HTTP request at the single
           //                        external ingress; AUDITTRAIL-HIGH-004).
           // Both are cross-tenant `shared` tables the gateway_service role
@@ -237,16 +235,16 @@ function positiveIntConfig(
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
     AuditedOperationModule.forRoot(),
 
-    // AUDITTRAIL-HIGH-004: low-level HTTP access-log stream. Registers
-    // AccessLogService + the AccessLogEntity repository (forFeature) so the
-    // AccessLogMiddleware mounted in configure() can persist one row per
-    // request to shared.access_logs. The gateway is the single external
-    // ingress, so mounting here (not per-subgraph) yields exactly one
-    // authoritative access row per external request — including the 401/403/
-    // CSRF/throttle rejections that never reach a subgraph. 90-day retention
-    // is enforced by the canonical RetentionEnforcementService policy
-    // registered in admin-api's AdminApiRetentionBootstrapModule. Enforced
-    // mounted by tests/invariants/access-log-middleware-mounted.spec.ts.
+    // AUDITTRAIL-HIGH-004 / ADR-0006: low-level HTTP access-log stream.
+    // Registers AccessLogService + the AccessLogEntity repository (forFeature).
+    // The MOUNT is not here: gateway-api declares `serviceVisibility: 'public'`
+    // and the bootstrap factory installs AccessLogMiddleware ahead of every
+    // Nest middleware (libs/backend-common/src/bootstrap/edge-hardening.ts),
+    // so each internet-reachable service — gateway, admin-api, sensor, billing —
+    // writes exactly one row per request it terminates, including the 401/403/
+    // throttle rejections that never reach a controller. 90-day retention is
+    // the entity-typed policy in admin-api's AdminApiRetentionBootstrapModule.
+    // Enforced by tests/invariants/public-service-edge-hardening.spec.ts.
     AccessLogModule.forRoot(),
 
     // ARCH-GW-006: composition readiness state. Imported BEFORE GraphQLModule so
@@ -524,6 +522,10 @@ function positiveIntConfig(
     // TenantContextMiddleware uses @Optional() @Inject(TenantLookupService), so
     // registration here makes it available in production where it queries auth-service.
     TenantLookupService,
+    // ADR-0007: bind the kernel act-as authority's tenant-ACTIVE port to the
+    // gateway's lookup service. EffectiveTenantMiddleware fails closed in
+    // production without this provider.
+    { provide: TENANT_ACTIVE_CHECK, useExisting: TenantLookupService },
     // Authentication strategy services (injected into AuthGuard)
     ApiKeyAuthStrategy,
     BasicAuthStrategy,
@@ -639,24 +641,6 @@ export class AppModule implements NestModule {
       .apply(SecurityHeadersMiddleware)
       .forRoutes('*');
 
-    /**
-     * AUDITTRAIL-HIGH-004: low-level HTTP access log, one row per request.
-     *
-     * Mounted at the entry point (right after security headers, before the
-     * identity chain) so `start = Date.now()` measures the fullest request
-     * duration. The row is emitted from `res.on('finish')` — AFTER the
-     * identity chain below has populated req.user / tenantContext /
-     * correlationId — so it captures who/which-tenant without depending on
-     * middleware order at `use()` time. Fire-and-forget: a persistence blip
-     * never surfaces into the response (see AccessLogService docstring).
-     * `forRoutes('*')` deliberately includes REST + GraphQL + 404s + guard
-     * rejections — the Express layer sees every request the Nest pipeline
-     * would miss.
-     */
-    consumer
-      .apply(AccessLogMiddleware)
-      .forRoutes('*');
-
     consumer
       .apply(
         // Order matters:
@@ -664,19 +648,19 @@ export class AppModule implements NestModule {
         // 2. Set correlation id for tracing
         // 3. Capture the requested act-as tenant BEFORE strip deletes the header
         // 4. SECURITY: Strip spoofable internal headers from external requests
-        // 5. SECURITY: CSRF double-submit cookie validation
-        // 6. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 7. Hydrate user from x-user-payload header (for inter-service calls)
-        // 8. Resolve + authority-validate the SINGLE effective tenant (SSoT) the
+        //    (AUTH-017 / ADR-0006: no CSRF layer — the gateway is bearer-only and
+        //    Apollo's csrfPrevention rejects simple-CORS GraphQL POSTs)
+        // 5. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 6. Hydrate user from x-user-payload header (for inter-service calls)
+        // 7. Resolve + authority-validate the SINGLE effective tenant (SSoT) the
         //    gateway signs — must run after req.user is set, before context capture
-        // 9. Set tenant context
-        // 10. Log request
+        // 8. Set tenant context
+        // 9. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
         CaptureRequestedTenantMiddleware,
         StripInternalHeadersMiddleware,
-        CsrfMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
         EffectiveTenantMiddleware,
@@ -693,12 +677,14 @@ export class AppModule implements NestModule {
      * path traversal, command injection) by validating and sanitizing request
      * bodies, query parameters, headers, and URL paths.
      *
-     * Applied only to REST routes (upload endpoints, v2 API proxy routes) because
-     * GraphQL requests are already validated by Apollo Server's query parser, and
-     * applying request-body sanitization to GraphQL would corrupt query strings.
+     * Applied only to REST routes (upload endpoints) because GraphQL requests are
+     * already validated by Apollo Server's query parser, and applying request-body
+     * sanitization to GraphQL would corrupt query strings. The former
+     * `api/v2/{*path}` entry named a proxy that never existed (routes/v2 was an
+     * empty module and nginx forwarded /api/v2/ai/ into a 404).
      */
     consumer
       .apply(RequestValidatorMiddleware)
-      .forRoutes('upload', 'upload/{*path}', 'api/v2/{*path}');
+      .forRoutes('upload', 'upload/{*path}');
   }
 }

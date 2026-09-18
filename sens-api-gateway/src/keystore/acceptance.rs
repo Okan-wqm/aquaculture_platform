@@ -398,6 +398,75 @@ mod tests {
         assert!(acc.expires_at() > SystemTime::now());
     }
 
+    /// WHY (EDGE-HIGH-011): the production boot path (bootstrap.rs)
+    /// injects a real `verify_strict` closure over the ceremony
+    /// verifying key. Prove that wiring end-to-end: a signature over
+    /// the canonical bytes is accepted, and a token whose canonical
+    /// bytes differ from what was signed is rejected as
+    /// InvalidSignature. Before EDGE-HIGH-011 the closure was
+    /// `|_,_| true` and this distinction did not exist.
+    #[test]
+    fn real_ed25519_verify_strict_round_trip() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing = SigningKey::from_bytes(&[7u8; 32]);
+        let verifying = signing.verifying_key();
+
+        let mut token = valid_token(3600);
+        let canonical = FileBackedAcceptance::canonical_bytes(
+            &token.operator_id,
+            token.expires_at_unix_secs,
+            &token.device_id,
+        );
+        token.signature = signing.sign(&canonical).to_bytes().to_vec();
+
+        let verify = |c: &[u8], s: &[u8]| {
+            let arr: [u8; 64] = match s.try_into() {
+                Ok(a) => a,
+                Err(_) => return false,
+            };
+            verifying
+                .verify_strict(c, &ed25519_dalek::Signature::from_bytes(&arr))
+                .is_ok()
+        };
+
+        // Genuine signature over the token's canonical bytes → accept.
+        assert!(
+            FileBackedAcceptance::try_from_parts(
+                &token,
+                "op-42",
+                "dev-123",
+                SystemTime::now(),
+                verify
+            )
+            .is_ok(),
+            "genuine ceremony signature must be accepted"
+        );
+
+        // Same signature, but a token whose canonical bytes differ
+        // (different expiry) → verify_strict fails → InvalidSignature.
+        let mut tampered = valid_token(7200);
+        tampered.signature = token.signature.clone();
+        let verify2 = |c: &[u8], s: &[u8]| {
+            let arr: [u8; 64] = match s.try_into() {
+                Ok(a) => a,
+                Err(_) => return false,
+            };
+            verifying
+                .verify_strict(c, &ed25519_dalek::Signature::from_bytes(&arr))
+                .is_ok()
+        };
+        let err = FileBackedAcceptance::try_from_parts(
+            &tampered,
+            "op-42",
+            "dev-123",
+            SystemTime::now(),
+            verify2,
+        )
+        .expect_err("tampered token must fail signature verify");
+        assert_eq!(err, FileBackedAcceptanceError::InvalidSignature);
+    }
+
     /// WHY: Canonical bytes must be deterministic across invocations and
     ///      must embed the v2 domain-separation tag (length-prefix framing).
     #[test]

@@ -5,58 +5,81 @@
  * Şablonları görüntüleme, düzenleme, önizleme ve test etme.
  */
 
-import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Modal
-} from '@aquaculture/shared-ui';
+import React, { useState } from 'react';
+import { Card, Button, Badge, Input, Modal, SandboxedHtmlPreview } from '@aquaculture/shared-ui';
+
 import { settingsApi, EmailTemplate } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
+
+const EMPTY_TEMPLATES: EmailTemplate[] = [];
 
 // ============================================================================
 // Component
 // ============================================================================
 
 const EmailTemplatesPage: React.FC = () => {
-  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const categories = ['all', 'auth', 'billing', 'notification', 'marketing', 'system'];
 
-  useEffect(() => {
-    loadTemplates();
-  }, []);
+  // ==========================================================================
+  // Read (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  const loadTemplates = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await settingsApi.getEmailTemplates();
-      setTemplates(data);
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-      setTemplates([]);
-      setError('Failed to load email templates. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const templatesKey = [...adminKeys.system.settings(), 'email-templates'];
+
+  const templatesQuery = useAdminQuery(templatesKey, ({ signal }) =>
+    settingsApi.getEmailTemplates(signal),
+  );
+
+  const templates: EmailTemplate[] = templatesQuery.data ?? EMPTY_TEMPLATES;
+  const loading = templatesQuery.isPending;
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-130)
+  //
+  // `handleToggleActive` awaited the PUT, flipped `isActive` in the local
+  // array, and — on failure — logged to the console and did nothing else. So
+  // an operator who disabled a template saw the row go inactive while the
+  // server still had it enabled and still sending that mail. A write that
+  // fails silently while the screen reports success is the worst version of
+  // the stale-list class, and on this page it is a message customers keep
+  // receiving after an admin believes it was stopped.
+  // ==========================================================================
+
+  const invalidateTemplates = { invalidateKeys: [templatesKey] };
+
+  const saveTemplate = useAdminMutation<EmailTemplate, EmailTemplate>(
+    (template) =>
+      template.id
+        ? settingsApi.updateEmailTemplate(template.id, template)
+        : settingsApi.createEmailTemplate(template),
+    invalidateTemplates,
+  );
+
+  const toggleActive = useAdminMutation<EmailTemplate, EmailTemplate>(
+    (template) => settingsApi.updateEmailTemplate(template.id, { isActive: !template.isActive }),
+    invalidateTemplates,
+  );
+
+  const queryErrors = [templatesQuery.error, saveTemplate.error, toggleActive.error];
+
+  const loadTemplates = (): void => {
+    void templatesQuery.refetch();
   };
 
-  const handlePreview = async (template: EmailTemplate) => {
+  const handlePreview = (template: EmailTemplate): void => {
     setSelectedTemplate(template);
     // Replace variables with sample values
     let html = template.bodyHtml;
-    template.variables.forEach(v => {
+    template.variables.forEach((v) => {
       const value = v.defaultValue || `[${v.name}]`;
       html = html.replace(new RegExp(`{{${v.name}}}`, 'g'), value);
     });
@@ -64,42 +87,37 @@ const EmailTemplatesPage: React.FC = () => {
     setShowPreviewModal(true);
   };
 
-  const handleEdit = (template: EmailTemplate) => {
+  const handleEdit = (template: EmailTemplate): void => {
     setSelectedTemplate(template);
     setShowEditModal(true);
   };
 
-  const handleSaveTemplate = async () => {
+  const handleSaveTemplate = async (): Promise<void> => {
     if (!selectedTemplate) return;
     try {
-      if (selectedTemplate.id) {
-        await settingsApi.updateEmailTemplate(selectedTemplate.id, selectedTemplate);
-      } else {
-        await settingsApi.createEmailTemplate(selectedTemplate);
-      }
+      await saveTemplate.mutateAsync(selectedTemplate);
       setShowEditModal(false);
-      loadTemplates();
+      // Only after the server confirmed it. The old handler announced success
+      // beside a `loadTemplates()` call it did not await.
       setSuccessMessage('Template saved successfully.');
-    } catch (err) {
-      console.error('Failed to save template:', err);
-      setError('Failed to save template. Please try again.');
+    } catch {
+      // `saveTemplate.error` carries it; the modal stays open.
     }
   };
 
-  const handleToggleActive = async (template: EmailTemplate) => {
+  const handleToggleActive = async (template: EmailTemplate): Promise<void> => {
     try {
-      await settingsApi.updateEmailTemplate(template.id, { isActive: !template.isActive });
-      setTemplates(templates.map(t =>
-        t.id === template.id ? { ...t, isActive: !t.isActive } : t
-      ));
-    } catch (err) {
-      console.error('Failed to toggle template status:', err);
+      await toggleActive.mutateAsync(template);
+    } catch {
+      // Reported through `toggleActive.error` — where it used to be swallowed
+      // into the console while the row already showed the new state.
     }
   };
 
-  const filteredTemplates = templates.filter(t => {
+  const filteredTemplates = templates.filter((t) => {
     const matchesCategory = activeCategory === 'all' || t.category === activeCategory;
-    const matchesSearch = !searchQuery ||
+    const matchesSearch =
+      !searchQuery ||
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.code.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -117,7 +135,9 @@ const EmailTemplatesPage: React.FC = () => {
     return labels[category] || category;
   };
 
-  const getCategoryColor = (category: string): 'default' | 'success' | 'warning' | 'error' | 'info' => {
+  const getCategoryColor = (
+    category: string,
+  ): 'default' | 'success' | 'warning' | 'error' | 'info' => {
     const colors: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
       auth: 'info',
       billing: 'success',
@@ -144,10 +164,13 @@ const EmailTemplatesPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">Email Templates</h1>
           <p className="text-gray-500 mt-1">Manage system and custom email templates</p>
         </div>
-        <Button variant="primary" onClick={() => {
-          setSelectedTemplate(null);
-          setShowEditModal(true);
-        }}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setSelectedTemplate(null);
+            setShowEditModal(true);
+          }}
+        >
           New Template
         </Button>
       </div>
@@ -156,29 +179,35 @@ const EmailTemplatesPage: React.FC = () => {
       {successMessage && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
           <span className="text-green-700">{successMessage}</span>
-          <button onClick={() => setSuccessMessage(null)} className="text-green-400 hover:text-green-600 ml-4">
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-green-400 hover:text-green-600 ml-4"
+          >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
       )}
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
-          <span className="text-red-700">{error}</span>
-          <Button variant="secondary" size="sm" onClick={loadTemplates}>
-            Retry
-          </Button>
-        </div>
-      )}
+      {/* A failed read, or a save or activation the server refused. The
+          toggle used to fail into the console while the row showed the new
+          state (ADMIN-HIGH-130). */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={templatesQuery.data !== undefined}
+        onRetry={loadTemplates}
+      />
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
         {/* Category Tabs */}
         <div className="flex flex-wrap gap-2">
-          {categories.map(cat => (
+          {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
@@ -206,7 +235,7 @@ const EmailTemplatesPage: React.FC = () => {
 
       {/* Templates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTemplates.map(template => (
+        {filteredTemplates.map((template) => (
           <Card key={template.id} className="hover:shadow-lg transition-shadow">
             <div className="flex justify-between items-start mb-3">
               <div>
@@ -217,9 +246,7 @@ const EmailTemplatesPage: React.FC = () => {
                 <Badge variant={getCategoryColor(template.category)}>
                   {getCategoryLabel(template.category)}
                 </Badge>
-                {template.isSystem && (
-                  <Badge variant="default">System</Badge>
-                )}
+                {template.isSystem && <Badge variant="default">System</Badge>}
               </div>
             </div>
 
@@ -228,7 +255,9 @@ const EmailTemplatesPage: React.FC = () => {
             </p>
 
             <div className="text-sm text-gray-500 mb-4">
-              <p><strong>Subject:</strong> {template.subject}</p>
+              <p>
+                <strong>Subject:</strong> {template.subject}
+              </p>
               <p className="mt-1">
                 <strong>Variables:</strong> {template.variables.length}
               </p>
@@ -236,7 +265,9 @@ const EmailTemplatesPage: React.FC = () => {
 
             <div className="flex items-center justify-between pt-4 border-t">
               <div className="flex items-center">
-                <span className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-green-500' : 'bg-gray-400'}`} />
+                <span
+                  className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-green-500' : 'bg-gray-400'}`}
+                />
                 <span className="text-sm text-gray-500">
                   {template.isActive ? 'Active' : 'Inactive'}
                 </span>
@@ -248,11 +279,7 @@ const EmailTemplatesPage: React.FC = () => {
                 <Button variant="ghost" size="sm" onClick={() => handleEdit(template)}>
                   Edit
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleToggleActive(template)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => handleToggleActive(template)}>
                   {template.isActive ? 'Disable' : 'Enable'}
                 </Button>
               </div>
@@ -278,12 +305,10 @@ const EmailTemplatesPage: React.FC = () => {
           <div className="space-y-4">
             {/* Subject Preview */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Konu
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Konu</label>
               <div className="p-3 bg-gray-50 rounded-lg text-sm">
                 {selectedTemplate.subject.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
-                  const variable = selectedTemplate.variables.find(v => v.name === key);
+                  const variable = selectedTemplate.variables.find((v) => v.name === key);
                   return variable?.defaultValue || `[${key}]`;
                 })}
               </div>
@@ -291,11 +316,9 @@ const EmailTemplatesPage: React.FC = () => {
 
             {/* Variables */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Variables
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Variables</label>
               <div className="flex flex-wrap gap-2">
-                {selectedTemplate.variables.map(v => (
+                {selectedTemplate.variables.map((v) => (
                   <span
                     key={v.name}
                     className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
@@ -313,8 +336,8 @@ const EmailTemplatesPage: React.FC = () => {
                 Content Preview
               </label>
               <div className="border rounded-lg overflow-hidden">
-                <iframe
-                  srcDoc={previewHtml}
+                <SandboxedHtmlPreview
+                  html={previewHtml}
                   className="w-full h-96 bg-white"
                   title="Email Preview"
                 />
@@ -325,10 +348,13 @@ const EmailTemplatesPage: React.FC = () => {
               <Button variant="secondary" onClick={() => setShowPreviewModal(false)}>
                 Close
               </Button>
-              <Button variant="primary" onClick={() => {
-                setShowPreviewModal(false);
-                handleEdit(selectedTemplate);
-              }}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setShowPreviewModal(false);
+                  handleEdit(selectedTemplate);
+                }}
+              >
                 Edit
               </Button>
             </div>
@@ -353,7 +379,9 @@ const EmailTemplatesPage: React.FC = () => {
                 <Input
                   type="text"
                   value={selectedTemplate?.code || ''}
-                  onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, code: e.target.value } : null)}
+                  onChange={(e) =>
+                    setSelectedTemplate((prev) => (prev ? { ...prev, code: e.target.value } : null))
+                  }
                   placeholder="welcome_email"
                   disabled={selectedTemplate?.isSystem}
                 />
@@ -365,7 +393,9 @@ const EmailTemplatesPage: React.FC = () => {
                 <Input
                   type="text"
                   value={selectedTemplate?.name || ''}
-                  onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, name: e.target.value } : null)}
+                  onChange={(e) =>
+                    setSelectedTemplate((prev) => (prev ? { ...prev, name: e.target.value } : null))
+                  }
                   placeholder="Welcome Email"
                 />
               </div>
@@ -373,61 +403,71 @@ const EmailTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Category
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   value={selectedTemplate?.category || 'notification'}
-                  onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, category: e.target.value } : null)}
+                  onChange={(e) =>
+                    setSelectedTemplate((prev) =>
+                      prev ? { ...prev, category: e.target.value } : null,
+                    )
+                  }
                 >
-                  {categories.filter(c => c !== 'all').map(cat => (
-                    <option key={cat} value={cat}>{getCategoryLabel(cat)}</option>
-                  ))}
+                  {categories
+                    .filter((c) => c !== 'all')
+                    .map((cat) => (
+                      <option key={cat} value={cat}>
+                        {getCategoryLabel(cat)}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <Input
                   type="text"
                   value={selectedTemplate?.description || ''}
-                  onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, description: e.target.value } : null)}
+                  onChange={(e) =>
+                    setSelectedTemplate((prev) =>
+                      prev ? { ...prev, description: e.target.value } : null,
+                    )
+                  }
                   placeholder="Template description..."
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Subject
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Subject</label>
               <Input
                 type="text"
                 value={selectedTemplate?.subject || ''}
-                onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, subject: e.target.value } : null)}
+                onChange={(e) =>
+                  setSelectedTemplate((prev) =>
+                    prev ? { ...prev, subject: e.target.value } : null,
+                  )
+                }
                 placeholder="{{platform_name}} - Welcome!"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                HTML Content
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">HTML Content</label>
               <textarea
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
                 rows={12}
                 value={selectedTemplate?.bodyHtml || ''}
-                onChange={(e) => setSelectedTemplate(prev => prev ? { ...prev, bodyHtml: e.target.value } : null)}
+                onChange={(e) =>
+                  setSelectedTemplate((prev) =>
+                    prev ? { ...prev, bodyHtml: e.target.value } : null,
+                  )
+                }
                 placeholder="<html>...</html>"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Variables
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Variables</label>
               <div className="space-y-2">
                 {selectedTemplate?.variables.map((variable, index) => (
                   <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
@@ -439,7 +479,9 @@ const EmailTemplatesPage: React.FC = () => {
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
                         newVars[index] = { ...variable, name: e.target.value };
-                        setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                        setSelectedTemplate((prev) =>
+                          prev ? { ...prev, variables: newVars } : null,
+                        );
                       }}
                     />
                     <Input
@@ -450,7 +492,9 @@ const EmailTemplatesPage: React.FC = () => {
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
                         newVars[index] = { ...variable, description: e.target.value };
-                        setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                        setSelectedTemplate((prev) =>
+                          prev ? { ...prev, variables: newVars } : null,
+                        );
                       }}
                     />
                     <Input
@@ -461,7 +505,9 @@ const EmailTemplatesPage: React.FC = () => {
                       onChange={(e) => {
                         const newVars = [...(selectedTemplate?.variables || [])];
                         newVars[index] = { ...variable, defaultValue: e.target.value };
-                        setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                        setSelectedTemplate((prev) =>
+                          prev ? { ...prev, variables: newVars } : null,
+                        );
                       }}
                     />
                     <label className="flex items-center">
@@ -471,7 +517,9 @@ const EmailTemplatesPage: React.FC = () => {
                         onChange={(e) => {
                           const newVars = [...(selectedTemplate?.variables || [])];
                           newVars[index] = { ...variable, required: e.target.checked };
-                          setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                          setSelectedTemplate((prev) =>
+                            prev ? { ...prev, variables: newVars } : null,
+                          );
                         }}
                         className="h-4 w-4 text-blue-600 rounded"
                       />
@@ -482,8 +530,11 @@ const EmailTemplatesPage: React.FC = () => {
                       size="sm"
                       className="text-red-500"
                       onClick={() => {
-                        const newVars = selectedTemplate?.variables.filter((_, i) => i !== index) || [];
-                        setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                        const newVars =
+                          selectedTemplate?.variables.filter((_, i) => i !== index) || [];
+                        setSelectedTemplate((prev) =>
+                          prev ? { ...prev, variables: newVars } : null,
+                        );
                       }}
                     >
                       Remove
@@ -498,7 +549,7 @@ const EmailTemplatesPage: React.FC = () => {
                       ...(selectedTemplate?.variables || []),
                       { name: '', description: '', required: false },
                     ];
-                    setSelectedTemplate(prev => prev ? { ...prev, variables: newVars } : null);
+                    setSelectedTemplate((prev) => (prev ? { ...prev, variables: newVars } : null));
                   }}
                 >
                   + Add Variable
@@ -510,7 +561,10 @@ const EmailTemplatesPage: React.FC = () => {
               <Button variant="secondary" onClick={() => setShowEditModal(false)}>
                 Cancel
               </Button>
-              <Button variant="ghost" onClick={() => selectedTemplate && handlePreview(selectedTemplate)}>
+              <Button
+                variant="ghost"
+                onClick={() => selectedTemplate && handlePreview(selectedTemplate)}
+              >
                 Preview
               </Button>
               <Button variant="primary" onClick={handleSaveTemplate}>

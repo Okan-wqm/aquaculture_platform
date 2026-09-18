@@ -182,7 +182,7 @@ export class SystemResolver {
   async systemsBySite(
     @Args('siteId', { type: () => ID }) siteId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<SystemResponse[]> {
+  ): Promise<readonly SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { siteId, isActive: true }, { limit: 1000 });
     const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
@@ -196,7 +196,7 @@ export class SystemResolver {
   async systemsByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<SystemResponse[]> {
+  ): Promise<readonly SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { departmentId, isActive: true }, { limit: 1000 });
     const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
@@ -210,7 +210,7 @@ export class SystemResolver {
   async childSystems(
     @Args('parentSystemId', { type: () => ID }) parentSystemId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<SystemResponse[]> {
+  ): Promise<readonly SystemResponse[]> {
     const query = new ListSystemsQuery(
       tenantId,
       { parentSystemId, isActive: true },
@@ -228,7 +228,7 @@ export class SystemResolver {
   async rootSystems(
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @CurrentTenant() tenantId?: string,
-  ): Promise<SystemResponse[]> {
+  ): Promise<readonly SystemResponse[]> {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
@@ -312,7 +312,7 @@ export class SystemResolver {
    * Resolve child systems field
    */
   @ResolveField(() => [SystemResponse], { nullable: true })
-  async childSystemsField(@Parent() system: SystemResponse): Promise<SystemResponse[]> {
+  async childSystemsField(@Parent() system: SystemResponse): Promise<readonly SystemResponse[]> {
     if ('childSystems' in system && system.childSystems)
       return system.childSystems as SystemResponse[];
 

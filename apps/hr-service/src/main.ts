@@ -5,6 +5,9 @@ import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {
   serviceName: 'hr-service',
+  // ADR-0006: reached only over the Docker network (gateway federation / NATS);
+  // nginx proxies nothing here, so no CORS and no edge bundle.
+  serviceVisibility: 'internal',
   portEnvVar: 'HR_SERVICE_PORT',
   hasGraphQL: true,
 });

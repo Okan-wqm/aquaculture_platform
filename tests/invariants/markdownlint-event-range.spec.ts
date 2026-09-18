@@ -5,7 +5,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +12,7 @@ import { join, resolve } from 'node:path';
 
 import * as YAML from 'yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 interface WorkflowStep {
   name?: string;
   env?: Record<string, string>;
@@ -104,7 +104,7 @@ describe('markdownlint immutable event range', () => {
       expect(lintTargets).not.toContain('docs/plans/base.md');
       expect(lintTargets).not.toContain('docs/plans/shared.md');
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      removeFixtureTree(fixtureRoot);
     }
   });
 
@@ -220,7 +220,7 @@ describe('markdownlint immutable event range', () => {
       expect(invalidTree.status).toBe(1);
       expect(invalidTree.stderr).toContain(`markdownlint base ${arbitraryTree} cannot be resolved`);
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      removeFixtureTree(fixtureRoot);
     }
   });
 
@@ -268,7 +268,7 @@ describe('markdownlint immutable event range', () => {
       expect(result.stderr).toContain('docs/large.md:2:1 MD013/line-length');
       expect(result.stderr).not.toContain('markdownlint could not be launched');
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      removeFixtureTree(fixtureRoot);
     }
   });
 
@@ -346,7 +346,7 @@ describe('markdownlint immutable event range', () => {
       expect(billed.stdout + billed.stderr).toContain('docs/legacy.md');
       expect(billed.status).toBe(1);
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      removeFixtureTree(fixtureRoot);
     }
   });
 });

@@ -11,7 +11,7 @@ import {
   type MobileFeature,
 } from './hooks/useMobilePermissions';
 import { useSwNavigation } from './hooks/useSwNavigation';
-import { AppShell } from './layouts/AppShell';
+import { MobileLayout } from './layouts/MobileLayout';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -104,35 +104,6 @@ const TankDetailPage2 = lazy(() =>
   import('./pages/tank/TankDetailPage').then((m) => ({ default: m.TankDetailPage })),
 );
 
-// v4 dock destinations. Units is the app's central noun and had no route of its
-// own before; Scan is the raised centre button that resolves a QR tag to a unit.
-const UnitsPage = lazy(() =>
-  import('./pages/units/UnitsPage').then((m) => ({ default: m.UnitsPage })),
-);
-const ScanPage = lazy(() => import('./pages/scan/ScanPage').then((m) => ({ default: m.ScanPage })));
-
-// The VFD (drive) surface — feeders, pumps and blowers. Reached from Units and
-// from a unit's own detail; the detail screen is where a drive is commanded.
-const DrivesPage = lazy(() =>
-  import('./pages/drives/DrivesPage').then((m) => ({ default: m.DrivesPage })),
-);
-const DriveDetailPage = lazy(() =>
-  import('./pages/drives/DriveDetailPage').then((m) => ({ default: m.DriveDetailPage })),
-);
-
-// The tablet control board's three views. Lazy like every other destination: a
-// phone never loads these chunks, because AppShell only routes to `/board/*`
-// above the board threshold (src/hooks/useViewport.ts).
-const BoardPage = lazy(() =>
-  import('./pages/tablet/BoardPage').then((m) => ({ default: m.BoardPage })),
-);
-const ReportsBoardPage = lazy(() =>
-  import('./pages/tablet/ReportsBoardPage').then((m) => ({ default: m.ReportsBoardPage })),
-);
-const ChatBoardPage = lazy(() =>
-  import('./pages/tablet/ChatBoardPage').then((m) => ({ default: m.ChatBoardPage })),
-);
-
 // Messaging pages — in-app messaging (ADR-012)
 const ChannelListPage = lazy(() =>
   import('./pages/messaging/ChannelListPage').then((m) => ({ default: m.ChannelListPage })),
@@ -163,8 +134,8 @@ const WelfareScorePage = lazy(() =>
 const EscapeIncidentPage = lazy(() =>
   import('./pages/escape/EscapeIncidentPage').then((m) => ({ default: m.EscapeIncidentPage })),
 );
-const ReportsPage = lazy(() =>
-  import('./pages/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })),
+const ReportsDuePage = lazy(() =>
+  import('./pages/reports/ReportsDuePage').then((m) => ({ default: m.ReportsDuePage })),
 );
 const ReportReviewPage = lazy(() =>
   import('./pages/reports/ReportReviewPage').then((m) => ({ default: m.ReportReviewPage })),
@@ -184,7 +155,7 @@ const StaffHubPage = lazy(() =>
 function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-acc" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
     </div>
   );
 }
@@ -195,7 +166,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }): ReactEleme
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-acc" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500" />
       </div>
     );
   }
@@ -263,10 +234,7 @@ export function App(): ReactElement {
             path="/*"
             element={
               <ProtectedRoute>
-                {/* AppShell is the ONE viewport-aware seam: the handheld dock on
-                    a phone, the cabin control board on a tablet, swapped live on
-                    resize and rotation. Everything below it is shell-agnostic. */}
-                <AppShell>
+                <MobileLayout>
                   {/* FE-HIGH-053: ROUTE-level ErrorBoundary wrapping the lazy
                       Routes + Suspense subtree. A chunk-load rejection or a
                       single-page render crash resets to this recoverable shell
@@ -279,62 +247,6 @@ export function App(): ReactElement {
                       <Routes>
                         <Route path="/" element={<HomePage />} />
                         <Route path="/tank/:tankId" element={<TankDetailPage2 />} />
-                        {/* v4 dock: Units is unguarded (reading the unit list is
-                          the baseline field capability); Scan sits behind the
-                          union of the log features, since a resolved unit whose
-                          every action is denied is a dead end. */}
-                        <Route path="/units" element={<UnitsPage />} />
-                        {/* The drive surface is UNGATED at the route for the
-                          same reason /units is, and the reason is the server's:
-                          the VFD read queries on the sensor resolver carry no
-                          @Roles, so the drive inventory is a baseline field
-                          capability. The COMMANDS are role-floored
-                          (@Roles(TENANT_ADMIN, MODULE_MANAGER)), and that floor
-                          is enforced on the detail screen where the buttons are
-                          — through the same role-rank SSoT the harvest gate
-                          uses, so the client never offers a button the server
-                          will reject. There is no mobile feature FLAG for
-                          drives: allowedFeatures is a server-owned set and this
-                          client cannot invent a member of it. */}
-                        <Route path="/drives" element={<DrivesPage />} />
-                        <Route path="/drives/:vfdDeviceId" element={<DriveDetailPage />} />
-                        {/* The tablet control board. Ungated for the same reason
-                          /units is: reading unit, alarm and task state is the
-                          baseline field capability, and each pane inside it
-                          carries the phone's own gating. AppShell owns whether
-                          this path is reachable at all — below the board
-                          threshold it redirects to Today, so a phone cannot
-                          land on a three-column grid. */}
-                        <Route path="/board" element={<BoardPage />} />
-                        {/* The board's other two views. They are UNGATED at the
-                          route for the same reason /board is — and because
-                          gating them here would be the wrong layer: the
-                          regulatory column inside Reports self-gates on
-                          canReach('reports') (the MODULE_MANAGER floor), and the
-                          conversations a role may read are already decided
-                          server-side by membership. Every path under /board is
-                          unreachable below the board threshold: AppShell
-                          redirects the whole prefix to Today, so a phone can
-                          never land on a multi-column layout. */}
-                        <Route path="/board/reports" element={<ReportsBoardPage />} />
-                        <Route path="/board/chat" element={<ChatBoardPage />} />
-                        <Route
-                          path="/scan"
-                          element={
-                            <MultiFeatureRoute
-                              features={[
-                                'mortality',
-                                'cull',
-                                'harvest',
-                                'feeding',
-                                'transfer',
-                                'waterQuality',
-                              ]}
-                            >
-                              <ScanPage />
-                            </MultiFeatureRoute>
-                          }
-                        />
                         {/* New primary routes for the 4-tab navigation */}
                         <Route path="/operations" element={<OperationsHubPage />} />
 
@@ -641,15 +553,17 @@ export function App(): ReactElement {
                             </FeatureRoute>
                           }
                         />
-                        {/* Reports is UNGATED at the route: it leads with the farm
-                          summary, which every field role may read. The regulatory
-                          draft section inside self-gates on the same MODULE_MANAGER
-                          floor, so a MODULE_USER gets a useful screen rather than a
-                          redirect. Review/approve below stays guarded — that one IS
-                          manager-only, mirroring the draft resolver's @Roles matrix,
-                          and is ONLINE-ONLY because a regulator filing is never
-                          queued on the device. */}
-                        <Route path="/reports" element={<ReportsPage />} />
+                        {/* Report surface — ONLINE-ONLY review/approve; FeatureRoute
+                          enforces the MODULE_MANAGER role floor (feature-access SSoT)
+                          mirroring the draft resolver's @Roles matrix */}
+                        <Route
+                          path="/reports"
+                          element={
+                            <FeatureRoute feature="reports">
+                              <ReportsDuePage />
+                            </FeatureRoute>
+                          }
+                        />
                         <Route
                           path="/reports/:draftId"
                           element={
@@ -667,7 +581,7 @@ export function App(): ReactElement {
                       </Routes>
                     </Suspense>
                   </ErrorBoundary>
-                </AppShell>
+                </MobileLayout>
               </ProtectedRoute>
             }
           />

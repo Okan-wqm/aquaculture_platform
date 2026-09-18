@@ -1,16 +1,21 @@
-import { createHash } from 'node:crypto';
-
-import { signedFetch } from '@aquaculture/backend-common/http';
+import { signedFetchJson, type InternalCallResult } from '@aquaculture/backend-common/http';
 import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type { PasswordResetRequestedEvent, UserAccountLockedEvent, UserInvitedEvent } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
+import {
+  InvalidEventTenantScopeError,
+  eventTenantScope,
+  requireTenantScope,
+} from '@platform/event-contracts';
+import type {
+  EventTenantScope,
+  PasswordResetRequestedEvent,
+  UserAccountLockedEvent,
+  UserInvitedEvent,
+} from '@platform/event-contracts';
 
 import { EmailService } from '../services/email.service';
-
-// UUID v4 regex for tenant ID validation
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Minimal user PII resolved from auth-service at delivery time.
@@ -38,6 +43,16 @@ interface ResolvedActionInfo {
 }
 
 /**
+ * The tenant binding of an internal call for a scope: the tenant id, or the
+ * explicit non-tenant opt-out (`''`) that signedFetch documents for proven
+ * non-tenant paths. auth-service reads the empty binding as the platform
+ * scope and resolves NULL-tenant principals only (SEC-HIGH-159).
+ */
+function signedTenantBinding(scope: EventTenantScope): string {
+  return scope.kind === 'tenant' ? scope.tenantId : '';
+}
+
+/**
  * Auth Event Handler
  *
  * Listens to PasswordResetRequested and UserInvited events
@@ -46,10 +61,21 @@ interface ResolvedActionInfo {
  * SECURITY (CRITICAL-001/002): Events no longer carry PII or secret URLs.
  * This handler resolves user details, tenant info, and action URLs at
  * delivery time via authenticated internal API calls to auth-service.
+ *
+ * Tenancy (SEC-HIGH-159): the event's scope is parsed through the contract
+ * (eventTenantScope), never a hand-rolled UUID guard. A platform-scoped
+ * event — a super admin's password reset or lockout — is delivered through
+ * the platform-scope internal identity (signedFetch `tenantId: ''`), which
+ * auth-service resolves against NULL-tenant principals only. UserInvited is
+ * structurally tenant-bound (requireTenantScope). A malformed scope throws,
+ * so the bus redelivers/dead-letters it instead of the handler silently
+ * acknowledging a dropped e-mail.
  */
 @Injectable()
 export class AuthEventHandler
-  implements IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent>, OnModuleInit
+  implements
+    IEventHandler<PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent>,
+    OnModuleInit
 {
   private readonly logger = new Logger(AuthEventHandler.name);
   private readonly authServiceUrl: string;
@@ -84,38 +110,54 @@ export class AuthEventHandler
     return 'AuthEvent';
   }
 
-  async handle(event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent): Promise<void> {
-    // SECURITY: Validate tenantId format to ensure data isolation
-    if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
-      this.logger.error(
-        `Auth event has invalid or missing tenantId. ` +
-          'Skipping to prevent cross-tenant notification leakage.',
-      );
-      return;
+  async handle(
+    event: PasswordResetRequestedEvent | UserInvitedEvent | UserAccountLockedEvent,
+  ): Promise<HandlerOutcome> {
+    // SEC-HIGH-057: parse, do not guard. A tenant UUID and the platform
+    // segment are both legitimate; anything else is a contract violation —
+    // terminated with its reason (PLAT-HIGH-902), never acknowledged as
+    // "skipped" and never redelivered.
+    let scope: EventTenantScope;
+    try {
+      scope = eventTenantScope(event);
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        return HandlerOutcome.terminate(error.message, error);
+      }
+      throw error;
     }
 
     const eventType = event.eventType;
-    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
+    this.logger.log(
+      scope.kind === 'tenant'
+        ? `Processing ${eventType} for tenant ${scope.tenantId.substring(0, 8)}...`
+        : `Processing ${eventType} for a platform-scoped principal`,
+    );
 
     try {
       switch (eventType) {
         case 'PasswordResetRequested':
-          await this.handlePasswordResetRequested(event as PasswordResetRequestedEvent);
-          break;
+          return await this.handlePasswordResetRequested(
+            event as PasswordResetRequestedEvent,
+            scope,
+          );
         case 'UserInvited':
-          await this.handleUserInvited(event as UserInvitedEvent);
-          break;
+          return await this.handleUserInvited(event as UserInvitedEvent);
         case 'UserAccountLocked':
-          await this.handleUserAccountLocked(event as UserAccountLockedEvent);
-          break;
+          return await this.handleUserAccountLocked(event as UserAccountLockedEvent, scope);
         default:
           this.logger.warn(`Unknown auth event type: ${eventType}`);
+          return HandlerOutcome.terminate(`Unknown auth event type: ${eventType}`);
       }
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // PLAT-HIGH-902: a contract violation (e.g. an invalid tenancy scope on
+      // UserInvited) or a validation rejection is dead-lettered; anything else
+      // is retried within the delivery budget. Never acknowledged as sent.
+      return outcomeForError(`${eventType} delivery`, error);
     }
   }
 
@@ -124,108 +166,79 @@ export class AuthEventHandler
   /**
    * Resolve user PII from auth-service at delivery time.
    * SECURITY: PII is fetched via authenticated internal API, never from the event bus.
+   *
+   * SECURITY (SEC-CRITICAL-001 closure): signedFetchJson produces v2 HMAC
+   * headers binding tenantId AND method+path+body; the manual
+   * generateServiceIdentityHeaders + fetch pattern left the canonical input
+   * cross-endpoint-replayable. The result carries its failure class
+   * (PLAT-HIGH-902): a 404 means the principal does not exist for this scope
+   * and redelivery cannot change that; a 5xx / network error is retried.
    */
-  private async resolveUserPII(userId: string, tenantId: string): Promise<ResolvedUserPII | null> {
-    try {
-      // SECURITY (SEC-CRITICAL-001 closure): use signedFetch which produces
-      // v2 HMAC headers binding tenantId AND method+path+body. Manual
-      // generateServiceIdentityHeaders + fetch is the v1 pattern that left
-      // the canonical input cross-endpoint-replayable.
-      const response = await signedFetch(
-        `${this.authServiceUrl}/api/v1/internal/users/${userId}/pii`,
-        {
-          method: 'GET',
-          serviceName: 'notification-service',
-          tenantId,
-          audience: 'auth-service',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!response.ok) {
-        this.logger.error(
-          `Failed to resolve user PII for userId=${userId}: HTTP ${response.status}`,
-        );
-        return null;
-      }
-      return (await response.json()) as ResolvedUserPII;
-    } catch (error) {
-      this.logger.error(
-        `Failed to resolve user PII for userId=${userId}: ${(error as Error).message}`,
-      );
-      return null;
-    }
+  private resolveUserPII(
+    userId: string,
+    scope: EventTenantScope,
+  ): Promise<InternalCallResult<ResolvedUserPII>> {
+    return signedFetchJson<ResolvedUserPII>(
+      `${this.authServiceUrl}/api/v1/internal/users/${userId}/pii`,
+      {
+        method: 'GET',
+        serviceName: 'notification-service',
+        tenantId: signedTenantBinding(scope),
+        audience: 'auth-service',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
+
+  /** Resolve tenant info from auth-service at delivery time. */
+  private resolveTenantInfo(tenantId: string): Promise<InternalCallResult<ResolvedTenantInfo>> {
+    return signedFetchJson<ResolvedTenantInfo>(
+      `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}/info`,
+      {
+        method: 'GET',
+        serviceName: 'notification-service',
+        tenantId,
+        audience: 'auth-service',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   }
 
   /**
-   * Resolve tenant info from auth-service at delivery time.
+   * Resolve the action URL from auth-service at delivery time.
+   * SECURITY: the reset/invitation URL is built by auth-service from the
+   * ActionToken row id; the raw token never touches the event bus.
    */
-  private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
-    try {
-      // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const response = await signedFetch(
-        `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}/info`,
-        {
-          method: 'GET',
-          serviceName: 'notification-service',
-          tenantId,
-          audience: 'auth-service',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!response.ok) {
-        this.logger.error(
-          `Failed to resolve tenant info for tenantId=${tenantId}: HTTP ${response.status}`,
-        );
-        return null;
-      }
-      return (await response.json()) as ResolvedTenantInfo;
-    } catch (error) {
-      this.logger.error(
-        `Failed to resolve tenant info for tenantId=${tenantId}: ${(error as Error).message}`,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Resolve action URL from auth-service at delivery time.
-   * SECURITY: The actual reset/invitation URL (with embedded token) is built by
-   * auth-service and returned via an authenticated internal API call. The raw
-   * token never touches the event bus.
-   */
-  private async resolveActionUrl(
+  private resolveActionUrl(
     actionTokenId: string,
-    tenantId: string,
-  ): Promise<ResolvedActionInfo | null> {
-    try {
-      // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const response = await signedFetch(
-        `${this.authServiceUrl}/api/v1/internal/action-tokens/${actionTokenId}/url`,
-        {
-          method: 'GET',
-          serviceName: 'notification-service',
-          tenantId,
-          audience: 'auth-service',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!response.ok) {
-        this.logger.error(
-          `Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: HTTP ${response.status}`,
-        );
-        return null;
-      }
-      return (await response.json()) as ResolvedActionInfo;
-    } catch (error) {
-      this.logger.error(
-        `Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: ${(error as Error).message}`,
-      );
-      return null;
-    }
+    scope: EventTenantScope,
+  ): Promise<InternalCallResult<ResolvedActionInfo>> {
+    return signedFetchJson<ResolvedActionInfo>(
+      `${this.authServiceUrl}/api/v1/internal/action-tokens/${actionTokenId}/url`,
+      {
+        method: 'GET',
+        serviceName: 'notification-service',
+        tenantId: signedTenantBinding(scope),
+        audience: 'auth-service',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   }
 
-  private hashTokenId(actionTokenId: string): string {
-    return createHash('sha256').update(actionTokenId).digest('hex').slice(0, 16);
+  /**
+   * The outcome for an internal call that failed: a permanent failure (the
+   * principal, tenant or token does not exist for this scope) is
+   * dead-lettered; a transient one is retried within the bus's budget.
+   */
+  private failedResolution(
+    context: string,
+    result: Extract<InternalCallResult<unknown>, { ok: false }>,
+  ): HandlerOutcome {
+    const reason = `${context}: ${result.error}`;
+    this.logger.error(reason);
+    return result.failureClass === 'permanent'
+      ? HandlerOutcome.terminate(reason)
+      : HandlerOutcome.retry(reason);
   }
 
   // ── Event handlers ──
@@ -243,25 +256,27 @@ export class AuthEventHandler
    * address is resolved at delivery time via the authenticated internal
    * PII endpoint, identical to the password-reset flow.
    */
-  private async handleUserAccountLocked(event: UserAccountLockedEvent): Promise<void> {
+  private async handleUserAccountLocked(
+    event: UserAccountLockedEvent,
+    scope: EventTenantScope,
+  ): Promise<HandlerOutcome> {
     if (!event.userId || !event.lockedUntil) {
       this.logger.error('UserAccountLocked event missing userId or lockedUntil. Skipping.');
-      return;
+      return HandlerOutcome.terminate('UserAccountLocked: missing userId or lockedUntil');
     }
 
-    const userPII = await this.resolveUserPII(event.userId, event.tenantId);
-    if (!userPII) {
-      this.logger.error(
-        `Cannot send account-locked email — failed to resolve user PII for userId=${event.userId}`,
+    const resolved = await this.resolveUserPII(event.userId, scope);
+    if (!resolved.ok) {
+      return this.failedResolution(
+        `UserAccountLocked: user PII for userId=${event.userId}`,
+        resolved,
       );
-      return;
     }
+    const userPII = resolved.body;
 
     const displayName = userPII.firstName || 'there';
     const unlockAt = new Date(event.lockedUntil);
-    const unlockDisplay = Number.isNaN(unlockAt.getTime())
-      ? 'shortly'
-      : unlockAt.toUTCString();
+    const unlockDisplay = Number.isNaN(unlockAt.getTime()) ? 'shortly' : unlockAt.toUTCString();
 
     const subject = 'Your account was temporarily locked - Aquaculture Platform';
     const html = `
@@ -307,40 +322,51 @@ export class AuthEventHandler
     this.logger.log(
       `Account-locked notification dispatched for userId=${event.userId} (unlocks ${unlockDisplay})`,
     );
+    return HandlerOutcome.ack();
   }
 
-  private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
+  private async handlePasswordResetRequested(
+    event: PasswordResetRequestedEvent,
+    scope: EventTenantScope,
+  ): Promise<HandlerOutcome> {
     // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {
       this.logger.warn(
         'SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.',
       );
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: v1 shape carrying a raw token');
     }
     if ('email' in event) {
       this.logger.warn(
         'SECURITY: Rejected legacy PasswordResetRequested event carrying raw PII (email). User must re-request.',
       );
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: legacy shape carrying PII');
     }
 
     if (!event.userId || !event.actionTokenId) {
       this.logger.error('PasswordResetRequested event missing userId or actionTokenId. Skipping.');
-      return;
+      return HandlerOutcome.terminate('PasswordResetRequested: missing userId or actionTokenId');
     }
 
     // Resolve PII and action URL at delivery time
-    const [userPII, actionInfo] = await Promise.all([
-      this.resolveUserPII(event.userId, event.tenantId),
-      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+    const [resolvedUser, resolvedAction] = await Promise.all([
+      this.resolveUserPII(event.userId, scope),
+      this.resolveActionUrl(event.actionTokenId, scope),
     ]);
-
-    if (!userPII || !actionInfo) {
-      this.logger.error(
-        `Cannot send password reset email — failed to resolve user PII or action URL for userId=${event.userId}`,
+    if (!resolvedUser.ok) {
+      return this.failedResolution(
+        `PasswordResetRequested: user PII for userId=${event.userId}`,
+        resolvedUser,
       );
-      return;
     }
+    if (!resolvedAction.ok) {
+      return this.failedResolution(
+        `PasswordResetRequested: action URL for tokenId=${event.actionTokenId}`,
+        resolvedAction,
+      );
+    }
+    const userPII = resolvedUser.body;
+    const actionInfo = resolvedAction.body;
 
     const resetUrl = actionInfo.actionUrl;
     const displayName = userPII.firstName || 'there';
@@ -397,38 +423,57 @@ export class AuthEventHandler
     await this.emailService.sendEmail(userPII.email, subject, html);
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)
     this.logger.log(`Password reset email sent to ${maskEmail(userPII.email)}`);
+    return HandlerOutcome.ack();
   }
 
   /**
    * Handle UserInvited — resolve PII/tenant at delivery time, then send welcome email
    */
-  private async handleUserInvited(event: UserInvitedEvent): Promise<void> {
+  private async handleUserInvited(event: UserInvitedEvent): Promise<HandlerOutcome> {
+    // An invitation always targets a tenant; a platform-scoped UserInvited is
+    // a contract violation and throws (SEC-HIGH-159).
+    const scope = requireTenantScope(event);
+
     // SECURITY: Reject legacy events carrying raw PII
     if ('email' in event) {
       this.logger.warn(
         'SECURITY: Rejected legacy UserInvited event carrying raw PII (email). Re-invite required.',
       );
-      return;
+      return HandlerOutcome.terminate('UserInvited: legacy shape carrying PII');
     }
 
     if (!event.userId || !event.actionTokenId) {
       this.logger.error('UserInvited event missing userId or actionTokenId. Skipping.');
-      return;
+      return HandlerOutcome.terminate('UserInvited: missing userId or actionTokenId');
     }
 
     // Resolve PII, tenant info, and action URL at delivery time
-    const [userPII, tenantInfo, actionInfo] = await Promise.all([
-      this.resolveUserPII(event.userId, event.tenantId),
-      this.resolveTenantInfo(event.tenantId),
-      this.resolveActionUrl(event.actionTokenId, event.tenantId),
+    const [resolvedUser, resolvedTenant, resolvedAction] = await Promise.all([
+      this.resolveUserPII(event.userId, scope),
+      this.resolveTenantInfo(scope.tenantId),
+      this.resolveActionUrl(event.actionTokenId, scope),
     ]);
-
-    if (!userPII || !tenantInfo || !actionInfo?.actionUrl) {
-      this.logger.error(
-        `Cannot send welcome email — failed to resolve user PII, tenant info, or action URL for userId=${event.userId}`,
+    if (!resolvedUser.ok) {
+      return this.failedResolution(
+        `UserInvited: user PII for userId=${event.userId}`,
+        resolvedUser,
       );
-      return;
     }
+    if (!resolvedTenant.ok) {
+      return this.failedResolution(
+        `UserInvited: tenant info for ${scope.tenantId}`,
+        resolvedTenant,
+      );
+    }
+    if (!resolvedAction.ok) {
+      return this.failedResolution(
+        `UserInvited: action URL for tokenId=${event.actionTokenId}`,
+        resolvedAction,
+      );
+    }
+    const userPII = resolvedUser.body;
+    const tenantInfo = resolvedTenant.body;
+    const actionInfo = resolvedAction.body;
 
     await this.emailService.sendWelcomeEmail({
       firstName: userPII.firstName,
@@ -443,5 +488,6 @@ export class AuthEventHandler
     this.logger.log(
       `Welcome email sent to ${maskEmail(userPII.email)} for tenant ${tenantInfo.name}`,
     );
+    return HandlerOutcome.ack();
   }
 }

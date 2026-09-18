@@ -56,7 +56,7 @@ Repo evidence driving this agent:
 - durable retry logic in billing:
   - `apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts`
 - scheduled background execution:
-  - `apps/farm-service/src/feeding/services/feeding-cron.service.ts`
+  - `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts`
 
 ## Discovery Guidance
 

@@ -50,7 +50,7 @@ import { CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
 
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { MessageSentEvent } from '@platform/event-contracts';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 
@@ -105,17 +105,17 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     return 'MessageSent';
   }
 
-  async handle(event: MessageSentEvent): Promise<void> {
+  async handle(event: MessageSentEvent): Promise<HandlerOutcome> {
     // Gate 0 — kill-switch (defensive; the subscription only exists when ON,
     // this also covers a config object captured before a toggle).
-    if (!this.triggerConfig.triggerEnabled) return;
+    if (!this.triggerConfig.triggerEnabled) return HandlerOutcome.ack('ai trigger kill-switch off');
 
     // Gate 1 — never react to the AI service's own output. Contract flag
     // first (2.0), senderId identity second: either is sufficient, both are
     // checked so a legacy publisher omitting the flag cannot cause a
     // self-sustaining AI feedback loop.
     if (event.isAiResponse === true || event.senderId === AI_USER_ID) {
-      return;
+      return HandlerOutcome.ack('own AI output — never re-triggered');
     }
 
     const { tenantId, channelId, messageId } = event;
@@ -127,14 +127,14 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
       this.logger.warn(
         `AI trigger dropped a MessageSent with malformed ids (tenant=${String(tenantId).slice(0, 12)}…)`,
       );
-      return;
+      return HandlerOutcome.terminate('malformed MessageSent ids');
     }
 
     // Gate 2 — at-most-once trigger per message.
     const claimed = await this.claimTrigger(tenantId, messageId);
     if (!claimed) {
       this.logger.debug(`AI trigger already claimed for message ${messageId}`);
-      return;
+      return HandlerOutcome.ack('trigger already claimed (at-most-once)');
     }
 
     // Tenant-pinned channel + message read (Faz 1 RLS lesson: JetStream
@@ -175,7 +175,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     if (!context) {
       // Non-AI channel, deleted/empty message, or a transient read fault —
       // none warrant a retry loop; the human message itself is untouched.
-      return;
+      return HandlerOutcome.ack('not an AI channel, empty message, or tenant read fault');
     }
 
     // Gate 4 — per-channel daily ceiling BEFORE spending the in-flight slot
@@ -185,7 +185,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     if (!daily.counterOk) {
       // Counter fault ≠ over-limit: fail closed (no AI turn) but do NOT show
       // the user a false "daily limit reached" notice.
-      return;
+      return HandlerOutcome.ack('daily counter fault — fail closed');
     }
     if (!daily.allowed) {
       await this.bridge.persistThrottledNotice(
@@ -197,7 +197,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
       this.logger.warn(
         `AI daily ceiling hit for channel ${channelId} (limit ${this.triggerConfig.channelDailyLimit}, count ${daily.count})`,
       );
-      return;
+      return HandlerOutcome.ack('channel daily ceiling reached');
     }
 
     // Gate 3 — one AI turn per channel at a time.
@@ -206,7 +206,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
       this.logger.debug(
         `AI turn already in flight for channel ${channelId} — skipping trigger for ${messageId}`,
       );
-      return;
+      return HandlerOutcome.ack('AI turn already in flight for the channel');
     }
 
     try {
@@ -225,6 +225,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
       // between acquire and release.
       await this.safeReleaseChannelLock(channelId);
     }
+    return HandlerOutcome.ack();
   }
 
   // ── Redis guards ─────────────────────────────────────────────────────────

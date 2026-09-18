@@ -180,7 +180,11 @@ describe('aquaculture-math tools', () => {
     );
     expect(noHorizon.success).toBe(false);
     expect(noHorizon.error).toContain('targetWeightG or projectionDays');
-    const badMode = await growth.execute({ mode: 'fcr2' as never }, CTX);
+    // A model-authored mode outside the union arrives as parsed JSON.
+    const badMode = await growth.execute(
+      JSON.parse('{"mode":"fcr2"}') as Parameters<typeof growth.execute>[0],
+      CTX,
+    );
     expect(badMode.success).toBe(false);
   });
 

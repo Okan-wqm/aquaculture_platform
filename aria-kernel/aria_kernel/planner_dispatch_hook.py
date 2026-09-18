@@ -38,13 +38,38 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import read_jsonl
+from .release_reason import NATIVE_RUNTIME_CONTROL_UNAVAILABLE, NATIVE_RUNTIME_PROVIDER_UNDECIDED
 
 
 __all__ = [
+    "ADMISSION_BACKOFF_STATUSES",
+    "ADMISSION_HALT_STATUSES",
     "DEFAULT_PLANNER_ROLES",
     "DEFAULT_LEASE_SECONDS",
+    "PROVIDER_CONTROL_UNAVAILABLE_STATUS",
+    "PROVIDER_UNDECIDED_STATUS",
     "dispatch_one_pending_planner_request",
 ]
+
+# The tick statuses when the executor child released the claim because the
+# fleet admission HALTED on its first provider in contention (ARIA-HIGH-107):
+# the status probe never answered (`provider_undecided`;
+# `release_reason.NATIVE_RUNTIME_PROVIDER_UNDECIDED`) or this host could
+# not bind the route's controls (`provider_control_unavailable`;
+# `NATIVE_RUNTIME_CONTROL_UNAVAILABLE`). Neither is a dispatch (nothing
+# ran) nor an executor failure (the child did its job and said so): the
+# daemon backs off one poll interval, as the worker scheduler does for a
+# provider cooldown, and the request is retried. Keyed by the release
+# reason the child wrote, so the hook reads the ledger, never the exit code.
+PROVIDER_UNDECIDED_STATUS = "provider_undecided"
+PROVIDER_CONTROL_UNAVAILABLE_STATUS = "provider_control_unavailable"
+ADMISSION_HALT_STATUSES: dict[str, str] = {
+    NATIVE_RUNTIME_PROVIDER_UNDECIDED: PROVIDER_UNDECIDED_STATUS,
+    NATIVE_RUNTIME_CONTROL_UNAVAILABLE: PROVIDER_CONTROL_UNAVAILABLE_STATUS,
+}
+# What the daemon backs off on: exactly the halt statuses, derived, so a
+# third halted release cannot reach the daemon as a plain "dispatched".
+ADMISSION_BACKOFF_STATUSES: frozenset[str] = frozenset(ADMISSION_HALT_STATUSES.values())
 
 
 DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
@@ -52,16 +77,27 @@ DEFAULT_LEASE_SECONDS: int = 1800
 LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
 # Plan 026R §B.5 — single-claim env separation. ARIA_LEASE_TOKEN carries
 # the raw token (sensitive, NEVER in metadata / argv / logs).
-# ARIA_CLAIM_METADATA carries the fused claim envelope (claim_id,
+# The claim-metadata file carries the fused claim envelope (claim_id,
 # request_id, agent_id, envelope fields, lease_expires_at, ledger-hash
 # anchors). The two-env-var split makes "metadata leaks the secret" a
 # structurally-impossible bug — the serialiser rejects any
 # ``lease_token`` / ``lease_token_hash`` key on output; the executor
 # deserialiser rejects them on input.
-CLAIM_METADATA_ENV_VAR: str = "ARIA_CLAIM_METADATA"
+CLAIM_METADATA_FILE_ENV_VAR: str = "ARIA_CLAIM_METADATA_FILE"
+"""The claim metadata crosses to the executor as a FILE, named by this variable.
+
+It used to be the value of ``ARIA_CLAIM_METADATA`` itself. An environment
+string is bounded like an argument (``MAX_ARG_STRLEN``, 128 KiB on Linux):
+trial nine's round-3 cross-review (2026-09-12, ARIA-HIGH-085) carried both
+plans inside its fused envelope and ``execve`` refused the executor with
+``OSError: [Errno 7] Argument list too long`` before it started. The file
+is written 0600 under the tools store's runtime directory for exactly the
+child's lifetime; the lease token still transits only via
+``ARIA_LEASE_TOKEN`` and is never part of the payload.
+"""
 
 
-# Plan 026R §B.5 — fields prohibited from ARIA_CLAIM_METADATA. Any
+# Plan 026R §B.5 — fields prohibited from the claim metadata. Any
 # attempt to write or read either key in metadata raises
 # ``GovernanceError``. The single source of truth — both serialiser
 # (sender) and deserialiser (executor) read from this constant.
@@ -75,7 +111,7 @@ def _serialise_claim_metadata_for_env(
     claim: dict[str, Any], agent_id: str,
 ) -> str:
     """Plan 026R §B.5 — serialise a claim response into the
-    ARIA_CLAIM_METADATA env-var payload.
+    claim-metadata payload (written to the file ARIA_CLAIM_METADATA_FILE names).
 
     Schema:
     * claim_id, request_id, agent_id (control-plane identifiers)
@@ -109,78 +145,16 @@ def _serialise_claim_metadata_for_env(
             f"claim_metadata_forbidden_key_in_input: {sorted(leaked)} "
             f"— lease_token MUST transit via {LEASE_TOKEN_ENV_VAR} only"
         )
-    # Plan ARIA-V10.4 Phase 3.H.5 — V8.12 follow-up that closes the
-    # actual F-017 root cause. The V8.12 fix at
-    # ``agent_invocations.claim_request:807-827`` extended the
-    # claim_request RETURN VALUE with envelope fields
-    # (suggested_prompt, convergence_id, target_agent, etc.) so
-    # ci_executor's ``_build_prompt_payload`` could render them. But
-    # the env-var SERIALISER below (this function) was never updated
-    # to PROPAGATE those fields to the ci_executor subprocess. Net
-    # effect: claim dict in this process has full envelope; serialised
-    # ARIA_CLAIM_METADATA env var previously carried only an envelope subset;
-    # ci_executor's ``request_envelope`` build (line 1542) reads None
-    # for the missing fields; the prompt file's ``## Suggested prompt``
-    # section is empty; cross_reviewer (and any role) refuses with
-    # ``evidence_underspecified``. Confirmed via V10.4 endurance cycle
-    # 1 (cyc-20260520T112130Z-auto) — requests.jsonl had full
-    # suggested_prompt (10454 chars with <untrusted_*> tags) but the
-    # prompt file delivered to the subprocess had ``## Suggested
-    # prompt\n\n\n`` (empty body).
-    #
-    # The full V8.12-extended set landed in claim_request return value
-    # (lines 807-827) is the SSoT for what ci_executor needs:
-    # expected_output_path, role, target_agent, convergence_id,
-    # suggested_prompt, must_satisfy, allowed_scope, forbidden_scope,
-    # evidence_refs, impact_graph_refs, validation_commands,
-    # plan_revision_hash. The serialiser propagates all of them so
-    # ci_executor sees the SAME envelope the kernel minted.
+    # The kernel owns the absence-preserving model-visible projection.
+    # Carry that exact sealed payload through the inherited-claim path;
+    # only operational lease and ledger anchors belong to this transport.
+    from .agent_invocations import fuse_prompt_envelope
+
     payload = {
+        **fuse_prompt_envelope(claim),
         "claim_id": claim.get("claim_id"),
         "request_id": claim.get("request_id"),
         "agent_id": agent_id,
-        "expected_output_path": claim.get("expected_output_path"),
-        "role": claim.get("role"),
-        # Plan ARIA-V10.4 Phase 3.H.5 — V8.12-extended envelope fields
-        # ci_executor's _build_prompt_payload reads at line 1641-1655.
-        # Without these, the agent prompt's "## Suggested prompt"
-        # section is empty + the <untrusted_*> tag bodies don't exist
-        # in the file the subprocess reads from stdin.
-        "target_agent": claim.get("target_agent"),
-        "convergence_id": claim.get("convergence_id"),
-        "suggested_prompt": claim.get("suggested_prompt"),
-        "must_satisfy": claim.get("must_satisfy") or [],
-        "allowed_scope": claim.get("allowed_scope") or [],
-        "forbidden_scope": claim.get("forbidden_scope") or [],
-        "evidence_refs": claim.get("evidence_refs") or [],
-        "impact_graph_refs": claim.get("impact_graph_refs") or [],
-        "validation_commands": claim.get("validation_commands") or [],
-        # Same reason as the fused claim response in agent_invocations: the
-        # prompt hash was computed over a render that INCLUDED the Twin slice,
-        # so a serialiser that drops it hands the executor a prompt it can
-        # never hash back to the recorded value. Two serialisers, one
-        # contract — they must carry the same fields.
-        "repository_map": claim.get("repository_map"),
-        # FAZ 4 + Z8 — the renderer reads all three, so a serialiser that
-        # drops any of them hands the executor a prompt it can never hash
-        # back to the recorded value (the exact defect class the
-        # repository_map comment above documents). prompt_render_version
-        # selects the tagged v2 body; dropping it re-renders every fresh
-        # row as v1 and fails the binding on the single-claim path.
-        "established_knowledge": claim.get("established_knowledge"),
-        "recent_intent": claim.get("recent_intent"),
-        # E17-b — the quoted evidence bytes. Same contract as the three
-        # sections above: the renderer reads the field, so a serialiser that
-        # drops it hands the executor a prompt whose excerpt section vanished
-        # and whose hash can never match the minted one.
-        "evidence_excerpts": claim.get("evidence_excerpts"),
-        "prompt_render_version": claim.get("prompt_render_version"),
-        "cycle_id": claim.get("cycle_id"),
-        "plan_revision_hash": claim.get("plan_revision_hash"),
-        "context_hash": claim.get("context_hash"),
-        "prompt_hash": claim.get("prompt_hash"),
-        "context_ledger_hash": claim.get("context_ledger_hash"),
-        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
         "lease_expires_at": claim.get("lease_expires_at"),
         "claim_ledger_hash": claim.get("claim_ledger_hash"),
         "request_ledger_hash": claim.get("request_ledger_hash"),
@@ -192,6 +166,25 @@ def _serialise_claim_metadata_for_env(
             f"claim_metadata_forbidden_key_in_payload: {sorted(payload_leaked)}"
         )
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _write_claim_metadata_file(root: Path, claim_id: str, payload: str) -> Path:
+    """Write the serialised claim metadata where only this process can read it.
+
+    0600, created exclusively (an existing file for the same claim is a
+    stale leftover of a killed dispatch and is replaced), under the tools
+    store's own runtime directory so it rides the store's permissions.
+    """
+    directory = root / "runtime" / "claim-metadata"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{claim_id}.json"
+    path.unlink(missing_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(descriptor, payload.encode("utf-8"))
+    finally:
+        os.close(descriptor)
+    return path
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -268,6 +261,23 @@ def _release_abandoned_claim(
         return False
 
 
+def _child_release_reason(root: Path, claim_id: str) -> str | None:
+    """The reason the CHILD released this claim under, or None if it did not.
+
+    The executor releases an admission refusal before it exits 0, so the
+    hook cannot read the outcome off the exit code; the claims ledger is
+    where the child said what happened, and the hook owns this claim.
+    """
+    claims_path = root / "agent-invocations" / "claims.jsonl"
+    if not claims_path.exists():
+        return None
+    reason: str | None = None
+    for row in read_jsonl(claims_path, expected_surface="agent_invocation_claims"):
+        if row.get("claim_id") == claim_id and row.get("event") == "released":
+            reason = str(row.get("reason") or "")
+    return reason
+
+
 def _default_ci_executor_path(base_dir: Path) -> Path:
     """Resolve the ci_executor.py path — from the CODE tree, not the store.
 
@@ -292,6 +302,41 @@ def _default_ci_executor_path(base_dir: Path) -> Path:
     return base_dir.parent / "tools" / "aria-poc" / "ci_executor.py"
 
 
+def _dispatch_task_root(root: Path, code_root: Path) -> Path:
+    """Select the host-bound task checkout without moving the code imports."""
+    from .state_store import _read_bounded_regular_file, _valid_host_identity, StateStoreError
+    from .tool_registry import GovernanceError
+    from .workspace import canonical_identity
+
+    try:
+        payload = _read_bounded_regular_file(root / "repo_identity.json")[0]
+        identity = json.loads(payload)
+    except (StateStoreError, ValueError) as exc:
+        raise GovernanceError("planner_dispatch_task_binding_unavailable") from exc
+    if not isinstance(identity, dict):
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    # Preserve the existing unbound legacy hook. "Unbound" is a property of
+    # the binding fields — every one absent or None — not of the schema
+    # version: a fresh ensure_tools_dir store is schema 2 with
+    # bound_repo_root/bound_repo_hash None and no canonical identity, and
+    # the exact-shape test that admitted only the schema-3 spelling refused
+    # every such store as `planner_dispatch_task_binding_unavailable` (five
+    # hook fixtures red on the candidate). A partially specified or
+    # malformed binding is still never permission to select the engineering
+    # tree: any non-None binding value must validate below.
+    binding_fields = ("bound_repo_root", "bound_canonical_identity", "bound_repo_hash")
+    unknown_fields = set(identity) - {"schema_version", "aria_tools_contract_version", *binding_fields}
+    if not unknown_fields and all(identity.get(key) is None for key in binding_fields):
+        return code_root
+    value = identity.get("bound_repo_root")
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    task_root = Path(value).resolve()
+    if not _valid_host_identity(root, canonical_identity(task_root), task_root, identity_payload=payload):
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    return task_root
+
+
 def dispatch_one_pending_planner_request(
     *,
     base_dir: str | Path,
@@ -304,9 +349,17 @@ def dispatch_one_pending_planner_request(
     Claude Code CLI via ci_executor.py subprocess.
 
     Returns aggregate dict with ``status`` ∈
-    ``{no_pending, claim_failed, executor_failed, dispatched}``,
-    plus ``request_id``, ``claim_id``, ``exit_code``,
-    ``governance_event_count``, ``stderr_redacted``.
+    ``{no_pending, anchor_undecided, claim_failed, executor_failed, dispatched,
+    provider_undecided}``, plus ``request_id``, ``claim_id``,
+    ``exit_code``, ``governance_event_count``, ``stderr_redacted``.
+    ``anchor_undecided`` is the selection that could claim nothing because
+    git did not answer for the candidates' anchors
+    (`AnchorVerificationUnavailable`): not "nothing pending", and not a tick
+    that asks the next role the same unanswerable question.
+    ``provider_undecided`` (ARIA-HIGH-108): the child released the claim
+    because the fleet's first provider in contention never answered its
+    status probe; nothing ran, the request is back in the queue, and the
+    daemon backs off before asking again.
 
     Does NOT raise on operational failures (claim rejections,
     subprocess non-zero exit, subprocess timeout); only programmer
@@ -325,7 +378,11 @@ def dispatch_one_pending_planner_request(
     # Local imports keep kernel cold-start light. The daemon module
     # already imports this hook lazily from inside its own loop; the
     # sub-imports below run only on the first dispatch tick.
-    from .agent_invocations import claim_request, next_pending_request
+    from .agent_invocations import (
+        AnchorVerificationUnavailable,
+        claim_request,
+        next_pending_request,
+    )
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -339,7 +396,22 @@ def dispatch_one_pending_planner_request(
     # default; operator can re-order via the planner_roles kwarg).
     request: dict[str, Any] | None = None
     for role in planner_roles:
-        request = next_pending_request(role=role, base_dir=root)
+        try:
+            request = next_pending_request(role=role, base_dir=root)
+        except AnchorVerificationUnavailable as undecided:
+            # The kernel already wrote the governance row naming the
+            # candidates; this tick reports the condition and does not
+            # spend another probe clock per remaining role on a git that
+            # is not answering.
+            return {
+                "status": "anchor_undecided",
+                "request_id": None,
+                "claim_id": None,
+                "exit_code": None,
+                "governance_event_count": 0,
+                "stderr_redacted": str(undecided)[:500],
+                "undecided_request_ids": list(undecided.request_ids),
+            }
         if request is not None:
             break
     if request is None:
@@ -378,7 +450,11 @@ def dispatch_one_pending_planner_request(
     # that toward governance_event_count so the daemon's structured
     # log aligns with the ledger.
     governance_count = 0
+    if ci_executor_path is None:
+        ci_executor_path = _default_ci_executor_path(root)
+    code_root = ci_executor_path.resolve().parents[2]
     try:
+        repo_root = _dispatch_task_root(root, code_root)
         claim = claim_request(
             request_id=request_id,
             agent_id=agent_id,
@@ -405,17 +481,12 @@ def dispatch_one_pending_planner_request(
 
     # Step 3 — invoke ci_executor.py as a subprocess. Lease token via
     # env var; argv carries only public identifiers. Plan 026R §B.5 —
-    # ARIA_CLAIM_METADATA env var carries the fused envelope + ledger-
+    # the claim-metadata FILE carries the fused envelope + ledger-
     # hash anchors so the subprocess SKIPS its own ``agent claim`` step
     # (single-claim mode). Pre-§B.5 the subprocess re-claimed and the
     # defensive double-claim reject in agent_invocations was noisy.
-    if ci_executor_path is None:
-        ci_executor_path = _default_ci_executor_path(root)
-    # PYTHONPATH and cwd must name the CODE tree for the same reason the
-    # executor path does: under the durable store `root.parent` is
-    # `<repo>/.aria-state-store`, which has no `aria-kernel` package and
-    # no repository to work in. Derive both from the resolved executor.
-    repo_root = ci_executor_path.resolve().parents[2]
+    # Task state selects cwd; the package and executor remain in the
+    # engineering tree, including the kernel's shared tools dependency.
     argv: list[str] = [
         "python3",
         str(ci_executor_path),
@@ -432,23 +503,32 @@ def dispatch_one_pending_planner_request(
         k: v for k, v in claim.items()
         if k not in CLAIM_METADATA_FORBIDDEN_KEYS
     }
-    metadata_env = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
+    metadata_payload = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
+    metadata_path = _write_claim_metadata_file(root, claim_id, metadata_payload)
     env: dict[str, str] = {
         **os.environ,
-        "PYTHONPATH": str(repo_root / "aria-kernel"),
+        "PYTHONPATH": os.pathsep.join((str(code_root), str(code_root / "aria-kernel"))),
+        "ARIA_WORKSPACE_ROOT": str(repo_root),
+        "ARIA_TOOLS_DIR": str(root),
         LEASE_TOKEN_ENV_VAR: lease_token,
-        CLAIM_METADATA_ENV_VAR: metadata_env,
+        CLAIM_METADATA_FILE_ENV_VAR: str(metadata_path),
     }
     timeout_seconds = _executor_timeout_seconds(lease_seconds)
     try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=env,
-            cwd=str(repo_root),
-        )
+        # The file lives exactly as long as the child: subprocess.run returns
+        # (or raises) only once the executor has exited, so removing it here
+        # can never race a read.
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                env=env,
+                cwd=str(repo_root),
+            )
+        finally:
+            metadata_path.unlink(missing_ok=True)
         exit_code = proc.returncode
         stderr_text = proc.stderr or ""
     except subprocess.TimeoutExpired:
@@ -562,6 +642,20 @@ def dispatch_one_pending_planner_request(
     governance_count += 1
 
     status = "dispatched" if exit_code == 0 else "executor_failed"
+    halted = ADMISSION_HALT_STATUSES.get(_child_release_reason(root, claim_id) or "") if exit_code == 0 else None
+    if halted is not None:
+        # ARIA-HIGH-107 — exit 0 with the claim handed back by name: the
+        # fleet halted on its first provider (undecided, or unbindable on
+        # this host). Neither a dispatch nor a failure; the caller backs
+        # off and the request is retried. The governance kind carries the
+        # status (`planner_dispatch_provider_undecided`,
+        # `planner_dispatch_provider_control_unavailable`).
+        status = halted
+        append_tools_governance(
+            root, f"planner_dispatch_{halted}",
+            {"request_id": request_id, "claim_id": claim_id, "target_agent": target_agent},
+        )
+        governance_count += 1
     if exit_code != 0:
         # Y1 (ORPHAN-703) — a failed child usually releases through its own
         # CLI-failure classes; when it dies before reaching them (spawn

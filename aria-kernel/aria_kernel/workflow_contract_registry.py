@@ -318,7 +318,26 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                job_timeout_minutes=150,
+                # 150 → 200 (2026-09-12): the drain window (7200 s) plus the
+                # job reserve priced from the store's bounds
+                # (`ci_executor_drain.JOB_RESERVE_SECONDS`) once every
+                # child's claim, probe, submit and release waits were charged
+                # to the window instead of the reserve. 200 → 280: the
+                # reserve's restore and publish arcs are now sums over the
+                # store's registered lifecycle git steps
+                # (`state_store_lifecycle_arcs`: 2700 s + 5400 s + 900 s =
+                # 9000 s), not typed counts. 280 → 500 (ARIA-HIGH-124 round
+                # 3): the drain window now holds an implementation child
+                # whose delivery — the contained apply gate at the canonical
+                # ceiling per command, the publication, the push, the PR —
+                # is priced into `ci_executor.child_worst_case_seconds`
+                # (20400 s of window + 9000 s of reserve = 490 min, ten of
+                # margin). 500 → 510 (round 6): the window grew to 21000 s so
+                # an implementation child has 657 s of start window, not 57 —
+                # the first `next-pending` alone took over 40 s under load.
+                # The YAML is the pin; this must move with it
+                # (`_verify_job_timeout_minutes`).
+                job_timeout_minutes=510,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -653,6 +672,40 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             ),
         ),
     ),
+    # PROC-MEDIUM-029 — the closure producer finding-registry-closure-drift
+    # never had. Same publication shape as finding-state-sweep, but it also
+    # repins the debt plan, so the governed write set is four files rather
+    # than one: the manifest, README and truth table are derived from the
+    # registry tip and would disagree with it if left behind.
+    "finding-closure-reconcile": WorkflowContract(
+        workflow_id="finding-closure-reconcile",
+        workflow_file=".github/workflows/finding-closure-reconcile.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="reconcile",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Apply reconcile",
+                allowed_write_path_patterns=(
+                    r"^docs/reviews/_registry/findings\.jsonl$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest\.json$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/README\.md$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table\.md$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/finding-closure-reconcile-preflight\.json$",
+                upload_artifact_name_pattern=rf"^finding-closure-reconcile-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/finding-closure-reconcile-preflight\.json$",
+                ),
+                retention_days=365,
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                token_source="github_app:installation",
+                network_policy=("github_api",),
+                dlp_artifact="finding-closure-reconcile-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
     "finding-state-sweep": WorkflowContract(
         workflow_id="finding-state-sweep",
         workflow_file=".github/workflows/finding-state-sweep.yml",
@@ -702,8 +755,11 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
 }
 
 
-# ADR-036 D1 — the 3 test-only kernel workflows carry no governed ARIA write
+# ADR-036 D1 — the test-only kernel workflow carries no governed ARIA write
 # authority; audited-excluded with a non-expiring sentinel (no time-bomb).
+# aria-kernel-fast was retired (ARIA-MEDIUM-135: the same full suite under a
+# budget it could not meet) and carries no exclusion, so its return would be
+# refused by the registry rather than silently excluded.
 AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     "aria-kernel": AuditedWorkflowExclusion(
         workflow_id="aria-kernel",
@@ -712,18 +768,13 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
-    "aria-kernel-fast": AuditedWorkflowExclusion(
-        workflow_id="aria-kernel-fast",
-        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
-        "and uploads no governed ARIA artifact",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
     "aria-state-maintenance": AuditedWorkflowExclusion(
         workflow_id="aria-state-maintenance",
         reason="utility maintenance lane; materialises aria/state through the single "
         "restore path (state checkout + bind-tools-root), compacts JSONL surfaces, prunes "
-        "the artifact index alongside the hot artifacts it strips, pushes the slim branch; "
+        "the artifact index alongside the hot artifacts it strips, and publishes the slim "
+        "tree through the single publish path (state publish: fresh snapshot, bounded "
+        "pathspec, inherited-entry healing, immutable verification, fast-forward push); "
         "performs no governed ARIA mutation and uploads no ARIA artifact — the output IS "
         "the aria/state branch itself (ORPHAN-CRITICAL-807)",
         owner="aria-kernel",

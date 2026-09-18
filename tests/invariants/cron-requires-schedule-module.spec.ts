@@ -82,7 +82,7 @@ function fileContains(rel: string, pattern: RegExp): boolean {
   }
 }
 
-const SCHEDULER_DECORATORS = /@(Cron|Interval|Timeout)\s*\(/;
+const SCHEDULER_DECORATORS = /@(Cron|Interval|Timeout|ScheduledJob)\s*\(/;
 const SCHEDULE_MODULE_FORROOT = /ScheduleModule\.forRoot\b/;
 
 describe('INVARIANT (AUDITTRAIL-HIGH-008): @Cron usage requires ScheduleModule registration', () => {

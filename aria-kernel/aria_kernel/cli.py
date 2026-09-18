@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -23,6 +22,8 @@ from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
     DEFAULT_LEASE_SECONDS,
+    ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+    AnchorVerificationUnavailable,
     claim_request,
     create_agent_invocation_request,
     heartbeat_claim,
@@ -132,6 +133,7 @@ from aria_kernel.runtime_artifacts import (
     approve_runtime_v2_promotion,
     autonomy_exit_code,
     autonomy_output_summary,
+    _fit_memory_learning_summary,
     classify_cycle_evidence,
     restore_artifact,
     retention_apply,
@@ -527,15 +529,12 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     from .workspace import canonical_identity
     from .state_store import (
         StateStoreRefusal,
-        _read_commit_ref,
-        build_publishable_snapshot,
         checkout_state_store,
         findings_root,
         open_state_store,
-        publish_state,
+        prepare_and_publish_state,
         store_environment,
         read_published_snapshot,
-        read_snapshot_at_worktree_head,
         tools_root,
         verify_state_store,
         workspace_root,
@@ -566,7 +565,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             # from publish rather than publish's first step.
             store = checkout_state_store(
                 args.repo_root,
-                branch=args.branch,
+                branch=args.branch or STATE_BRANCH,
                 remote=args.remote,
                 store_dir=args.store_dir,
             )
@@ -588,6 +587,8 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             }, indent=2, sort_keys=True))
             return 0
 
+        # Opening derives the branch from the store worktree; ``--branch``,
+        # when given, is checked against it.
         store = open_state_store(
             args.repo_root,
             branch=args.branch,
@@ -600,17 +601,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             print(json.dumps(verdict, indent=2, sort_keys=True))
             return 0 if verdict["valid"] else 1
 
-        base_head = _read_commit_ref(store.root, "HEAD")
-        if base_head is None:
-            raise StateStoreRefusal(
-                "state_publish_base_head_unavailable: operator publish HEAD is "
-                "not an exact commit"
-            )
-        base = read_snapshot_at_worktree_head(
-            store,
-            expected_head=base_head,
-        )
-        snapshot = build_publishable_snapshot(
+        # ONE call, ONE lock. The preamble binds one exact base, drops what
+        # the parent tree carries that no snapshot can claim (recording it),
+        # records an acknowledged reduction, and builds the snapshot from the
+        # healed store; the publish commits it against that base — the same
+        # steps the contention-replay orchestrator runs under its lock, so
+        # this command and that orchestrator cannot disagree about what a
+        # publish stages, and nothing can run between the two halves here.
+        result = prepare_and_publish_state(
             store,
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
@@ -619,14 +617,6 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             lane="operator",
             repo_hash=repo_hash,
             parent_commit=args.parent_commit,
-            previous=base,
-        )
-        result = publish_state(
-            store,
-            snapshot=snapshot,
-            cycle_id=args.cycle_id,
-            repo_hash=repo_hash,
-            expected_base_head=base_head,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
@@ -740,6 +730,17 @@ def build_parser() -> argparse.ArgumentParser:
     fb_batch = add_subparser(feedback_sub, "record-batch")
     fb_batch.add_argument("--sample-id", required=True)
     fb_batch.add_argument("--file", required=True)
+    # V9.5 check 12 — the operator's channel for a plan-request row. The
+    # kernel signs what it records; a row appended any other way is dropped
+    # at ingestion with an unsigned_operator_feedback governance event, so
+    # this verb is the ONLY way a request reaches the synthesizer.
+    fb_request = add_subparser(feedback_sub, "request")
+    fb_request.add_argument("--request", required=True, help="What the operator wants planned")
+    fb_request.add_argument("--priority", default="medium", choices=["low", "medium", "high"])
+    fb_request.add_argument("--authored-by", required=True, help="Operator identity recorded on the row")
+    fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
+    fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
@@ -863,7 +864,14 @@ def build_parser() -> argparse.ArgumentParser:
         # snapshot mentions — loss that looks exactly like a clean run.
         store_parser.add_argument("--repo-hash", default=None,
                                   help="Workspace subtree key; defaults to the repo's canonical identity.")
-        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        # Checkout materialises the named branch (the production one by
+        # default); publish and verify-store OPEN a store, whose branch is
+        # read from its worktree — there the flag is a check, not a claim.
+        store_parser.add_argument(
+            "--branch", default=None,
+            help=f"State branch. checkout: the branch to materialise (default {STATE_BRANCH}); "
+                 "publish/verify-store: must equal the store worktree's branch when given.",
+        )
         store_parser.add_argument("--remote", default="origin")
         store_parser.add_argument("--store-dir", default=None,
                                   help="Store worktree path; defaults to <repo-root>/.aria-state-store.")
@@ -1562,6 +1570,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
     plan_advance_rounds = add_subparser(plan_sub, "advance-rounds")
+    add_workspace_args(plan_advance_rounds)
     plan_advance_rounds.add_argument("--plan-id", required=True)
     plan_advance_rounds.add_argument("--max-rounds", type=int, default=5)
     plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
@@ -2858,12 +2867,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
+    # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
+    # payload against a store); a spawn's settings never compile it. Inside
+    # the sandbox the hook client (`hook_client.py`, stdlib only) ships the
+    # payload to the executor's broker (`hook_broker`), which runs the same
+    # `hooks.run_hook` with the kernel's own store, request id and cap.
     hook_parser = add_subparser(sub, "hook")
     hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
     for verb in ("pre-tool", "post-tool", "session"):
         hook_verb = add_subparser(hook_sub, verb)
         hook_verb.add_argument("--workspace-root", required=True)
         hook_verb.add_argument("--request-id", required=True)
+        if verb == "pre-tool":
+            # cycle_and_turn_budget_cap — the cap the kernel compiled for the
+            # spawn (claude_settings.build_settings, write-scope profiles,
+            # from the policy of the store's bound workspace); absent for an
+            # unbudgeted spawn. Taken from argv only — never from a policy
+            # file an agent could have edited in its own tree.
+            hook_verb.add_argument("--turn-budget", type=int, default=None)
 
     # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
     checkpoint_parser = add_subparser(sub, "checkpoint")
@@ -3203,6 +3224,24 @@ def _main(argv: list[str] | None = None) -> int:
             note=args.note,
             finding_fingerprint=args.finding_fingerprint,
             base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "request":
+        from aria_kernel.operator_feedback_signature import record_operator_request
+        print(json.dumps(record_operator_request(
+            request=args.request,
+            priority=args.priority,
+            authored_by=args.authored_by,
+            request_id=args.request_id,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "rotate-signing-key":
+        from aria_kernel.operator_feedback_signature import rotate_signing_key
+        print(json.dumps(rotate_signing_key(
+            base_dir=args.tools_dir, reason=args.reason,
         ), indent=2, sort_keys=True))
         return 0
 
@@ -4577,12 +4616,24 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "next-pending":
-            row = next_pending_request(
-                role=args.role,
-                target_agent=args.target_agent,
-                base_dir=args.tools_dir,
-                exclude_request_ids=set(args.exclude or []) or None,
-            )
+            try:
+                row = next_pending_request(
+                    role=args.role,
+                    target_agent=args.target_agent,
+                    base_dir=args.tools_dir,
+                    exclude_request_ids=set(args.exclude or []) or None,
+                )
+            except AnchorVerificationUnavailable as undecided:
+                # Not "nothing pending": candidates exist and git did not
+                # answer for them. A structured stop on stdout, non-zero, so
+                # the drain stops by name instead of asking the next role
+                # the same unanswerable question (`ci_executor_drain`).
+                print(json.dumps({
+                    "stop_reason": ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+                    "undecided_request_ids": undecided.request_ids,
+                    "reasons": undecided.reasons,
+                }, indent=2, sort_keys=True))
+                return 1
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0 if row is not None else 0
         if args.agent_command == "claim":
@@ -4671,19 +4722,13 @@ def _main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            _evidence_target = args.evidence_target_sha
-            if _evidence_target == "auto":
-                # ARIA-HIGH-022 — resolve the AGENT worktree's HEAD here; the
-                # kernel-side descent proof in submit_claim_result decides
-                # whether it is a valid stronger anchor. Unresolvable or
-                # malformed output degrades to the legacy base-anchored check
-                # (fail-closed, never fail-open).
-                _head_proc = subprocess.run(
-                    ["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                    capture_output=True, text=True, check=False,
-                )
-                _head = _head_proc.stdout.strip()
-                _evidence_target = _head if len(_head) == 40 and all(c in "0123456789abcdef" for c in _head) else None
+            # ARIA-HIGH-022 — `auto` names the AGENT worktree's HEAD. It is
+            # resolved INSIDE the submit decision (`agent_invocations.
+            # _verified_evidence_target_sha`), on the decision's own bounded
+            # git-probe session, so a git that does not answer grades the
+            # submission `verification_unavailable` instead of hanging this
+            # command or silently degrading the anchor. The CLI used to run
+            # an unbounded `git rev-parse HEAD` of its own here.
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
@@ -4695,7 +4740,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
-                evidence_target_sha=_evidence_target,
+                evidence_target_sha=args.evidence_target_sha,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
@@ -4830,6 +4875,7 @@ def _main(argv: list[str] | None = None) -> int:
             path = record_anti_pattern(
                 pattern,
                 workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
                 reason_class=args.reason_class,
                 operator_signature=args.operator_signature,
             )
@@ -5868,11 +5914,17 @@ def _main(argv: list[str] | None = None) -> int:
         # the waits it was sized for: the resumable step function never
         # blocks on challenger_timeout, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
-        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
-        # budget cap to the orchestrator environment so child ci_executor
-        # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
-        os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
-        os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(args.max_budget_usd_per_cycle)
+        # ARIA-HIGH-064 — the two budget caps used to be exported here as
+        # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
+        # ci_executor subprocesses read them" (Plan ARIA-V8 §4 Phase 8.0).
+        # No child reads them any more: ORPHAN-HIGH-472 retired the dollar
+        # gate because a subscription session has no marginal per-run
+        # charge to cap. What the export still DID was leak: the kernel
+        # suite runs ~260 modules in one interpreter, and an unrestored
+        # os.environ write outlives the command that made it — the same
+        # defect class as the deadline epoch this finding closes. The caps
+        # now travel as parameters and are RECORDED on the orchestrator's
+        # started event (telemetry, not a gate), never exported.
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
@@ -5904,16 +5956,10 @@ def _main(argv: list[str] | None = None) -> int:
         # arasındaki minimuma çekilir. Faz içinde kesilme =
         # PhaseDeadlineExceeded = temiz mühürleme; between-iteration kontrolü
         # (cycle_deadline_exceeded) yerinde kalır, bu onun kesen eşi.
-        if getattr(args, "cycle_deadline_seconds", 0):
-            _cap = time.time() + args.cycle_deadline_seconds
-            _existing = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-            if _existing:
-                try:
-                    _cap = min(_cap, float(_existing))
-                except ValueError:
-                    pass
-            os.environ["ARIA_JOB_DEADLINE_EPOCH"] = str(_cap)
-        
+        # ARIA-HIGH-064 — the binding moved INTO run_autonomy_orchestrator,
+        # which already receives cycle_deadline_seconds and now owns the
+        # scope. Assigning the env var here left it set for the rest of the
+        # process; the orchestrator's decorator restores it.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -5957,6 +6003,7 @@ def _main(argv: list[str] | None = None) -> int:
             # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
+            max_budget_usd_per_run=args.max_budget_usd_per_run,
         )
         if args.output == "full" and not args.artifact:
             contract = {
@@ -5981,8 +6028,9 @@ def _main(argv: list[str] | None = None) -> int:
         if args.output == "full":
             summary.pop("full_result", None)
             summary["full_result_artifact"] = str(Path(args.artifact))
+        _fit_memory_learning_summary(summary)
         encoded = json.dumps(summary, indent=2, sort_keys=True)
-        if len(encoded.encode("utf-8")) > SUMMARY_STDOUT_MAX_BYTES:
+        if len(encoded.encode("utf-8")) + 1 > SUMMARY_STDOUT_MAX_BYTES:
             print(json.dumps({
                 "schema_version": 2,
                 "result_detail": "summary",
@@ -6124,6 +6172,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             workspace_root=args.workspace_root,
             request_id=args.request_id,
+            turn_budget=getattr(args, "turn_budget", None),
         )
         if stdout:
             print(stdout)
@@ -6189,7 +6238,7 @@ def _main(argv: list[str] | None = None) -> int:
         from . import self_improvement as si
 
         if args.self_command == "scan":
-            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            print(json.dumps([s.to_dict() for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
             return 0
         if args.self_command == "open":
             print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))

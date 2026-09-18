@@ -6,7 +6,8 @@
  *  - Waits for token lifecycle barrier before firing (prevents 401 race on page load)
  *  - Retries once on 401 after a silent refresh (keeps user logged in across token expiry)
  *  - Keeps admin-panel requests platform-scoped by default
- *  - Adds X-CSRF-Token header from the XSRF-TOKEN cookie on mutating methods
+ *  - Bearer-only: admin-api carries no cookie session, so there is no CSRF
+ *    token to echo (AUTH-017 / ADR-0006)
  *  - Preserves the existing exponential backoff retry for 502/503/504 errors
  */
 
@@ -17,6 +18,7 @@ import {
   silentRefresh,
   clearSession,
 } from '@aquaculture/shared-ui';
+import { isPaginationMetadataV1, type PaginatedDataResultV1 } from '@platform/pagination-contracts';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
 const adminImportMeta = import.meta as { readonly env?: { readonly VITE_ADMIN_API_URL?: string } };
@@ -60,19 +62,10 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxDelay: 10000,
 };
 
-/** HTTP methods that mutate server state and therefore require CSRF protection. */
-const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-]);
-
 const RESERVED_SECURITY_HEADERS: ReadonlySet<string> = new Set([
   'authorization',
   'x-tenant-id',
   'x-request-id',
-  'x-csrf-token',
 ]);
 
 // ============================================================================
@@ -92,18 +85,6 @@ const generateRequestId = (): string => {
 
 const sleep = (ms: number): Promise<void> =>
   new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * SECURITY: Read the CSRF token from the non-httpOnly XSRF-TOKEN cookie.
- * WHY: Double-submit cookie pattern — the server set this cookie and will
- * reject mutating requests whose X-CSRF-Token header does not match.
- * Safe methods (GET / HEAD / OPTIONS) are excluded per OWASP guidelines.
- */
-const getCsrfTokenFromCookie = (): string | null => {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-};
 
 /** Construct a well-typed ApiError without unsafe casts. */
 const createApiError = (
@@ -253,15 +234,6 @@ export async function apiFetch<T>(
         headers['X-Tenant-Id'] = tenantId;
       }
 
-      // SECURITY: double-submit CSRF for mutating methods. Server-set XSRF-TOKEN
-      // cookie is echoed back in X-CSRF-Token; server rejects on mismatch.
-      if (CSRF_PROTECTED_METHODS.has(method)) {
-        const csrfToken = getCsrfTokenFromCookie();
-        if (csrfToken) {
-          headers['X-CSRF-Token'] = csrfToken;
-        }
-      }
-
       const mergedHeaders = mergeHeadersWithReservedPolicy(
         headers,
         fetchOptions.headers,
@@ -341,8 +313,23 @@ export async function apiFetch<T>(
       const json: unknown = JSON.parse(text);
       const envelope = parseApiEnvelope(json);
       if (envelope) {
-        if (envelope.meta && 'page' in envelope.meta) {
-          return { data: envelope.data, ...envelope.meta } as T;
+        // ADMIN-HIGH-004: decode the page with the authority's validator rather
+        // than spreading whatever `meta` happened to contain. isPaginationMetadataV1
+        // also re-derives totalPages/hasNextPage/hasPreviousPage and rejects an
+        // envelope whose redundant fields disagree, so a page that reaches a
+        // component is a page the authority would have minted.
+        if (isPaginationMetadataV1(envelope.meta) && Array.isArray(envelope.data)) {
+          const { total, page, limit, totalPages, hasNextPage, hasPreviousPage } = envelope.meta;
+          const decoded: PaginatedDataResultV1<unknown> = {
+            data: envelope.data,
+            total,
+            page,
+            limit,
+            totalPages,
+            hasNextPage,
+            hasPreviousPage,
+          };
+          return decoded as T;
         }
 
         return envelope.data as T;

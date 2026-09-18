@@ -1,13 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 import { Readable } from 'stream';
-import { ThumbnailService } from './thumbnail.service';
+import { MAX_IMAGE_PIXELS, ThumbnailService } from './thumbnail.service';
 
 /**
  * Raster image MIME types eligible for server-side EXIF/GPS stripping and
@@ -127,6 +123,13 @@ export class MediaFinalizationService {
     // A strip failure THROWS (fail-closed): the caller aborts the send rather
     // than persist a row pointing at EXIF-laden bytes.
     const dimensions = await this.thumbnailService.probeImage(original);
+    // SEC-MEDIUM-074: fail-closed pixel cap — dimensions now gate the send.
+    if (dimensions && dimensions.width * dimensions.height > MAX_IMAGE_PIXELS) {
+      throw new Error(
+        `MediaFinalization: image exceeds pixel cap ` +
+          `(${dimensions.width}x${dimensions.height}); refusing decode`,
+      );
+    }
     const cleaned = await this.stripImageMetadata(original, mimeType);
     await this.putObject(storageKey, cleaned, mimeType);
 

@@ -1,6 +1,5 @@
 import { BillingPlanTier, TenantPlan, resolvePlanLimits } from '@platform/event-contracts';
-
-import type { PlanLimits } from './entities/plan-definition.entity';
+import type { BillingPlanLimitsInput as PlanLimits } from '@platform/event-contracts';
 
 /**
  * Map the admin billing tier onto the canonical `TenantPlan` catalog key. The

@@ -14,6 +14,7 @@
  */
 import { Injectable } from '@nestjs/common';
 
+import { MISSED_CATCH_UP_MAX_PERCENT, MISSED_CATCH_UP_MIN_PERCENT } from './meal-schedule.util';
 import {
   FcrMatrix,
   MealSchedule,
@@ -78,13 +79,8 @@ export class ProtocolValidationService {
         errors.push(`${label}: maxWeightG, minWeightG'den büyük olmalı`);
       }
       if (!band.feedId) errors.push(`${label}: feedId zorunlu`);
-      if (
-        !(band.feedingRatePercent >= 0) ||
-        band.feedingRatePercent > MAX_FEEDING_RATE_PERCENT
-      ) {
-        errors.push(
-          `${label}: feedingRatePercent 0-${MAX_FEEDING_RATE_PERCENT} aralığında olmalı`,
-        );
+      if (!(band.feedingRatePercent >= 0) || band.feedingRatePercent > MAX_FEEDING_RATE_PERCENT) {
+        errors.push(`${label}: feedingRatePercent 0-${MAX_FEEDING_RATE_PERCENT} aralığında olmalı`);
       }
       if (band.expectedFcr < MIN_EXPECTED_FCR || band.expectedFcr > MAX_EXPECTED_FCR) {
         errors.push(
@@ -214,6 +210,22 @@ export class ProtocolValidationService {
       settings.underfeedAlertThresholdPercent > 100
     ) {
       errors.push('settings.underfeedAlertThresholdPercent 1-100 aralığında olmalı');
+    }
+    if (
+      settings.missedMealCatchUpPercent !== undefined &&
+      (settings.missedMealCatchUpPercent < MISSED_CATCH_UP_MIN_PERCENT ||
+        settings.missedMealCatchUpPercent > MISSED_CATCH_UP_MAX_PERCENT)
+    ) {
+      errors.push(
+        `settings.missedMealCatchUpPercent ${MISSED_CATCH_UP_MIN_PERCENT}-` +
+          `${MISSED_CATCH_UP_MAX_PERCENT} aralığında olmalı`,
+      );
+    }
+    if (
+      settings.temperatureRecalcThresholdC !== undefined &&
+      (settings.temperatureRecalcThresholdC <= 0 || settings.temperatureRecalcThresholdC > 20)
+    ) {
+      errors.push('settings.temperatureRecalcThresholdC 0-20 °C aralığında olmalı');
     }
     if (
       settings.minFeedingRatePercent !== undefined &&

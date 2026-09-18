@@ -758,7 +758,15 @@ def run_watchdog_sweep(
         "candidates": len(candidates),
         "emitted": emitted,
         "suppressed": suppressed,
-        "latest_governance_ts": latest_governance_ts,
+        # E24-b: ISO string, not a datetime. Every consumer of this dict either
+        # json.dumps it (cli.py prints the cycle result) or parses it back with
+        # _parse_iso; a raw datetime made the first of those raise
+        # "Object of type datetime is not JSON serializable" AFTER the ledgers
+        # had been written, so the sweep's work landed and its report did not.
+        # The kernel's own fixtures already spell this value as a string.
+        "latest_governance_ts": (
+            latest_governance_ts.isoformat() if latest_governance_ts is not None else None
+        ),
         # E24-a — the runtime pull's honest account (additive; the X3
         # digest keys above are unchanged).
         "runtime": runtime,
@@ -822,8 +830,10 @@ def _run_daemon_loop(
                 interrupt_event=interrupt_event,
                 suppress_emission=aria_stop_path.exists() or interrupt_event.is_set(),
             )
-            if sweep["latest_governance_ts"] is not None:
-                last_governance_ts = sweep["latest_governance_ts"]
+            # The sweep reports an ISO string; the loop needs the instant.
+            swept_ts = _parse_iso(sweep["latest_governance_ts"])
+            if swept_ts is not None:
+                last_governance_ts = swept_ts
             findings_emitted += sweep["emitted"]
             findings_suppressed += sweep["suppressed"]
 

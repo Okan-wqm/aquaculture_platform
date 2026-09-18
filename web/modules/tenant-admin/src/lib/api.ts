@@ -25,6 +25,10 @@ import {
   UPDATE_USER_MUTATION,
   DELETE_USER_MUTATION,
   DEACTIVATE_TENANT_USER_MUTATION,
+  USER_EFFECTIVE_PERMISSIONS_QUERY,
+  ACTIVATE_TENANT_USER_MUTATION,
+  UNLOCK_TENANT_USER_MUTATION,
+  BULK_ASSIGN_USER_ROLE_MUTATION,
   ACTIVE_SITE_ACCESS_CATALOG_QUERY,
   USER_ASSIGNED_SITE_IDS_QUERY,
   ASSIGN_USER_TO_SITE_MUTATION,
@@ -76,6 +80,8 @@ import {
   MY_ANNOUNCEMENTS_QUERY,
   VIEW_ANNOUNCEMENT_MUTATION,
   ACKNOWLEDGE_ANNOUNCEMENT_MUTATION,
+  TENANT_SECURITY_POLICY_QUERY,
+  UPDATE_TENANT_SECURITY_POLICY_MUTATION,
 } from '../graphql';
 
 // Types
@@ -91,6 +97,8 @@ import type {
   GetTableDataInput,
   TableDataResult,
   TenantRole,
+  BulkAssignRoleResult,
+  UserEffectivePermissions,
   CreateTenantRoleInput,
   UpdateTenantRoleInput,
   PermissionCategory,
@@ -215,6 +223,61 @@ export async function deactivateTenantUser(
     deactivateTenantUser: { id: string; isActive: boolean };
   }>(DEACTIVATE_TENANT_USER_MUTATION, { userId });
   return data.deactivateTenantUser;
+}
+
+/**
+ * Re-enable a deactivated user (ADMIN-HIGH-012). Deactivation used to be a
+ * one-way trapdoor in this panel: the guarded, tenant-scoped resolver existed
+ * but nothing called it, so a tenant admin who disabled a user needed
+ * platform-admin intervention to restore access.
+ */
+export async function activateTenantUser(
+  userId: string,
+): Promise<{ id: string; isActive: boolean }> {
+  const data = await apiClient.graphql<{
+    activateTenantUser: { id: string; isActive: boolean };
+  }>(ACTIVATE_TENANT_USER_MUTATION, { userId });
+  return data.activateTenantUser;
+}
+
+/**
+ * Clear a user's failed-login lockout (ORPHAN-MEDIUM-320). The server resets
+ * failedLoginAttempts and nulls lockedUntil; the tenant derives from the JWT.
+ */
+export async function unlockTenantUser(
+  userId: string,
+): Promise<{ id: string; lockedUntil: string | null }> {
+  const data = await apiClient.graphql<{
+    unlockTenantUser: { id: string; lockedUntil: string | null };
+  }>(UNLOCK_TENANT_USER_MUTATION, { userId });
+  return data.unlockTenantUser;
+}
+
+/**
+ * Assign one role to many users in a single guarded call (ADMIN-MEDIUM-016).
+ * Partial success is a real outcome — the caller must read `failed`.
+ */
+export async function bulkAssignUserRole(input: {
+  userIds: string[];
+  roleId: string;
+}): Promise<BulkAssignRoleResult> {
+  const data = await apiClient.graphql<{
+    bulkAssignUserRole: BulkAssignRoleResult;
+  }>(BULK_ASSIGN_USER_ROLE_MUTATION, { input });
+  return data.bulkAssignUserRole;
+}
+
+/**
+ * A user's resolved permissions: role permissions plus the per-user
+ * grant/revoke overrides (ADMIN-MEDIUM-016).
+ */
+export async function getUserEffectivePermissions(
+  userId: string,
+): Promise<UserEffectivePermissions> {
+  const data = await apiClient.graphql<{
+    getUserEffectivePermissions: UserEffectivePermissions;
+  }>(USER_EFFECTIVE_PERMISSIONS_QUERY, { userId });
+  return data.getUserEffectivePermissions;
 }
 
 export interface TenantSiteAccessOption {
@@ -975,4 +1038,45 @@ export async function acknowledgeAnnouncement(
     };
   }>(ACKNOWLEDGE_ANNOUNCEMENT_MUTATION, { id });
   return data.acknowledgeAnnouncement;
+}
+
+// ============================================================================
+// Tenant auth-security policy (ADR-046 — auth-service subgraph)
+// ============================================================================
+
+/**
+ * Tenant auth-security policy (ENFORCED). `enforceMfa` is the EFFECTIVE flag —
+ * the server collapses a NULL column to false so no client re-implements the
+ * default. `sessionTimeoutMinutes` is null when the tenant sets no override and
+ * the configured platform TTL applies.
+ */
+export interface TenantSecurityPolicy {
+  enforceMfa: boolean;
+  sessionTimeoutMinutes: number | null;
+}
+
+/**
+ * Update payload. Both fields are optional and an omitted field leaves the
+ * stored value untouched (server semantics). `sessionTimeoutMinutes` must be
+ * 5..1440 when present — the same bound the DTO and the table CHECK enforce.
+ */
+export interface UpdateTenantSecurityPolicyInput {
+  enforceMfa?: boolean;
+  sessionTimeoutMinutes?: number;
+}
+
+export async function getTenantSecurityPolicy(): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    tenantSecurityPolicy: TenantSecurityPolicy;
+  }>(TENANT_SECURITY_POLICY_QUERY);
+  return data.tenantSecurityPolicy;
+}
+
+export async function updateTenantSecurityPolicy(
+  input: UpdateTenantSecurityPolicyInput,
+): Promise<TenantSecurityPolicy> {
+  const data = await apiClient.graphql<{
+    updateTenantSecurityPolicy: TenantSecurityPolicy;
+  }>(UPDATE_TENANT_SECURITY_POLICY_MUTATION, { input });
+  return data.updateTenantSecurityPolicy;
 }

@@ -42,17 +42,20 @@ async function graphqlFetch<T>(query: string, variables?: Record<string, unknown
 }
 
 // GraphQL Queries
-const GET_SENSOR_QUERY = `
+export const GET_SENSOR_QUERY = `
   query GetSensor($id: ID!) {
     sensor(id: $id) {
       id
       name
       type
-      status
       registrationStatus
-      protocolId
       protocolConfiguration
-      connectionStatus
+      connectionStatus {
+        isConnected
+        lastTestedAt
+        lastError
+        latency
+      }
       manufacturer
       model
       serialNumber

@@ -225,34 +225,7 @@ export class CreateUserDto {
 }
 ```
 
-### 8. IDOR Protection
-
-Insecure Direct Object Reference saldırılarına karşı koruma.
-
-```typescript
-import { IdorGuard, IdorCheck, SkipIdorCheck } from '@platform/backend-common';
-
-@Controller('users')
-@UseGuards(IdorGuard)
-export class UserController {
-  // Tenant kontrolü
-  @IdorCheck({ tenantIdParam: 'tenantId' })
-  @Get(':tenantId/users')
-  getUsers(@Param('tenantId') tenantId: string) {}
-
-  // Owner kontrolü
-  @IdorCheck({ allowOwner: true, ownerIdParam: 'userId' })
-  @Get('profile/:userId')
-  getProfile(@Param('userId') userId: string) {}
-
-  // IDOR kontrolünü atla
-  @SkipIdorCheck()
-  @Get('public/info')
-  getPublicInfo() {}
-}
-```
-
-### 9. Input Sanitization
+### 8. Input Sanitization
 
 XSS, SQL Injection ve diğer injection saldırılarına karşı koruma.
 
@@ -322,7 +295,7 @@ IP_WHITELIST=127.0.0.1,::1
 ## Module Import
 
 ```typescript
-import { SecurityModule, ThrottlerGuard, RolesGuard, IdorGuard } from '@platform/backend-common';
+import { SecurityModule, ThrottlerGuard, RolesGuard } from '@platform/backend-common';
 import { GdprModule } from '@platform/backend-common/gdpr';
 
 @Module({
@@ -362,5 +335,4 @@ Bu modül SOLID prensiplerine uygun olarak tasarlanmıştır:
 4. **Token Blacklisting**: Çalınan token'ların iptal edilmesini sağlar
 5. **Session Limits**: Account takeover riskini azaltır
 6. **Input Validation**: Injection saldırılarını önler
-7. **IDOR Protection**: Yetkisiz veri erişimini engeller
-8. **ReDoS-Safe Regex**: DoS saldırılarını önler
+7. **ReDoS-Safe Regex**: DoS saldırılarını önler

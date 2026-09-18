@@ -2,13 +2,16 @@
  * Event Bus Interfaces - Abstractions for event-driven communication
  * Supports multiple implementations (NATS, Kafka, RabbitMQ)
  */
+import type { EventId } from '@platform/event-contracts';
+
+import type { HandlerOutcome } from './handler-outcome';
 
 /**
  * Base event interface
  * Matches BaseEvent from event-contracts for compatibility
  */
 export interface IEvent {
-  eventId: string | import('@platform/event-contracts').EventId;
+  eventId: string | EventId;
   eventType: string;
   /**
    * ISO 8601 timestamp string.
@@ -43,9 +46,15 @@ export interface EventMetadata {
  */
 export interface IEventHandler<TEvent extends IEvent = IEvent> {
   /**
-   * Handle the event
+   * Handle the event and report its delivery outcome (PLAT-HIGH-902).
+   *
+   * The bus folds the outcome of every handler of a message into one
+   * JetStream disposition: `ack` acknowledges, `retry` redelivers with
+   * backoff (dead-lettering once the budget is spent), `terminate`
+   * dead-letters now. A thrown error folds as `retry`. Returning anything
+   * else is a contract violation the bus terminates loudly.
    */
-  handle(event: TEvent): Promise<void>;
+  handle(event: TEvent): Promise<HandlerOutcome>;
 
   /**
    * Get the event type this handler processes

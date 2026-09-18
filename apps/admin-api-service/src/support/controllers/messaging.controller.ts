@@ -5,6 +5,14 @@
  */
 
 import {
+  AddMessageDto,
+  BulkMessageDto,
+  CreateThreadDto,
+  ThreadSummaryDto,
+} from './dto/messaging.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -15,7 +23,8 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiExtraModels, ApiTags } from '@nestjs/swagger';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
 
@@ -25,65 +34,19 @@ import { MessageAttachment, AnnouncementTarget } from '../entities/support.entit
 import { MessagingService } from '../services/messaging.service';
 
 // ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateThreadDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-}
-
-class AddMessageDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: MessageAttachment[];
-}
-
-class BulkMessageDto {
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsArray()
-  tenantIds?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  sendEmail?: boolean;
-}
-
-// ============================================================================
 // Controller
 // ============================================================================
 
+/**
+ * `ThreadSummaryDto` is declared explicitly because the swagger plugin resolves
+ * a response type structurally and stops at the generic: it reads
+ * `PaginationResultV1<ThreadSummaryDto>` as the envelope and never registers
+ * the element, so the projection stayed out of `openapi.json` and the admin
+ * panel had nothing to source it from (ADMIN-HIGH-110). An entity returned
+ * bare — `Promise<MessageThread>` — needs no such declaration, which is why
+ * this is the only one here.
+ */
+@ApiExtraModels(ThreadSummaryDto)
 @ApiTags('Support')
 @Controller('support/messages')
 export class MessagingController {
@@ -93,13 +56,16 @@ export class MessagingController {
   // Threads
   // ============================================================================
 
+  // The explicit return type is what puts ThreadSummaryDto into openapi.json:
+  // the swagger plugin reads the declared response type, and an inferred one
+  // reaches it as `any` (ADMIN-HIGH-110).
   @Get('threads')
   async getAllThreads(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: 'open' | 'closed' | 'all',
     @Query('hasUnread') hasUnread?: string,
-  ) {
+  ): Promise<PaginationResultV1<ThreadSummaryDto>> {
     return this.messagingService.getAllThreads({
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -116,23 +82,26 @@ export class MessagingController {
 
   @Get('threads/tenant/:tenantId')
   @PlatformAdminOnly()
-  async getThreadsForTenant(@Param('tenantId') tenantId: string) {
+  async getThreadsForTenant(@TenantParam('param') tenantId: string) {
     return this.messagingService.getThreadsForTenant(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post('threads')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createThread(
+    @TenantParam('body') tenantId: string,
     @Body() dto: CreateThreadDto,
     @CurrentUser() user: CurrentUserData,
   ) {
-    if (!dto.tenantId || !dto.subject || !dto.content) {
+    if (!tenantId || !dto.subject || !dto.content) {
       throw new BadRequestException('tenantId, subject, and content are required');
     }
 
     return this.messagingService.createThread(
-      dto.tenantId,
+      tenantId,
       dto.subject,
       dto.content,
       user.id,
@@ -141,16 +110,23 @@ export class MessagingController {
     );
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'CLOSE' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/close')
   async closeThread(@Param('threadId') threadId: string) {
     return this.messagingService.closeThread(threadId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'REOPEN' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/reopen')
   async reopenThread(@Param('threadId') threadId: string) {
     return this.messagingService.reopenThread(threadId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'ARCHIVE' })
+  @Destructive()
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/archive')
   async archiveThread(@Param('threadId') threadId: string) {
     return this.messagingService.archiveThread(threadId);
@@ -175,6 +151,8 @@ export class MessagingController {
     });
   }
 
+  @AuditedOperation({ resource: 'Message', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/messages')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -197,6 +175,8 @@ export class MessagingController {
     });
   }
 
+  @AuditedOperation({ resource: 'AsRead', action: 'MARK' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/read')
   @PlatformAdminOnly()
   async markAsRead(@Param('threadId') threadId: string) {
@@ -208,6 +188,8 @@ export class MessagingController {
   // Bulk Messaging
   // ============================================================================
 
+  @AuditedOperation({ resource: 'BulkMessage', action: 'SEND' })
+  @RequiresCapability('support-ops')
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   async sendBulkMessage(

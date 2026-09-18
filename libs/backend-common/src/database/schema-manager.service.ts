@@ -95,16 +95,49 @@ export type CleanupDropProofPurpose =
   | 'tenant_deprovision'
   | 'tenant_erasure';
 
-export interface CleanupDropProofBackupEvidence {
-  id?: string;
-  checksum: string;
-  sizeBytes: number;
-  isEncrypted: true;
-  uri?: string;
-  createdAt?: string | Date;
-  retentionDays?: number;
-  algorithm?: string;
-  keyId?: string;
+/**
+ * The recovery point a tenant's data can be restored to after its schema is
+ * dropped. WAL-G is the platform's sole backup and restore authority
+ * (ADR-0009): the base backup under `backupEpoch` plus the continuously
+ * archived WAL up to `walLsn` is what `tools/scripts/database/walg-pitr-restore.sh`
+ * consumes. Until 2026-09-05 this evidence was an admin-api in-process pg_dump
+ * that required an encryption key production never set, so every deprovision
+ * failed at the backup step or, in other environments, recorded a file nothing
+ * could restore. A recovery point is captured from the database itself
+ * (`pg_current_wal_lsn()`) and names the epoch the DR workflow restores from,
+ * so the evidence describes a restore that can actually be performed.
+ */
+export interface CleanupDropProofRecoveryPoint {
+  readonly authority: 'wal-g';
+  /** WALG_BACKUP_EPOCH of the archive the LSN belongs to. */
+  readonly backupEpoch: string;
+  /** `pg_current_wal_lsn()` at capture time, e.g. `0/1A2B3C4D`. */
+  readonly walLsn: string;
+  /** `current_database()` at capture time. */
+  readonly database: string;
+  /** ISO-8601 capture instant. */
+  readonly capturedAt: string;
+}
+
+/** PostgreSQL LSN text form: two hex halves separated by a slash. */
+export const WAL_LSN_PATTERN = /^[0-9A-F]{1,8}\/[0-9A-F]{1,8}$/;
+
+export function isCleanupDropProofRecoveryPoint(
+  value: unknown,
+): value is CleanupDropProofRecoveryPoint {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['authority'] === 'wal-g' &&
+    typeof candidate['backupEpoch'] === 'string' &&
+    candidate['backupEpoch'].trim().length > 0 &&
+    typeof candidate['walLsn'] === 'string' &&
+    WAL_LSN_PATTERN.test(candidate['walLsn']) &&
+    typeof candidate['database'] === 'string' &&
+    candidate['database'].length > 0 &&
+    typeof candidate['capturedAt'] === 'string' &&
+    !Number.isNaN(Date.parse(candidate['capturedAt']))
+  );
 }
 
 export interface CleanupDropProof {
@@ -116,7 +149,7 @@ export interface CleanupDropProof {
   readonly approverId?: string;
   readonly reason: string;
   readonly legalHoldCheckedAt?: string;
-  readonly backup?: CleanupDropProofBackupEvidence;
+  readonly recoveryPoint?: CleanupDropProofRecoveryPoint;
   readonly preCounts?: Record<string, unknown>;
   readonly postCounts?: Record<string, unknown>;
   readonly createdAt: string;
@@ -130,7 +163,7 @@ export function createCleanupDropProof(input: {
   approverId?: string;
   reason: string;
   legalHoldCheckedAt?: string | Date;
-  backup?: CleanupDropProofBackupEvidence;
+  recoveryPoint?: CleanupDropProofRecoveryPoint;
   preCounts?: Record<string, unknown>;
   postCounts?: Record<string, unknown>;
   createdAt?: string | Date;
@@ -144,7 +177,7 @@ export function createCleanupDropProof(input: {
     approverId: input.approverId,
     reason: input.reason,
     legalHoldCheckedAt: normalizeOptionalTimestamp(input.legalHoldCheckedAt),
-    backup: input.backup,
+    recoveryPoint: input.recoveryPoint,
     preCounts: input.preCounts,
     postCounts: input.postCounts,
     createdAt: normalizeTimestamp(input.createdAt ?? new Date()),
@@ -182,13 +215,8 @@ function assertCleanupDropProof(
     }
   }
   if (proof.purpose === 'tenant_deprovision') {
-    if (
-      !proof.backup ||
-      !proof.backup.checksum ||
-      Number(proof.backup.sizeBytes) <= 0 ||
-      proof.backup.isEncrypted !== true
-    ) {
-      throw new BadRequestException('CleanupDropProof requires encrypted backup evidence');
+    if (!isCleanupDropProofRecoveryPoint(proof.recoveryPoint)) {
+      throw new BadRequestException('CleanupDropProof requires a WAL-G recovery point');
     }
   }
 
@@ -278,6 +306,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'calibration_events',
       'sensor_protocols',
       'processes',
+
+      // Task 4 (SENSOR-HIGH-094): append-only per-tenant archive ledger —
+      // every tenant's schema carries its own copy, so erasure drops the
+      // history with the schema (no cross-tenant residue).
+      'telemetry_archive_events',
 
       // VFD (Variable Frequency Drive) entities
       // vfd_register_mappings is intentionally NOT here — it is global
@@ -391,6 +424,12 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      // W5 saat/takvim altyapısı — ikisi de tenantId-ayrışımlı CROSS-TENANT
+      // ledger'dır, tenant şemalarına klonlanmaz:
+      //   tenant_localization — auth'tan projekte edilen saat dilimi/dil,
+      //   feeding_job_runs    — "tenant'ın yerel gününde tam bir kez" claim'i.
+      'tenant_localization',
+      'feeding_job_runs',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are excluded from the source-schema write guard (the
@@ -473,6 +512,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_day_plans',
       'feeding_meals',
       'feeding_forecast_snapshots',
+      // Attribute edilemeyen tarihsel yem kayıtları (W0, FARM-HIGH-240)
+      'feeding_record_attribution_quarantine',
 
       // Chemical management
       'chemical_types',
@@ -794,6 +835,31 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // same class as command_receipts above).
       'plans',
       'stripe_webhook_events',
+      // ADR-0013 / BILLING-CRITICAL-002: the discount catalogue moved here
+      // from `admin`. discount_codes is a cross-tenant catalogue with no
+      // tenant column; discount_redemptions is tenant-scoped and carries the
+      // canonical billing RLS predicate.
+      'discount_codes',
+      'discount_redemptions',
+      // ADR-0013 / BILLING-CRITICAL-002: the module price sheet moved here from
+      // `admin`, with its metrics and tier multipliers as rows instead of two
+      // jsonb blobs. All three are cross-tenant catalogue tables.
+      'module_prices',
+      'module_price_metrics',
+      'module_price_tier_multipliers',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.plan_definitions` folded into
+      // `billing.plans`, and the four-cycle price matrix + the add-ons it held
+      // inside jsonb became these two child tables. Both are cross-tenant
+      // catalogue tables, like the plan they belong to.
+      'plan_cycle_prices',
+      'plan_add_ons',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.custom_plans` moved here with
+      // its priced selection expanded into rows. Unlike the rest of the
+      // catalogue these ARE tenant-scoped — a custom plan belongs to one
+      // tenant — so erasure deletes them by `tenant_id`.
+      'custom_plans',
+      'custom_plan_modules',
+      'custom_plan_line_items',
     ],
   },
   {
@@ -805,15 +871,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_erasure_operations',
       'tenant_schemas',
       'schema_migrations',
-      'schema_backups',
-      'schema_restores',
       'cleanup_runs',
       'cleanup_run_steps',
       'cleanup_run_events',
       'cleanup_run_evidence',
-      // DB-ADMIN-MEDIUM-002: schema-lifecycle backup ledger — same class as
-      // schema_backups/schema_restores above (retired-tenant-schema backups).
-      'retired_schema_backups',
+      // ADR-0009: the jsonb archive that received schema_backups /
+      // schema_restores / retired_schema_backups rows before 1808600000000
+      // dropped them. WAL-G is the sole backup authority; nothing writes here.
+      'retired_backup_ledger',
       // ORPHAN-HIGH-364 follow-on: the TenantProvisioningWorkflow tables
       // (migrations 1800400/1800500/1801200) — legitimate raw-SQL/migration-
       // managed workflow state with no TypeORM entity. Registered so the drift
@@ -832,16 +897,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       'tenant_activities',
       'tenant_notes',
-      'tenant_billing_info',
-      'impersonation_sessions',
-      'impersonation_permissions',
-      'debug_sessions',
-      'captured_queries',
-      'captured_api_calls',
-      'cache_entries_snapshot',
-      'feature_flag_overrides',
-      'discount_redemptions',
-      'custom_plans',
+      // tenant_billing_info retired 2026-09-07 (ADMIN-HIGH-012 / D14): it was a
+      // second per-tenant billing store with no writer; the tenant-detail
+      // billing block now reads billing.subscriptions + billing.invoices.
+      // discount_redemptions retired 2026-09-05 and custom_plans 2026-09-06
+      // (ADR-0013 / BILLING-CRITICAL-002): moved to billing alongside
+      // billing.discount_codes and billing.plans — billing is the sole writer
+      // of anything that prices a subscription.
       'message_threads',
       'messages',
       'announcement_acknowledgments',
@@ -862,7 +924,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'maintenance_modes',
       'feature_toggles',
       'email_templates',
-      'ip_access_rules',
       'activity_logs',
       'security_events',
       'security_incidents',
@@ -870,17 +931,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'compliance_reports',
       'login_attempts',
       'api_usage_logs',
-      'user_sessions',
       // DB-ADMIN-MEDIUM-002: admin-schema data tables that were absent from this
       // registry, so the ADR-012 drift validator + orphan-drop presence checks
       // did not cover them (an unregistered real table is neither protected nor
       // reconciled). All are @Entity(..., { schema: 'admin' }).
-      'discount_codes',
-      'module_pricing',
-      'plan_definitions',
+      // discount_codes retired 2026-09-05, module_pricing and plan_definitions
+      // 2026-09-06 (ADR-0013 / BILLING-CRITICAL-002) — see billing.discount_codes,
+      // billing.module_prices and billing.plans above.
       'plan_module_assignments',
       'threat_intelligence',
-      'retention_policies',
       'database_metrics',
       'slow_query_logs',
       'ingest_backend_policy_state',

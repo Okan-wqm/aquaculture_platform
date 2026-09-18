@@ -4,23 +4,29 @@
 
 ---
 
-## ⚠️ DEPLOY STATUS (2026-06-26) — Faz-3 orchestrator wiring is NOT on `main`
+## ✅ DEPLOY STATUS (2026-08-26) — Task 3 restored the REAL pipeline
 
-The pipeline **modules** all exist + unit-test green: MQTT subscriber (stage 5),
-topic parser (6), payload validator (7), cache (8), batch aggregator (9),
-`PostgresSink` (11), `NatsEventPublisher` (12). **But `apps/sensor-ingestion/src/
-main.rs` `drain_mqtt_stream` is still a `tracing::trace!("mqtt msg (stub drain)")`
-no-op** — it does NOT call `PostgresSink::copy` or `run_publisher_loop`. The Faz-3
-orchestrator wiring that connects the modules (drain → `topic::parse` → cache →
-`payload::validate` → batch → `PostgresSink::copy` → `NatsEventPublisher`) **did not
-survive the train merge**. The binary compiles and per-module tests pass, so CI is
-green, while the deployed sidecar would **drop every MQTT message**.
+The 2026-06-26 banner below is RESOLVED: the 100-tenant readiness plan's
+Task 3 (commit `720531480`) restored the full orchestrator wiring —
+drain → `topic::parse` → cache/sensor-lookup → `payload::validate` →
+batch aggregator → `PostgresSink` (per-tenant COPY + upsert with the
+Task 1.5 timestamp guard + transactional outbox enqueue, ADR-029) →
+dispatcher publishing through `publish_jetstream` (awaited PubAck +
+`Nats-Msg-Id`) onto the telemetry root. The `tenant-context` crate now
+derives the 16-hex platform SSoT (cross-language golden vectors), and
+`docker-compose.droplet.yml` deploys the sidecar PILOT-GATED (per-tenant
+`ingest_backend` policy defaults to `node`; zero tenants route here
+until an operator flips one deliberately). The honesty invariant was
+FLIPPED to guard the restored state. Faz-3 rows 9/11/12 are
+end-to-end wired.
 
-Consequence: `docker-compose.prod.yml` no longer deploys `sensor-ingestion` (it was
-advertised there as a "co-equal producer" — false redundancy). Re-enabling it before
-`main.rs` is wired is blocked by `tests/invariants/sensor-ingestion-honest-deployment.spec.ts`.
-**Next step (Faz-3 owner):** wire the drain, flip rows 9/11/12 from "module done" to
-"end-to-end wired", then restore the prod compose service.
+Historical record (superseded):
+> The pipeline modules existed + unit-tested green but `main.rs`
+> `drain_mqtt_stream` was a stub no-op — the Faz-3 orchestrator wiring
+> did not survive the train merge; the deployed sidecar would have
+> dropped every MQTT message. `docker-compose.prod.yml` therefore did
+> not deploy `sensor-ingestion` (blocked by
+> `sensor-ingestion-honest-deployment.spec.ts`).
 
 ---
 

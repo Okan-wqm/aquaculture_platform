@@ -19,11 +19,12 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SCRIPT = join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh');
 
@@ -75,7 +76,7 @@ void test('reclaims the regenerable caches that filled the disk', () => {
     assert.ok(!left.includes('nx-native-file-cache-old'), 'the stale Nx cache must go');
     assert.ok(!left.includes('jest_7'), 'the stale jest cache must go');
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 });
 
@@ -88,7 +89,7 @@ void test('never touches anything outside its allowlist', () => {
 
     assert.ok(readdirSync(root).includes('aqua-someones-checkout'));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 });
 
@@ -102,7 +103,7 @@ void test('leaves a cache that is younger than the age floor', () => {
       'an in-flight build must keep its cache',
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 });
 
@@ -124,7 +125,7 @@ void test('skips a directory a process still holds, however old it is', () => {
     assert.ok(readdirSync(root).includes('nx-native-file-cache-held'));
   } finally {
     holder.kill('SIGKILL');
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 });
 
@@ -140,7 +141,7 @@ void test('dry run reports without removing', () => {
       'dry run must delete nothing',
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 });
 

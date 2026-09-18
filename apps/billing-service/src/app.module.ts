@@ -1,8 +1,9 @@
 import { join } from 'path';
 
 import {
-  AuditLogModule,
+  AccessLogModule,
   AuditLogInterceptor,
+  AuditLogModule,
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
@@ -18,6 +19,7 @@ import {
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -48,6 +50,10 @@ import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
 import { MeteringModule } from './modules/metering/metering.module';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 /**
  * BillingMigrationRunnerService — production schema-version gate for the
@@ -62,6 +68,12 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
 
 @Module({
   imports: [
+    // ADR-0006: this service is an nginx upstream (serviceVisibility 'public').
+    // AccessLogModule provides AccessLogService; the bootstrap factory mounts
+    // AccessLogMiddleware ahead of every Nest middleware so each request this
+    // edge terminates writes one shared.access_logs row. Enforced by
+    // tests/invariants/public-service-edge-hardening.spec.ts.
+    AccessLogModule.forRoot(),
     LoggingModule,
     ConfigModule.forRoot({
       isGlobal: true,
@@ -123,6 +135,14 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
        * that causes exponential resource consumption on the server.
        */
       validationRules: [depthLimit(10)],
+      /**
+       * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+       * hardening preset — production error masking (raw TypeORM/driver text must
+       * never reach clients through the gateway's message passthrough) and the
+       * complexity cap for direct-access defense-in-depth.
+       */
+      formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+      plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
       buildSchemaOptions: {
         orphanedTypes: [
           InvoiceLineItem,
@@ -161,6 +181,10 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     TenantErasureTargetModule.forService('billing-service'),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // ServiceMetricsModule (the heartbeat's home) or the service does not boot.
+    ScheduledJobModule.forRoot({ serviceName: 'billing-service' }),
     // Event Emitter — single forRoot() for the entire service
     EventEmitterModule.forRoot(),
     BillingModule,
@@ -276,9 +300,11 @@ export class AppModule implements NestModule {
     //    x-user-id / x-user-roles / x-tenant-id from req.headers so
     //    UserContextMiddleware cannot pick up a forged SUPER_ADMIN
     //    payload from a Docker-network attacker. The Stripe webhook
-    //    controller is @Public() and previously trusted unvalidated
-    //    metadata.tenantId — closing this header path closes the
-    //    forge-on-public-route surface SECREV-CRITICAL-001 references.
+    //    controller is @Public(), so this closes the forge-on-public-route
+    //    half of SECREV-CRITICAL-001. The other half — the tenant read out
+    //    of the payload's own metadata bag — is closed in
+    //    controllers/stripe-webhook.service.ts, which resolves the tenant
+    //    from the local row owning the Stripe object.
     // 1. VerifiedUserAssertionMiddleware (SEC-HIGH-156) - resolve req.user /
     //    req.tenantId from the gateway-signed verified-user assertion.
     // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)

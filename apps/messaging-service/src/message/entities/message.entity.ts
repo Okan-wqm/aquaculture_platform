@@ -117,10 +117,14 @@ export class Message {
   isAiGenerated!: boolean;
 
   /**
-   * MSGFIX-FAZ2 2.4: exposed (additive, nullable) so the panel can render AI
-   * error notices (metadata.error/errorCode) and keep forwarding context.
-   * Server-reserved keys (isAi/status/actionId) are already stripped at the
-   * write side — this field is read-only attribution data.
+   * Arbitrary client metadata accepted by SendMessageInput.metadata (voice-note
+   * durationSeconds, AI attribution flags, …). Exposed on the read path because
+   * the live WS envelope already carries it (messaging-nats.handler WsMessage)
+   * and the mobile client renders from it — a message loaded through GraphQL
+   * must not lose what the same message carried over the socket (MSG-HIGH).
+   * MSGFIX-FAZ2 2.4: the panel also renders AI error notices from it
+   * (metadata.error/errorCode) and keeps forwarding context; server-reserved
+   * keys (isAi/status/actionId) are stripped at the write side.
    */
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })

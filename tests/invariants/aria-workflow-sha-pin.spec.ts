@@ -1,7 +1,8 @@
 /**
  * Platform-wide invariant — Plan 023 v3 §P-5:
  *
- * Every action invocation in `.github/workflows/*.yml` MUST be SHA-pinned.
+ * Every action invocation in `.github/workflows/*.yml` AND in the repo's own
+ * composite actions (`.github/actions/<name>/action.yml`) MUST be SHA-pinned.
  * Mutable tag references (`actions/checkout@v4`, `actions/setup-python@v5`,
  * etc.) are a supply-chain class vulnerability — the tag pointer can be
  * silently moved by the action publisher (or compromised) and a workflow
@@ -28,6 +29,17 @@
  * references (`docker://...`) are exempt — they have their own pinning
  * stories.
  *
+ * # Why composite actions are in scope (INFRA-MEDIUM-160)
+ *
+ * A composite action runs third-party action code in exactly the same trust
+ * position as a workflow step, but `.github/actions/**` was outside this scan
+ * — and outside Dependabot's `github-actions` scope, which `directory: /`
+ * limits to `.github/workflows/**`. Nothing watched those files: while every
+ * workflow was carried to `actions/setup-node` v7.0.0, the `setup-node-env`
+ * composite sat on v4.2.0. Dependabot now globs `/.github/actions/*` so the
+ * bumps arrive automatically; this scan is the gate that fails if one is ever
+ * replaced by a mutable tag.
+ *
  * # Failure mode
  *
  * Any mutable tag fails this spec with a precise file:line report.
@@ -43,6 +55,7 @@ import { resolve, join } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows');
+const COMPOSITE_ACTIONS_DIR = join(REPO_ROOT, '.github', 'actions');
 
 // Plan 023 v3 §P-5 — explicit allowlist for operator-approved
 // exceptions. Each entry must be `<owner>/<repo>@<ref>` exactly as it
@@ -82,7 +95,27 @@ function listWorkflows(): string[] {
     .map((e) => join(WORKFLOWS_DIR, e.name));
 }
 
-function scanWorkflow(path: string): Violation[] {
+/**
+ * Every `action.yml` / `action.yaml` the repo owns, one per composite-action
+ * directory. Same trust position as a workflow step, so the same scan applies.
+ */
+function listCompositeActions(): string[] {
+  const dirs = readdirSync(COMPOSITE_ACTIONS_DIR, { withFileTypes: true }).filter((e) =>
+    e.isDirectory(),
+  );
+  const files: string[] = [];
+  for (const dir of dirs) {
+    const dirPath = join(COMPOSITE_ACTIONS_DIR, dir.name);
+    for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+      if (entry.isFile() && (entry.name === 'action.yml' || entry.name === 'action.yaml')) {
+        files.push(join(dirPath, entry.name));
+      }
+    }
+  }
+  return files;
+}
+
+function scanUsesFile(path: string): Violation[] {
   const content = readFileSync(path, 'utf-8');
   const violations: Violation[] = [];
   content.split('\n').forEach((line, idx) => {
@@ -120,7 +153,7 @@ describe('aria-workflow-sha-pin (Plan 023 v3 §P-5)', () => {
     expect(workflows.length).toBeGreaterThan(0);
     const allViolations: Violation[] = [];
     for (const wf of workflows) {
-      allViolations.push(...scanWorkflow(wf));
+      allViolations.push(...scanUsesFile(wf));
     }
     if (allViolations.length > 0) {
       const report = allViolations
@@ -131,6 +164,26 @@ describe('aria-workflow-sha-pin (Plan 023 v3 §P-5)', () => {
           `use mutable tag references; pin to a commit SHA via\n` +
           `  gh api repos/<owner>/<repo>/git/refs/tags/<tag> --jq '.object.sha'\n` +
           `(peel annotated tags via gh api repos/<owner>/<repo>/git/tags/<sha>):\n${report}`,
+      );
+    }
+  });
+
+  it('every composite action the repo owns uses SHA-pinned actions', () => {
+    // INFRA-MEDIUM-160: same rule, the directory the workflow scan never read.
+    const actions = listCompositeActions();
+    expect(actions.length).toBeGreaterThan(0);
+    const allViolations: Violation[] = [];
+    for (const action of actions) {
+      allViolations.push(...scanUsesFile(action));
+    }
+    if (allViolations.length > 0) {
+      const report = allViolations
+        .map((v) => `  ${v.file}:${v.line}  uses: ${v.uses}  (${v.reason})`)
+        .join('\n');
+      throw new Error(
+        `${allViolations.length} composite-action line(s) use mutable tag ` +
+          `references. A composite action runs third-party code in the same ` +
+          `trust position as a workflow step:\n${report}`,
       );
     }
   });

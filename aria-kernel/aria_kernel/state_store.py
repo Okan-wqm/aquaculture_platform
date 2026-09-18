@@ -63,7 +63,7 @@ import time
 import uuid
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .ledger import (
@@ -79,8 +79,11 @@ from .file_lock import ExclusiveLockHandle, with_exclusive_lock
 from .state_manifest import (
     iter_surfaces,
     normalize_surface_relative_path,
+    state_group_lock_group,
+    state_group_lock_relative_path,
     surface_for_relative_path,
     surface_key_name,
+    surfaces_for_lock_group,
 )
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
@@ -126,17 +129,39 @@ TOOLS_SUBDIR = "tools"
 WORKSPACE_SUBDIR = "workspace"
 FINDINGS_SUBDIR = "findings"
 
-# Every git call is bounded. An unbounded fetch against an unreachable
-# remote hangs the publishing step, and a cycle that cannot finish also
-# cannot be recovered by a watchdog waiting for that cycle to report.
-# 300 (was 120): the store pushes the aria/state branch — hundreds of MB of
-# JSONL ledgers — and 120s measured too tight twice on the shared runner:
-# a sandboxed test push in the suite timed out at exactly this budget while
-# the box ran a second test workload (suite run 2026-08-28,
-# test_publish_with_replay_keeps_nested_lifecycle_entries_reentrant; green
-# in 0.8s in isolation on the same code). A production push that needs more
-# than 5 minutes is genuinely stuck; one that needs 3 is normal.
-GIT_TIMEOUT_SECONDS = 300
+# The git bound, the publish attempt count, the registered lifecycle git
+# steps and the liveness bound DERIVED from the arcs they form live in
+# `state_store_lifecycle_arcs`; re-exported here because every reader of
+# "how long may the store wait" reads them off this module. A tree-or-
+# remote-scaled git call under the lifecycle lock runs through
+# `_run_git_step` / `_git_step` with its registered step, and
+# `_run_git_bytes_bounded` refuses one that does not.
+from .state_store_lifecycle_arcs import (
+    BOOTSTRAP_DETACH_CHECKOUT_STEP,
+    BOOTSTRAP_ORPHAN_CHECKOUT_STEP,
+    BOOTSTRAP_TREE_CLEAR_STEP,
+    BOOTSTRAP_WORKTREE_ADD_STEP,
+    GIT_TIMEOUT_SECONDS,
+    OWNED_STORE_FAST_FORWARD_STEP,
+    PUBLISH_MAX_ATTEMPTS,
+    PUBLISH_PUSH_STEP,
+    REMOTE_BRANCH_FETCH_STEP,
+    REMOTE_TIP_PROBE_STEP,
+    REPLAY_RESET_STEP,
+    STATE_STORE_CHECKOUT_ARC_SECONDS,
+    STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
+    STATE_STORE_PUBLISH_ARC_SECONDS,
+    STATE_TRANSACTION_STEPS,
+    STORE_WORKTREE_ADD_STEP,
+    STORE_WORKTREE_REMOVE_STEP,
+    TREE_OR_REMOTE_SCALED_GIT_OPERATIONS,
+    LifecycleGitStep,
+    active_lifecycle_step,
+    active_state_transaction,
+    git_operation,
+    lifecycle_step_active,
+    require_step_operation,
+)
 
 # The store commits under its own identity, passed per-invocation rather
 # than read from ambient config. A runner without user.name set would
@@ -253,12 +278,18 @@ def _state_store_lifecycle_lock(repo_root: Path):
         handle = lock_stack.enter_context(
             with_exclusive_lock(
                 common_dir / _LIFECYCLE_LOCK_TARGET,
-                timeout_seconds=GIT_TIMEOUT_SECONDS,
+                # The holder's whole legitimate arc, not one git call's cap:
+                # see STATE_STORE_LIFECYCLE_LIVENESS_SECONDS.
+                timeout_seconds=STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
             ),
         )
     except TimeoutError as exc:
         lock_stack.close()
-        raise StateStoreError("state_store_lifecycle_lock_timeout") from exc
+        raise StateStoreError(
+            "state_store_lifecycle_lock_timeout: waited "
+            f"{STATE_STORE_LIFECYCLE_LIVENESS_SECONDS:g}s for the live holder of "
+            f"{(common_dir / _LIFECYCLE_LOCK_TARGET).as_posix()}"
+        ) from exc
 
     with lock_stack:
         held[key] = (handle, 0)
@@ -302,6 +333,19 @@ def store_roots(store: StateStore, repo_hash: str) -> dict[str, Path]:
     }
 
 
+# ARIA-MEDIUM-066 — the binding's NAMES, importable without a store. The
+# validation lane withholds exactly this set from every child it spawns and
+# reports the decision by name (``validation_env``); ``store_environment``
+# builds its export from the same tuple, so a binding added below without a
+# name here raises at export time instead of leaking through a second list.
+STORE_ENVIRONMENT_NAMES: tuple[str, ...] = (
+    "ARIA_WORKSPACE_BASE",
+    "ARIA_REPO_STATE_ROOT",
+    "ARIA_TOOLS_DIR",
+    "ARIA_STATE_STORE_ROOT",
+)
+
+
 def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     """The exact environment a lane must run with to write into the store.
 
@@ -323,7 +367,7 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     would be invisible at the callsite and impossible to test without
     leaking into the rest of the process.
     """
-    return {
+    bindings = {
         "ARIA_WORKSPACE_BASE": (store.root / WORKSPACE_SUBDIR).as_posix(),
         "ARIA_REPO_STATE_ROOT": findings_root(store).as_posix(),
         "ARIA_TOOLS_DIR": tools_root(store).as_posix(),
@@ -331,6 +375,10 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
         # it without having to reconstruct the path convention.
         "ARIA_STATE_STORE_ROOT": store.root.as_posix(),
     }
+    # Keyed by the exported tuple so the name list and the export cannot
+    # disagree silently: a name without a value fails here, a value without a
+    # name fails ``test_validation_env``.
+    return {name: bindings[name] for name in STORE_ENVIRONMENT_NAMES}
 
 
 def _attest_state_writer(store: "StateStore", *, action: str) -> None:
@@ -480,6 +528,22 @@ def _checkout_state_store_locked(
     # governance event on the freshly restored store.
     vanished_while_registered = (not root.exists()) and _worktree_registered(repo_root, root)
 
+    # ARIA-HIGH-155 — the hollow shape of the same sweep: the directory is
+    # still there, its worktree still registered, but the ``.git`` link the
+    # worktree lives by is gone (``git clean -ffdx`` takes the link; a later
+    # step of the same job re-creates ``tools/``). Every git command run inside
+    # then discovers the PARENT repository and answers with ITS commits — on
+    # 2026-09-18 the executor lane read the workspace's ``main`` as "6450
+    # commit(s) ahead of origin/aria/state" and refused a store that held no
+    # commit at all (run 35339272100). A tree without ``.git`` cannot hold a
+    # commit; what it holds are bytes, and bytes are preserved aside, never
+    # judged as unpublished work and never silently deleted.
+    hollow_set_aside: Path | None = None
+    if root.exists() and _worktree_registered(repo_root, root) and _worktree_is_hollow(root):
+        hollow_set_aside = _set_aside_hollow_store(root)
+        _git(repo_root, "worktree", "prune", check=False)
+        vanished_while_registered = True
+
     if root.exists():
         _clear_existing_store(
             repo_root,
@@ -500,7 +564,8 @@ def _checkout_state_store_locked(
         # happening, which is worse than the race it was meant to catch.
         # Detached, each store's HEAD moves alone and the only shared ref
         # is the remote's, where the server arbitrates.
-        _git(
+        _git_step(
+            STORE_WORKTREE_ADD_STEP,
             repo_root,
             "worktree",
             "add",
@@ -510,7 +575,9 @@ def _checkout_state_store_locked(
             remote_head,
         )
         if vanished_while_registered:
-            _disclose_rematerialized_after_missing(root, branch=branch)
+            _disclose_rematerialized_after_missing(
+                root, branch=branch, hollow_set_aside=hollow_set_aside,
+            )
         store = StateStore(
             root=root,
             branch=branch,
@@ -522,15 +589,18 @@ def _checkout_state_store_locked(
         return store
 
     _require_bootstrap_ack(repo_root, branch)
-    _git(repo_root, "worktree", "add", "--detach", "--force", str(root), "HEAD")
+    _git_step(
+        BOOTSTRAP_WORKTREE_ADD_STEP,
+        repo_root, "worktree", "add", "--detach", "--force", str(root), "HEAD",
+    )
 
     # An orphan needs a branch name to be created under; it does not need
     # to keep one. The name is store-local and deleted as soon as the
     # genesis commit exists, so bootstrap does not reintroduce the shared
     # ref the restored path just avoided.
     orphan_ref = f"aria-state-bootstrap-{hashlib.sha256(str(root).encode()).hexdigest()[:12]}"
-    _git(root, "checkout", "--orphan", orphan_ref)
-    _git(root, "rm", "-rf", "--quiet", "--ignore-unmatch", ".")
+    _git_step(BOOTSTRAP_ORPHAN_CHECKOUT_STEP, root, "checkout", "--orphan", orphan_ref)
+    _git_step(BOOTSTRAP_TREE_CLEAR_STEP, root, "rm", "-rf", "--quiet", "--ignore-unmatch", ".")
     for subdir in (TOOLS_SUBDIR, WORKSPACE_SUBDIR, FINDINGS_SUBDIR):
         (root / subdir).mkdir(parents=True, exist_ok=True)
         (root / subdir / ".gitkeep").write_text("", encoding="utf-8")
@@ -548,7 +618,7 @@ def _checkout_state_store_locked(
     )
     _git(root, "add", "--all", ".")
     _git_commit(root, f"chore(aria-state): genesis for {branch}")
-    _git(root, "checkout", "--detach", "HEAD")
+    _git_step(BOOTSTRAP_DETACH_CHECKOUT_STEP, root, "checkout", "--detach", "HEAD")
     _git(root, "branch", "--delete", "--force", orphan_ref)
     store = StateStore(
         root=root,
@@ -569,7 +639,30 @@ def _worktree_registered(repo_root: Path, root: Path) -> bool:
     return any(line.strip() == needle for line in listing.splitlines())
 
 
-def _disclose_rematerialized_after_missing(root: Path, *, branch: str) -> None:
+def _worktree_is_hollow(root: Path) -> bool:
+    """A linked worktree lives by its ``.git`` link (a file naming the
+    repository's ``worktrees/<name>``); without it the directory is a plain
+    tree that git resolves to whatever repository encloses it."""
+    return not (root / ".git").exists()
+
+
+def _set_aside_hollow_store(root: Path) -> Path:
+    """Move a hollow store directory next to itself, stamped; nothing is deleted."""
+    from datetime import datetime, timezone
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    aside = root.with_name(f"{root.name}.hollow-{stamp}")
+    suffix = 0
+    while aside.exists():
+        suffix += 1
+        aside = root.with_name(f"{root.name}.hollow-{stamp}-{suffix}")
+    root.rename(aside)
+    return aside
+
+
+def _disclose_rematerialized_after_missing(
+    root: Path, *, branch: str, hollow_set_aside: Path | None = None,
+) -> None:
     """Z1 (ORPHAN-712) — the store vanished between runs; say so, durably.
 
     Written onto the FRESHLY RESTORED store so the disclosure itself is
@@ -579,17 +672,25 @@ def _disclose_rematerialized_after_missing(root: Path, *, branch: str) -> None:
     try:
         from .tool_registry import append_tools_governance
 
+        details: dict[str, Any] = {
+            "branch": branch,
+            "store_root": root.as_posix(),
+            "note": (
+                "store directory was deleted while its worktree stayed "
+                "registered; anything unpublished at deletion time is gone"
+            ),
+        }
+        if hollow_set_aside is not None:
+            details["note"] = (
+                "store directory lost its .git link while its worktree stayed "
+                "registered (a hollow tree holds no commit); its bytes were set "
+                "aside, not deleted, and the store was checked out fresh"
+            )
+            details["hollow_set_aside"] = hollow_set_aside.as_posix()
         append_tools_governance(
             root / "tools",
             "state_store_rematerialized_after_missing",
-            {
-                "branch": branch,
-                "store_root": root.as_posix(),
-                "note": (
-                    "store directory was deleted while its worktree stayed "
-                    "registered; anything unpublished at deletion time is gone"
-                ),
-            },
+            details,
         )
     except Exception:
         pass
@@ -699,10 +800,38 @@ def _publication_anchor(store: StateStore) -> str:
     return "HEAD"
 
 
+def store_lineage_branch(root: Path) -> str | None:
+    """The branch a store's LINEAGE was created for, from its own history.
+
+    A store worktree is detached by design (see ``_checkout_state_store_locked``:
+    a shared local ref would let two stores chain instead of collide), so
+    the branch cannot be read off HEAD. It is read off the one place the
+    kernel wrote it immutably: the ``GENESIS`` record in the lineage's root
+    commit (``rev-list --max-parents=0``), hash-chained under every commit
+    since. ``None`` when the lineage has no single root carrying a genesis
+    record — a damaged or foreign tree, which the caller refuses by name.
+    """
+    roots = _run_git(root, ("rev-list", "--max-parents=0", "HEAD"))
+    if roots.returncode != 0:
+        return None
+    root_commits = [line.strip() for line in roots.stdout.splitlines() if line.strip()]
+    if len(root_commits) != 1:
+        return None
+    genesis = _run_git(root, ("show", f"{root_commits[0]}:{GENESIS_FILENAME}"))
+    if genesis.returncode != 0:
+        return None
+    try:
+        record = json.loads(genesis.stdout)
+    except ValueError:
+        return None
+    branch = record.get("branch") if isinstance(record, dict) else None
+    return branch if isinstance(branch, str) and branch else None
+
+
 def open_state_store(
     repo_root: str | Path,
     *,
-    branch: str = STATE_BRANCH,
+    branch: str | None = None,
     remote: str = "origin",
     store_dir: str | Path | None = None,
 ) -> StateStore:
@@ -715,6 +844,18 @@ def open_state_store(
     Collapsing them into one function gave a ``publish`` that could never
     publish anything a cycle had written — it re-checked-out first and
     refused on the very rows it was called to persist.
+
+    The branch is READ FROM THE STORE'S OWN LINEAGE (``store_lineage_branch``,
+    the genesis record at its root commit), not assumed: every reader of
+    "what is published" anchors on ``refs/remotes/<remote>/<branch>``
+    (``_publication_anchor``), so a store materialised for any branch other
+    than the default used to be judged against ``aria/state``'s tip — its
+    own genesis reported as "not at tip" and every production surface as
+    lost (trial eleven, 2026-09-12, a store bootstrapped on
+    ``aria/state-trial-eleven-20260912``). A caller that names a branch is
+    checked against the lineage, and a store whose lineage carries no
+    genesis record is refused by name: a tree that does not know its branch
+    cannot know what it continues.
     """
     repo_root = Path(repo_root).resolve()
     root = Path(store_dir).resolve() if store_dir else repo_root / STORE_DIRNAME
@@ -723,9 +864,20 @@ def open_state_store(
             f"state_store_not_open: {root.as_posix()} is not a checked-out store of "
             "this repository; run `state checkout` before writing state into it"
         )
+    lineage = store_lineage_branch(root)
+    if lineage is None:
+        raise StateStoreError(
+            f"state_store_branch_unresolvable: {root.as_posix()} has no single "
+            f"lineage root carrying a {GENESIS_FILENAME} record naming its branch"
+        )
+    if branch is not None and branch != lineage:
+        raise StateStoreError(
+            f"state_store_branch_mismatch: {root.as_posix()} is the lineage of "
+            f"{lineage!r}, not the requested {branch!r}"
+        )
     return StateStore(
         root=root,
-        branch=branch,
+        branch=lineage,
         repo_root=repo_root,
         remote=remote,
         bootstrapped=False,
@@ -797,6 +949,22 @@ def _publish_state_locked(
             "not match its content; refusing to publish an unverifiable claim"
         )
 
+    # ARIA-HIGH-117 — THE RUNTIME POINTERS ARE VERIFIED HERE, BY EVERY
+    # PUBLISHER. The snapshot attests that the ledgers' bytes are what
+    # the manifest says; it says nothing about whether the artifacts those
+    # ledgers point at exist. The executor lane runs `integrity verify`
+    # before its publish and fails closed on `state_valid=false`; the
+    # maintenance lane ran `state compact` and published on the snapshot
+    # alone, so a compaction that stripped what the runs and raw findings
+    # still named was pushed green daily and every executor run since
+    # 2026-09-04 refused the tip it inherited. One publish path, one gate:
+    # a tree whose runtime pointers do not verify is not published from
+    # anywhere, and the refusal names what did not verify. A pure read —
+    # nothing below this line has mutated the store yet.
+    runtime_artifacts = _runtime_artifacts_verdict_summary(
+        _refuse_unverified_runtime_artifacts(store),
+    )
+
     published = read_published_snapshot(store)
     continuity = snapshot_continuity(snapshot, published)
 
@@ -825,20 +993,53 @@ def _publish_state_locked(
                 f"{expected!r}; refusing to overwrite state this tree does not descend from"
             )
         if continuity["status"] != "ok":
-            # Operator bootstrap acknowledgment: the operator explicitly
-            # approved a state reduction (compaction, fresh start).
-            # surfaces_lost is expected; publish proceeds and the ack
-            # is recorded in the governance audit trail.
-            import os as _os
-            _ack = _os.environ.get("ARIA_STATE_BOOTSTRAP_ACK", "").strip()
-            if _ack and continuity["status"] == "surfaces_lost":
-                # Record the ack; publish is allowed to proceed.
-                pass
-            else:
-                raise StateStoreRefusal(
-                    f"state_publish_continuity_{continuity['status']}: "
-                    f"lost_surfaces={continuity['lost_surfaces']}"
-                )
+            # A broken chain is refused whatever it lost; a loss is accepted
+            # only when someone vouched for it — the kernel's own compaction
+            # (its `state_compacted` row names every path it pruned) or the
+            # operator, whose acknowledgment must name this repository AND
+            # be recorded on the governance ledger inside this very commit
+            # by the publish preamble. The gate's rules and its names live
+            # in `state_continuity_gate`; what is not vouched for refuses.
+            from .state_continuity_gate import vouched_continuity
+
+            continuity = vouched_continuity(
+                store,
+                snapshot=snapshot,
+                published=published,
+                continuity=continuity,
+            )
+
+    # THE PARENT MUST NOT POISON THE CHILD. A tip that carries entries the
+    # tree contract can never claim (lock side-cars, host identity, anything
+    # a whole-tree `git add` once admitted) would be inherited by this commit
+    # through the index, refused by the immutable verifier after the commit,
+    # and soft-reset — every publish, forever. The bounded pathspec below
+    # cannot remove what it does not name, so the omission is staged by the
+    # publish preamble (`prepare_publishable_snapshot`), which also records
+    # the governance row naming each dropped entry BEFORE the snapshot was
+    # built. This is the pre-mutation check that the preamble ran: refusing
+    # here, by name, is what makes a publisher without the preamble fail
+    # loudly on the first tree that needs it instead of silently forever.
+    from .state_tree_contract import (
+        classify_inherited_tree,
+        unclaimable_entries_still_indexed,
+    )
+
+    inherited = classify_inherited_tree(
+        store,
+        repo_hash=repo_hash,
+        base_head=bound_base_head,
+    )
+    unhealed = unclaimable_entries_still_indexed(store, inherited.unclaimable)
+    if unhealed:
+        raise StateStoreRefusal(
+            "state_publish_inherited_unclaimed_entries_unhealed: the parent "
+            f"tree carries {len(unhealed)} entr{'y' if len(unhealed) == 1 else 'ies'} "
+            "no snapshot can claim and the index would commit them again "
+            f"({', '.join(unhealed[:8])}); publish through "
+            "prepare_publishable_snapshot, which stages their omission and "
+            "records it, before committing"
+        )
 
     # This is the last observation before the first filesystem mutation.
     # The entry check alone leaves continuity validation as a race window in
@@ -887,7 +1088,13 @@ def _publish_state_locked(
     # snapshot attests — that would be the branch carrying less than its
     # own manifest claims. The danger was never `--force`; it was
     # `--force` over the whole tree.
-    staged = _staged_pathspecs(store, snapshot, published, repo_hash)
+    staged = _staged_pathspecs(
+        store,
+        snapshot,
+        published,
+        repo_hash,
+        inherited_surfaces=inherited.surfaces,
+    )
     _git(store.root, "add", "--all", "--force", "--", *staged)
 
     pre_commit_head = _read_commit_ref(store.root, "HEAD")
@@ -904,6 +1111,7 @@ def _publish_state_locked(
             "snapshot_id": snapshot.get("snapshot_id"),
             "manifest_root": snapshot.get("manifest_root"),
             "continuity": continuity,
+            "runtime_artifacts": runtime_artifacts,
         }
 
     # The commit that the push must either carry or undo is the same immutable
@@ -981,7 +1189,8 @@ def _publish_state_locked(
     # Push the exact verified object id, never the moving ``HEAD`` symbolic
     # ref. A non-fast-forward update is rejected by the server, which is the
     # compare-and-swap this design relies on.
-    proc = _run_git(
+    proc = _run_git_step(
+        PUBLISH_PUSH_STEP,
         store.root,
         (
             "push",
@@ -1015,6 +1224,9 @@ def _publish_state_locked(
         "continuity": continuity,
         "push_outcome": push_outcome,
         "remote_tip": remote_tip,
+        # The runtime-pointer verdict this publish was gated on, so the
+        # lane's log shows what verified and what was compacted.
+        "runtime_artifacts": runtime_artifacts,
     }
 
 
@@ -1023,6 +1235,8 @@ def _staged_pathspecs(
     snapshot: dict[str, Any],
     published: dict[str, Any] | None,
     repo_hash: str,
+    *,
+    inherited_surfaces: tuple[str, ...] = (),
 ) -> list[str]:
     """Store-relative paths for everything this publish may commit.
 
@@ -1030,7 +1244,8 @@ def _staged_pathspecs(
     plus one per surface the PUBLISHED snapshot attested — translated
     from root-relative (what ``build_snapshot`` records) to store-relative
     (what ``git add`` needs) through the same ``store_roots`` mapping that
-    produced them.
+    produced them — plus every declared-surface blob the PARENT TREE
+    carries (``inherited_surfaces``, already store-relative).
 
     The predecessor's paths are what let a surface that VANISHED stage as
     a deletion: ``build_snapshot`` only records files that exist, so the
@@ -1038,12 +1253,20 @@ def _staged_pathspecs(
     ledger would linger in the branch while the manifest stopped
     mentioning it — the tree and its attestation quietly disagreeing.
 
+    The parent TREE is consulted as well as the parent's manifest because
+    the two can disagree: a tip written outside the kernel carried surface
+    files its stale snapshot.json never claimed (the 2026-09 maintenance
+    commits' compaction archives and fresh hot artifacts). A file the tree
+    has, the manifest lacks and the working tree has since lost would be
+    named by nothing, linger unclaimed, and fail the immutable verifier.
+    The tree is the truth about what the predecessor carried.
+
     Deliberately NOT the subtree prefixes. ``git add --all -- tools``
     would re-admit every undeclared file under it, which is the whole
     thing this list exists to prevent.
     """
     roots = store_roots(store, repo_hash)
-    specs = {SNAPSHOT_FILENAME, GENESIS_FILENAME}
+    specs = {SNAPSHOT_FILENAME, GENESIS_FILENAME, *inherited_surfaces}
     for source in (snapshot, published or {}):
         for entry in (source.get("surfaces") or {}).values():
             root = roots.get(entry.get("root_kind"))
@@ -1121,7 +1344,8 @@ def _probe_remote_tip_at(
 ) -> _RemoteTipProbe:
     ref = f"refs/heads/{branch}"
     try:
-        proc = _run_git(
+        proc = _run_git_step(
+            REMOTE_TIP_PROBE_STEP,
             root,
             ("ls-remote", "--heads", remote, ref),
         )
@@ -1187,7 +1411,8 @@ def _fetch_remote_branch_tip_at(
     fetched_ref = f"refs/aria/tmp/state-fetch-{os.getpid()}-{uuid.uuid4().hex}"
     try:
         try:
-            proc = _run_git(
+            proc = _run_git_step(
+                REMOTE_BRANCH_FETCH_STEP,
                 root,
                 (
                     "fetch",
@@ -1376,7 +1601,8 @@ def _refresh_clean_owned_store(
         raise StatePublishOutcomeUnknown(
             "state_publish_outcome_unknown: store became dirty before refresh"
         )
-    refresh = _run_git(
+    refresh = _run_git_step(
+        OWNED_STORE_FAST_FORWARD_STEP,
         store.root,
         ("merge", "--ff-only", "--no-edit", target_head),
     )
@@ -1578,6 +1804,52 @@ def _reconcile_nonzero_push(
     )
 
 
+# How many issues a refusal names before it summarises the rest. The
+# verdict carries every issue; the message is for the run log.
+_RUNTIME_REFUSAL_NAMED_ISSUES = 5
+
+
+def _refuse_unverified_runtime_artifacts(store: StateStore) -> dict[str, Any]:
+    """Refuse the publish unless the store's runtime pointers verify.
+
+    The verdict is ``runtime_artifacts.verify_runtime_artifacts`` on the
+    store's tools root with the checkout as the workspace root — the same
+    call, with the same roots, that `integrity verify` makes in the
+    executor lane's "Verify ARIA state integrity" step. Returned on
+    success so a caller can carry the counts into its own verdict.
+    """
+    from .runtime_artifacts import verify_runtime_artifacts
+
+    tools = tools_root(store)
+    if not tools.is_dir():
+        return {"status": "ok", "valid": True, "issues": [], "verified_artifact_count": 0,
+                "compacted_artifact_count": 0}
+    verdict = verify_runtime_artifacts(base_dir=tools, workspace_root=store.repo_root)
+    if verdict.get("valid") is True:
+        return verdict
+    issues = list(verdict.get("issues") or [])
+    named = ", ".join(
+        json.dumps(issue, sort_keys=True, default=str)
+        for issue in issues[:_RUNTIME_REFUSAL_NAMED_ISSUES]
+    )
+    remainder = len(issues) - _RUNTIME_REFUSAL_NAMED_ISSUES
+    raise StateStoreRefusal(
+        "state_publish_runtime_artifacts_unverified: the store's run refs, raw-finding "
+        f"pointers or artifact ledgers do not verify ({len(issues)} issue"
+        f"{'' if len(issues) == 1 else 's'}: {named}"
+        f"{f', and {remainder} more' if remainder > 0 else ''}); a compaction that "
+        "leaves the store unverifiable is not published, and neither is a lost artifact"
+    )
+
+
+def _runtime_artifacts_verdict_summary(verdict: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": verdict.get("status"),
+        "verified_artifact_count": int(verdict.get("verified_artifact_count") or 0),
+        "compacted_artifact_count": int(verdict.get("compacted_artifact_count") or 0),
+    }
+
+
 def build_publishable_snapshot(
     store: StateStore,
     *,
@@ -1630,6 +1902,144 @@ def build_publishable_snapshot(
     )
 
 
+@dataclass(frozen=True)
+class PreparedPublish:
+    """Everything ``publish_state`` needs, bound to one exact base commit."""
+
+    base_head: str
+    previous: dict[str, Any] | None
+    snapshot: dict[str, Any]
+    dropped_inherited_entries: tuple[dict[str, str], ...]
+    # The surfaces whose loss the operator's acknowledgment accepted and the
+    # preamble recorded on the governance ledger (empty on every publish
+    # that needed no acknowledgment — the scheduled lanes).
+    accepted_losses_recorded: tuple[str, ...]
+
+
+def prepare_publishable_snapshot(
+    store: StateStore,
+    *,
+    snapshot_id: str,
+    cycle_id: str,
+    lane: str,
+    repo_hash: str,
+    parent_commit: str | None = None,
+) -> PreparedPublish:
+    """The one publish preamble: bind the base, heal, record, build.
+
+    Every production publisher (``prepare_and_publish_state`` behind the
+    ``state publish`` CLI, and the contention-replay orchestrator) runs
+    this before the publish, and the order inside is the point:
+
+    1. the base is ONE exact commit, read once and handed to the publish
+       as ``expected_base_head`` so the snapshot and the commit describe
+       the same tree;
+    2. the parent's unclaimable entries are dropped from the index and the
+       governance row naming them is appended — BEFORE step 3, so the row
+       is inside the snapshot this commit attests rather than in a working
+       tree the runner discards;
+    3. the snapshot is built from the healed store;
+    4. if that snapshot loses surfaces nothing attested and the operator's
+       acknowledgment names this repository, the acceptance is recorded on
+       the governance ledger and the snapshot is REBUILT over the row —
+       the acceptance travels inside the commit whose losses it accepts.
+
+    The publish refuses, by name, a tree whose inherited unclaimable
+    entries are still indexed and an acknowledged loss no row records, so
+    skipping this preamble cannot publish an unverifiable or unrecorded
+    commit — it can only fail loudly on the first tip that needed it.
+
+    Runs under the store's lifecycle lock: steps 2 and 4 mutate the index
+    and the governance ledger, and a second lifecycle holder (a checkout,
+    a recovery, another publisher) must not interleave with them.
+    """
+    from .state_continuity_gate import record_operator_accepted_losses
+    from .state_tree_contract import drop_inherited_unclaimed_entries
+
+    with _state_store_lifecycle_lock(store.repo_root):
+        recover_pending_state_replay(store, repo_hash=repo_hash)
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreRefusal(
+                "state_publish_base_head_unavailable: publish base HEAD is not "
+                "an exact commit"
+            )
+        previous = read_snapshot_at_worktree_head(store, expected_head=base_head)
+        dropped = drop_inherited_unclaimed_entries(
+            store,
+            repo_hash=repo_hash,
+            base_head=base_head,
+        )
+
+        def build() -> dict[str, Any]:
+            return build_publishable_snapshot(
+                store,
+                snapshot_id=snapshot_id,
+                cycle_id=cycle_id,
+                lane=lane,
+                repo_hash=repo_hash,
+                parent_commit=parent_commit,
+                previous=previous,
+            )
+
+        snapshot = build()
+        accepted = record_operator_accepted_losses(
+            store,
+            snapshot=snapshot,
+            previous=previous,
+        )
+        if accepted:
+            snapshot = build()
+        return PreparedPublish(
+            base_head=base_head,
+            previous=previous,
+            snapshot=snapshot,
+            dropped_inherited_entries=tuple(dropped),
+            accepted_losses_recorded=accepted,
+        )
+
+
+def prepare_and_publish_state(
+    store: StateStore,
+    *,
+    snapshot_id: str,
+    cycle_id: str,
+    lane: str,
+    repo_hash: str,
+    parent_commit: str | None = None,
+) -> dict[str, Any]:
+    """The single-attempt publish: preamble and publish under ONE lock.
+
+    What the ``state publish`` CLI runs. The preamble stages an index
+    omission and appends governance rows; the publish commits what the
+    preamble prepared against the exact base the preamble read. Holding
+    the lifecycle lock across both — as the contention-replay orchestrator
+    already does around its attempts — is what makes "another lifecycle
+    holder ran between the two" impossible rather than merely refused by
+    the base-head check afterwards. The verdict carries what the preamble
+    did, so the lane's log says what was healed and what was accepted.
+    """
+    with _state_store_lifecycle_lock(store.repo_root):
+        prepared = prepare_publishable_snapshot(
+            store,
+            snapshot_id=snapshot_id,
+            cycle_id=cycle_id,
+            lane=lane,
+            repo_hash=repo_hash,
+            parent_commit=parent_commit,
+        )
+        result = _publish_state_locked(
+            store,
+            snapshot=prepared.snapshot,
+            cycle_id=cycle_id,
+            repo_hash=repo_hash,
+            expected_base_head=prepared.base_head,
+        )
+    result["dropped_inherited_entries"] = list(prepared.dropped_inherited_entries)
+    result["accepted_losses_recorded"] = list(prepared.accepted_losses_recorded)
+    return result
+
+
 def publish_with_contention_replay(
     store: StateStore,
     *,
@@ -1637,7 +2047,7 @@ def publish_with_contention_replay(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = 3,
+    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_with_contention_replay_locked(
@@ -1657,7 +2067,7 @@ def _publish_with_contention_replay_locked(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = 3,
+    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     """Publish, and on a lost race rebuild onto the winner and try again.
 
@@ -1688,13 +2098,11 @@ def _publish_with_contention_replay_locked(
 
     last_refusal: StateStoreRefusal | None = None
     for attempt in range(1, max_attempts + 1):
-        base_head = _read_commit_ref(store.root, "HEAD")
-        if base_head is None:
+        if _read_commit_ref(store.root, "HEAD") is None:
             raise StatePublishOutcomeUnknown(
                 "state_publish_outcome_unknown: replay base HEAD is unavailable"
             )
-        base = read_snapshot_at_worktree_head(store, expected_head=base_head)
-        snapshot = build_publishable_snapshot(
+        prepared = prepare_publishable_snapshot(
             store,
             # Distinct per attempt: two attempts are two different trees, and
             # reusing one id would make the ledger claim they were the same.
@@ -1702,8 +2110,10 @@ def _publish_with_contention_replay_locked(
             cycle_id=cycle_id,
             lane=lane,
             repo_hash=repo_hash,
-            previous=base,
         )
+        base_head = prepared.base_head
+        base = prepared.previous
+        snapshot = prepared.snapshot
         try:
             result = publish_state(
                 store,
@@ -3950,7 +4360,7 @@ def _recovery_transaction_locks(
     for surface in iter_surfaces():
         root = roots[surface.root_kind]
         group_locks.add(
-            (root / "locks" / "state-groups" / f"{surface.lock_group}.lock").resolve()
+            (root / state_group_lock_relative_path(surface.lock_group)).resolve()
         )
     for entry in local_surfaces.values():
         root = roots.get(entry.get("root_kind"))
@@ -4392,7 +4802,7 @@ def _rebase_store_onto_remote_locked(
                 manifest,
                 "destructive_started",
             )
-            reset = _run_git(store.root, ("reset", "--hard", tip))
+            reset = _run_git_step(REPLAY_RESET_STEP, store.root, ("reset", "--hard", tip))
             if reset.returncode != 0 or _read_commit_ref(store.root, "HEAD") != tip:
                 raise StatePublishOutcomeUnknown(
                     "state_publish_outcome_unknown: replay reset could not be verified"
@@ -4523,24 +4933,42 @@ def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:
     }
 
 
-def _require_bootstrap_ack(repo_root: Path, branch: str) -> None:
+def _acknowledged_repository(repo_root: Path, *, mismatch_refusal: str) -> str | None:
+    """The operator acknowledgment, iff it names this repository.
+
+    ``None`` when the variable is unset. THE ONE CHECK for every gate the
+    acknowledgment can open — the bootstrap of a missing branch and the
+    publish of an unattested state reduction — so the two cannot drift
+    into accepting different strings. Naming the repository is what makes
+    the acknowledgement one-shot in practice: an ack left set in a
+    workflow does not travel to a fork or a renamed repo, and it cannot be
+    a bare "1" someone pasted forward without reading. A set value that
+    names something else is refused under the caller's name for it.
+    """
     ack = os.environ.get(BOOTSTRAP_ACK_ENV, "").strip()
-    identity = _repository_identity(repo_root)
     if not ack:
+        return None
+    identity = _repository_identity(repo_root)
+    if ack != identity:
+        raise StateStoreRefusal(
+            f"{mismatch_refusal}: {BOOTSTRAP_ACK_ENV}={ack!r} does not "
+            f"name this repository ({identity!r})"
+        )
+    return ack
+
+
+def _require_bootstrap_ack(repo_root: Path, branch: str) -> None:
+    ack = _acknowledged_repository(
+        repo_root,
+        mismatch_refusal="state_store_bootstrap_ack_mismatch",
+    )
+    if ack is None:
+        identity = _repository_identity(repo_root)
         raise StateStoreRefusal(
             f"state_store_bootstrap_unacknowledged: branch {branch!r} does not exist "
             f"and {BOOTSTRAP_ACK_ENV} is unset. Creating it silently is how an "
             "existing history gets replaced by an empty one (ORPHAN-CRITICAL-484); "
             f"set {BOOTSTRAP_ACK_ENV}={identity!r} to authorise a first bootstrap."
-        )
-    if ack != identity:
-        # Naming the repository is what makes the acknowledgement
-        # one-shot in practice: an ack left set in a workflow does not
-        # travel to a fork or a renamed repo, and it cannot be a bare
-        # "1" someone pasted forward without reading.
-        raise StateStoreRefusal(
-            f"state_store_bootstrap_ack_mismatch: {BOOTSTRAP_ACK_ENV}={ack!r} does not "
-            f"name this repository ({identity!r})"
         )
 
 
@@ -4777,27 +5205,25 @@ def _is_disposable_host_artifact(
             tools,
             index_payload=payload,
         ) else None
-    if not relative.startswith("tools/") or not relative.endswith(".lock"):
+    if not relative.startswith("tools/"):
         return None
-    from .state_manifest import surface_for_relative_path
-
     lock_relative = relative.removeprefix("tools/")
     if surface_for_relative_path(lock_relative) is not None:
         return None
-    target_relative = lock_relative.removesuffix(".lock")
-    target_surface = surface_for_relative_path(target_relative)
-    from .state_manifest import STATE_SURFACES
+    # The side-car shape is file_lock's and the group-lock key shape is the
+    # manifest's; both are decoded, never restated. A quiescent side-car is
+    # disposable only when its target is something this host locks: a tools
+    # surface, the tools index, or a declared group's lock key.
+    from .file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
 
-    group_prefix = "locks/state-groups/"
-    group_target = (
-        target_relative.startswith(group_prefix)
-        and target_relative.endswith(".lock")
-        and target_relative.removeprefix(group_prefix).removesuffix(".lock")
-        in {
-            surface.lock_group
-            for surface in STATE_SURFACES
-            if surface.root_kind == "tools"
-        }
+    target = lock_sidecar_target(PurePosixPath(lock_relative))
+    if target is None:
+        return None
+    target_relative = target.as_posix()
+    target_surface = surface_for_relative_path(target_relative)
+    group = state_group_lock_group(target)
+    group_target = group is not None and any(
+        surface.root_kind == "tools" for surface in surfaces_for_lock_group(group)
     )
     if (
         (target_surface is None or target_surface.root_kind != "tools")
@@ -4813,8 +5239,6 @@ def _is_disposable_host_artifact(
         or target_path.is_symlink()
     ):
         return None
-    from .file_lock import lock_sidecar_path, with_exclusive_lock
-
     if lock_sidecar_path(target_path) != lock_path:
         return None
     if relative in held_sidecars:
@@ -5190,10 +5614,7 @@ def _checkout_cleanup_transaction_locks(
         for authority_root in roots_by_kind[surface.root_kind]:
             group_locks.add(
                 (
-                    authority_root
-                    / "locks"
-                    / "state-groups"
-                    / f"{surface.lock_group}.lock"
+                    authority_root / state_group_lock_relative_path(surface.lock_group)
                 ).resolve()
             )
             if "*" in surface.path_pattern:
@@ -5354,7 +5775,12 @@ def _clear_existing_store(
             # Full manifest groups + index/concrete closure remain held through
             # removal.  An absent fixed/glob writer therefore cannot appear
             # after the second cleanliness scan and lose its bytes here.
-            _git(repo_root, "worktree", "remove", "--force", str(root), check=False)
+            _git_step(
+                STORE_WORKTREE_REMOVE_STEP,
+                repo_root,
+                "worktree", "remove", "--force", str(root),
+                check=False,
+            )
     if root.exists():
         raise StateStoreError(
             f"state_store_worktree_removal_failed: {root.as_posix()} could not be removed"
@@ -5397,8 +5823,45 @@ def _run_git_bytes_bounded(
     stdout_limit: int,
     stderr_limit: int,
     budget_error: str,
+    deadline_monotonic: float | None = None,
+    strict_read_limits: bool = False,
+    stdout_records_limit: int | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    """Run Git while bounding both output pipes and reaping on every exit."""
+    """Run Git while bounding both output pipes and reaping on every exit.
+
+    Strict callers reserve both pipe allowances within their shared budget.
+    Reads cannot consume beyond those allowances, including an EOF probe:
+    an exhausted stream is unavailable unless EOF was already observed.
+    Legacy callers retain their existing exact-output-cap behavior.
+    Optional NUL-record accounting bounds membership consumption before a
+    read: each new byte can finish at most one record. Exact exhaustion is
+    conservatively unknown without an extra EOF read.
+    """
+    if deadline_monotonic is not None and deadline_monotonic <= time.monotonic():
+        raise StateStoreError(f"state_store_git_timeout: git {' '.join(args)}")
+    operation = git_operation(args)
+    if operation in TREE_OR_REMOTE_SCALED_GIT_OPERATIONS:
+        step = active_lifecycle_step()
+        if _lifecycle_lock_held_by_this_thread() and step is None:
+            # The lifecycle bound is a sum over registered steps; a tree-or-
+            # remote-scaled call the holder runs outside one is time the bound
+            # does not price, and a peer would give up on a healthy holder.
+            raise StateStoreError(
+                f"state_store_lifecycle_git_step_unregistered: git {operation} ran "
+                "under the lifecycle lock outside a registered step; register it "
+                "in state_store_lifecycle_arcs and run it through _run_git_step"
+            )
+        if active_state_transaction() is not None and step not in STATE_TRANSACTION_STEPS:
+            # The state-transaction bound (`ledger.STATE_LOCK_LIVENESS_SECONDS`)
+            # is a sum over the transaction arcs only: a registered step from
+            # a lifecycle arc (a push, a worktree add) run while the group
+            # locks are held is time every claim, release and submit behind
+            # those locks would wait unpriced.
+            raise StateStoreError(
+                f"state_store_transaction_git_step_unpriced: git {operation} ran "
+                "under a state transaction outside the transaction arcs; add the "
+                "step to STATE_TRANSACTION_ARCS in state_store_lifecycle_arcs"
+            )
     try:
         process = subprocess.Popen(
             ["git", "-C", str(cwd), *args],
@@ -5421,7 +5884,10 @@ def _run_git_bytes_bounded(
     output = {"stdout": bytearray(), "stderr": bytearray()}
     limits = {"stdout": stdout_limit, "stderr": stderr_limit}
     deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    if deadline_monotonic is not None:
+        deadline = min(deadline, deadline_monotonic)
     completed = False
+    stdout_records = 0
     try:
         while selector.get_map():
             remaining = deadline - time.monotonic()
@@ -5435,12 +5901,25 @@ def _run_git_bytes_bounded(
                     f"state_store_git_timeout: git {' '.join(args)}",
                 )
             for key, _mask in events:
-                chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+                stream = str(key.data)
+                read_size = 64 * 1024
+                if strict_read_limits:
+                    if time.monotonic() >= deadline:
+                        raise StateStoreError(f"state_store_git_timeout: git {' '.join(args)}")
+                    read_size = min(read_size, limits[stream] - len(output[stream]))
+                    if read_size <= 0:
+                        raise StateStoreError(budget_error)
+                if stream == "stdout" and stdout_records_limit is not None:
+                    read_size = min(read_size, stdout_records_limit - stdout_records)
+                    if read_size <= 0:
+                        raise StateStoreError(budget_error)
+                chunk = os.read(key.fileobj.fileno(), read_size)
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
-                stream = str(key.data)
                 output[stream].extend(chunk)
+                if stream == "stdout" and stdout_records_limit is not None:
+                    stdout_records += chunk.count(b"\0")
                 if len(output[stream]) > limits[stream]:
                     raise StateStoreError(budget_error)
         try:
@@ -5555,6 +6034,46 @@ def _git_succeeds(cwd: Path, *args: str) -> bool:
     return _run_git(cwd, args).returncode == 0
 
 
+def _run_git_step(
+    step: LifecycleGitStep,
+    cwd: Path,
+    args: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    """`_run_git` for one registered tree-or-remote-scaled lifecycle step.
+
+    The step is the unit the lifecycle bound is derived from
+    (`state_store_lifecycle_arcs`): naming it at the call makes the call
+    countable, and the runner below it refuses the same operation unnamed.
+    Delegates to the module's `_run_git` by name so a test that fakes the
+    transport there still sees ``(cwd, args)``.
+    """
+    try:
+        require_step_operation(step, args)
+    except ValueError as exc:
+        raise StateStoreError(str(exc)) from exc
+    with lifecycle_step_active(step):
+        return _run_git(cwd, args)
+
+
+def _git_step(
+    step: LifecycleGitStep,
+    cwd: Path,
+    *args: str,
+    check: bool = True,
+) -> str:
+    """`_git` for one registered lifecycle step (see `_run_git_step`)."""
+    try:
+        require_step_operation(step, args)
+    except ValueError as exc:
+        raise StateStoreError(str(exc)) from exc
+    with lifecycle_step_active(step):
+        return _git(cwd, *args, check=check)
+
+
+def _lifecycle_lock_held_by_this_thread() -> bool:
+    return bool(getattr(_LIFECYCLE_LOCKS, "held", {}))
+
+
 def _git_commit(cwd: Path, message: str) -> str:
     """Commit under the store's own identity, never the ambient one."""
     return _git(
@@ -5574,17 +6093,26 @@ def _git_commit(cwd: Path, message: str) -> str:
 __all__ = [
     "BOOTSTRAP_ACK_ENV",
     "GENESIS_FILENAME",
+    "GIT_TIMEOUT_SECONDS",
+    "PUBLISH_MAX_ATTEMPTS",
     "SNAPSHOT_FILENAME",
+    "STATE_STORE_CHECKOUT_ARC_SECONDS",
+    "STATE_STORE_LIFECYCLE_LIVENESS_SECONDS",
+    "STATE_STORE_PUBLISH_ARC_SECONDS",
     "STATE_BRANCH",
     "STORE_DIRNAME",
+    "STORE_ENVIRONMENT_NAMES",
     "StateStore",
     "StateStoreError",
     "StateStoreRefusal",
     "StatePublishContention",
     "StatePublishOutcomeUnknown",
+    "PreparedPublish",
     "build_publishable_snapshot",
     "checkout_state_store",
     "findings_root",
+    "prepare_and_publish_state",
+    "prepare_publishable_snapshot",
     "publish_state",
     "read_published_snapshot",
     "read_snapshot_at_worktree_head",

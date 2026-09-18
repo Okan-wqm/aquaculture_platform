@@ -11,7 +11,6 @@
  *
  * Audit tables addressed:
  *   admin.audit_logs                  (admin-api-service)
- *   admin.impersonation_sessions      (admin-api-service)
  *   auth.audit_logs                   (auth-service)
  *   farm.farm_audit_logs              (farm-service)
  *   hr.payroll_audit                  (hr-service)
@@ -29,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const TARGETS = [
-  { svc: 'admin-api-service', schema: 'admin', migDir: 'src/migrations', tables: ['audit_logs', 'impersonation_sessions'] },
+  { svc: 'admin-api-service', schema: 'admin', migDir: 'src/migrations', tables: ['audit_logs'] },
   { svc: 'auth-service', schema: 'auth', migDir: 'src/migrations', tables: ['audit_logs'] },
   { svc: 'farm-service', schema: 'farm', migDir: 'src/database/migrations', tables: ['farm_audit_logs'] },
   { svc: 'hr-service', schema: 'hr', migDir: 'src/database/migrations', tables: ['payroll_audit'] },

@@ -69,6 +69,23 @@ export class NotificationLog {
   @Column({ name: 'external_id', nullable: true })
   externalId?: string; // ID from email/SMS provider
 
+  /**
+   * Caller-supplied delivery receipt key (W7 — FARM-LOW-282).
+   *
+   * The PUSH leg of a fan-out is already idempotent via
+   * `notification.command_receipts`; the IN_APP row was not, so a NATS
+   * redelivery after a push failure wrote the digest into the user's bell a
+   * second time. A partial unique index on
+   * `(tenant_id, recipient, delivery_id) WHERE channel = 'in_app'` makes the
+   * duplicate impossible at the database rather than merely unlikely in the
+   * handler.
+   *
+   * Nullable on purpose: ad-hoc in-app rows (alerts, messaging pings) carry no
+   * receipt identity and stay outside the index.
+   */
+  @Column({ name: 'delivery_id', nullable: true })
+  deliveryId?: string;
+
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>; // Alert context, user preferences, etc.
 

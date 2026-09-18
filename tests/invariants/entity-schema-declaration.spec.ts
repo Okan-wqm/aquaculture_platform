@@ -63,6 +63,8 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 
+import { MODULE_SCHEMAS } from '../../libs/backend-common/src/database/schema-manager.service';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /**
@@ -188,6 +190,38 @@ function isCrossTenantFilename(relativePath: string): boolean {
 }
 
 /**
+ * Cross-tenant table names per module, taken from the AUTHORITATIVE SSoT the
+ * root CLAUDE.md names: `MODULE_SCHEMAS[].infrastructureTables`.
+ *
+ * `referenceDataTables` is deliberately NOT included — those (species,
+ * feed_types, …) ARE cloned per tenant and only skip the source-schema write
+ * guard, so treating them as cross-tenant would invert the rule.
+ *
+ * Why this exists alongside the filename patterns: a new cross-tenant ledger
+ * whose name does not end in `-audit`/`-outbox` (W5's `tenant_localization`
+ * and `feeding_job_runs`) is invisible to a nominal heuristic, and the gate
+ * would then demand it OMIT `schema:` — i.e. demand the table be cloned into
+ * every tenant schema, the exact opposite of its contract.
+ *
+ * Note the classification here is INDEPENDENT of the decorator this spec
+ * checks (it reads MODULE_SCHEMAS), just as `tenant-fanout-entity-parity`
+ * classifies from the decorator and checks MODULE_SCHEMAS — the two gates
+ * cross-verify instead of agreeing with themselves.
+ */
+const INFRASTRUCTURE_TABLES_BY_SCHEMA = new Map<string, Set<string>>(
+  MODULE_SCHEMAS.map((ms) => [ms.moduleName, new Set(ms.infrastructureTables ?? [])]),
+);
+
+function isCrossTenantInfrastructureTable(expectedSchema: string, args: string): boolean {
+  const tables = INFRASTRUCTURE_TABLES_BY_SCHEMA.get(expectedSchema);
+  if (!tables) return false;
+  const named =
+    /@?\s*['"]([a-z_][a-z0-9_]*)['"]/.exec(args) ??
+    /name\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/.exec(args);
+  return named?.[1] !== undefined && tables.has(named[1]);
+}
+
+/**
  * Walk every @Entity( call site in the source and report (start, end, args).
  * Uses brace-matching so multi-line decorator args are captured correctly.
  */
@@ -262,13 +296,19 @@ describe('INVARIANT — entity-schema-declaration (ADR-011)', () => {
       //   - Platform-level service → always DECLARE
       //   - Tenant-scoped service + filename matches cross-tenant pattern → DECLARE
       //   - Tenant-scoped service + per-tenant filename → OMIT
-      const shouldDeclareSchema = !isTenantScopedService || isCrossTenantFile;
+      const shouldDeclareSchemaByFile = !isTenantScopedService || isCrossTenantFile;
 
       for (const call of findEntityCalls(src)) {
         const args = call.args;
 
         // Parameterless @Entity() is the abstract-base form — always allowed.
         if (args === '') continue;
+
+        // Tablo adı MODULE_SCHEMAS.infrastructureTables'ta ise CROSS-TENANT'tır
+        // ve `schema:` bildirmek ZORUNDADIR (dosya adı desenine bakılmaksızın).
+        const shouldDeclareSchema =
+          shouldDeclareSchemaByFile ||
+          (isTenantScopedService && isCrossTenantInfrastructureTable(expectedSchema, args));
 
         const hasSchema = /\bschema\s*:/.test(args);
         const schemaMatch = args.match(

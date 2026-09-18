@@ -19,6 +19,10 @@ import {
   type AdminUpdateModuleCommand,
   type AdminUpdateModuleResult,
 } from '@platform/event-contracts';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
@@ -47,13 +51,11 @@ export interface ModuleDto {
   updatedAt: Date;
 }
 
-export interface PaginatedModules {
-  data: ModuleDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+/**
+ * The page shape is the platform authority's, not a local copy — see
+ * docs/reviews/admin-expert/2026-08-16-pagination-result-authority.md.
+ */
+export type PaginatedModules = PaginationResultV1<ModuleDto>;
 
 export interface ModuleStats {
   totalModules: number;
@@ -61,6 +63,16 @@ export interface ModuleStats {
   coreModules: number;
   totalAssignments: number;
   moduleUsage: { moduleId: string; moduleName: string; tenantsCount: number }[];
+}
+
+/** One row of the "which tenants have this module" list. */
+export interface ModuleTenantAssignment {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  assignedAt: Date;
+  expiresAt: Date | null;
 }
 
 export interface TenantModuleAssignment {
@@ -217,13 +229,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: modules,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult<ModuleDto>(modules, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list modules: ${(error as Error).message}`);
       throw error;
@@ -476,7 +482,7 @@ export class ModulesService {
     moduleId: string,
     page = 1,
     limit = 50,
-  ) {
+  ): Promise<PaginationResultV1<ModuleTenantAssignment>> {
     const offset = (page - 1) * limit;
 
     try {
@@ -506,13 +512,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: tenants,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult<ModuleTenantAssignment>(tenants, total, page, limit);
     } catch (error) {
       this.logger.error(
         `Failed to get module tenants: ${(error as Error).message}`,
@@ -528,7 +528,7 @@ export class ModulesService {
     filter: { tenantId?: string; moduleId?: string },
     page = 1,
     limit = 50,
-  ) {
+  ): Promise<PaginationResultV1<TenantModuleAssignment>> {
     const offset = (page - 1) * limit;
     const conditions: string[] = [];
     const params: string[] = [];
@@ -576,13 +576,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: assignments,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult<TenantModuleAssignment>(assignments, total, page, limit);
     } catch (error) {
       this.logger.error(
         `Failed to get assignments: ${(error as Error).message}`,

@@ -76,7 +76,13 @@ describe('ProtocolValidationService', () => {
     it('accepts contiguous half-open bands', () => {
       const errors = validate([
         band({ minWeightG: 0, maxWeightG: 100 }),
-        band({ minWeightG: 100, maxWeightG: 500, feedId: FEED_B, feedCode: 'FB', feedName: 'Feed B' }),
+        band({
+          minWeightG: 100,
+          maxWeightG: 500,
+          feedId: FEED_B,
+          feedCode: 'FB',
+          feedName: 'Feed B',
+        }),
       ]);
       expect(errors).toEqual([]);
     });

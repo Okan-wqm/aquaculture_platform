@@ -6,13 +6,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WASM_BINDGEN_VERSION = '0.2.127';
 
@@ -426,7 +426,7 @@ printf '%s\\0' "$@" >> "$CARGO_LOG"`,
       error: result.error?.message,
     };
   } finally {
-    rmSync(sandboxRoot, { recursive: true, force: true });
+    removeFixtureTree(sandboxRoot);
   }
 }
 

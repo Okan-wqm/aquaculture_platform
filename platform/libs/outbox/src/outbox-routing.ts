@@ -1,7 +1,11 @@
 import type { IEvent } from '@platform/event-bus';
+import { PLATFORM_EVENT_TENANT_ID } from '@platform/event-contracts';
 
-/** Explicit platform routing identity admitted only by the system outbox API. */
-export const OUTBOX_SYSTEM_TENANT_ID = 'system' as const;
+/**
+ * Explicit platform routing identity admitted only by the system outbox API.
+ * Aliases the contract's single spelling of the platform segment (SEC-HIGH-159).
+ */
+export const OUTBOX_SYSTEM_TENANT_ID = PLATFORM_EVENT_TENANT_ID;
 
 /**
  * Reserved payload attestation stamped by OutboxPublisher for system rows.

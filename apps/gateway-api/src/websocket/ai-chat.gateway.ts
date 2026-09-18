@@ -19,6 +19,7 @@ import {
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
 import { isAiPersonaId } from '@aquaculture/shared-contracts';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** JWT claims we consume — the full claim set (incl. resourcePermissions) rides along. */
 interface TokenPayload {
@@ -64,7 +65,7 @@ const MAX_MESSAGE_LEN = 10_000;
  * connection to `/ai`, emits `ai:chat`, and receives `ai:response` — the same
  * NATS request-reply + socket.io path every other live surface uses (messaging,
  * sensor, st-language). This replaces the hand-rolled REST proxy
- * (`routes/v2/ai.routes.ts`): identity is the handshake JWT, ai-service is
+ * (the retired REST proxy — replaced by NATS request.ai.chat): identity is the handshake JWT, ai-service is
  * reached over `request.ai.chat` (queue-grouped), and there is no bespoke auth,
  * path mismatch, or signing gap.
  */
@@ -82,6 +83,9 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly configService: ConfigService,
     // Optional so the gateway still boots in environments without NATS wired;
     // an ai:chat then fails closed with a clear error rather than crashing.
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18)
+    private readonly connectionLimiter: TenantConnectionLimiter,
+    private readonly tokenRevalidator: WsTokenRevalidator,
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
@@ -108,6 +112,29 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.disconnect();
         return;
       }
+      // SEC-MEDIUM-073 (№26): per-tenant ceiling.
+      if (!this.connectionLimiter.register(payload.tenantId, client.id)) {
+        this.logger.warn(`Tenant ${payload.tenantId} exceeded its WS connection ceiling`);
+        client.emit('ai:error', {
+          code: 'TOO_MANY_CONNECTIONS',
+          message: 'Too many connections for this tenant',
+        });
+        client.disconnect();
+        return;
+      }
+
+      // SEC-MEDIUM-082 (№18): periodic revocation re-check.
+      this.tokenRevalidator.register(client.id, {
+        tenantId: payload.tenantId,
+        userId: payload.sub,
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`AI socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
+      });
+
       this.clients.set(client.id, {
         userId: payload.sub,
         tenantId: payload.tenantId,
@@ -125,6 +152,11 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: Socket): void {
+    const identity = this.clients.get(client.id);
+    this.tokenRevalidator.unregister(client.id);
+    if (identity) {
+      this.connectionLimiter.release(identity.tenantId, client.id);
+    }
     this.clients.delete(client.id);
   }
 

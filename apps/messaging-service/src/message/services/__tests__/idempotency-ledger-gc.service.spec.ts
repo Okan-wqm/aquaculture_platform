@@ -4,12 +4,15 @@ import {
   IdempotencyLedgerGcService,
   IDEMPOTENCY_LEDGER_RETENTION_DAYS,
 } from '../idempotency-ledger-gc.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('IdempotencyLedgerGcService', () => {
   it('deletes only rows older than the authoritative retention horizon', async () => {
     const { mockDataSource } = createMockDataSource();
     mockDataSource.query.mockResolvedValue([[], 3]);
-    const service = new IdempotencyLedgerGcService(mockDataSource);
+    const service = new IdempotencyLedgerGcService(mockDataSource, scheduledJobs.executor);
 
     await service.sweep();
 
@@ -26,7 +29,7 @@ describe('IdempotencyLedgerGcService', () => {
   it('logs loud but does not crash the service when the sweep fails (deliberate narrow fail-open)', async () => {
     const { mockDataSource } = createMockDataSource();
     mockDataSource.query.mockRejectedValue(new Error('db gone'));
-    const service = new IdempotencyLedgerGcService(mockDataSource);
+    const service = new IdempotencyLedgerGcService(mockDataSource, scheduledJobs.executor);
 
     await expect(service.sweep()).resolves.toBeUndefined();
     expect(mockDataSource.query).toHaveBeenCalledTimes(1);

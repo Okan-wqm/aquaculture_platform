@@ -1,9 +1,4 @@
-/* v4 design tokens + self-hosted Geist. MUST precede the Tailwind layers so the
-   custom properties exist before any utility resolves `var(--…)`.
-   WHY not a Google Fonts @import (which this replaces): AquaMobil is an
-   offline-first PWA — a CDN font drops out exactly when the worker is in the
-   field with no signal, which is the case the app exists for. */
-@import './tokens.css';
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -40,43 +35,22 @@ html {
   overscroll-behavior-y: contain;
 }
 
-/* WHY: the v4 motion layer (spring page transitions, the springing sheet, the
-   blipping status dots) is decorative. A worker who has asked their OS for
-   reduced motion gets the same information with none of the movement — the
-   `both` fill on the entrance animations means content still ends up visible. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* WHY `background` (not `background-color`): the `colour` theme's --bg is a
-   gradient. `background-attachment: fixed` keeps it anchored so scrolling a long
-   list doesn't drag the gradient with it. Surfaces stay solid so one
-   `bg-surface-N` utility works in every theme. */
+/* WHY: System font stack with DM Sans primary — provides consistent typography across
+   iOS (SF Pro fallback) and Android (Roboto fallback) while maintaining brand identity. */
 body {
-  background: var(--bg);
-  background-attachment: fixed;
-  color: var(--ink1);
-  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* WHY: Touch-action manipulation prevents 300ms tap delay on mobile browsers */
   touch-action: manipulation;
 }
 
-/* WHY: Konsta UI reads its accent from these variables. Pointing them at the v4
-   accent token means Konsta-based form pages retheme with the rest of the app
-   instead of staying ocean-blue in a teal UI. */
+/* WHY: Konsta UI overrides align the component library's primary color with our ocean-blue brand */
 :root {
-  --k-color-primary: var(--acc);
-  --k-color-primary-tint: var(--acc);
-  --k-color-primary-shade: var(--acc);
+  --k-color-primary: #0073e6;
+  --k-color-primary-tint: #3080ff;
+  --k-color-primary-shade: #0f5bcc;
 }
 
 /* WHY: Thin scrollbar — on mobile WebViews, visible scrollbars compete with content.
@@ -91,8 +65,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--line2);
-  border-radius: 9999px;
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
 }
 
 /* WHY: Shimmer animation provides a loading skeleton effect that signals content is arriving.
@@ -103,12 +76,13 @@ body {
 }
 
 .skeleton {
-  background:
-    linear-gradient(90deg, transparent 25%, var(--acc-dim) 50%, transparent 75%),
-    var(--s2);
-  background-size:
-    200% 100%,
-    auto;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 115, 230, 0.04) 25%,
+    rgba(0, 115, 230, 0.08) 50%,
+    rgba(0, 115, 230, 0.04) 75%
+  );
+  background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
@@ -125,22 +99,24 @@ body {
 
 /* WHY: Gradient text utility for hero sections — used sparingly for visual emphasis */
 .text-gradient-ocean {
-  background: linear-gradient(135deg, var(--acc), var(--type-water));
+  background: linear-gradient(135deg, #0073e6, #3080ff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* WHY: Glass morphism for floating elements (sign-in card, toasts) — visual depth
-   without losing readability of what sits behind.
-   WHAT changed in v4: the two hardcoded light/dark variants collapsed into the
-   surface tokens, so glass follows the active theme instead of only knowing
-   light and dark. */
+/* WHY: Glass morphism effect for floating elements (modals, toasts) — provides visual depth
+   while maintaining readability of content behind the overlay. */
 .glass {
-  background: color-mix(in srgb, var(--s1) 78%, transparent);
+  background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--line2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.dark .glass {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* WHY: Slide up animation for install prompts and bottom sheets — follows Material Design
@@ -184,33 +160,13 @@ body {
 /* WHY: Selection color matches brand — when users long-press to select text,
    the highlight color should be consistent with the app's color scheme. */
 ::selection {
-  background: var(--acc-dim);
+  background: rgba(0, 115, 230, 0.2);
 }
 
-/* WHY: Input focus styles override browser defaults with our accent token —
+/* WHY: Input focus styles override browser defaults with our brand color —
    consistent focus indicators improve accessibility and brand cohesion. */
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--acc) !important;
-  box-shadow: 0 0 0 3px var(--acc-dim) !important;
-}
-
-/* ── Caveat (self-hosted, public/fonts) ─────────────────────────────────
- * Brand tagline script for the sign-in miniature (web-login parity).
- * Local file, not a CDN link — the offline-first typography invariant
- * (design-token spec) bans remote font hosts for the field app.
- * ────────────────────────────────────────────────────────────────────── */
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/caveat-500.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/caveat-600.woff2') format('woff2');
+  border-color: #0073e6 !important;
+  box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.1) !important;
 }

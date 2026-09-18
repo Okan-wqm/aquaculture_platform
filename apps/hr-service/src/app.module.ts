@@ -18,6 +18,8 @@ import {
   SourceSchemaBootstrapService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
+  RlsModule,
+  getRlsExcludeTablesForService,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
@@ -105,6 +107,7 @@ import { TrainingCourse } from './training/entities/training-course.entity';
 import { TrainingEnrollment } from './training/entities/training-enrollment.entity';
 import { TrainingSession } from './training/entities/training-session.entity';
 import { TrainingModule } from './training/training.module';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /**
  * HrMigrationRunnerService — runs pending TypeORM migrations in the hr
@@ -291,6 +294,9 @@ interface ApolloGraphQLContext {
     AuditedOperationModule.forRoot(),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'hr-service' }),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
@@ -348,6 +354,23 @@ interface ApolloGraphQLContext {
     // (no stale-negative-cache block for freshly provisioned tenants).
     TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({ serviceName: 'hr' }),
+
+    // SEC-LOW-078 (2026-08-23 scan №23): RLS parity with farm/sensor/
+    // messaging/hydroponics/alert/ai — hr was the ONLY schema-per-tenant
+    // service without the row-level-security bootstrap (isolation was
+    // search_path-only, single layer). Registered AFTER
+    // TenantConnectionBootstrap per the documented provider chain; GUC
+    // injection rides the same AsyncLocalStorage tenant context the
+    // bootstrap already establishes for every request-path query.
+    RlsModule.forPoolService({
+      serviceName: 'hr',
+      autoApply: false,
+      // PR#363 port (matches farm/sensor): runtime per-tenant RLS sweep only
+      // when db-migrate is NOT authoritative — production tenants get the
+      // same policies from the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !hrSchemaDdlOwnedByDbMigrate,
+      excludeTables: getRlsExcludeTablesForService('hr'),
+    }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

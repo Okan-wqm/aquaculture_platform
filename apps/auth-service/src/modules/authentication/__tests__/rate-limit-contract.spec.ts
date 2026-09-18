@@ -52,9 +52,7 @@ describe('Auth pre-auth surface rate-limit contract (SEC-CRITICAL-002)', () => {
 
   it('login identifier shares one budget per account (case-insensitive email)', () => {
     const config = configOf(AuthResolver.prototype, 'login');
-    expect(config?.identifier?.({ args: { input: { email: 'User@X.com' } } })).toBe(
-      'user@x.com',
-    );
+    expect(config?.identifier?.({ args: { input: { email: 'User@X.com' } } })).toBe('user@x.com');
     // No email in args → dimension skipped (falls back to user/tenant/ip).
     expect(config?.identifier?.({ args: {} })).toBeUndefined();
   });

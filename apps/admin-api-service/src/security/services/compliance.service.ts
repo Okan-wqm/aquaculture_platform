@@ -5,8 +5,9 @@
  * compliance reporting, and data governance.
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In } from 'typeorm';
 
@@ -20,6 +21,10 @@ import {
   ActivityLog,
   SecurityIncident,
 } from '../entities/security.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -48,12 +53,30 @@ export interface ComplianceRequirement {
   verificationMethod: string;
 }
 
-export interface ComplianceCheckResult {
+/**
+ * What one requirement check concludes. The runner stamps WHEN it ran, so an
+ * individual check never has to know or fake a timestamp.
+ */
+export interface ComplianceCheckOutcome {
   requirement: ComplianceRequirement;
   status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
   details: string;
   evidence?: string;
   remediation?: string;
+}
+
+export interface ComplianceCheckResult extends ComplianceCheckOutcome {
+  /**
+   * ISO-8601 instant this check executed.
+   *
+   * Checks run live on every request rather than being stored and refreshed,
+   * so this is genuinely "when the answer was computed" — the only timestamp
+   * the contract can honestly carry. The admin panel's checks table also
+   * displayed a `nextReview` column; no scheduled-review concept exists
+   * anywhere in the platform, so the column was removed rather than invented
+   * server-side to satisfy it.
+   */
+  checkedAt: string;
 }
 
 export interface DataInventory {
@@ -171,6 +194,7 @@ export class ComplianceService {
     private readonly activityRepository: Repository<ActivityLog>,
     @InjectRepository(SecurityIncident)
     private readonly incidentRepository: Repository<SecurityIncident>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -250,12 +274,7 @@ export class ComplianceService {
     startDate?: Date;
     endDate?: Date;
     overdue?: boolean;
-  }): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<DataRequest>> {
     const {
       page = 1,
       limit = 20,
@@ -289,7 +308,7 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<DataRequest>(data, total, page, limit);
   }
 
   /**
@@ -604,12 +623,7 @@ export class ComplianceService {
     complianceType?: ComplianceType;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<ComplianceReport>> {
     const { page = 1, limit = 20, complianceType, startDate, endDate } = options;
 
     const qb = this.reportRepository.createQueryBuilder('report');
@@ -624,7 +638,7 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ComplianceReport>(data, total, page, limit);
   }
 
   /**
@@ -635,8 +649,11 @@ export class ComplianceService {
     const results: ComplianceCheckResult[] = [];
 
     for (const req of requirements) {
-      const result = await this.checkRequirement(req);
-      results.push(result);
+      const outcome = await this.checkRequirement(req);
+      // Stamped per check, not per run: the checks execute sequentially and
+      // some of them query, so one timestamp for the batch would be a claim
+      // about when the last one finished.
+      results.push({ ...outcome, checkedAt: new Date().toISOString() });
     }
 
     return results;
@@ -697,7 +714,7 @@ export class ComplianceService {
    * that explicitly elevates each `partial` to `compliant`
    * upon evidence-document review.
    */
-  private async checkRequirement(req: ComplianceRequirement): Promise<ComplianceCheckResult> {
+  private async checkRequirement(req: ComplianceRequirement): Promise<ComplianceCheckOutcome> {
     switch (req.id) {
       case 'gdpr-2': { // Data Subject Rights
         const pendingRequests = await this.dataRequestRepository.count({
@@ -909,7 +926,7 @@ export class ComplianceService {
   /**
    * Check for overdue requests and send reminders
    */
-  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  @ScheduledJob({ name: 'compliance.check-overdue-requests', cron: CronExpression.EVERY_DAY_AT_9AM })
   async checkOverdueRequests(): Promise<void> {
     const overdue = await this.getOverdueRequests();
 
@@ -930,7 +947,7 @@ export class ComplianceService {
   /**
    * Auto-generate monthly compliance reports
    */
-  @Cron('0 0 1 * *') // First day of each month
+  @ScheduledJob({ name: 'compliance.monthly-reports', cron: '0 0 1 * *' }) // First day of each month
   async generateMonthlyReports(): Promise<void> {
     this.logger.log('Generating monthly compliance reports...');
 
@@ -953,7 +970,7 @@ export class ComplianceService {
   /**
    * Expire old download URLs
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'compliance.expire-download-urls', cron: CronExpression.EVERY_HOUR })
   async expireDownloadUrls(): Promise<void> {
     const result = await this.dataRequestRepository
       .createQueryBuilder()

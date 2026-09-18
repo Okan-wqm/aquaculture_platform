@@ -8,7 +8,6 @@ import {
   Check,
   Entity,
   PrimaryGeneratedColumn,
-  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -27,9 +26,6 @@ export type SchemaStatus =
   | 'pending_deletion'
   | 'deleted';
 export type MigrationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'rolled_back';
-export type BackupStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'expired';
-export type BackupType = 'full' | 'incremental' | 'differential';
-export type RestoreStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 // ============================================================================
 // Schema Management Entity
@@ -80,10 +76,10 @@ export class TenantSchema {
   @Column({ type: 'timestamptz', nullable: true })
   lastBackupAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -141,212 +137,7 @@ export class SchemaMigration {
   @Column({ type: 'timestamptz', nullable: true })
   completedAt!: Date;
 
-  @CreateDateColumn()
-  createdAt!: Date;
-}
-
-// ============================================================================
-// Backup Entity
-// ============================================================================
-
-@Entity('schema_backups', { schema: 'admin' })
-@Index(['tenantId'])
-@Index(['status'])
-@Index(['backupType'])
-export class SchemaBackup {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  tenantId!: string | null;
-
-  @Column({ type: 'varchar', length: 100 })
-  schemaName!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  backupType!: BackupType;
-
-  @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status!: BackupStatus;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  filePath!: string;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  fileName!: string;
-
-  @Column({ type: 'bigint', default: 0 })
-  sizeBytes!: number;
-
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  checksum!: string;
-
-  @Column({ type: 'boolean', default: true })
-  isEncrypted!: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  isCompressed!: boolean;
-
-  @Column({ type: 'int', default: 0 })
-  retentionDays!: number;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage!: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  metadata!: {
-    tableCount?: number;
-    rowCount?: number;
-    version?: string;
-    compressionRatio?: number;
-    encryptionAlgorithm?: string;
-    encryptionKeyId?: string;
-  };
-
-  @Column({ type: 'timestamptz', nullable: true })
-  startedAt!: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  completedAt!: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  expiresAt!: Date;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-}
-
-// ============================================================================
-// Retired Backup Ledger Entity
-// ============================================================================
-
-@Entity('retired_schema_backups', { schema: 'admin' })
-@Index(['tenantId', 'createdAt'])
-@Index(['retiredAt'])
-export class RetiredSchemaBackup {
-  @PrimaryColumn({ type: 'uuid' })
-  backupId!: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  tenantId!: string | null;
-
-  @Column({ type: 'varchar', length: 100 })
-  schemaName!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  backupType!: BackupType;
-
-  @Column({ type: 'varchar', length: 50 })
-  status!: BackupStatus;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  filePath!: string | null;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  fileName!: string | null;
-
-  @Column({ type: 'bigint', default: 0 })
-  sizeBytes!: number;
-
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  checksum!: string | null;
-
-  @Column({ type: 'boolean', default: false })
-  isCompressed!: boolean;
-
-  @Column({ type: 'int', default: 0 })
-  retentionDays!: number;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage!: string | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  metadata!: Record<string, unknown> | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  startedAt!: Date | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  completedAt!: Date | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  expiresAt!: Date | null;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  createdAt!: Date | null;
-
   @CreateDateColumn({ type: 'timestamptz' })
-  retiredAt!: Date;
-
-  @Column({ type: 'varchar', length: 100 })
-  retiredReason!: 'legacy_plaintext_backup';
-
-  @Column({ type: 'varchar', length: 100 })
-  retiredByMigration!: string;
-
-  @Column({ type: 'uuid', array: true, default: () => 'ARRAY[]::uuid[]' })
-  cleanupRunIds!: string[];
-
-  @Column({ type: 'uuid', array: true, default: () => 'ARRAY[]::uuid[]' })
-  restoreIds!: string[];
-
-  @Column({ type: 'jsonb' })
-  originalRecord!: Record<string, unknown>;
-}
-
-// ============================================================================
-// Restore Entity
-// ============================================================================
-
-@Entity('schema_restores', { schema: 'admin' })
-@Index(['tenantId'])
-@Index(['backupId'])
-@Index(['retiredBackupId'])
-@Index(['status'])
-export class SchemaRestore {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  backupId!: string | null;
-
-  @Column({ type: 'uuid', nullable: true })
-  retiredBackupId!: string | null;
-
-  @Column({ type: 'uuid', nullable: true })
-  tenantId!: string | null;
-
-  @Column({ type: 'varchar', length: 100 })
-  targetSchemaName!: string;
-
-  @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status!: RestoreStatus;
-
-  @Column({ type: 'boolean', default: false })
-  isPointInTime!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  pointInTimeTarget!: Date;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage!: string;
-
-  @Column({ type: 'int', default: 0 })
-  executionTimeMs!: number;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  executedBy!: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  restoredTables!: string[];
-
-  @Column({ type: 'timestamptz', nullable: true })
-  startedAt!: Date;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  completedAt!: Date;
-
-  @CreateDateColumn()
   createdAt!: Date;
 }
 
@@ -377,7 +168,7 @@ export class DatabaseMetric {
   @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -423,13 +214,13 @@ export class SlowQueryLog {
   @Column({ type: 'varchar', length: 200, nullable: true })
   sourceTable!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId!: string;
 
   @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -515,25 +306,6 @@ export interface MigrationResult {
   status: MigrationStatus;
   executionTimeMs: number;
   error?: string;
-}
-
-export interface BackupOptions {
-  tenantId?: string;
-  backupType: BackupType;
-  compress?: boolean;
-  encrypt?: boolean;
-  retentionDays?: number;
-  includeIndexes?: boolean;
-  excludeTables?: string[];
-  auditActorId?: string;
-}
-
-export interface RestoreOptions {
-  backupId: string;
-  targetSchemaName?: string;
-  pointInTime?: Date;
-  tablesToRestore?: string[];
-  auditActorId?: string;
 }
 
 export interface ConnectionPoolStatus {

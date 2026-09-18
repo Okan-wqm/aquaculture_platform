@@ -72,10 +72,10 @@ export class MessageThread {
   @OneToMany(() => Message, message => message.thread)
   messages!: Message[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -125,7 +125,7 @@ export class Message {
   @JoinColumn({ name: 'threadId' })
   thread!: MessageThread;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -187,10 +187,10 @@ export class Announcement {
   @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
   acknowledgments!: AnnouncementAcknowledgment[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -228,7 +228,7 @@ export class AnnouncementAcknowledgment {
   @JoinColumn({ name: 'announcementId' })
   announcement!: Announcement;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -322,10 +322,10 @@ export class SupportTicket {
   @OneToMany(() => TicketComment, comment => comment.ticket)
   comments!: TicketComment[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -369,7 +369,7 @@ export class TicketComment {
   @JoinColumn({ name: 'ticketId' })
   ticket!: SupportTicket;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -432,10 +432,10 @@ export class OnboardingProgress {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -520,14 +520,8 @@ export interface BulkMessageRequest {
   sendEmail: boolean;
 }
 
-export interface ThreadSummary {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  subject: string;
-  lastMessage: string;
-  lastMessageAt: Date;
-  unreadCount: number;
-  messageCount: number;
-  isClosed: boolean;
-}
+// The list-row projection moved to `ThreadSummaryDto` in
+// `../controllers/dto/messaging.dto.ts`. It has to be a CLASS: the
+// @nestjs/swagger plugin emits schemas for classes only, so as an interface
+// here it never reached `openapi.json` and the admin panel had nothing to
+// source it from (ADMIN-HIGH-110).

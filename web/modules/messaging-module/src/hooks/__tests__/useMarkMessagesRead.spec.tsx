@@ -58,12 +58,12 @@ function unreadOf(queryClient: QueryClient, channelId: string): number | null {
   return channelsData(queryClient).find((c) => c.id === channelId)?.unreadCount ?? null;
 }
 
-interface Deferred<T> {
+interface SettlablePromise<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
   reject: (reason?: unknown) => void;
 }
-function deferred<T>(): Deferred<T> {
+function settlable<T>(): SettlablePromise<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -115,7 +115,7 @@ describe('useMarkMessagesRead', () => {
   });
 
   it('optimistically zeroes ONLY the active channel unread before the server confirms', async () => {
-    const pending = deferred<Record<string, unknown>>();
+    const pending = settlable<Record<string, unknown>>();
     routeGraphql([{ match: 'mutation MarkMessagesRead', result: () => pending.promise }]);
     const queryClient = newQueryClient();
     seedChannels(queryClient);
@@ -136,7 +136,7 @@ describe('useMarkMessagesRead', () => {
   });
 
   it('rolls the unread back when the mutation fails', async () => {
-    const failure = deferred<Record<string, unknown>>();
+    const failure = settlable<Record<string, unknown>>();
     routeGraphql([{ match: 'mutation MarkMessagesRead', result: () => failure.promise }]);
     const queryClient = newQueryClient();
     seedChannels(queryClient);

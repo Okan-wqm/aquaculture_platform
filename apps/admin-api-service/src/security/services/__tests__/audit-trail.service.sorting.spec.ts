@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import { ActivityLog, RetentionPolicyEntity } from '../../entities/security.entity';
+import { ActivityLog } from '../../entities/security.entity';
 import { AuditTrailService } from '../audit-trail.service';
 
 const MALICIOUS_SORT = 'createdAt) DESC; SELECT pg_sleep(1); --';
@@ -28,7 +28,6 @@ describe('AuditTrailService sort safety', () => {
           provide: getRepositoryToken(ActivityLog),
           useValue: { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) },
         },
-        { provide: getRepositoryToken(RetentionPolicyEntity), useValue: {} },
       ],
     }).compile();
 

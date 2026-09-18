@@ -9,6 +9,7 @@ import { VfdDeviceResolver, VfdReadingResolver, VfdCommandResolver } from './res
 import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
+import { VfdTelemetryPollerService } from './services/vfd-telemetry-poller.service';
 import { VfdDeviceService } from './services/vfd-device.service';
 import { VfdEdgeProvisioningService } from './services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from './services/vfd-edge-read.service';
@@ -41,6 +42,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
     VfdDeviceService,
     VfdRegisterMappingService,
     VfdDataReaderService,
+    VfdTelemetryPollerService,
     VfdCommandService,
     VfdConnectionTesterService,
     VfdEdgeWriteService,

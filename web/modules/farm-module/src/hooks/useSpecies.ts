@@ -9,6 +9,7 @@ import {
   createTenantInvalidationKey,
   useTenantQuery,
 } from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SpeciesCategory {
@@ -172,15 +173,7 @@ export interface UpdateSpeciesInput extends Partial<CreateSpeciesInput> {
   id: string;
 }
 
-interface PaginatedResponse {
-  items: Species[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+type PaginatedResponse = PaginationResultV1<Species>;
 
 // GraphQL queries
 const SPECIES_LIST_QUERY = `

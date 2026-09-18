@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 
+import { stub } from '@aquaculture/testing';
 import { AgentRunnerService, type ChatRequest } from '../../agent/agent-runner.service';
 import { AiChatResponder, type AiChatNatsRequest } from '../ai-chat.responder';
 
@@ -35,10 +36,7 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
       }),
     };
     const moduleRef = await Test.createTestingModule({
-      providers: [
-        AiChatResponder,
-        { provide: AgentRunnerService, useValue: agentRunner },
-      ],
+      providers: [AiChatResponder, { provide: AgentRunnerService, useValue: agentRunner }],
     }).compile();
     responder = moduleRef.get(AiChatResponder);
   });
@@ -54,8 +52,18 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
     await responder.handleChat(
       baseRequest({
         contextMessages: [
-          { senderId: 'u1', content: 'question from user 1', createdAt: '2026-09-16T10:00:00Z', isAi: false },
-          { senderId: 'ai', content: 'assistant answer', createdAt: '2026-09-16T10:01:00Z', isAi: true },
+          {
+            senderId: 'u1',
+            content: 'question from user 1',
+            createdAt: '2026-09-16T10:00:00Z',
+            isAi: false,
+          },
+          {
+            senderId: 'ai',
+            content: 'assistant answer',
+            createdAt: '2026-09-16T10:01:00Z',
+            isAi: true,
+          },
         ],
       }),
     );
@@ -73,7 +81,12 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
         contextMessages: [
           { senderId: 'u1', content: '', createdAt: '2026-09-16T10:00:00Z', isAi: false },
           { senderId: 'u2', content: '   ', createdAt: '2026-09-16T10:00:00Z', isAi: false },
-          { senderId: 'u3', createdAt: '2026-09-16T10:00:00Z', isAi: false } as never,
+          // Malformed: no content at all (a partial value the guard must drop).
+          stub<NonNullable<AiChatNatsRequest['contextMessages']>[number]>({
+            senderId: 'u3',
+            createdAt: '2026-09-16T10:00:00Z',
+            isAi: false,
+          }),
           { senderId: 'u4', content: 'kept', createdAt: '2026-09-16T10:00:00Z', isAi: false },
         ],
       }),
@@ -106,7 +119,12 @@ describe('AiChatResponder contextMessages mapping (MSGFIX-FAZ2)', () => {
       baseRequest({
         conversationId: 'conv-42',
         contextMessages: [
-          { senderId: 'u1', content: 'should be ignored', createdAt: '2026-09-16T10:00:00Z', isAi: false },
+          {
+            senderId: 'u1',
+            content: 'should be ignored',
+            createdAt: '2026-09-16T10:00:00Z',
+            isAi: false,
+          },
         ],
       }),
     );

@@ -16,6 +16,7 @@ import type {
   DaqAggregation,
   HistoricalDataPoint,
 } from '../types/scada-runtime.types';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -55,6 +56,15 @@ const PRESET_MS: Record<ChartTimeRange, number | null> = {
 
 /** Finished query results shared across hook instances. */
 const resultCache = new Map<string, Record<string, HistoricalDataPoint[]>>();
+
+// SECURITY (ADMIN-HIGH-105's gate, same class as the sensor stores below/above):
+// this cache is module-scoped, so it outlives every component that reads it and
+// would hand one tenant's historical sensor series to the next principal on the
+// same tab. It joins the two authorities the rest of this module already uses —
+// `logoutCleanup()` drains the logout registry, and `onTenantChange` fires on a
+// tenant switch that does not log out.
+registerLogoutCleanup(() => resultCache.clear());
+onTenantChange(() => resultCache.clear());
 
 /** In-flight promises so concurrent hooks with the same query share one fetch. */
 const inflightPromises = new Map<

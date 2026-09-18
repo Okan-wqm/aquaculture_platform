@@ -28,6 +28,9 @@ import { OutboxPublisher } from '@platform/outbox';
 import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
+import { FeedingClockService } from '../services/feeding-clock.service';
+import { ProtocolRateService } from '../services/protocol-rate.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
   FeedingProtocolV2,
@@ -39,23 +42,20 @@ import {
   ProtocolAssignmentStatus,
   FeedingUnitType,
 } from '../entities/protocol-assignment.entity';
-import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
+import { DayPlanResolution, FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const USER = '44444444-4444-4444-8444-444444444444';
 const UNIT = '77777777-7777-4777-8777-777777777777';
 const SITE = '88888888-8888-4888-8888-888888888888';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 // runInTenantTransaction mock'u bu değişkendeki manager'ı callback'e verir.
 let currentManager: Record<string, jest.Mock>;
 
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'proto-1',
   tenantId: TENANT,
   status: FeedingProtocolStatus.ACTIVE,
@@ -89,7 +89,7 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 function makeAssignment(): ProtocolAssignment {
-  return mock<ProtocolAssignment>({
+  return stub<ProtocolAssignment>({
     id: 'assign-1',
     tenantId: TENANT,
     unitId: UNIT,
@@ -113,6 +113,15 @@ interface Fixture {
   meals?: Array<Partial<FeedingMeal>>;
   protocol?: FeedingProtocolV2 | null;
   tankBatch?: Partial<TankBatch> | null;
+  /**
+   * GERÇEK `DayPlanRecalcService` ile koş (FARM-MEDIUM-251).
+   *
+   * Manuel geçiş, kalan öğünleri yeniden fiyatlamak için AYNI transaction'da
+   * recalc çağırır — ve kusur tam oradaydı: recalc geçişi geri alıyordu.
+   * Recalc mock'lanınca bu görünmez; kopyanın yerine gerçeğini koymak, iki
+   * yazarın aynı atama üzerinde ne yaptığını teste taşır.
+   */
+  realRecalc?: boolean;
 }
 
 function buildHarness(fixture: Fixture): {
@@ -154,6 +163,10 @@ function buildHarness(fixture: Fixture): {
   managerFindOne.mockImplementation(async (entity: unknown): Promise<unknown> => {
     if (entity === FeedingProtocolV2) return protocol;
     if (entity === TankBatch) return tankBatch;
+    // GERÇEK recalc atamayı `findOne` ile yükler (query builder ile DEĞİL).
+    // Bunu vermemek recalc'ı 'no_active_plan' ile erken döndürüyordu — yani
+    // "gerçek recalc" ile koşan testler aslında hiç recalc koşturmuyordu.
+    if (entity === ProtocolAssignment) return assignment;
     return null;
   });
   const managerFind = jest.fn().mockResolvedValue([]);
@@ -188,12 +201,25 @@ function buildHarness(fixture: Fixture): {
   const getEffectiveTemperature = jest.fn();
   getEffectiveTemperature.mockResolvedValue({ celsius: null, source: 'none' });
 
+  const resolutionService = new ProtocolResolutionService(new ProtocolRateService());
+  const recalcService = fixture.realRecalc
+    ? new DayPlanRecalcService(stub<OutboxPublisher>({ enqueue }), resolutionService)
+    : stub<DayPlanRecalcService>({ recalcForUnit });
+
   const service = new DayPlanAdminService(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
-    mock<DayPlanRecalcService>({ recalcForUnit }),
-    mock<WaterTemperatureService>({ getEffectiveTemperature }),
-    mock<OutboxPublisher>({ enqueue }),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
+    recalcService,
+    stub<WaterTemperatureService>({ getEffectiveTemperature }),
+    stub<OutboxPublisher>({ enqueue }),
+    // Band çözümü ağırlıktan — manuel geçiş de tek SSoT'yi kullanır (W3).
+    new ProtocolResolutionService(new ProtocolRateService()),
+    // W5: takvim/saat çözümü tek serviste (D-B4) — servisin kendi
+    // `timezoneFor` kopyası silindi.
+    stub<FeedingClockService>({
+      siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
+      resolve: jest.fn().mockResolvedValue(FeedingClockService.clockIn('UTC')),
+    }),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };
 }
@@ -246,7 +272,7 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
   });
 
   it('ACTIVE olmayan protokolde plan üretmeyi reddeder', async () => {
-    const draft = mock<FeedingProtocolV2>({ ...PROTOCOL, status: FeedingProtocolStatus.DRAFT });
+    const draft = stub<FeedingProtocolV2>({ ...PROTOCOL, status: FeedingProtocolStatus.DRAFT });
     const { service, persistDayPlan } = buildHarness({ dayPlan: null, protocol: draft });
 
     await expect(service.regenerateDayPlan(TENANT, USER, UNIT)).rejects.toBeInstanceOf(
@@ -258,7 +284,7 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
 
 describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
   it('band yemine manuel geçiş: atama + kalan öğünler + automatic:false event', async () => {
-    const meal = mock<FeedingMeal>({
+    const meal = stub<FeedingMeal>({
       id: 'meal-1',
       feedId: 'feed-s1',
       status: FeedingMealStatus.SCHEDULED,
@@ -288,6 +314,114 @@ describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
     expect(event['toFeedId']).toBe('feed-g4');
     expect(event['toFeedCode']).toBe('G4');
     expect(event['bandIndex']).toBe(1);
+  });
+
+  it('komşu banda manuel geçiş KENDİ recalc’ında geri alınmaz (FARM-MEDIUM-251)', async () => {
+    // 100 g balık ağırlıktan band 0'a düşer; operatör KOMŞU banda (1) geçirir —
+    // `resolveManualTransitionBand` bunu açıkça meşru sayar (balığı bir sonraki
+    // pellete birkaç gün erken almak normal bir yetiştirme kararıdır).
+    //
+    // Kusur: geçiş `currentBandIndex=1` yazıp aynı transaction'da recalc
+    // çağırıyordu; çözücü o alanı yalnız HİSTEREZİS ÇAPASI sayıyor, ağırlık
+    // bandı (0) farklı olduğu için histerezisi uyguluyor ve "balık zaten band
+    // 0'ın içinde" diyerek band 0'a dönüyordu. Sonuç: atamanın yemi, kalan
+    // öğünlerin yemi ve fiyatlama band 0'a geri alınıyor, üstüne ÇELİŞKİLİ
+    // ikinci bir FeedTypeTransitioned(automatic:true) yayılıyordu — mutation
+    // ise `TRANSITIONED` dönüp operatörün yemini logluyordu.
+    const meal = stub<FeedingMeal>({
+      id: 'meal-1',
+      feedId: 'feed-s1',
+      plannedKg: 1,
+      percentOfDaily: 100,
+      status: FeedingMealStatus.SCHEDULED,
+    });
+    const assignment = makeAssignment();
+    const { service, enqueue } = buildHarness({
+      assignment,
+      dayPlan: {
+        id: 'dp-1',
+        unitId: UNIT,
+        unitCode: 'T-1',
+        siteId: SITE,
+        protocolId: 'proto-1',
+        plannedTotalKg: 1,
+        // `stub<DayPlanResolution>` checks the field NAMES and TYPES against the
+        // real resolution contract. The `feed` member is `{ id, code, name }`,
+        // so the id-only literal this fixture used to carry could not have
+        // survived the check — it is filled in from PROTOCOL's band 0.
+        resolution: stub<DayPlanResolution>({
+          bandIndex: 0,
+          feed: { id: 'feed-s1', code: 'S1', name: 'Starter' },
+          waterTempC: null,
+        }),
+        recalcLog: [],
+      },
+      meals: [meal],
+      // GERÇEK recalc — mock'lu hâli kusuru göremezdi.
+      realRecalc: true,
+    });
+
+    await service.transitionUnitFeed(TENANT, USER, UNIT, 'feed-g4');
+
+    // Operatörün seçimi ayakta: atama, öğün ve pin aynı yemi gösterir.
+    expect(assignment.currentFeedId).toBe('feed-g4');
+    expect(assignment.currentBandIndex).toBe(1);
+    expect(assignment.manualBandIndex).toBe(1);
+    expect(meal.feedId).toBe('feed-g4');
+
+    // TEK geçiş event'i, ve o da manuel olan. İkinci bir otomatik event,
+    // aşağı akışta "yem değişti" diye iki kez alarm/rozet demekti.
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0]![0]['automatic']).toBe(false);
+  });
+
+  it('balık pinlenen bandın ÜSTÜNE çıkınca otomatik geçiş pini geçersiz kılar', async () => {
+    // Pin sonsuza kadar yaşamaz: operatör band 0'ı sabitlemişken balık 300 g'a
+    // çıkarsa ağırlık bandı 1'dir ve otomatik geçiş devralır — aksi hâlde bir
+    // kerelik manuel karar üniteyi kalıcı olarak yanlış pellette kilitlerdi.
+    const meal = stub<FeedingMeal>({
+      id: 'meal-1',
+      feedId: 'feed-s1',
+      plannedKg: 1,
+      percentOfDaily: 100,
+      status: FeedingMealStatus.SCHEDULED,
+    });
+    const assignment = makeAssignment();
+    assignment.manualBandIndex = 0;
+    const { service, enqueue } = buildHarness({
+      assignment,
+      dayPlan: {
+        id: 'dp-1',
+        unitId: UNIT,
+        unitCode: 'T-1',
+        siteId: SITE,
+        protocolId: 'proto-1',
+        plannedTotalKg: 1,
+        // `stub<DayPlanResolution>` checks the field NAMES and TYPES against the
+        // real resolution contract. The `feed` member is `{ id, code, name }`,
+        // so the id-only literal this fixture used to carry could not have
+        // survived the check — it is filled in from PROTOCOL's band 0.
+        resolution: stub<DayPlanResolution>({
+          bandIndex: 0,
+          feed: { id: 'feed-s1', code: 'S1', name: 'Starter' },
+          waterTempC: null,
+        }),
+        recalcLog: [],
+      },
+      meals: [meal],
+      tankBatch: { tankId: UNIT, totalQuantity: 1000, totalBiomassKg: 300, avgWeightG: 300 },
+      realRecalc: true,
+    });
+
+    await service.regenerateDayPlan(TENANT, USER, UNIT);
+
+    expect(assignment.currentBandIndex).toBe(1);
+    expect(assignment.currentFeedId).toBe('feed-g4');
+    // Pin temizlenir — kayıt "hâlâ elle sabitli" demez.
+    expect(assignment.manualBandIndex).toBeUndefined();
+    expect(meal.feedId).toBe('feed-g4');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue.mock.calls[0]![0]['automatic']).toBe(true);
   });
 
   it('band dışı yeme geçişi fail-closed reddedilir — atama ve event dokunulmaz', async () => {

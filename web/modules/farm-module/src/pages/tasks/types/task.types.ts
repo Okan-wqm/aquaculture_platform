@@ -29,11 +29,13 @@ export type AutoRuleTrigger =
   | 'LICENSE_EXPIRY'
   | 'WATER_PARAM_ALERT';
 
+/** Mirrors the farm-service `TaskChecklistItem` object type (FARM-HIGH-320). */
 export interface ChecklistItem {
   id: string;
   text: string;
   isCompleted: boolean;
-  completedAt?: string;
+  completedAt?: string | null;
+  completedBy?: string | null;
 }
 
 export interface TaskNote {

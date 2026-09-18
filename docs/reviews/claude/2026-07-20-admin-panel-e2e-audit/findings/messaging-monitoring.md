@@ -1,0 +1,2262 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Messaging Monitoring (7 pages) — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## MessagingMonitoringPage — `/admin/messaging/monitoring` — verdict: **NOT_WIRED**
+
+**Chain:** Pure static placeholder. The page renders an honest 'Monitoring Dashboard Not Yet
+Available' card and never calls the backend. The FE api function messagingApi.getMonitoringStats()
+(web/modules/admin-panel/src/services/api/messaging.ts:237-238) exists but is invoked by no page;
+the backend route GET /api/v1/messaging/monitoring/stats exists and deliberately throws 501
+(apps/admin-api-service/src/messaging/messaging-admin.controller.ts:249-257). No DB is touched. This
+is one of the few honest not-implemented states in the section.
+
+### APA-154 [LOW] Dead FE API function for monitoring stats
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** messagingApi.getMonitoringStats() is defined and typed as Promise<unknown> but no
+  page calls it; the page hardcodes the 501 explanation instead of probing the endpoint, so if the
+  backend ever implements monitoring stats the page will keep showing 'not available'.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:232-238`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx:19-93`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:249-257`
+- **Root cause:** MessagingMonitoringPage is a purely static component that hardcodes the 501 'not
+  available' copy; messagingApi.getMonitoringStats() (messaging.ts:237, typed Promise<unknown>) has
+  zero callers (grep-confirmed). The 'not implemented' fact now lives in two places that can drift:
+  the backend 501 (controller:249-257) and the FE static text. When the backend ships real stats the
+  page cannot self-activate.
+- **Fix design:** Tier-2 (make correct behavior automatic): wire the page to actually consume the
+  endpoint. Define a typed MonitoringStats contract, have the page call getMonitoringStats() via
+  useAsyncData, and branch on the response: render the metrics when data returns, render the current
+  'not available' panel only when the call yields HTTP 501. Then the page self-heals with no FE
+  change once the backend implements the endpoint, and the typed fn stops being dead code. (If the
+  endpoint is intended to stay unimplemented indefinitely, the honest alternative is to delete the
+  dead getMonitoringStats export so there is no drift surface — but wiring is the higher-tier fix.)
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+- **Effort:** S
+
+## MessagingTenantsPage — `/admin/messaging/tenants` — verdict: **PARTIAL**
+
+**Chain:** Tenant overview table is an honest hardcoded 501 banner (backend GET /messaging/tenants
+throws 501 at messaging-admin.controller.ts:300-308; the page never calls it). The export flow is a
+real chain: POST /api/v1/messaging/tenants/:id/export -> NATS
+'request.messaging.admin.triggerExport' -> messaging-service DataExportService.exportTenant, which
+streams real messages + legal-hold state from the tenant schema (runInTenantRead) and writes a
+compliance_audit_log entry. Response shape
+{jobId,status,format,recordCount,isUnderLegalHold,exportedAt} matches the FE ExportTriggerResult
+exactly. However the exported payload itself is generated and then discarded.
+
+**Endpoints exercised:** `POST /api/v1/messaging/tenants/:id/export`;
+`GET /api/v1/messaging/tenants (501, intentionally not called)`
+
+**DB tables:** `tenant_<hash>.messages`, `tenant_<hash>.message_attachments`,
+`tenant_<hash>.legal_holds`, `tenant_<hash>.compliance_audit_log`
+
+### APA-155 [HIGH] Export artifact is generated then thrown away — no persistence, no download path
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** DataExportService.exportTenant builds the full CSV/JSON string and returns it in
+  `data`, but the NATS handler deliberately strips `data` ('the actual export data should be
+  retrieved via a separate download endpoint or stored in object storage') and no such endpoint or
+  object-storage write exists anywhere. The FE shows 'Export job accepted' with a jobId that
+  references nothing retrievable; the compliance page's Export Jobs table is a hardcoded empty
+  array. A GDPR/compliance export that produces no artifact is a broken deliverable presented as
+  completed.
+- **Evidence:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts:220-253`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:297-307`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx:185-221`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:231`
+- **Verification:** Verified end-to-end. DataExportService.exportTenant
+  (data-export.service.ts:156-254) generates the full artifact, returns status 'completed' with a
+  crypto.randomUUID() jobId that is never persisted (no ExportJob entity, no migration — checked
+  apps/messaging-service/src/migrations/\*, no export_jobs table). The NATS handler
+  (messaging-admin-nats.handler.ts:297-307) strips `data` citing a 'separate download endpoint or
+  object storage' that does not exist: repo-wide grep finds no
+  request.messaging.admin.getExport/listExports/download pattern, no S3 write in DataExportService
+  (messaging's S3 usage is media/attachment only), and no messaging-export download route in
+  admin-api-service. FE shows 'Export job accepted' with the dead jobId
+  (MessagingTenantsPage.tsx:185-221) and the compliance page hardcodes exports=[] with a
+  handleDownloadExport reading a downloadUrl no backend produces (MessagingCompliancePage.tsx:231,
+  266-271). Refutation attempt: the TENANT_ADMIN GraphQL mutations
+  (exportTenantMessages/exportChannelData) DO return the artifact inline — but that is a different
+  persona/surface and does not resolve the admin-panel jobId; it is itself the drift source (inline
+  multi-GB string over federation). Aggravators found during verification: (a) the compliance audit
+  log records MESSAGE_EXPORT completed with a jobId an auditor can never resolve — audit-trail
+  integrity issue; (b) the 'streaming' export still buffers all rows plus the final string in
+  memory; (c) the synchronous export runs inside a 15s NATS timeout, so large tenants pay the full
+  read cost then get a 504. HIGH is correct: a compliance/GDPR deliverable presented as working
+  ('Backend: working data-export trigger', 202 + success panel) that produces no retrievable
+  artifact, with the audit ledger attesting to exports that never existed as artifacts. Not
+  CRITICAL: no data exposure, corruption, or security bypass — the failure is a broken deliverable
+  plus misleading audit evidence.
+- **Root cause:** The BE-internal contract broke at the service/transport boundary and the halves
+  drifted apart. DataExportService was designed for synchronous inline-data consumption (the
+  TENANT_ADMIN GraphQL resolver returns ExportJobType.data inline). When the SUPER_ADMIN admin path
+  was bolted on over NATS, the transport constraint (huge payload over request-reply) was handled by
+  stripping `data` in the handler while the persistence half the stripping presupposes — job
+  record + object-storage artifact + retrieval endpoint — was deferred via comment with no owner.
+  jobId is therefore a random UUID referencing nothing; the artifact is generated at full cost then
+  garbage-collected; 'completed' status and the compliance audit entry attest to a deliverable that
+  never existed. The FE then encoded the missing backend as hardcoded empty state (exports=[])
+  instead of forcing the contract question. This is an instance of the systemic class 'async job
+  accepted with no job store / FE feature with no backend deliverable': an accept-style endpoint
+  hands out a job handle that no table, storage object, or retrieval route can resolve, and no
+  contract test requires handle resolvability.
+- **Fix design:** Fix the contract at the source — make the export an artifact-producing persisted
+  job, on BOTH consumer paths, and gate handle-resolvability at test time (tier 1 + 3).
+
+1. Job persistence (messaging-service, owner of the data): new per-tenant entity ExportJob in
+   apps/messaging-service/src/compliance/entities/export-job.entity.ts — OMITS schema: per messaging
+   CLAUDE.md inversion (compliance tables are per-tenant, cloned into tenant\_<uuid> by
+   TenantSchemaSyncService; do NOT add to MODULE_SCHEMAS infrastructureTables). Columns: id uuid PK,
+   tenantId, requestedBy, format, status pending|completed|failed, recordCount, isUnderLegalHold,
+   objectKey, sizeBytes, error, createdAt, completedAt, artifactExpiresAt. New migration
+   apps/messaging-service/src/migrations/<ts>-CreateExportJobs.ts creating it in the messaging
+   template schema.
+
+2. Artifact to object storage: DataExportService writes the artifact to MinIO using the service's
+   established S3Client pattern (media.service.ts / media-finalization.service.ts precedent; bucket
+   messaging-exports, key tenant/<tenantId>/<jobId>.<format>). Stream rows through
+   @aws-sdk/lib-storage Upload instead of buffering rows[] + full string — this also closes the
+   residual OOM left by MSG-MEDIUM-028 at the root. exportTenant/exportChannel return the persisted
+   job row (no `data` string); ExportJobResult loses `data`, gains objectKey/sizeBytes — the type
+   system now makes 'inline artifact over transport' impossible (tier 1).
+
+3. Genuinely async trigger: triggerExport NATS handler inserts the job row status=pending, returns
+   it immediately (matches the existing 202 Accepted and the FE copy 'runs asynchronously'), and
+   executes the export out-of-band (awaited background task with failure captured into
+   status=failed + error). This removes the 15s NATS-timeout failure mode for large tenants.
+
+4. Retrieval path: new NATS patterns request.messaging.admin.listExports (tenant-scoped, paginated
+   over export_jobs) and request.messaging.admin.getExportDownloadUrl (jobId -> short-lived
+   presigned MinIO URL via the same presign helper attachments use). admin-api-service
+   messaging-admin.controller.ts adds GET /messaging/exports?tenantId= and GET
+   /messaging/exports/:jobId/download?tenantId= returning {downloadUrl, expiresAt}.
+
+5. Fix the OTHER side of the drifted contract: the TENANT_ADMIN GraphQL mutations stop returning
+   inline `data` — ExportJobType drops `data`, gains status/objectKey-backed downloadUrl (presigned)
+   fields; exportChannelData/exportTenantMessages return the job handle + downloadUrl. BREAKING
+   CHANGE footer required (public GraphQL shape change).
+
+6. FE (admin-panel): web/modules/admin-panel/src/services/api/messaging.ts — ExportRecord realigned
+   to the backend job DTO (id, tenantId, format, status, recordCount, isUnderLegalHold, createdAt,
+   completedAt), add listExports + getExportDownloadUrl; MessagingCompliancePage replaces the
+   hardcoded exports=[] with useAsyncData(() => messagingApi.listExports(...)) and
+   handleDownloadExport calls getExportDownloadUrl then opens it; MessagingTenantsPage shows the
+   pending job and links to the exports table.
+
+7. Pattern-level gate (systemic class): extend
+   apps/admin-api-service/src/**tests**/contract-validation.spec.ts with a job-handle-resolvability
+   invariant — every 202/Accepted admin endpoint whose response carries a jobId/exportId must have a
+   matching GET retrieval route registered; plus a messaging-service integration spec proving
+   trigger -> row in export_jobs -> object in storage -> presigned URL. This makes the 'accepted job
+   with no artifact' class detectable at test time for the next occurrence, not just this one.
+
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/entities/export-job.entity.ts`
+  - `apps/messaging-service/src/migrations/1802200000000-CreateExportJobs.ts`
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts`
+  - `apps/messaging-service/src/compliance/services/__tests__/data-export.service.spec.ts`
+  - `apps/messaging-service/src/compliance/resolvers/compliance.resolver.ts`
+  - `apps/messaging-service/src/compliance/compliance.module.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/__tests__/integration/export-artifact.integration.spec.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx`
+- **Proof of fix:** New
+  apps/messaging-service/src/**tests**/integration/export-artifact.integration.spec.ts: invoke the
+  triggerExport NATS handler for a seeded tenant and assert (a) an export_jobs row exists with the
+  returned jobId transitioning pending->completed, (b) the artifact object exists in MinIO at the
+  row's objectKey with sizeBytes>0, (c) request.messaging.admin.getExportDownloadUrl returns a
+  presigned URL that fetches the artifact, (d) the response payload contains no `data` field. Extend
+  apps/messaging-service/src/compliance/services/**tests**/data-export.service.spec.ts to assert the
+  service streams to storage (Upload called) and never materializes the full artifact string. Extend
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts with the resolvability invariant:
+  every admin route returning jobId/exportId has a registered GET retrieval route (fails today,
+  passes after fix). Per-tenant placement of export_jobs is enforced by the existing
+  e2e/tests/integration/schema-invariants.spec.ts run.
+- **Effort:** L
+
+### APA-156 [MEDIUM] Synchronous full-tenant export inside a 15s NATS request-reply; FE retries 504 and re-runs the whole export
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** exportTenant streams EVERY message of the tenant into an in-memory array inside one
+  NATS request. Beyond MESSAGING_NATS_TIMEOUT_MS (default 15000ms,
+  messaging-admin.controller.ts:38,118-122) admin-api returns 504; http-client retries 502/503/504
+  up to 3 times with backoff (http-client.ts:316-330), so one click on a large tenant triggers up to
+  4 full export runs and 4 compliance_audit_log MESSAGE_EXPORT entries while the user sees only a
+  timeout error. The 'streaming to avoid OOM' claim is also false — rows are accumulated in an
+  unbounded array (data-export.service.ts:196-214).
+- **Evidence:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts:150-214`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:38,398-404`
+  - `web/modules/admin-panel/src/services/http-client.ts:316-330`
+- **Root cause:** triggerExport is a synchronous, non-idempotent, unbounded full-tenant export
+  executed inside a NATS request-reply bounded by MESSAGING_NATS_TIMEOUT_MS (default 15s).
+  data-export.service.exportTenant streams via cursor but pushes every row into an in-memory array
+  (lines 196-214) then JSON.stringifies it, so the 'streaming to avoid OOM' comment (147-155) is
+  false. On timeout admin-api returns 504; http-client retries ALL methods (no idempotency gate) on
+  502/503/504 up to maxRetries, so one click can fire up to 4 full server-side exports — each
+  running to completion after the client gives up, each writing a MESSAGE_EXPORT
+  compliance_audit_log entry — while the user only ever sees a timeout.
+- **Fix design:** This is the same architectural defect as p1|i2 (sync export masquerading as
+  async). Root-cause fix, resolving both: (1) make export genuinely asynchronous — triggerExport
+  persists an ExportJob row (schema 'messaging', new migration) with status 'pending' and an
+  idempotencyKey, returns {jobId,status:'pending'} immediately (well under the NATS timeout); a
+  background worker streams message rows to object storage via @platform/storage (bounded memory, no
+  in-array accumulation) and flips status to 'completed'/'failed'; a separate GET status/download
+  endpoint serves progress + signed URL. (2) Gate http-client retries to idempotent methods only
+  (GET/HEAD) — retrying a mutation is structurally unsafe; a non-idempotent POST must not be
+  auto-replayed. (3) The idempotencyKey dedupes any accidental replay so at most one export + one
+  audit entry per logical request. Contract/verification below.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx`
+  - `apps/messaging-service/src/migrations/`
+- **Effort:** L
+
+### APA-157 [LOW] 202 Accepted + 'runs asynchronously' UI text contradict the synchronous 'completed' status
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The controller replies HTTP 202 (@HttpCode(HttpStatus.ACCEPTED)) and the page says
+  'The export job runs asynchronously', but DataExportService performs the entire export inline and
+  returns status 'completed'. Misleading job semantics.
+- **Evidence:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:316-318`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx:125-128`
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts:245-253`
+- **Root cause:** Instance of the same class as p1|i1: the controller declares @HttpCode(202
+  ACCEPTED) and the FE copy says 'The export job runs asynchronously', but
+  DataExportService.exportTenant does the entire export inline and returns status:'completed'. The
+  202/async job semantics are a fiction — there is no job, no queue, no polling; the HTTP response
+  only returns after the whole export finishes (or times out).
+- **Fix design:** Subsumed by the async-job redesign in p1|i1: once triggerExport enqueues an
+  ExportJob and returns {status:'pending'} synchronously, the 202 + 'runs asynchronously' copy
+  becomes truthful and the FE polls the status endpoint until 'completed'. No separate remediation
+  is needed beyond p1|i1; do NOT 'fix' this by merely changing the 202 to 200 or editing the UI
+  text, which would paper over the real sync/async mismatch. Verification lands with p1|i1.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/data-export.service.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+- **Effort:** M
+
+## MessagingAuditPage — `/admin/messaging/audit` — verdict: **BROKEN**
+
+**Chain:** GET /api/v1/messaging/audit -> NATS 'request.messaging.admin.getAuditLog' ->
+GetAuditLogHandler -> ComplianceAuditService.getAuditLog -> real cursor-paginated query on
+per-tenant compliance_audit_log. The backend chain is real, but the page's default load sends NO
+tenantId (filters default to '') and the messaging-service tenant boundary fail-closes on a non-UUID
+tenantId (pinTenantTransactionSearchPath throws), so the initial fetch always errors. Even with a
+valid tenant UUID typed into the filter, the response shape {items,hasMore,cursor,totalCount} does
+not match the FE PaginatedResult {data,total,...}, so entries becomes undefined and the render
+crashes; entry fields, pagination model, and action filter vocabulary are all also mismatched.
+
+**Endpoints exercised:** `GET /api/v1/messaging/audit`
+
+**DB tables:** `tenant_<hash>.compliance_audit_log`
+
+### APA-158 [HIGH] Default page load always fails: tenantId is required by the backend but optional/empty in the FE
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** MessagingAuditPage fetches with tenantId: filters.tenantId || undefined on mount;
+  admin-api forwards tenantId=undefined over NATS; runInTenantTransaction ->
+  pinTenantTransactionSearchPath throws `invalid tenantId "undefined"` (fail-closed). The error
+  surfaces as a 502 from admin-api, which http-client retries 3x with backoff before the banner
+  appears. The page's primary flow (view audit trail 'across tenants') can never work — the backend
+  is strictly single-tenant-scoped.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx:75-96`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:267-292`
+  - `libs/backend-common/src/database/tenant-transaction.ts:128-132`
+  - `apps/messaging-service/src/compliance/services/compliance-audit.service.ts:162-176`
+  - `web/modules/admin-panel/src/services/http-client.ts:316-330`
+- **Verification:** Verified every link. (1) Page is routed
+  (web/modules/admin-panel/src/Module.tsx:143) and fetches on mount with INITIAL_FILTERS.tenantId=''
+  -> `filters.tenantId || undefined` -> undefined (MessagingAuditPage.tsx:75-87). (2)
+  buildQueryString drops undefined/''/null (http-client.ts:376-401), so no tenantId query param is
+  sent. (3) admin-api getAuditLog uses primitive `@Query('tenantId') tenantId: string` with no
+  ParseUUIDPipe/DTO (messaging-admin.controller.ts:267-292); the platform ValidationPipe skips
+  primitive-metatype params, so undefined is forwarded into the NATS payload (JSON serialization
+  then drops the key). (4) messaging-service MessagingAdminNatsHandler.getAuditLog passes
+  data.tenantId (undefined) into GetAuditLogQuery -> ComplianceAuditService.getAuditLog ->
+  runInTenantTransaction('messaging', undefined) which throws fail-closed. One citation refinement:
+  the throw happens one frame earlier than cited — withTenantContext
+  (libs/backend-common/src/context/with-tenant-context.ts:53-55,
+  `invalid tenantId "undefined" — must be UUID v4`) fires before
+  pinTenantTransactionSearchPath:128-132 would; identical fail-closed class and outcome. (5) The
+  NATS error is not Timeout/CONN_CLOSED/HttpException, so sendNatsRequest converts it to
+  HttpException 502 BAD_GATEWAY (controller lines 395-423). (6) FE http-client retries 502 (only 500
+  is excluded from 5xx retry) with maxRetries=3, backoff 1s/2s/4s (~7s) before surfacing the banner.
+  (7) No cross-tenant mode exists anywhere: compliance tables are per-tenant schema by design
+  (messaging CLAUDE.md inversion), and the controller's own /messaging/tenants returns 501 because
+  cross-tenant aggregation does not exist — the page header 'across tenants' promises a contract the
+  backend never offered. Severity HIGH stands: the page's primary flow fails on every default load
+  with a misleading retried 5xx; not CRITICAL (no security/data-loss impact). Note: even with a
+  valid tenantId typed, the sibling shape-drift finding (page/pageSize vs limit/cursor; {data,total}
+  vs {items,hasMore,cursor,totalCount}) still breaks rendering — separate finding, but fixes must
+  land together.
+- **Root cause:** Two links broke. (a) FE->BE contract drift at the source: admin-panel hand-writes
+  its request/response types (MessagingAuditFilters has tenantId?: string, offset pagination,
+  cross-tenant copy) against an imagined cross-tenant audit API, while the real chain (admin-api ->
+  NATS -> messaging-service) is strictly single-tenant because compliance_audit_log is a per-tenant
+  table behind the fail-closed tenant boundary. There is no shared contract artifact or codegen
+  between web/modules/admin-panel/src/services and apps/admin-api-service, so requiredness drift was
+  invisible at build time. (b) The admin-api HTTP boundary does not enforce its own requiredness:
+  MessagingAdminController uses primitive @Query params and TS interface DTOs (erased at runtime),
+  so the platform-global ValidationPipe (whitelist+forbidNonWhitelisted) never runs — an invalid
+  request travels two hops and surfaces as a retried 502 instead of an immediate 400. This is an
+  instance of two systemic classes flagged in the audit: 'FE-type drift' and 'unvalidated
+  interface-DTO', and the entire MessagingAdminController shares defect (b) across all its
+  tenant-scoped endpoints (complianceStats, legal-holds, retention policies, personas).
+- **Fix design:** Contract decision first: the backend is single-tenant-scoped BY DESIGN (per-tenant
+  compliance_audit_log; /messaging/tenants is explicitly 501 pending cross-tenant aggregation), so
+  tenantId is REQUIRED — the fix makes the FE satisfy that structurally rather than building
+  cross-tenant fan-out. Pattern-level fix, tier 1+3 of the hierarchy, applied at both boundaries.
+  BACKEND (make invalid requests unable to reach NATS): create class-validator query DTOs in
+  apps/admin-api-service/src/messaging/dto/ (the controller currently violates the layer rule of
+  having a dto/ directory at all): a shared `TenantScopedQueryDto` base with
+  `@IsUUID() tenantId!: string`, and `GetMessagingAuditLogQueryDto extends TenantScopedQueryDto`
+  with `@IsOptional() @IsUUID() userId`, `@IsOptional() @IsIn(ComplianceAction values) action`,
+  `@IsOptional() @IsISO8601() startDate/endDate`, `@IsOptional() @IsString() cursor`,
+  `@Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 25` (same coercion pattern as the fixed
+  QueryReportsDto, ORPHAN-MEDIUM-148). Change every tenant-scoped handler in
+  MessagingAdminController from primitive `@Query('tenantId')` to `@Query() query: <Dto>` so the
+  platform-global ValidationPipe rejects missing/malformed tenantId with a non-retried 400 at the
+  HTTP edge — the correct behavior becomes automatic for all six endpoints, not just /audit.
+  FRONTEND (make the wrong call uncompilable): change messagingApi.getAuditLog to
+  `getAuditLog(tenantId: string, filters?: Omit<MessagingAuditFilters,'tenantId'>)` — a required
+  positional parameter makes fetch-without-tenant a compile error; align MessagingAuditFilters to
+  the real request contract (limit/cursor, not page/pageSize). MessagingAuditPage: gate fetching on
+  a selected tenant — do not fire the request when filters.tenantId is empty; render an explicit
+  'Select a tenant to view its audit trail' empty state; fix the header copy ('across tenants' ->
+  tenant-scoped); switch pagination UI to cursor-based to match the sibling shape-drift fix (which
+  must land in the same PR — the FE response type aligns to {items,hasMore,cursor,totalCount}).
+  SYSTEMIC GATE (make the class detectable): add an architecture spec that scans admin-api
+  controllers and fails on any handler taking tenantId as a primitive @Query param instead of a
+  validated class DTO, so the interface-DTO-unvalidated class cannot recur. Explicitly rejected
+  alternatives: making tenantId optional server-side (contradicts the per-tenant schema design and
+  the deliberate 501), and defensive defaults/?. anywhere in the chain (banned; the fail-closed
+  boundary stays fail-closed).
+- **Files to change:**
+  - `apps/admin-api-service/src/messaging/dto/messaging-admin-query.dto.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin-query.dto.spec.ts`
+  - `apps/admin-api-service/src/__tests__/query-dto-validation.architecture.spec.ts`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAuditPage.spec.tsx`
+- **Proof of fix:** (1) New
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin-query.dto.spec.ts (mirroring the
+  existing compliance-query-reports.dto.spec.ts pattern): DTO rejects missing tenantId and non-UUID
+  tenantId, coerces limit, forbids non-whitelisted keys (page/pageSize rejected). (2) Controller
+  integration test in the same suite: GET /messaging/audit without tenantId returns 400 and asserts
+  the mocked MESSAGING_NATS_CLIENT.send was never called (the invalid request can no longer cross
+  the NATS hop). (3) New
+  apps/admin-api-service/src/**tests**/query-dto-validation.architecture.spec.ts: scans admin-api
+  controller sources and fails on any primitive `@Query('tenantId')` parameter — the systemic gate.
+  (4) New web/modules/admin-panel/src/pages/messaging/**tests**/MessagingAuditPage.spec.tsx: renders
+  with no tenant selected -> asserts no fetch fired and the select-a-tenant empty state shows;
+  enters a tenant UUID -> asserts exactly one request with tenantId present. (5) npm run type-check
+  proves the required-positional-tenantId FE signature compiles everywhere (no remaining caller can
+  omit it).
+- **Effort:** M
+
+### APA-159 [HIGH] Response envelope shape mismatch crashes the page when a valid tenant is queried
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Backend returns AuditLogPage {items, hasMore, cursor, totalCount}; the
+  ResponseInterceptor wraps it as {success,data,meta:{timestamp}} (its pagination branch requires
+  'data'+'total' keys, which are absent), and http-client unwraps to the raw AuditLogPage. The page
+  then reads result.data and result.total (PaginatedResult contract) — both undefined — so
+  setEntries(undefined) makes the render throw on entries.length. A successful backend query still
+  breaks the page.
+- **Evidence:**
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:246-269`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:44-74`
+  - `web/modules/admin-panel/src/services/http-client.ts:341-351`
+  - `web/modules/admin-panel/src/services/types/common.ts:5-11`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx:79-89,245`
+- **Verification:** Verified every link live: FE route Module.tsx:143 -> messagingApi.getAuditLog
+  (services/api/messaging.ts:243-248, typed PaginatedResult) -> GET /messaging/audit ->
+  MessagingAdminController.getAuditLog (registered via app.module.ts:233) -> NATS
+  'request.messaging.admin.getAuditLog' (handler registered in event-handlers.module.ts:42) ->
+  GetAuditLogHandler -> AuditLogPage {items,hasMore,cursor,totalCount}. ResponseInterceptor's
+  pagination branch (response.interceptor.ts:47-52) requires 'data'+'total' keys which AuditLogPage
+  lacks, so it wraps generically with meta={timestamp}; http-client.ts:344 only rebuilds
+  {data,...meta} when meta has 'page', so apiFetch returns the raw AuditLogPage cast to
+  PaginatedResult. MessagingAuditPage.tsx:88-89 then reads result.data/result.total (both undefined)
+  and the render throws on entries.length (lines 153/245). Module.tsx wraps routes only in Suspense
+  — no ErrorBoundary — so the throw unmounts the whole admin-panel remote. No guard interferes: the
+  controller uses primitive @Query() params, so ValidationPipe ignores the FE's stray page/pageSize
+  params (no 400) and the request succeeds. Refutation attempts failed: no alternate transform
+  layer, no error boundary, no DTO validation rejection. Verification also exposed the drift is
+  deeper than the envelope: FE pagination model (page/pageSize) vs BE cursor model (limit/cursor)
+  means paging could never work; FE MessagingAuditEntry invents fields (timestamp, tenantName,
+  userName, details:string, channelId, messageId) absent from ComplianceAuditLog (which emits
+  createdAt, userId, action, resourceType, resourceId, details:jsonb|null, ipAddress, userAgent); FE
+  action-filter vocabulary ('send','edit',...) does not match BE ComplianceAction; and unvalidated
+  limit ('abc' -> NaN -> Math.min(NaN,100)) is a latent second bug. HIGH is correct: a SUPER_ADMIN
+  compliance feature crashes on its success path and takes down the remote; not CRITICAL (no
+  security or data-integrity impact).
+- **Root cause:** The FE->BE contract link broke: the admin-panel's hand-written types
+  (services/types/common.ts PaginatedResult + services/api/messaging.ts MessagingAuditEntry) were
+  authored against an imagined offset-paginated REST dialect, while the backend surfaces
+  messaging-service's cursor-paginated CQRS result (AuditLogPage of raw ComplianceAuditLog entities)
+  verbatim through the admin-api passthrough. Nothing spans the /api boundary — no shared type, no
+  codegen, no contract test — and two mechanisms let the drift ship silently: apiFetch<T> is an
+  unchecked cast, and ResponseInterceptor duck-types exactly one pagination dialect
+  ('data'+'total'), passing every other shape through opaquely. This is an instance of the systemic
+  FE-type-drift / envelope-shape-mismatch class the audit has seen elsewhere in the admin panel:
+  every hand-written response type in services/types/_ and services/api/_ is an unverified claim
+  about the wire.
+- **Fix design:** SYSTEMIC CLASS: FE-type drift + envelope/shape mismatch — fix at the pattern level
+  (shared wire-contract module both sides compile against) plus the local application. Note
+  libs/shared-contracts is charter-restricted to zero-dep constants (guarded by
+  tests/invariants/shared-contracts-no-enum-drift.spec.ts), so the wire DTOs get their own isolated
+  pure-type lib following that same pattern.
+
+PATTERN (tier 1 — make drift impossible): Create libs/admin-contracts
+(@aquaculture/admin-contracts), a zero-runtime-dependency TypeScript lib (aliased in
+tsconfig.base.json like @aquaculture/shared-contracts, importable by both the NestJS app and the
+Vite bundle). It exports the admin REST wire contract for this endpoint: CursorPage<T> {items: T[];
+hasMore: boolean; cursor: string | null; totalCount: number}; MessagingAuditLogEntry {id, tenantId,
+userId, action: ComplianceActionValue, resourceType, resourceId, details: Record<string,unknown> |
+null, ipAddress: string | null, userAgent: string | null, createdAt: string}; MessagingAuditQuery
+{tenantId, userId?, action?, resourceType?, startDate?, endDate?, limit?, cursor?}; and the
+ComplianceActionValue string-literal union as the SSoT for filter options (messaging-service's
+ComplianceAction enum gets a type-level satisfies-assertion against it so divergence is a compile
+error). Both apps/admin-api-service and web/modules/admin-panel import these types — the compiler
+then enforces the boundary; once proven here, migrate the other admin endpoints onto the same lib as
+they are touched.
+
+LOCAL APPLICATION: (1) Backend contract honesty: in messaging-admin.controller.ts, replace the eight
+loose primitive @Query() params with a class MessagingAuditQueryDto implements MessagingAuditQuery
+using class-validator (@IsUUID tenantId, @IsInt @Min(1) @Max(100) @Type(()=>Number) limit,
+@IsISO8601 dates, @IsIn(COMPLIANCE_ACTION_VALUES) action) so the platform ValidationPipe
+(whitelist+forbidNonWhitelisted+transform) actually validates the endpoint — this also closes the
+limit=NaN hole and makes the FE's obsolete page/pageSize params a loud 400 instead of silent no-ops.
+Return type becomes CursorPage<MessagingAuditLogEntry>; map NATS items explicitly to the wire DTO
+(createdAt to ISO string) instead of passing entity JSON through untyped. (2) FE contract
+consumption: services/types/common.ts (or re-export barrel) gains CursorPage<T> imported from
+@aquaculture/admin-contracts; services/api/messaging.ts deletes the fabricated MessagingAuditEntry
+and MessagingAuditFilters (page/pageSize) and re-exports the contract types; getAuditLog(params:
+MessagingAuditQuery): Promise<CursorPage<MessagingAuditLogEntry>>. (3) Page rework:
+MessagingAuditPage.tsx moves to cursor pagination (Next pushes result.cursor onto a cursor stack,
+Prev pops; totalCount drives the count display), renders the real fields (createdAt, userId, action,
+resourceType, resourceId, JSON-stringified details) and builds CSV from them; ACTION_OPTIONS derive
+from the contract's ComplianceActionValue union instead of the invented send/edit list. No defensive
+?. anywhere — the types are now true, so none is needed. (4) No interceptor change is required for
+correctness (cursor pages ride inside envelope.data and the FE now expects exactly that), but the
+controller-level explicit contract removes this endpoint from the interceptor's fragile duck-typing
+entirely.
+
+TIER 3 GATE (keeps the class fixed): invariant test asserting the import edges exist — both
+messaging-admin.controller.ts and services/api/messaging.ts must import these response types from
+@aquaculture/admin-contracts, not redeclare them — so the shared contract cannot be silently forked
+back into two dialects.
+
+- **Files to change:**
+  - `libs/admin-contracts/src/index.ts`
+  - `libs/admin-contracts/src/messaging-audit.ts`
+  - `libs/admin-contracts/project.json`
+  - `libs/admin-contracts/tsconfig.json`
+  - `tsconfig.base.json`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/messaging-audit-query.dto.ts`
+  - `apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts`
+  - `web/modules/admin-panel/src/services/types/common.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAuditPage.spec.tsx`
+  - `tests/invariants/admin-contracts-import-edges.spec.ts`
+- **Proof of fix:** (1) NEW
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: boot a test
+  module with the real ResponseInterceptor + platform ValidationPipe, mock the NATS client to return
+  an AuditLogPage fixture, and assert GET /messaging/audit yields {success:true,
+  data:{items,hasMore,cursor,totalCount}, meta:{timestamp}} with items matching
+  MessagingAuditLogEntry (ISO createdAt); assert limit=abc and unknown params (page, pageSize) are
+  rejected 400 by the DTO. (2) NEW
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingAuditPage.spec.tsx: render the page
+  with fetch mocked to the exact envelope fixture from (1); assert rows render, empty-items page
+  shows the empty state, and no render throw (the current code fails this test — proving the bug —
+  and the fix makes it green); assert Next sends the returned cursor. (3) NEW
+  tests/invariants/admin-contracts-import-edges.spec.ts (style of existing tests/invariants/\*):
+  assert both messaging-admin.controller.ts and services/api/messaging.ts import the audit response
+  types from @aquaculture/admin-contracts and contain no local redeclaration of
+  CursorPage/MessagingAuditLogEntry; assert messaging-service's ComplianceAction values equal the
+  contract's ComplianceActionValue union. All run under nx affected --target=test.
+- **Effort:** L
+
+### APA-160 [HIGH] Field-level drift: FE MessagingAuditEntry does not match ComplianceAuditLog rows
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Rows carry {id, tenantId, userId, action, resourceType, resourceId,
+  details:jsonb-object, ipAddress, userAgent, createdAt}; the FE type/render expects timestamp
+  (createdAt rename -> Invalid Date), tenantName and userName (never populated anywhere — no
+  auth.tenants/users join exists in this chain), details as a string (rendering a jsonb object as a
+  React child throws), and channelId/messageId (absent). The CSV export calls e.details.replace,
+  which throws on an object.
+- **Evidence:**
+  - `apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts:72-118`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:86-97`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx:118-127,281-302`
+- **Verification:** Verified end-to-end. Rows on the wire are raw ComplianceAuditLog entities:
+  ComplianceAuditService.getAuditLog returns qb.getMany() entities
+  (apps/messaging-service/src/compliance/services/compliance-audit.service.ts:210-224); the NATS
+  handler passes them through as items: unknown[]
+  (apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:246-269);
+  MessagingAdminController.getAuditLog returns the NATS result verbatim with no mapping
+  (apps/admin-api-service/src/messaging/messaging-admin.controller.ts:279-292); ResponseInterceptor
+  wraps as {success,data:{items,hasMore,cursor,totalCount},meta:{timestamp}} (no meta.page); FE
+  apiFetch unwraps to envelope.data. So the page receives
+  {id,tenantId,userId,action,resourceType,resourceId,details:object|null,ipAddress,userAgent,createdAt}.
+  Every drift claim holds: entry.timestamp undefined -> new Date(undefined) 'Invalid Date'
+  (MessagingAuditPage.tsx:282); tenantName/userName never populated (no auth join anywhere in the
+  chain; messaging-service runs inside the tenant schema); {entry.details} at line 301 renders a
+  jsonb object as a React child -> render crash (details IS written as an object,
+  compliance-audit.service.ts:86-89,138-147); CSV e.details.replace (line 124) throws on object and
+  on null; channelId/messageId absent (rows carry resourceType/resourceId). Same drift class also
+  hits ACTION_OPTIONS/ACTION_COLORS ('send','create_channel',...) which match no ComplianceAction
+  value ('message_send','channel_create',...), so the action filter can never match a row. Page is
+  reachable (route 'messaging/audit', Module.tsx:143). Nuance: today the page crashes one step
+  earlier on the sibling wrapper drift (FE reads result.data/result.total from a cursor page with
+  items/totalCount -> entries becomes undefined -> entries.length TypeError at line 153); that does
+  not refute this finding — fixing the wrapper alone still leaves Invalid Date, blank tenant/user
+  columns, the details render crash, broken CSV, and a no-op filter. HIGH confirmed (SUPER_ADMIN
+  compliance surface fully non-functional with real data) but not CRITICAL (no security or
+  data-integrity breach).
+- **Root cause:** The FE type MessagingAuditEntry was hand-written against an imagined denormalized
+  UI contract (timestamp, tenantName, userName, channelId, messageId, details-as-string) and never
+  reconciled when the page was wired to the real endpoint. Structurally, THREE independently
+  hand-written shapes describe one wire format with zero compile-time or test-time linkage: (1) the
+  FE type (services/api/messaging.ts:86-97), (2) the admin-api controller's AuditLogResponse whose
+  items shape {id,action,resourceType,createdAt} is ALSO wrong
+  (messaging-admin.controller.ts:85-90), and (3) the actual ComplianceAuditLog entity leaking raw
+  through the NATS boundary because the messaging-service handler types its response as items:
+  unknown[] — the exact hole that let the ORM entity escape unmapped with no type checking it
+  anywhere. This is an instance of the systemic FE-type-drift class (hand-written admin-panel types
+  vs backend truth); the repo's existing cure — member-for-member FE literal pinning enforced by an
+  invariant spec (tests/invariants/tier-enum-ssot.spec.ts, D8) — was applied only to enums, never to
+  response shapes.
+- **Fix design:** Pattern-level fix (systemic class: FE-type drift / raw-entity leak at a NATS trust
+  boundary) plus local application. Tier 1 — one canonical wire contract, compiler-enforced on both
+  backend hops: define MessagingAuditEntryContract {id, tenantId, userId, action: ComplianceAction,
+  resourceType, resourceId, details: Record<string,unknown>|null, ipAddress: string|null, userAgent:
+  string|null, createdAt: ISO string} and MessagingAuditLogPageContract {items, hasMore, cursor,
+  totalCount} in libs/event-contracts (the repo's home for cross-service trust-boundary shapes,
+  which per the Event Contract Rules also carries JSON Schema validators for boundary crossings —
+  NATS request-reply is one). In messaging-service add an explicit toMessagingAuditEntryDto(entity)
+  mapper (Date->ISO) in the compliance dto/ folder and change the NATS handler return type from
+  Promise<{items: unknown[];...}> to Promise<MessagingAuditLogPageContract> — eliminating unknown[]
+  makes an unmapped/renamed entity column a tsc error. In admin-api-service delete the wrong
+  hand-written AuditLogResponse and type the controller return as the same imported contract (no
+  compat shim — the passthrough stays, now typed truthfully). Tier 1 on the FE: web modules cannot
+  import backend libs (established D8 constraint), so rewrite MessagingAuditEntry in
+  services/api/messaging.ts as a literal PINNED member-for-member to the contract, and fix
+  MessagingAuditPage.tsx to render reality: Timestamp column from createdAt; drop
+  tenantName/userName columns and render tenantId/userId (name enrichment, if wanted, is a separate
+  admin-api feature joining auth data — no fake fields); Details typed object|null and rendered via
+  JSON.stringify/key-value list (the object type makes raw {entry.details} JSX a compile error); CSV
+  serializes JSON.stringify(details ?? {}) before quote-escaping and exports Resource Type/Resource
+  ID columns; ACTION_OPTIONS/ACTION_COLORS rebuilt from the real ComplianceAction values as a pinned
+  literal; the audit API return type becomes the cursor page (items/hasMore/cursor/totalCount) — the
+  wrapper consumption fix lands against the same SSoT as sibling finding i1 so both close on one
+  contract. Tier 3 — extend the repo's pinning-invariant pattern from enums to response shapes: new
+  tests/invariants/messaging-audit-contract-ssot.spec.ts asserting (a) FE literal field set is
+  members-equal to the canonical contract, (b) FE ACTION_OPTIONS values are a subset of
+  ComplianceAction, (c) round-trip: a real ComplianceAuditLog fixture through
+  toMessagingAuditEntryDto validates against the contract's JSON Schema; plus a page spec rendering
+  fixtures with object and null details and exercising CSV row building.
+- **Files to change:**
+  - `libs/event-contracts/src/messaging/messaging-admin-audit.contract.ts`
+  - `libs/event-contracts/src/schemas/messaging-admin-audit.schema.json`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/messaging-service/src/compliance/dto/messaging-audit-entry.mapper.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `tests/invariants/messaging-audit-contract-ssot.spec.ts`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAuditPage.spec.tsx`
+- **Proof of fix:** New invariant spec tests/invariants/messaging-audit-contract-ssot.spec.ts
+  (modeled on tests/invariants/tier-enum-ssot.spec.ts): (1) parses the FE MessagingAuditEntry
+  literal and asserts members-equal to the canonical contract field set; (2) asserts every
+  ACTION_OPTIONS value in MessagingAuditPage.tsx is a ComplianceAction member; (3) round-trips a
+  ComplianceAuditLog fixture (object details, null details, Date createdAt) through
+  toMessagingAuditEntryDto and validates against the JSON Schema — an entity column added or renamed
+  without updating mapper+schema+FE fails this spec. Compile-time proof: npm run type-check fails if
+  the NATS handler stops returning MessagingAuditLogPageContract (unknown[] removed) or if JSX
+  renders the object-typed details directly. FE behavior proof: new
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingAuditPage.spec.tsx renders a
+  fixture page (object and null details) without a React-child crash, shows a valid formatted
+  createdAt (no 'Invalid Date'), and builds CSV rows without throwing.
+- **Effort:** M
+
+### APA-161 [MEDIUM] Offset pagination UI over a cursor-based backend — page navigation is a no-op
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The FE sends page/pageSize query params; the controller only binds
+  tenantId/limit/cursor/userId/action/resourceType/startDate/endDate, so page & pageSize are
+  silently ignored and every 'page' returns the same first 25 rows (limit defaults to 25). The
+  returned cursor is never used by the FE.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:99-107,243-248`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:269-292`
+- **Root cause:** Systemic envelope/shape mismatch + FE-type drift. Backend audit is
+  cursor-paginated: NATS handler + GetAuditLogHandler return {items,hasMore,cursor,totalCount}, and
+  admin-api getAuditLog only binds
+  tenantId/limit/cursor/userId/action/resourceType/startDate/endDate — page & pageSize are never
+  read. The ResponseInterceptor wraps this object with no meta.page, so http-client returns
+  envelope.data verbatim ({items,...}), never the {data,...meta} branch. The FE types it as
+  PaginatedResult<MessagingAuditEntry> ({data,total,page,limit,totalPages}), so result.data and
+  result.total are undefined (backend has items/totalCount) — pagination is a no-op AND entries
+  never populate; the returned cursor is discarded.
+- **Fix design:** Align the audit contract end-to-end on cursor pagination (tier-1: one shape,
+  structurally enforced). Give admin-api a typed AuditLogResponse DTO
+  ({items:MessagingAuditEntry[],cursor,hasMore,totalCount}); change FE getAuditLog to return that
+  cursor-page type instead of PaginatedResult; rewrite MessagingAuditPage to drive next/prev from
+  cursor (or a load-more) rather than offset page math, and to read entries from .items. Also
+  correct the item mapping (createdAt→timestamp, action enum, details jsonb) as part of p2|i4/p3
+  shape work. Add a contract spec asserting the admin-api audit response type is identical to the FE
+  MessagingAuditEntry/page type so drift fails at build.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-audit-contract.spec.ts`
+- **Effort:** M
+
+### APA-162 [MEDIUM] Action filter vocabulary mismatch — every filtered query returns zero rows
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE offers action values
+  'send','edit','delete','create_channel','join_channel','leave_channel','upload_file'; the backend
+  column stores ComplianceAction values
+  'message_send','message_edit','message_delete','channel_create','channel_archive','member_add','member_remove','message_export','data_anonymize','retention_set','legal_hold_toggle'.
+  No value overlaps, so filtering by action can never match a row.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx:32-41`
+  - `apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts:14-26`
+- **Root cause:** Instance of FE-type drift from an enum SSoT. MessagingAuditPage ACTION_OPTIONS
+  invents values
+  ('send','edit','delete','create_channel','join_channel','leave_channel','upload_file') that share
+  no value with ComplianceAction
+  (message_send/message_edit/message_delete/channel_create/channel_archive/member_add/member_remove/message_export/data_anonymize/retention_set/legal_hold_toggle),
+  the actual column vocabulary. The filter is passed straight to the WHERE clause, so any selected
+  action matches zero rows. It also mis-frames the log as a per-message activity feed when
+  compliance_audit_log records compliance operations.
+- **Fix design:** Make the FE options derive from the ComplianceAction SSoT rather than a hand-typed
+  list (tier-1/3). Expose ComplianceAction values through the shared contract used by admin-panel (a
+  generated/shared enum or a checked-in mirror) and build ACTION_OPTIONS/ACTION_COLORS from it;
+  relabel the page as a compliance-operations audit. Add a contract test asserting every FE action
+  option value is a member of ComplianceAction so an invented value fails CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-audit-contract.spec.ts`
+- **Effort:** M
+
+## MessagingCompliancePage — `/admin/messaging/compliance` — verdict: **BROKEN**
+
+**Chain:** Backend chain is real (NATS -> LegalHoldService / GetRetentionPoliciesQuery /
+ComplianceAuditService against per-tenant legal_holds, retention_policies, compliance_audit_log —
+created by the messaging Baseline migration), but every call the page makes is doomed:
+getComplianceStats() and getLegalHolds() are invoked WITHOUT tenantId while the messaging tenant
+boundary fail-closes on non-UUID tenantIds; the legal-hold Release button omits the mandatory
+dual-approver fields so ToggleLegalHoldHandler rejects it unconditionally; and if data ever arrived,
+the FE stats/hold shapes don't match the backend response. Exports table, retention buckets, and the
+daily audit chart are hardcoded empty arrays.
+
+**Endpoints exercised:** `GET /api/v1/messaging/compliance/stats`;
+`GET /api/v1/messaging/compliance/legal-holds`;
+`DELETE /api/v1/messaging/compliance/legal-holds/:id`;
+`POST /api/v1/messaging/compliance/legal-holds (defined, never called by any page)`
+
+**DB tables:** `tenant_<hash>.legal_holds`, `tenant_<hash>.retention_policies`,
+`tenant_<hash>.compliance_audit_log`
+
+### APA-163 [CRITICAL] Legal-hold release is impossible from the admin panel — dual-approver fields are dropped by the whole chain
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** messaging-service requires approverId (a second distinct SUPER_ADMIN) and
+  releaseReason (>=50 chars) to release a hold: ToggleLegalHoldHandler throws BadRequestException
+  when approverId is missing, and LegalHoldService.release enforces the same. But the FE DELETE
+  sends only holdId+tenantId, and the admin-api controller forwards only {holdId, tenantId, userId}
+  — approverId/releaseReason do not exist in the FE payload, the FE UI, or the admin-api DTO. Every
+  click on 'Release' deterministically fails (surfaced as a retried 502). The compliance page's only
+  mutation is dead, meaning holds placed via other surfaces can never be lifted through the admin
+  UI.
+- **Evidence:**
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:50-63,181-203`
+  - `apps/messaging-service/src/compliance/commands/toggle-legal-hold.handler.ts:65-81`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts:267-292`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:187-202`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:208-212`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:251-264,434-442`
+- **Verification:** Verified every link of the chain in current code. FE
+  (MessagingCompliancePage.tsx:436) calls releaseLegalHold(hold.id, hold.tenantId) with no UI for
+  approver or reason; messaging.ts:208-212 issues a bodyless DELETE; admin-api
+  MessagingAdminController.releaseLegalHold (messaging-admin.controller.ts:187-202) forwards only
+  {holdId, tenantId, userId}; messaging-service MessagingAdminNatsHandler
+  (messaging-admin-nats.handler.ts:181-203) passes data.approverId/data.releaseReason — both
+  undefined — into ToggleLegalHoldCommand; ToggleLegalHoldHandler
+  (toggle-legal-hold.handler.ts:65-81) deterministically throws BadRequestException('approverId is
+  required...') before the transaction, and LegalHoldService.release (legal-hold.service.ts:275-282,
+  LEGAL_HOLD_MIN_REASON_CHARS=50) enforces the same. Wiring is live: page routed at
+  messaging/compliance (Module.tsx:144), MessagingAdminModule imported in app.module.ts:233, NATS
+  handler registered in event-handlers.module.ts:42. The serialized NATS error is not an
+  HttpException instance, so sendNatsRequest maps it to 502 Bad Gateway; the FE http-client retries
+  only 502/503/504 (http-client.ts:316-329) — the 'retried 502' symptom is exact. Refutation
+  attempts failed: no default supplies the fields; the only surface carrying
+  approverId/releaseReason is messaging-service's tenant-facing GraphQL
+  ComplianceResolver.toggleLegalHold (@Roles(TENANT_ADMIN)) — not reachable from the admin panel and
+  the wrong trust domain for lifting platform-imposed holds. Severity stays CRITICAL: the
+  SUPER_ADMIN surface's only release control fails 100% of the time, and per the messaging domain
+  invariant an active legal hold blocks GDPR anonymisation and retention cleanup, so an
+  un-releasable hold indefinitely blocks GDPR-erasure obligations with no admin-surface workaround.
+- **Root cause:** The LEGAL-MEDIUM-002 dual-approver retrofit widened the release contract at the
+  command handler, service layer, DB CHECK constraint (chk_legal_hold_no_self_approval), and
+  messaging-service's own GraphQL resolver — but the admin proxy chain (FE api fn -> admin-api REST
+  controller -> NATS payload) was never updated, and nothing could catch the drift: the
+  request.messaging.admin.\* payload shapes are hand-duplicated untyped interfaces on each side of
+  the NATS boundary (ReleaseLegalHoldPayload declared locally in messaging-service vs. an unchecked
+  inline object literal in admin-api's sendNatsRequest call), and admin-api's REST DTOs are plain TS
+  interfaces that the platform ValidationPipe skips (no class metatype). Tightening the consumer
+  therefore broke no build, no test, and no boundary validation — only the deep command handler at
+  click time. This is an instance of the systemic class 'hand-duplicated interface-DTO / RPC-payload
+  drift across the FE->admin-api->NATS->service chain' (the same controller's read path drifts too:
+  LegalHoldResponse/FE LegalHold declare tenantName/channelName the backend never returns).
+- **Fix design:** Pattern-level (Tier 1 — make the BE<->BE drift impossible): create a shared RPC
+  contract module libs/event-contracts/src/rpc/messaging-admin-rpc.ts (exported from index.ts)
+  declaring: pattern constants (MESSAGING_ADMIN_PATTERNS.releaseLegalHold =
+  'request.messaging.admin.releaseLegalHold', etc.), a request/response map type
+  MessagingAdminRpcContract { [pattern]: { req; res } } for all implemented
+  request.messaging.admin.\* patterns, and the shared constant LEGAL_HOLD_MIN_RELEASE_REASON_CHARS =
+  50 (moved from legal-hold.service.ts, imported back there). messaging-service's
+  MessagingAdminNatsHandler deletes its local payload interfaces and types each @Payload() from the
+  contract; admin-api retypes sendNatsRequest as
+  sendNatsRequest<P extends keyof MessagingAdminRpcContract>(pattern: P, payload:
+  MessagingAdminRpcContract[P]['req']): Promise<MessagingAdminRpcContract[P]['res']> so omitting
+  approverId/releaseReason is a compile error (this also structurally fixes the sibling read-path
+  response drift). Local application (the release chain): (1) admin-api — replace the bodyless
+  DELETE with POST /messaging/compliance/legal-holds/:id/release carrying a class-based
+  ReleaseLegalHoldDto (new file apps/admin-api-service/src/messaging/dto/release-legal-hold.dto.ts,
+  matching the existing class-validator DTO convention in tenant/ and users/): @IsUUID('4')
+  tenantId; @IsUUID('4') approverId; @IsString() @MinLength(LEGAL_HOLD_MIN_RELEASE_REASON_CHARS)
+  @MaxLength(1000) releaseReason — the platform ValidationPipe (whitelist+forbidNonWhitelisted) now
+  enforces the dual-approver contract at the trust boundary and surfaces a non-retried 400 with the
+  real message instead of a retried 502; controller forwards the full contract payload {holdId,
+  tenantId, userId: user.id, approverId, releaseReason}. (2) FE —
+  messagingApi.releaseLegalHold(holdId, tenantId, input: {approverId, releaseReason}) posts to
+  .../release; MessagingCompliancePage gains a Release dialog: releaseReason textarea with
+  live >=50-char counter, countersigning-approver select populated from the existing usersApi.list({
+  role: 'SUPER_ADMIN' }) excluding the current user, submit disabled until valid, backend 400
+  messages shown in the existing mutationError banner. FE payload type imported type-only from the
+  contract lib if module-boundary rules allow; otherwise pinned by the contract spec below. No
+  defensive fallbacks anywhere — the contract is fixed at the source across all four layers.
+- **Files to change:**
+  - `libs/event-contracts/src/rpc/messaging-admin-rpc.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/release-legal-hold.dto.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `e2e/tests/integration/messaging-admin-rpc-contract.spec.ts`
+  - `apps/messaging-service/test/compliance.e2e-spec.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx`
+- **Proof of fix:** New invariant spec e2e/tests/integration/messaging-admin-rpc-contract.spec.ts:
+  asserts every @MessagePattern('request.messaging.admin.\*') payload type in messaging-service and
+  every sendNatsRequest callsite in admin-api reference the shared contract module (no locally
+  declared payload shapes), and type-level-asserts (expect-type) that the releaseLegalHold request
+  requires approverId+releaseReason. Extend apps/messaging-service/test/compliance.e2e-spec.ts with
+  the NATS-pattern round trip: full contract payload releases the hold; payload missing approverId
+  is rejected with BadRequest. New
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: POST
+  .../release forwards approverId/releaseReason verbatim to NATS and ValidationPipe rejects
+  sub-50-char reasons with 400. New
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingCompliancePage.spec.tsx: Release
+  opens the dialog, submit is disabled below 50 chars or on self-approval, and a valid submit calls
+  releaseLegalHold with the full payload then refreshes holds+stats.
+- **Effort:** M
+
+### APA-164 [HIGH] Both primary GETs always fail: page omits tenantId, backend fail-closes without a tenant UUID
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The page calls messagingApi.getComplianceStats() and getLegalHolds() with no
+  arguments ('Omit for platform-wide stats' per the FE doc), but there is no platform-wide path:
+  admin-api forwards tenantId=undefined, and messaging-service's runInTenantTransaction ->
+  pinTenantTransactionSearchPath throws `invalid tenantId "undefined"`. There is no tenant selector
+  on the page, so the stats grid and holds table can never load. Errors return as 502 and are
+  retried 3x by http-client before the banner shows.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:213-223`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:176-194`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:130-156`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts:457-468`
+  - `libs/backend-common/src/database/tenant-transaction.ts:128-132`
+- **Verification:** Verified end-to-end. Page is routed (Module.tsx:144) and fires both queries on
+  mount with no tenantId (MessagingCompliancePage.tsx:213-223); there is no tenant selector.
+  messaging.ts:180-194 omits the query string when tenantId is absent. admin-api binds raw
+  @Query('tenantId') with no DTO/pipe (messaging-admin.controller.ts:132-134,149-151) so
+  ValidationPipe never engages; tenantId=undefined is placed in the NATS payload and JSON
+  serialization drops the key, so MessagingAdminNatsHandler receives {}. The handler passes
+  undefined into LegalHoldService.getActiveHolds/getHolds; the DataSource IS injected in the live
+  app (@Optional @InjectDataSource resolves against the registered messaging DataSource), so
+  runInTenantTransaction runs and fail-closes — one step earlier than cited: withTenantContext
+  (libs/backend-common/src/context/with-tenant-context.ts:53-55) throws
+  `invalid tenantId "undefined"` before pinTenantTransactionSearchPath would; identical outcome.
+  There is no platform-wide NATS pattern, so 'omit for platform-wide stats' is a fictional
+  affordance. admin-api maps the NATS error to 502 BAD_GATEWAY (controller:419-422) and
+  http-client.ts:316-330 retries 502 3x with exponential backoff before the banner — the retry claim
+  is also accurate. Aggravating same-class drift confirmed: even with tenantId the page crashes
+  because FE ComplianceStats declares 7 fields while the backend returns 3 (auditLogEntriesCount vs
+  FE auditEntriesCount; messagesUnderLegalHold etc. undefined -> .toLocaleString() TypeError), FE
+  LegalHold expects tenantName/channelName never provided, and the release path omits the
+  now-required approverId/releaseReason (LEGAL-MEDIUM-002). Severity HIGH stands: a whole
+  SUPER_ADMIN legal/compliance surface is permanently non-functional, but there is no data
+  corruption or security impact (backend correctly fail-closes), so not CRITICAL.
+- **Root cause:** FE-to-BE contract drift at the platform-wide-vs-tenant-scoped semantic boundary,
+  an instance of the systemic 'FE-type drift / unvalidated interface-DTO' class. The admin-panel
+  page was written against an imagined platform-wide aggregate API ('Omit for platform-wide stats')
+  that no layer implements: admin-api is a thin proxy that forwards whatever it gets, its
+  tenant-scoped GETs use raw @Query bindings typed as string but never validated (interface-DTOs, so
+  ValidationPipe is inert), the messaging NATS handler's payload interfaces are likewise unvalidated
+  TS interfaces, and the only enforcement point is the deepest one — the fail-closed tenant
+  transaction boundary — which correctly rejects but only after a NATS round-trip, surfacing as a
+  retried 502. Nothing at compile time ties the hand-written FE types/signatures to the controller
+  contract, so the optional-tenantId signature, the 7-vs-3-field stats shape, and the LegalHold
+  field mismatch all shipped undetected.
+- **Fix design:** Fix the contract at the source, tenant-scoped end-to-end (a real platform-wide
+  aggregate would require a new cross-tenant iteration endpoint in messaging-service — a separate
+  tracked feature, not this fix). Tier-1 (make it impossible): change
+  messagingApi.getComplianceStats/getLegalHolds signatures to REQUIRED tenantId: string so the
+  compiler forbids the argument-less call, and align FE types with the actual backend contract —
+  ComplianceStats becomes exactly what the NATS handler returns (activeHoldsCount,
+  retentionPoliciesCount, auditLogEntriesCount; delete the 5 fictional fields and their StatCards,
+  or, if product wants them, implement them in the messaging handler first —
+  entity+handler+controller-interface+FE-type together), and FE LegalHold mirrors the entity (id,
+  tenantId, channelId, legalMatterId, reason, startedBy, startedAt, releasedBy, releasedByApprover,
+  releaseReason, releasedAt, expiresAt, isActive), dropping tenantName/channelName. Rework
+  MessagingCompliancePage with a required tenant selector (reuse the existing admin-panel tenant
+  list API/pattern) and gate both useAsyncData calls until a tenant is chosen. Tier-3 at both trust
+  boundaries (systemic-class local application): in admin-api replace every raw @Query('tenantId')
+  in MessagingAdminController with a validated class DTO (TenantScopedQueryDto { @IsUUID()
+  tenantId!: string }) so a missing/malformed tenant is rejected 400 at the edge (which http-client
+  correctly does NOT retry) instead of 502 after a NATS round-trip; in messaging-service validate
+  tenantId (isValidUUID) at the top of every MessagingAdminNatsHandler pattern and throw a typed
+  RpcException carrying a status admin-api maps to 4xx — converting the unvalidated payload
+  interfaces into a checked boundary. Pattern-level gate: a contract spec in admin-api that asserts
+  each controller response interface structurally matches the corresponding NATS handler return type
+  (both sides import the interface from one module in apps/admin-api-service/../messaging or a
+  shared contracts file), so the next shape drift fails the build, plus an e2e test hitting the two
+  GETs. Same commit must also fix the discovered release-path drift (admin-api releaseLegalHold must
+  accept and forward approverId + releaseReason required by ReleaseLegalHoldPayload, and the FE
+  release flow must collect them) or open a tracked HIGH finding with owner+deadline if product
+  sign-off on the dual-approver UI is needed.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/tenant-scoped-query.dto.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+  - `apps/messaging-service/src/event-handlers/__tests__/messaging-admin-nats.handler.spec.ts`
+  - `e2e/tests/integration/admin-messaging-compliance-contract.spec.ts`
+- **Proof of fix:** 1)
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: GET
+  /messaging/compliance/stats and /messaging/compliance/legal-holds with no tenantId -> 400 with
+  validation message (never 502, never a NATS send); with a valid UUID -> NATS payload contains that
+  tenantId. 2)
+  apps/messaging-service/src/event-handlers/**tests**/messaging-admin-nats.handler.spec.ts: payload
+  {} or non-UUID tenantId -> typed RpcException before any service/DB call; valid UUID -> services
+  invoked with it. 3) New e2e/tests/integration/admin-messaging-compliance-contract.spec.ts:
+  structural assertion that MessagingAdminController response interfaces equal the NATS handler
+  return shapes (fails compile/test on the next field drift), plus a live round-trip for stats +
+  legal-holds for a provisioned tenant returning the aligned shapes. 4) Compile-time gate: npm run
+  type-check fails on any argument-less getComplianceStats()/getLegalHolds() call (required param),
+  proving the FE cannot regress; page test asserts no fetch fires until a tenant is selected and the
+  stats grid renders from the 3-field contract without touching removed fields.
+- **Effort:** M
+
+### APA-165 [HIGH] ComplianceStats contract drift: 4 of 7 FE fields never exist; a successful response would crash the render
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Backend returns exactly {activeHoldsCount, retentionPoliciesCount,
+  auditLogEntriesCount}; the FE type additionally expects messagesUnderLegalHold,
+  pendingRetentionCleanup, activeExports, complianceScore and renames
+  auditLogEntriesCount->auditEntriesCount. The page calls
+  stats.messagesUnderLegalHold.toLocaleString() and stats.auditEntriesCount.toLocaleString(), which
+  throw on undefined — so fixing the tenantId problem would immediately crash the page.
+- **Evidence:**
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:111-138`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:25-33`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:309-341,352`
+- **Verification:** Refutation attempt failed at every link. (1) Backend truth:
+  apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:114-137 returns exactly
+  {activeHoldsCount, retentionPoliciesCount, auditLogEntriesCount}. (2) No enrichment in the middle:
+  apps/admin-api-service/src/messaging/messaging-admin.controller.ts:63-67,130-139 declares
+  ComplianceStatsResponse with the same 3 fields and sendNatsRequest passes the NATS reply through
+  verbatim; ResponseInterceptor only wraps it in {success,data}. (3) FE unwrap:
+  web/modules/admin-panel/src/services/http-client.ts:341-351 returns envelope.data blind-cast to T,
+  so the page receives the raw 3-field object typed as the 7-field ComplianceStats
+  (services/api/messaging.ts:25-33 — messagesUnderLegalHold, pendingRetentionCleanup, activeExports,
+  complianceScore are phantom, and auditLogEntriesCount is renamed to auditEntriesCount, which
+  therefore never exists on the wire either). (4) Crash reachability:
+  MessagingCompliancePage.tsx:225 does stats = statsQuery.data ?? EMPTY_STATS, so ANY successful
+  response replaces the safe defaults with the 3-field object; lines 311
+  (stats.messagesUnderLegalHold.toLocaleString()), 322, 352
+  (stats.auditEntriesCount.toLocaleString()), 366, 372 then throw TypeError during render. Grep
+  confirms no ErrorBoundary anywhere in web/modules/admin-panel/src, so the throw unmounts the
+  module (white screen). (5) Today's masking: the sole caller (page line 215) passes no tenantId, so
+  the handler runs runInTenantTransaction(ds,'messaging',undefined,...)
+  (legal-hold.service.ts:473-480; tenant-transaction.ts:251-265 pins+asserts a tenant search_path)
+  which throws → the endpoint currently 502s and the page shows an error banner with EMPTY_STATS.
+  The crash is therefore latent-but-guaranteed: the first successful response — i.e., the moment the
+  sibling tenantId finding is remediated — crashes the page, exactly as the finding states. HIGH
+  stands: the compliance dashboard can never render live data, and this drift hard-blocks the
+  sibling fix. This is a confirmed instance of the systemic FE-type-drift class: three hand-written
+  copies of one shape (NATS handler return type, controller response interface, FE type) with
+  nothing binding them, plus a blind `as T` cast in apiFetch.
+- **Root cause:** The FE-type link of the FE->BE chain broke: ComplianceStats in
+  web/modules/admin-panel/src/services/api/messaging.ts was authored against an aspirational
+  dashboard design (messages-under-hold, pending-cleanup, active-exports, compliance-score)
+  independently of the ADR-012 Phase 3 backend, which implemented only the three counts
+  messaging-service can truthfully compute — and the FE additionally renamed auditLogEntriesCount to
+  auditEntriesCount. It drifted because the response shape exists as three unlinked hand-written
+  interfaces (messaging-service NATS handler return type, admin-api-service ComplianceStatsResponse,
+  admin-panel ComplianceStats) with no shared contract artifact, and apiFetch<T> blind-casts
+  envelope.data to T, so the lie is invisible at build time. Systemic class: FE-type drift across
+  all of services/api/_ and services/types/_.
+- **Fix design:** Tier-1 pattern fix (make drift impossible) + local application. PATTERN: create a
+  types-only shared contract module for messaging-admin response shapes —
+  libs/admin-contracts/src/messaging-admin.contract.ts (new Nx lib, path-aliased in
+  tsconfig.base.json) exporting ComplianceStatsResponse = { activeHoldsCount: number;
+  retentionPoliciesCount: number; auditLogEntriesCount: number } plus the sibling shapes already
+  duplicated on both sides (LegalHoldResponse, RetentionPolicyResponse, AuditLogResponse,
+  ExportTriggerResult, AiPersonaDefinition). All three parties consume it: the messaging-service
+  NATS handler declares Promise<ComplianceStatsResponse>, the admin-api-service controller drops its
+  private interface and uses the contract type, and admin-panel services/api/messaging.ts imports it
+  as the apiFetch type parameter (ComplianceStats becomes a re-export of the contract). Any future
+  field add/rename/removal is then a compile error in every consumer simultaneously. LOCAL: shrink
+  the FE contract to the three real fields under the canonical backend name auditLogEntriesCount
+  (the backend name is the SSoT — the in-flight rename is drift by construction); update EMPTY_STATS
+  to the 3-field shape; rework MessagingCompliancePage's stats grid to render the three real metrics
+  (Active Holds, Retention Policies, Audit Entries total) and DELETE the four phantom StatCards
+  (lines 309-314, 320-325, 331-340) and the two phantom Badge rows (lines 362-375) — per this
+  controller's own stated rule ('no mock data is ever returned') the backend must NOT fabricate
+  complianceScore or message counts it cannot compute. If product still wants messages-under-hold /
+  pending-cleanup / active-exports / compliance-score, that is a new messaging-service aggregation
+  feature: open a tracked finding with owner + deadline (repo debt discipline), extending the
+  contract module first so all sides move together. Tier-3 backstop for the JSON trust boundary (TS
+  types do not survive NATS/HTTP serialization): a handler-reply key-parity spec against the
+  contract, and a page render test fed a contract-shaped response — the render test is red today
+  (TypeError at line 311) and green after, and `npm run type-check` flushes out every remaining
+  phantom-field usage once the type shrinks.
+- **Files to change:**
+  - `libs/admin-contracts/src/messaging-admin.contract.ts`
+  - `libs/admin-contracts/src/index.ts`
+  - `tsconfig.base.json`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `apps/messaging-service/src/event-handlers/__tests__/messaging-admin-nats.handler.spec.ts`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx`
+- **Proof of fix:** (1) New/extended spec
+  apps/messaging-service/src/event-handlers/**tests**/messaging-admin-nats.handler.spec.ts:
+  instantiate MessagingAdminNatsHandler with London-school mocks, call
+  getComplianceStats({tenantId}), assert Object.keys(reply).sort() deep-equals the sorted keys of a
+  Required<ComplianceStatsResponse> literal from @aquaculture/admin-contracts — proves the NATS
+  reply matches the contract across the JSON boundary. (2) New spec
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingCompliancePage.spec.tsx: mock
+  messagingApi.getComplianceStats to resolve {activeHoldsCount:2, retentionPoliciesCount:3,
+  auditLogEntriesCount:41} (exact contract shape) and assert the page renders without throwing and
+  displays all three values — this test fails on current code with TypeError (Cannot read properties
+  of undefined reading 'toLocaleString') and passes after the fix. (3) `npm run type-check`
+  platform-wide: after ComplianceStats shrinks to the shared 3-field contract, any surviving
+  reference to
+  messagesUnderLegalHold/pendingRetentionCleanup/activeExports/complianceScore/auditEntriesCount is
+  a compile error (tier-1 proof). Run nx affected --target=test and --target=lint green per repo
+  law.
+- **Effort:** M
+
+### APA-166 [MEDIUM] LegalHold rows lack tenantName/channelName the table renders; channel-scoped holds would display as 'Tenant-wide'
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The LegalHold entity has no tenantName/channelName and no enrichment join exists in
+  admin-api. The table renders hold.tenantName (blank) and hold.channelName ?? 'Tenant-wide' — a
+  channel-scoped hold (channelId set, channelName absent) would be presented as covering the whole
+  tenant, misstating the legal scope of a hold.
+- **Evidence:**
+  - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:25-119`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:36-48`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:422-425`
+- **Root cause:** FE-type drift + missing enrichment. The FE LegalHold type declares
+  tenantName/channelName (plus startedAt/releasedAt/startedBy) but neither the LegalHold entity, the
+  NATS getLegalHolds result (returns raw entities), nor admin-api's LegalHoldResponse carry those
+  name fields — admin-api even returns a narrower {id,tenantId,channelId,reason,isActive,createdAt}.
+  So hold.channelName is always undefined and the table renders `hold.channelName ?? 'Tenant-wide'`,
+  presenting a channel-scoped hold (channelId set) as covering the whole tenant — misstating legal
+  scope. tenantName renders blank and startedAt/releasedAt are Invalid Date.
+- **Fix design:** Two-part tier-1 fix. (1) Derive scope structurally from channelId, which IS the
+  SSoT of scope: render 'Tenant-wide' only when channelId===null, otherwise show the channel
+  identifier — never key scope off an always-absent channelName. (2) Return an enriched, typed
+  LegalHoldResponse from admin-api that matches the FE type exactly: join the tenant display name
+  (auth.tenants) and channel name (messaging channels) and map
+  startedAt/releasedAt/startedBy/releasedBy. Add a contract test asserting LegalHoldResponse ≡ FE
+  LegalHold.
+- **Files to change:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-legal-hold-contract.spec.ts`
+- **Effort:** M
+
+### APA-167 [MEDIUM] Fabricated 'Compliance Score 100%' rendered while the backend fetch fails
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** On fetch failure statsQuery.data stays null and EMPTY_STATS (complianceScore: 100)
+  fills the grid, so a GDPR compliance dashboard shows a green '100%' score and all-zero counters
+  alongside the error banner. complianceScore is not computed anywhere in the backend at all.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:33-41,225,336-340`
+- **Root cause:** Fabricated-default masking failure + FE-type drift. EMPTY_STATS seeds
+  complianceScore:100 and is used both pre-load and on error
+  (`stats = statsQuery.data ?? EMPTY_STATS`), so on a failed fetch the GDPR dashboard renders a
+  green '100%' score with zeroed counters beside the error banner. complianceScore is not computed
+  anywhere in the backend; ComplianceStatsResponse returns only
+  {activeHoldsCount,retentionPoliciesCount,auditLogEntriesCount} (and auditLogEntriesCount ≠ FE
+  auditEntriesCount), so
+  complianceScore/messagesUnderLegalHold/pendingRetentionCleanup/activeExports are fabricated
+  client-side even on success.
+- **Fix design:** (1) Never render metrics from a fabricated default on error — gate the stats grid
+  behind statsQuery.data; on error show a blank/skeleton, not a synthetic 100%. (2) Align the FE
+  ComplianceStats type to the actual backend DTO (rename auditEntriesCount→auditLogEntriesCount;
+  drop fields the backend does not send). (3) If complianceScore is a genuine product metric,
+  compute it in the messaging-service complianceStats handler and add it to the DTO; otherwise
+  remove it from the FE type entirely. Add a contract test asserting ComplianceStatsResponse ≡ FE
+  ComplianceStats.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-compliance-stats-contract.spec.ts`
+- **Effort:** M
+
+### APA-168 [MEDIUM] Create-legal-hold chain fully implemented backend-to-DB but unreachable — no UI invokes it
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** POST /messaging/compliance/legal-holds -> createLegalHold NATS chain ->
+  ToggleLegalHoldHandler.activate writes legal_holds + audit + outbox atomically, but
+  messagingApi.createLegalHold is called by no page/component (grep confirms only the definition). A
+  SUPER_ADMIN cannot place a hold from the admin panel.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:196-201`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:161-181`
+  - `apps/messaging-service/src/compliance/commands/toggle-legal-hold.handler.ts:104-124`
+- **Root cause:** Dead feature / missing UI wiring. The full create-legal-hold path is implemented
+  (POST /messaging/compliance/legal-holds → createLegalHold NATS → ToggleLegalHoldHandler.activate
+  writes legal_holds + audit + outbox atomically) and messagingApi.createLegalHold is defined, but
+  grep confirms no page/component calls it. MessagingCompliancePage only lists and releases holds,
+  so a SUPER_ADMIN can never place a hold from the admin panel.
+- **Fix design:** Add a 'Create Legal Hold' action + modal to MessagingCompliancePage that calls
+  messagingApi.createLegalHold with the CreateLegalHoldInput the backend requires (tenantId,
+  optional channelId, reason, legalMatterId, and optional description/requestedBy/expiresAt — note
+  reason and legalMatterId are validated as required in ToggleLegalHoldHandler), then refreshes
+  holds+stats on success. Tier-3 guard against recurrence: add an FE invariant test that flags
+  exported api functions with no in-repo caller (dead-endpoint detector) so FE↔UI wiring gaps
+  surface at build (this same gap produced p0|i0).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `web/modules/admin-panel/src/services/api/__tests__/api-usage.spec.ts`
+- **Effort:** M
+
+### APA-169 [LOW] Exports table, retention buckets, and daily-audit chart are hardcoded empty locals
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** exports, retentionBuckets (all tenantCount:0) and dailyAudit are constants; the
+  'Export Jobs' section and both charts can never show data, while summary labels like 'Total: N
+  entries' mix in (would-be) live stats — a half-live, half-static dashboard.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:228-238,343-378,453-516`
+- **Root cause:** Half-live dashboard. On MessagingCompliancePage, exports (ExportRecord[]=[]),
+  retentionBuckets (all tenantCount:0) and dailyAudit ([]) are hardcoded constant locals with no
+  backing endpoint, so the 'Export Jobs' table and both charts can never populate, while sibling
+  labels like 'Total: {stats.auditEntriesCount} entries' show live data — a misleading mix of live
+  and permanently-empty UI.
+- **Fix design:** Back the sections with real queries or remove them (no permanently-dead UI).
+  Preferred (tier-2): retention distribution can be computed from the existing getRetentionPolicies
+  result by bucketing on defaultRetention (no new backend needed); the daily-audit series and
+  export-jobs list are naturally served by the audit cursor endpoint (p2|i3) and the ExportJob table
+  introduced in p1|i1 respectively — wire those once they land. Minimum honest fix if backends are
+  deferred: delete the placeholder sections so the dashboard never implies data that cannot arrive.
+  Do not keep constant empties beside live labels.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+- **Effort:** M
+
+## MessagingRetentionPage — `/admin/messaging/retention` — verdict: **BROKEN**
+
+**Chain:** Backend chain is real and tenant-capable (NATS getRetentionPolicies/updateRetentionPolicy
+-> GetRetentionPoliciesQuery/SetRetentionPolicyCommand -> per-tenant retention_policies with atomic
+policy+audit+outbox writes), but the FE cannot reach it: getRetentionPolicies() has no tenantId
+parameter at all while the backend hard-requires one (fail-closed UUID check), so the list always
+errors; the PUT sends the policy row id where the backend expects a TENANT id and a body
+{defaultRetention:'90d', applyToAll} where the backend expects {retentionDays:number}, so
+retentionDays=undefined fails ALLOWED_RETENTION_DAYS validation on every save. Retention edits can
+never reach persisted state from this page.
+
+**Endpoints exercised:** `GET /api/v1/messaging/retention/policies`;
+`PUT /api/v1/messaging/retention/policies/:id`
+
+**DB tables:** `tenant_<hash>.retention_policies`, `tenant_<hash>.compliance_audit_log`,
+`messaging.messaging_outbox`
+
+### APA-170 [HIGH] Retention policy update contract is triple-mismatched — edits never persist
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** (1) Path semantics: FE passes policy.id as :id; the controller comments '@param id -
+  Tenant ID' and forwards it as tenantId (line 235), so messaging-service pins search*path to
+  tenant*<hash-of-policy-uuid>, which fails the SCHEMA_MISMATCH assertion (or, if a colliding schema
+  ever existed, would write another tenant's policy). (2) Body fields: FE sends
+  {defaultRetention:'90d'|'1y'|'3y'|'indefinite', applyToAll}; the backend DTO is {channelId?,
+  retentionDays:number} — retentionDays arrives undefined and SetRetentionPolicyHandler rejects it
+  against ALLOWED_RETENTION_DAYS [90,365,1095,-1]. (3) The FE never converts its string enum to days
+  even though it has the mapping (RETENTION_OPTIONS.days). Every 'Save' deterministically fails with
+  a retried 502.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:77-80,221-228`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:220-237`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:52-56,225-241`
+  - `apps/messaging-service/src/compliance/commands/set-retention-policy.handler.ts:17,44-52`
+  - `libs/backend-common/src/database/tenant-transaction.ts:128-135`
+- **Verification:** All three mismatches verified line-by-line. (1) Path: FE updateRetentionPolicy
+  passes policy.id (a @PrimaryGeneratedColumn('uuid'), distinct from tenantId per
+  apps/messaging-service/src/compliance/entities/retention-policy.entity.ts:28-33); the gateway
+  @Put('retention/policies/:id')
+  (apps/admin-api-service/src/messaging/messaging-admin.controller.ts:225-241) forwards it as
+  tenantId; ParseUUIDPipe passes so nothing intercepts. (2) Body: gateway UpdateRetentionPolicyDto
+  is a TS interface (lines 52-55) — erased at runtime, so the platform ValidationPipe
+  (whitelist+forbidNonWhitelisted) sees metatype Object and skips; FE body {defaultRetention,
+  applyToAll} passes through, dto.retentionDays is undefined. (3) FE has RETENTION*OPTIONS[].days
+  (MessagingRetentionPage.tsx:35-40) but handleSaveRetention (220-237) sends the raw string enum.
+  Downstream, SetRetentionPolicyHandler rejects undefined against ALLOWED_RETENTION_DAYS
+  (set-retention-policy.handler.ts:47-52); the NATS-deserialized error is not an HttpException
+  instance so the gateway maps it to 502 (controller 419-422), which the FE retries 3x
+  (http-client.ts:316-330). Two mechanical corrections: (a) the BadRequestException fires BEFORE
+  runInTenantTransaction, so the SCHEMA_MISMATCH assert on tenant*<hash-of-policy-uuid> is currently
+  masked — it becomes the failure only after mismatch (2) is fixed; the cross-tenant-write
+  hypothetical is unreachable (requires a tenant whose UUID equals a generated policy-row UUID, and
+  assertTenantTransactionContext fails closed anyway). (b) In real wiring Save is not even
+  reachable: FE getRetentionPolicies() sends NO tenantId, so the GET leg throws
+  pinTenantTransactionSearchPath invalid-tenantId (tenant-transaction.ts:128-132) → 502 and the list
+  never renders — compounding, not refuting. Every path is fail-closed with zero
+  data-integrity/security impact, so CRITICAL over-grades a deterministic total outage of a
+  compliance admin control → HIGH.
+- **Root cause:** The FE→BE contract link broke at design time: the admin-panel page and API client
+  were written against an invented REST contract (resource = policy row addressed by its own UUID,
+  retention as string enum '90d'|'1y'|'3y'|'indefinite', denormalized tenant stats), while gateway +
+  messaging-service implement the real domain contract (retention setting upserted by (tenantId,
+  channelId), integer retentionDays in {90,365,1095,-1}). Three structural gaps let the drift ship
+  silently: (a) admin-panel types are hand-written in services/api/messaging.ts with no compile- or
+  test-time link to the controller (systemic FE-type-drift class); (b) the gateway Body DTO is a
+  TypeScript interface, erased at runtime, so the platform ValidationPipe silently skips it — the
+  wrong body was never rejected with a 400 naming the unexpected fields (systemic
+  unvalidated-interface-DTO class; CreateLegalHoldDto and TriggerExportDto share it); (c) the ':id'
+  path param is semantically overloaded — documented '@param id - Tenant ID' in a route that reads
+  as policy identity, with nothing distinguishing tenant UUIDs from policy-row UUIDs.
+- **Fix design:** Fix the contract at the source across all three layers, plus a pattern-level gate
+  for both systemic classes. (1) Re-model the route on the true domain key: PUT
+  /messaging/tenants/:tenantId/retention-policies (mirrors the existing POST
+  /messaging/tenants/:id/export style), body {channelId?: string|null; retentionDays:
+  RetentionDays}. The fictional policy-id addressing disappears; the param name states its semantics
+  (tier 1). (2) Shared contract SSoT: add libs/shared/src/contracts/messaging-retention.ts
+  (@platform/shared is already consumed by web modules) exporting ALLOWED_RETENTION_DAYS = [90, 365,
+  1095, -1] as const, type RetentionDays = (typeof ALLOWED_RETENTION_DAYS)[number], and the
+  request/response wire types (response = the actual RetentionPolicy row shape: id, tenantId,
+  channelId, retentionDays, createdAt, updatedAt). messaging-service SetRetentionPolicyHandler
+  deletes its private const and imports this one; the gateway DTO uses
+  @IsIn(ALLOWED_RETENTION_DAYS); the FE derives RETENTION_OPTIONS from it and types requests with
+  RetentionDays — a drifted value is a compile error in all three places (tier 1, enforced by npm
+  run type-check). (3) Convert the gateway's interface DTOs to class-validator classes in
+  apps/admin-api-service/src/messaging/dto/ (UpdateRetentionPolicyDto: @IsOptional @IsUUID
+  channelId, @IsIn(ALLOWED_RETENTION_DAYS) retentionDays; same conversion for CreateLegalHoldDto and
+  TriggerExportDto) so the platform ValidationPipe actually runs and forbidNonWhitelisted turns any
+  future FE drift into an immediate 400 naming the bad fields (tier 3). Pattern-level gate: a new
+  architecture spec reflecting over every admin-api-service controller asserting each @Body()
+  metatype is a class carrying class-validator metadata — makes the whole
+  interface-DTO-bypasses-validation class detectable at test time. (4) FE:
+  updateRetentionPolicy(tenantId, {channelId, retentionDays}); the Edit modal binds the numeric
+  retentionDays as the select value (as AddChannelOverrideModal already does), eliminating the
+  string-enum and the never-used conversion; Save keys on p.tenantId; the PUT response type equals
+  the GET item type from the shared contract so the setPolicies row replacement stays type-correct.
+  Dependency note: the GET leg (FE omits tenantId; FE read-model invents fields the backend never
+  returns) is a sibling finding in the same systemic class and must land with/before this one for
+  Save to be reachable — its read types belong in the same contract module created here.
+- **Files to change:**
+  - `libs/shared/src/contracts/messaging-retention.ts`
+  - `libs/shared/src/index.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/create-legal-hold.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/trigger-export.dto.ts`
+  - `apps/messaging-service/src/compliance/commands/set-retention-policy.handler.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `apps/admin-api-service/src/__tests__/body-dto-validation.architecture.spec.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+- **Proof of fix:** (1) New
+  apps/admin-api-service/src/**tests**/body-dto-validation.architecture.spec.ts: reflects over all
+  admin-api-service controllers and fails if any @Body() parameter metatype is Object or lacks
+  class-validator metadata — proves the systemic interface-DTO gate. (2) Extend
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts with the real
+  platform ValidationPipe: the legacy FE body {defaultRetention:'90d',applyToAll:true} must be
+  rejected 400 listing the non-whitelisted properties; {retentionDays:90} against PUT
+  /messaging/tenants/:tenantId/retention-policies must forward the NATS payload
+  {tenantId:<path param>, channelId:null, retentionDays:90}. (3) FE spec
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingRetentionPage.spec.tsx: Save issues
+  the tenantId-keyed PUT with numeric retentionDays taken from the shared ALLOWED_RETENTION_DAYS;
+  npm run type-check proves the literal-union contract compiles in FE, gateway DTO, and
+  messaging-service handler (same imported symbol, drift structurally impossible). (4)
+  messaging-service handler spec asserts rejection of a non-member value using the shared const.
+- **Effort:** M
+
+### APA-171 [HIGH] Policy list can never load: FE API has no tenantId parameter, backend requires one
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** messagingApi.getRetentionPolicies() takes zero arguments and the page has no tenant
+  selector; the controller reads @Query('tenantId') (undefined) and messaging-service's
+  RetentionPolicyService.getPolicies -> runInTenantTransaction fail-closes on the invalid tenantId.
+  The page permanently shows the 'No tenant retention policies configured' empty state (or the error
+  banner), regardless of how many policies exist across tenants. A cross-tenant aggregation (like
+  the nightly sweep's loadAllPoliciesAcrossTenants) exists in messaging-service but is not exposed
+  to this endpoint.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:217-218`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:210-219`
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts:159-166,76-103`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:202-214,285-295`
+- **Verification:** Every link verified in code. FE messaging.ts:217-218 calls GET
+  /messaging/retention/policies with zero args and MessagingRetentionPage.tsx has no tenant
+  selector. The admin-api controller (messaging-admin.controller.ts:210-219) reads a bare
+  @Query('tenantId') primitive — the global ValidationPipe cannot enforce it (no DTO class), so
+  tenantId=undefined is forwarded into the NATS payload (and dropped by JSON serialization).
+  messaging-service's MessagingAdminNatsHandler (lines 210-218) passes undefined into
+  GetRetentionPoliciesQuery -> RetentionPolicyService.getPolicies
+  (retention-policy.service.ts:159-166) -> runInTenantTransaction -> pinTenantTransactionSearchPath
+  (libs/backend-common/src/database/tenant-transaction.ts:118-136), which fail-closes:
+  isValidUUID(undefined) throws 'invalid tenantId "undefined"'. The error returns over NATS
+  request-reply; sendNatsRequest converts it to 502 Bad Gateway; the page permanently shows the
+  error banner over the empty state. No alternate route or handler serves this path; the
+  cross-tenant read loadAllPoliciesAcrossTenants (lines 76-103) is private, cron-only, and exposed
+  via no NATS pattern. I additionally confirmed the response shape itself is drifted: the backend
+  would return raw RetentionPolicy entity rows (id/tenantId/channelId/retentionDays) while the FE
+  type expects an aggregate (tenantName, defaultRetention buckets, messagesCount, expiredCount,
+  lastCleanup, nextCleanup) — p.messagesCount.toLocaleString() would throw even on a successful
+  fetch — and the PUT path interprets :id as the TENANT id while the FE passes policy.id with a
+  {defaultRetention, applyToAll} body the controller does not understand. Severity corrected
+  CRITICAL->HIGH: total, permanent functional failure of a SUPER_ADMIN compliance surface, but
+  read-only — no data loss or security exposure, and the nightly retention sweep is independent of
+  this page.
+- **Root cause:** The FE-&gt;gateway link of the chain broke, and it broke because there is no
+  contract artifact between them. The admin-panel page was written against an intended PLATFORM-WIDE
+  retention overview (per-tenant table with tenantName, override counts, message/expired counts,
+  cleanup schedule), while the admin-api gateway was written as a thin TENANT-SCOPED proxy over
+  messaging-service's compliance API (which fail-closes on a non-UUID tenantId by design). Because
+  the FE client is hand-written (services/api/messaging.ts local interfaces) and the controller uses
+  untyped bare @Query params plus hand-declared response interfaces, neither the missing required
+  parameter nor the response-shape drift is detectable at build or test time — the first failure is
+  at runtime inside pinTenantTransactionSearchPath. This is an instance of the systemic
+  FE-type-drift / hand-written-client class (same class as the LegalHold tenantName drift and the
+  PUT policy-id-vs-tenant-id inversion in the same file), and the missing cross-tenant aggregation
+  endpoint is an instance of the FE-route-with-no-backend class: the only cross-tenant policy read
+  in messaging-service (loadAllPoliciesAcrossTenants) is a private cron helper.
+- **Fix design:** Fix the contract at the source, at both the pattern level and the local level. (A)
+  messaging-service — expose the cross-tenant read as a first-class query: promote the private
+  loadAllPoliciesAcrossTenants sweep logic into a ListAllRetentionPoliciesQuery + handler on
+  RetentionPolicyService that iterates tenant schemas (existing regex-guarded listTenantSchemas +
+  pinTenantSchemaTransactionSearchPath) and returns one aggregate row per tenant: policies
+  (default + channel overrides), channelOverridesCount, and lastCleanup/deletedCount read from the
+  per-tenant compliance_audit_log nightly_cleanup rows (resourceId=policy.id makes this an indexed
+  lookup); message counts use cheap partition-pruned estimates, not full COUNTs. Register a new NATS
+  pattern request.messaging.admin.listRetentionPolicies (no tenantId) in MessagingAdminNatsHandler
+  with a typed response. (B) admin-api-service — GET /messaging/retention/policies becomes the
+  cross-tenant listing matching the page's intent: it calls the new pattern and enriches tenantName
+  from the admin tenant directory (Tenant entity in src/tenant/ has name); an optional tenantId
+  filter moves into a class-validator query DTO (@IsOptional() @IsUUID()) so the platform
+  ValidationPipe rejects malformed input at the boundary — undefined-forwarding becomes impossible,
+  not just handled. (C) Pattern-level (tier 1, make drift impossible): extract the admin messaging
+  REST contract into a shared Nx lib (e.g. libs/admin-api-contracts/src/messaging.ts) exporting the
+  request DTو response types; the controller's response interfaces and the admin-panel's
+  services/api/messaging.ts both import from it, deleting the hand-written duplicate RetentionPolicy
+  interface — any future shape change is a compile error on both sides via npm run type-check. (D)
+  Same-stroke companion (same broken contract, required for the page to function): rekey the PUT to
+  the shared contract — PUT /messaging/retention/policies with body {tenantId, channelId,
+  retentionDays} (or :id documented and typed as tenantId in the shared DTO) and update the FE
+  call + EditRetentionModal to send retentionDays for the selected tenant, eliminating the
+  policy.id-as-tenantId inversion. No defensive defaults, no fallback tenant, no shim: the wrong
+  call shape no longer compiles, and the wrong runtime input is rejected by the DTO.
+- **Files to change:**
+  - `libs/admin-api-contracts/src/messaging.ts`
+  - `libs/admin-api-contracts/src/index.ts`
+  - `apps/messaging-service/src/compliance/queries/list-all-retention-policies.query.ts`
+  - `apps/messaging-service/src/compliance/queries/list-all-retention-policies.handler.ts`
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/compliance/compliance.module.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/list-retention-policies-query.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+- **Proof of fix:** 1) New spec
+  apps/messaging-service/src/compliance/**tests**/list-all-retention-policies.handler.spec.ts: seed
+  policies in two tenant schemas, assert the query returns both with correct tenantId and
+  channelOverridesCount, and that the empty connection-default messaging template contributes
+  nothing. 2) New spec
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: GET
+  /messaging/retention/policies with no query param dispatches
+  request.messaging.admin.listRetentionPolicies and enriches tenantName; tenantId=not-a-uuid is
+  rejected 400 by the DTO (ValidationPipe), proving undefined/garbage can no longer reach
+  messaging-service; PUT round-trips {tenantId, channelId, retentionDays} per the shared DTO. 3)
+  Compile-time gate (the systemic fix): admin-panel services/api/messaging.ts imports
+  RetentionPolicy types from libs/admin-api-contracts — npm run type-check fails on any future FE/BE
+  shape divergence; add tests/invariants/admin-panel-api-contract.spec.ts asserting admin-panel api
+  modules declare no local duplicates of contract-exported type names. 4) Extend e2e/tests
+  (messaging admin flow): authenticated SUPER_ADMIN GET /api/v1/messaging/retention/policies returns
+  200 with seeded multi-tenant data — the exact request the page issues, which today can only 502.
+- **Effort:** L
+
+### APA-172 [HIGH] Response shape drift would crash the table if rows ever arrived
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Backend RetentionPolicy rows are
+  {id,tenantId,channelId,retentionDays,createdBy,createdAt,updatedAt}; the FE type/render expects
+  tenantName, defaultRetention ('90d'-style string), channelOverridesCount, messagesCount,
+  expiredCount, lastCleanup, nextCleanup — none exist. p.messagesCount.toLocaleString() and
+  p.expiredCount.toLocaleString() throw on undefined; nextCleanup renders Invalid Date.
+  Additionally, on a (hypothetically) successful save the page replaces the row with the backend
+  shape (setPolicies map), guaranteeing the crash.
+- **Evidence:**
+  - `apps/messaging-service/src/compliance/entities/retention-policy.entity.ts:26-59`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:65-75`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:227-229,313-340`
+- **Verification:** CONFIRMED with one refinement. Shape drift verified end-to-end:
+  messaging-service NATS handler
+  (apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:210-218) returns raw
+  RetentionPolicy entity rows {id,tenantId,channelId,retentionDays,createdBy,createdAt,updatedAt};
+  the admin controller's own RetentionPolicyResponse interface
+  (apps/admin-api-service/src/messaging/messaging-admin.controller.ts:78-83) matches; the FE type
+  (web/modules/admin-panel/src/services/api/messaging.ts:65-75) declares seven fictional fields, and
+  the routed page (Module.tsx:145 -> MessagingRetentionPage.tsx:328,332,339) calls
+  p.messagesCount.toLocaleString()/p.expiredCount.toLocaleString() (TypeError on undefined) and new
+  Date(p.nextCleanup) (Invalid Date). Refinement: the crash is currently latent because the SAME
+  drifted contract breaks the request side first — FE GET sends no tenantId, so
+  pinTenantTransactionSearchPath (libs/backend-common/src/database/tenant-transaction.ts:128-132)
+  throws on tenantId=undefined -> 502 -> permanent error banner + empty table; FE PUT sends
+  {defaultRetention,applyToAll} against an interface DTO (runtime metatype Object, ValidationPipe
+  inert) so retentionDays=undefined is rejected by SetRetentionPolicyHandler
+  (ALLOWED_RETENTION_DAYS.includes(undefined) -> 400), and FE passes the policy id where the
+  controller maps :id -> tenantId. Net: the page is 100% non-functional today (error banner, save
+  always fails), and the render crash fires the instant the tenantId param is fixed naively —
+  including via the setPolicies replacement at MessagingRetentionPage.tsx:227-229. Systemic classes:
+  FE-type drift (hand-written types built against an imagined cross-tenant retention-overview API
+  the backend explicitly 501s as unbuilt) + unvalidated interface-DTO (every DTO in
+  messaging-admin.controller.ts is an interface). The existing gate
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts checks only URL+method, which is
+  exactly why path agreement masked payload fiction. HIGH stands: a SUPER_ADMIN compliance control
+  surface is fully dead with a guaranteed crash one naive fix away.
+- **Root cause:** The FE->BE link broke at the type source:
+  web/modules/admin-panel/src/services/api/messaging.ts hand-writes a RetentionPolicy type for a
+  cross-tenant "retention overview" API (tenantName, message counts, cleanup schedule) that was
+  never built — the real chain (admin REST -> NATS request-reply -> messaging-service per-tenant
+  CQRS) is tenant-scoped (requires tenantId) and returns raw RetentionPolicy entity rows. The drift
+  persisted because nothing binds the two sides: (a) FE types have no derivation from backend DTOs;
+  (b) the admin controller DTOs are TypeScript interfaces, erased at runtime, so the platform
+  ValidationPipe (whitelist+forbidNonWhitelisted) never rejects the drifted PUT body
+  {defaultRetention,applyToAll}; (c) the only contract gate (contract-validation.spec.ts) validates
+  URL+method matching, so path-level agreement masked payload-level fiction. Same-vertical secondary
+  drifts: GET omits the required tenantId query param, and PUT passes the policy UUID where the
+  controller maps :id -> tenantId.
+- **Fix design:** Fix the contract at the source and make drift impossible/detectable at the pattern
+  level (tiers 1+3), not just this page. (1) Create a web-consumable shared contract lib
+  libs/admin-contracts exporting the admin messaging REST contract as class-validator classes +
+  response DTOs: RetentionPolicyDto {id; tenantId; channelId: string|null; retentionDays: number;
+  createdBy; createdAt; updatedAt} and UpdateRetentionPolicyRequest {channelId: string|null;
+  @IsIn([90,365,1095,-1]) retentionDays}. (2) admin-api-service MessagingAdminController: replace
+  ALL interface DTOs with the shared classes so the platform ValidationPipe actually rejects drifted
+  bodies (tier 1 — the old FE body becomes a 400, not silently-forwarded undefined); require
+  tenantId via @Query('tenantId', ParseUUIDPipe) on GET so a missing tenant is a clear 400 instead
+  of a deep 502; rename the PUT param to :tenantId to kill the id-vs-tenantId semantic drift. (3)
+  FE: delete the fictional RetentionPolicy/RetentionPolicyUpdate types from
+  services/api/messaging.ts and type-import the shared DTOs; getRetentionPolicies(tenantId) and
+  updateRetentionPolicy(tenantId, {channelId, retentionDays}); rewrite MessagingRetentionPage
+  against the real tenant-scoped contract — tenant selector, rows = tenant default + channel
+  overrides, columns scope/retentionDays (mapped via existing RETENTION_OPTIONS
+  days)/createdBy/updatedAt; drop tenantName/messagesCount/expiredCount/lastCleanup/nextCleanup
+  columns. The cross-tenant overview the page originally imagined requires the backend aggregation
+  endpoint the controller already 501s — if product wants it, that is a separately tracked finding
+  (owner+deadline), never mocked FE-side. (4) Pattern gate: extend the contract-validation spec to
+  fail when any admin-panel services/api/\*.ts locally declares a request/response type for an
+  endpoint instead of importing it from @aquaculture/admin-contracts, plus a controller spec proving
+  the ValidationPipe now rejects the legacy drifted PUT body. npm run type-check then makes any FE
+  reference to removed fields a compile error (tier 1 for future drift on this contract).
+- **Files to change:**
+  - `libs/admin-contracts/src/index.ts`
+  - `libs/admin-contracts/src/messaging/retention.dto.ts`
+  - `tsconfig.base.json`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+- **Proof of fix:** Extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts with a
+  shape-source gate: every admin-panel services/api/\*.ts endpoint type must be imported from
+  @aquaculture/admin-contracts (test fails on locally-declared response/request shapes — kills the
+  systemic class). Add
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts asserting: GET
+  /messaging/retention/policies without tenantId -> 400 (ParseUUIDPipe); PUT with legacy body
+  {defaultRetention:'90d',applyToAll:true} -> 400 via ValidationPipe forbidNonWhitelisted (proves
+  interface->class conversion is live); PUT with {channelId:null,retentionDays:90} forwards
+  {tenantId,userId,channelId,retentionDays} over NATS and returns RetentionPolicyDto shape. FE: npm
+  run type-check goes red on any reference to removed fictional fields; add a MessagingRetentionPage
+  render test with a real RetentionPolicyDto fixture (no toLocaleString/Invalid-Date crash path
+  remains).
+- **Effort:** M
+
+### APA-173 [MEDIUM] 'Add Channel Override' modal is a silent no-op
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** handleAddOverride ignores all three inputs (prefixed
+  \_tenantId/\_channelId/\_retentionDays), just refetches and closes the modal — the user gets
+  success-like behavior with nothing saved. The backend PUT actually supports channelId overrides
+  (UpdateRetentionPolicyDto.channelId), so the capability exists but is not wired.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:239-247`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:52-56,232-240`
+- **Root cause:** Silent no-op + contract mismatch. handleAddOverride ignores its three inputs
+  (\_tenantId/\_channelId/\_retentionDays), just refetches and closes the modal, so the user gets
+  success-like behavior with nothing saved. The backend PUT /retention/policies/:id does accept
+  channel overrides (UpdateRetentionPolicyDto {channelId,retentionDays}), but the FE
+  updateRetentionPolicy sends {defaultRetention,applyToAll} — a shape that carries neither channelId
+  nor retentionDays, so even the edit path's values are dropped server-side. Compounding it,
+  admin-api's UpdateRetentionPolicyDto (and CreateLegalHoldDto/TriggerExportDto) are bare
+  interfaces, not class-validator classes, so the platform ValidationPipe
+  whitelist/forbidNonWhitelisted never fires and the mismatched/missing fields are silently ignored
+  rather than rejected — the systemic 'unvalidated interface-DTO' class on this controller.
+- **Fix design:** Align the retention-update contract end-to-end. (1) FE RetentionPolicyUpdate
+  carries {retentionDays:number, channelId?:string|null}; map the '90d'/'1y'/'3y'/'indefinite' UI
+  selection to days via the existing RETENTION_OPTIONS.days; handleAddOverride calls
+  updateRetentionPolicy with {channelId, retentionDays} and handleSaveRetention sends
+  {retentionDays} (channelId null). (2) Convert admin-api UpdateRetentionPolicyDto (and
+  CreateLegalHoldDto/TriggerExportDto) from interfaces to class-validator DTO classes so
+  whitelist/forbidNonWhitelisted structurally reject unknown/missing fields — this makes the
+  mismatch impossible (tier-1) instead of silently dropped. (3) Add a contract test asserting the FE
+  update payload type is assignable to the validated UpdateRetentionPolicyDto.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-retention-contract.spec.ts`
+- **Effort:** M
+
+### APA-174 [LOW] Hardcoded 'Next cleanup: 02:00 UTC' chip
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The header chip is static text; it happens to match the real cron ('0 2 \* \* \*' in
+  RetentionPolicyService) today but will silently lie if the schedule changes.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx:260-262`
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts:192`
+- **Root cause:** The cleanup schedule has no API surface: it exists only as the @Cron('0 2 \* \*
+  \*', { name: 'retention-cleanup' }) decorator in RetentionPolicyService
+  (apps/messaging-service/src/compliance/services/retention-policy.service.ts:192), so the FE chip
+  at MessagingRetentionPage.tsx:260-262 hardcodes a copied constant that will silently diverge if
+  the schedule changes. Instance of the config-nobody-reads / hardcoded-claim class.
+- **Fix design:** Tier 2 (make correct automatic): derive the value from the live cron registration,
+  not a copy. In messaging-service, inject NestJS SchedulerRegistry and expose getCleanupSchedule():
+  { cronExpression, nextRunAt } from schedulerRegistry.getCronJob('retention-cleanup').nextDate() —
+  single source is the actual registered job. Add NATS pattern
+  request.messaging.admin.getRetentionSchedule in MessagingAdminNatsHandler, proxy it from
+  MessagingAdminController (GET messaging/retention/schedule), add
+  messagingApi.getRetentionSchedule() to the FE api, and render the chip from the response (hide
+  chip while loading/on error — no fallback constant). Delete the static string. Verification:
+  extend apps/messaging-service/src/compliance/services/**tests**/retention-policy.service.spec.ts
+  to assert getCleanupSchedule() returns the SchedulerRegistry job's next fire time, and a
+  controller spec for the new proxy route.
+- **Files to change:**
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `apps/messaging-service/src/compliance/services/__tests__/retention-policy.service.spec.ts`
+- **Effort:** M
+
+## MessagingAiDashboardPage — `/admin/messaging/ai-dashboard` — verdict: **NOT_WIRED**
+
+**Chain:** Fully static page: five 'NotAvailableSection' cards honestly describing missing
+AI-analytics infrastructure (model info, embedding coverage, sentiment, knowledge entries, channel
+usage). Zero backend calls, zero endpoints, zero DB. Consistent with the backend, which exposes no
+AI-analytics endpoints in messaging-admin.controller.ts. Honest placeholder; no fabricated metrics.
+
+### APA-175 [LOW] Static claims about backend infrastructure are unverifiable and can silently rot
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page hardcodes requirement text (e.g. 'Requires: GET /ai/model-info endpoint')
+  that is not derived from any capability probe; when the pipelines land, this page will continue to
+  claim they don't exist until manually edited.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx:93-188`
+- **Root cause:** MessagingAiDashboardPage.tsx:93-188 is pure hardcoded prose: every 'Not Available'
+  section and its 'Requires: ...' string is static JSX with no capability probe, while the actual
+  implemented/not-implemented state lives in MessagingAdminController (which throws 501 for
+  unimplemented routes). Two unlinked sources of truth — when a pipeline lands, the page keeps
+  claiming it doesn't exist. Same static-claim class as p4|i4.
+- **Fix design:** Tier 3 (make drift detectable) + Tier 2: introduce a capability manifest owned by
+  the controller that already owns the 501s. Add GET messaging/ai/capabilities to
+  MessagingAdminController returning a typed map { featureKey: { implemented: boolean, requirement:
+  string } } colocated in the same file as the 501-throwing endpoints, so replacing a 501 with a
+  real implementation and flipping the manifest entry is one edit in one file. FE fetches the
+  manifest and renders each NotAvailableSection (title/description stay in FE, availability +
+  requirement come from the manifest); an implemented=true entry renders a 'available — UI pending'
+  state instead of 'does not exist'. Gate: a controller spec asserting every route in the controller
+  that throws NOT_IMPLEMENTED has a manifest entry with implemented=false (reflection over the
+  controller's route handlers), so the manifest cannot rot against the 501s. Add the spec as
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.capabilities.spec.ts.
+- **Files to change:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.capabilities.spec.ts`
+- **Effort:** M
+
+## MessagingAiPersonasPage — `/admin/messaging/ai-personas` — verdict: **PARTIAL**
+
+**Chain:** GET /api/v1/messaging/personas?tenantId=... -> NATS 'request.messaging.admin.getPersonas'
+-> AiPersonasRegistryService.getAvailablePersonas — a working chain that returns a STATIC in-memory
+list of 5 personas (no DB, tenantId ignored). FE AiPersonaDefinition matches the backend interface
+exactly, so the table renders. PUT /messaging/personas/:id honestly returns 501 and the page handles
+it gracefully. However, the page's LIFE-SAFETY framing is false: it claims to display 'the actual
+backend state including actuationPolicy, autonomousSafetyLimits from TenantAgentConfig' while
+nothing of the sort is fetched — the actuation-policy and safety-limits tables are hardcoded FE
+content, and the Enabled toggle is a hardcoded green switch.
+
+**Endpoints exercised:** `GET /api/v1/messaging/personas`;
+`PUT /api/v1/messaging/personas/:id (501 by design)`
+
+### APA-176 [HIGH] LIFE-SAFETY state is presented as live backend data but is entirely hardcoded
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The page header and the file's own docblock ('LIFE-SAFETY (C9): This page controls
+  autonomous PLC actuation. It MUST show real backend state, not hardcoded defaults') promise
+  TenantAgentConfig-derived actuationPolicy/autonomousSafetyLimits. In reality: the persona response
+  carries only {id,name,description,icon,color,capabilities}; no call to ai-service or
+  TenantAgentConfig exists anywhere in the chain; the 'Actuation Policy Reference' and 'Autonomous
+  Safety Limits' tables are static JSX; and every persona row renders a hardcoded always-green
+  'Enabled' toggle (className 'bg-green-500') plus a hardcoded 'All Tenants' badge. An operator
+  auditing PLC-actuation posture from this page is reading fabricated status on a page that itself
+  warns the values 'directly control what the AI can do to physical infrastructure'.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx:4-16,121-135,390-487`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:315-328`
+  - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts:17-30,113-115`
+- **Verification:** Refutation failed on every axis. (1) The full chain is static: FE getPersonas ->
+  GET /messaging/personas -> admin-api messaging-admin.controller.ts:340 -> NATS
+  request.messaging.admin.getPersonas -> messaging-admin-nats.handler.ts:315 ->
+  AiPersonasRegistryService.getAvailablePersonas which ignores tenantId and returns hardcoded
+  DEFAULT_PERSONAS with only {id,name,description,icon,color,capabilities}. (2) No alternate route
+  exists: ai-service exposes only request.ai.{executeAction,chat,isEnabled}; admin-api-service has
+  zero references to agent-config/actuationPolicy/autonomousSafetyLimits. (3) The fabrication is
+  literal JSX: PersonaRow renders an unconditional bg-green-500 'Enabled' toggle and a hardcoded
+  'All Tenants' badge; the '(from TenantAgentConfig)' policy/limits tables are static; the red
+  banner asserts the values 'are loaded from the real backend TenantAgentConfig entity... not
+  display-only values' — false. (4) TenantAgentConfig
+  (apps/ai-service/src/tenant-config/agent-config.entity.ts) really does carry
+  actuationPolicy/autonomousSafetyLimits/autonomousActionsEnabled/isEnabled, so the false assurance
+  is credible to an operator. Extra drift confirmed: admin-api's PersonaResponse declares
+  isActive:boolean that the handler never sends; FE AiPersonaDefinition has no enabled field — three
+  hand-written copies of one shape, no contract test. Severity stays HIGH not CRITICAL: the write
+  path returns 501 so the page cannot actuate anything; the harm is a SUPER_ADMIN life-safety audit
+  surface presenting fabricated always-enabled status and never showing the actual per-tenant
+  actuation policy it claims to show.
+- **Root cause:** The FE->BE->DB chain breaks at two links. First, the data source link: the
+  life-safety state lives in ai-service TenantAgentConfig (made the deliberate SSoT when messaging's
+  duplicate tenant_ai_settings was dropped in migration 1802100000000), but ai-service exposes no
+  admin read surface for it — so the messaging persona registry (a static platform catalog) is the
+  only thing the chain can serve. Second, the presentation link: the page was written against the
+  aspirational C9 contract ('MUST show real backend state') and papered over the missing data with
+  fabricated JSX — always-green toggles, an 'All Tenants' badge, and '(from TenantAgentConfig)'
+  labels on static tables. The drift persisted because every hop of the NATS request-reply chain
+  uses an independent hand-written interface (messaging handler inline return type, admin-api
+  PersonaResponse with a phantom isActive field, FE AiPersonaDefinition) with no shared contract or
+  test binding response shape to page claims. This is an instance of two systemic classes:
+  unvalidated hand-written interface-DTO per hop, and FE page claiming backend state no backend
+  serves.
+- **Fix design:** Pattern-level + local, per the hierarchy. TIER 1 (make shape drift impossible):
+  seed the cross-stack admin contract in libs/shared-contracts (the repo's designated
+  zero-dependency cross-stack lib, already path-aliased as @aquaculture/shared-contracts and
+  consumed by web bundles) — new type-only module admin/messaging-ai-personas.ts exporting
+  AiPersonaDefinition, ActuationPolicy (canonical declaration moves here from
+  agent-config.entity.ts, which then imports it — one declaration point, no copy),
+  TenantAgentSafetyView, and composite AiPersonasAdminResponse { personas; agentConfig:
+  TenantAgentSafetyView | null }. Messaging handler, admin-api controller (deleting its
+  phantom-isActive PersonaResponse), and FE api layer all import this one type; tsc then fails on
+  any hop that drifts. TIER 2 (make correct behavior automatic — build the real read path): new
+  ai-service responder tenant-agent-config-admin.responder.ts with
+  @MessagePattern('request.ai.admin.getTenantAgentConfig'), modeled on the existing
+  ai-enablement.responder.ts, returning a field-by-field safety projection {tenantId, isEnabled,
+  actuationPolicy, autonomousActionsEnabled, proactiveMonitoringEnabled, autonomousSafetyLimits,
+  mcpEnabled, mcpAllowedPersonas, baseProfileId, blockedToolNames} — constructed explicitly, never
+  spreading the entity, so the AES-encrypted anthropicApiKey/openaiApiKey columns structurally
+  cannot leak. admin-api GET /messaging/personas composes both NATS calls (messaging catalog +
+  ai-service safety state) and returns AiPersonasAdminResponse; missing config row -> agentConfig:
+  null. FE page: delete every fabricated indicator — the toggle/scope columns either render from
+  real data (agentConfig.isEnabled, mcpAllowedPersonas/blockedToolNames) or are removed; the two
+  reference tables gain a live Value column highlighting the tenant's ACTUAL actuationPolicy level
+  and actual limit values; agentConfig:null renders an explicit fail-closed state ('no AI config —
+  defaults: confirm_required, autonomous actions off'), never green. TIER 3 (detectable): responder
+  spec asserts API-key fields are absent from the payload; FE spec asserts toggle/policy rendering
+  flips with mocked data (kills any future always-green regression); shared-contracts narrowness
+  guard updated to admit the type-only admin contract.
+- **Files to change:**
+  - `libs/shared-contracts/src/admin/messaging-ai-personas.ts`
+  - `libs/shared-contracts/src/index.ts`
+  - `apps/ai-service/src/tenant-config/tenant-agent-config-admin.responder.ts`
+  - `apps/ai-service/src/tenant-config/agent-config.module.ts`
+  - `apps/ai-service/src/tenant-config/agent-config.entity.ts`
+  - `apps/ai-service/src/tenant-config/__tests__/tenant-agent-config-admin.responder.spec.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+  - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAiPersonasPage.spec.tsx`
+  - `tests/invariants/shared-contracts-no-enum-drift.spec.ts`
+- **Proof of fix:** (1)
+  apps/ai-service/src/tenant-config/**tests**/tenant-agent-config-admin.responder.spec.ts —
+  responder returns the exact TenantAgentSafetyView projection for a seeded config, returns null
+  semantics for an unknown tenant, and the serialized payload contains neither 'anthropicApiKey' nor
+  'openaiApiKey' (secret-leak gate). (2)
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts — GET
+  /messaging/personas issues BOTH NATS requests (request.messaging.admin.getPersonas +
+  request.ai.admin.getTenantAgentConfig) and the response satisfies AiPersonasAdminResponse from
+  @aquaculture/shared-contracts; agentConfig:null path covered. (3)
+  web/modules/admin-panel/src/pages/messaging/**tests**/MessagingAiPersonasPage.spec.tsx — with
+  mocked agentConfig {actuationPolicy:'allowed', autonomousActionsEnabled:true, limits set} the page
+  renders those exact values; with agentConfig:null it renders the explicit fail-closed state and NO
+  enabled/green indicator; toggle state asserts against both enabled and disabled mock data, proving
+  no hardcoded always-on rendering. (4) tests/invariants/shared-contracts-no-enum-drift.spec.ts
+  extended: the type-only admin contract module is admitted, and admin-api messaging controller + FE
+  services/api/messaging.ts must import persona/safety types from @aquaculture/shared-contracts (no
+  local redeclaration of the shape).
+- **Effort:** M
+
+### APA-177 [MEDIUM] Mandatory tenant UUID input has zero effect — backend registry ignores tenantId
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page refuses to load without a tenant UUID ('required to load personas') and the
+  FE api sends it, but AiPersonasRegistryService.getAvailablePersonas(\_tenantId) returns the same
+  static DEFAULT_PERSONAS for any input (including garbage strings — no validation on the query
+  param). The tenant-scoping is theater; per-tenant persona configuration does not exist.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx:248-274`
+  - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts:106-115`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:340-349`
+- **Root cause:** The admin contract asserts per-tenant scoping that does not exist: FE refuses to
+  load without a tenant UUID (MessagingAiPersonasPage.tsx:247-274), the controller forwards an
+  unvalidated bare @Query('tenantId') string (messaging-admin.controller.ts:340-349, no
+  ParseUUIDPipe and no DTO so the platform ValidationPipe never touches it), and
+  AiPersonasRegistryService.getAvailablePersonas(\_tenantId) discards the argument and returns
+  static DEFAULT_PERSONAS (ai-personas-registry.service.ts:113-115). Per-tenant persona config was
+  in fact recently removed (migration 1802100000000-DropTenantAiSettings), so the FE gate is pure
+  theater.
+- **Fix design:** Tier 1 (make the false claim impossible): align the admin contract with reality —
+  the admin page reads the PLATFORM registry, so tenantId leaves the admin path entirely. Registry:
+  add getAllPersonas(): AiPersonaDefinition[] as the platform-registry read;
+  getAvailablePersonas(tenantId) delegates to it (that seam stays because real tenant-context
+  callers exist, e.g. ai.resolver.ts:153). NATS: GetPersonasPayload drops tenantId; handler calls
+  getAllPersonas(). Controller: getPersonas() takes no query param. FE: delete the tenant-UUID
+  input/gate, load personas on mount, and keep the existing 'All Tenants' badge as the honest scope
+  statement. When per-tenant persona config genuinely lands, tenantId returns as a validated
+  (ParseUUIDPipe/DTO) parameter that the registry actually consumes. Verification: handler spec in
+  apps/messaging-service/src/event-handlers/**tests**/ asserting the persona pattern accepts an
+  empty payload and returns the registry set; FE page test asserting personas load without tenant
+  input.
+- **Files to change:**
+  - `apps/messaging-service/src/ai/services/ai-personas-registry.service.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx`
+- **Effort:** M
+
+### APA-178 [LOW] '+ Add Custom Persona' button opens a future-release placeholder
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The primary-styled header button only toggles a dashed card saying custom persona
+  registration 'will be available in a future release' — a dead-end primary CTA.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx:216-223,329-336`
+- **Root cause:** Primary-styled '+ Add Custom Persona' CTA (MessagingAiPersonasPage.tsx:216-223)
+  toggles only a dashed 'will be available in a future release' card (329-336). No registration
+  capability exists anywhere in the backend (PUT /personas/:id is a hard 501; registry is static),
+  so the button is a dead-end promise in the UI.
+- **Fix design:** Remove the CTA, the showAddForm state, and the placeholder card. The future
+  capability is already tracked in the AiPersonasRegistryService docblock ('Custom personas backed
+  by external MCP servers will be registerable here') — an unshipped roadmap item belongs there, not
+  as a primary button. When registration ships (with p6|i1's contract), the button returns wired to
+  a real endpoint. Verification: page test asserting no 'future release' placeholder UI renders;
+  optionally fold into the same admin-panel dead-CTA sweep as other sections if the audit tracks
+  that class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx`
+- **Effort:** S
+
+## Cross-cutting findings
+
+### APA-179 [MEDIUM] All messaging-admin DTOs are TypeScript interfaces — the global ValidationPipe never runs on these endpoints
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** CreateLegalHoldDto, UpdateRetentionPolicyDto and TriggerExportDto are declared as
+  interfaces, so the emitted metatype is Object and NestJS's ValidationPipe
+  (whitelist/forbidNonWhitelisted/transform, configured platform-wide in configureValidationPipe)
+  skips validation entirely. Consequences: (a) no field is required/typed at the HTTP boundary —
+  e.g. a POST legal-hold with no reason/legalMatterId travels all the way to messaging-service
+  before failing; (b) arbitrary extra body fields are forwarded verbatim over NATS instead of being
+  400'd; (c) the platform's own Security rule ('Input validation: ValidationPipe({whitelist:true,
+  forbidNonWhitelisted:true})') is silently void for the entire messaging admin surface. Every
+  tenant-scoped GET likewise takes tenantId as a bare @Query() string with no ParseUUIDPipe
+  (contrast the :id params which have it).
+- **Evidence:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:42-59,132-134,149-151,212-214,269-273,342-344`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:446-497`
+- **Verification:** CONFIRMED: the three body DTOs are TypeScript interfaces
+  (messaging-admin.controller.ts:42-59); interfaces erase to Object in design:paramtypes and NestJS
+  ValidationPipe skips Object metatypes, so the global pipe (wired via bootstrapService ->
+  configureValidationPipe, create-service-app.ts:446-498; main.ts confirmed) never validates these
+  bodies — whitelist/forbidNonWhitelisted/transform are all void. All six tenant-scoped GETs take
+  bare @Query('tenantId') with no ParseUUIDPipe (lines 133,150,191,213,270,343). Every other
+  admin-api controller uses class-validator DTO classes
+  (reports/compliance/audit-trail/activity-log/security-monitoring/support), making this controller
+  the sole anomaly, and it has zero spec files. PARTIAL REFUTATION: sub-claim (b) is wrong — the
+  controller field-picks every NATS payload (lines 170-179, 234-239, 326-330), so extra body fields
+  are dropped, not forwarded verbatim; the actual defect is they are silently accepted instead of
+  400'd. SEVERITY LOWERED HIGH->MEDIUM: surface is SUPER_ADMIN-only (PlatformAdminGuard APP_GUARD);
+  messaging-service command handlers re-validate the critical fields
+  (toggle-legal-hold.handler.ts:49-81 requires reason/legalMatterId/dual-approver;
+  set-retention-policy.handler.ts:48 enforces the [90,365,1095,-1] allowlist);
+  runInTenantTransaction UUID-validates tenantId before pinning search_path
+  (tenant-transaction.ts:128), so no SQL/schema injection is reachable. Remaining real harms: the
+  platform's stated Security invariant is silently void on a GDPR/legal-hold surface; downstream
+  BadRequestExceptions surface as 502 Bad Gateway (post-NATS serialization fails the
+  `err instanceof HttpException` check in sendNatsRequest) instead of 400; parseInt garbage yields
+  NaN limits reaching TypeORM; and the duplicated interface contract across the NATS boundary has
+  ALREADY drifted — messaging's ReleaseLegalHoldPayload requires approverId/releaseReason
+  (LEGAL-MEDIUM-002) that the admin controller never sends, so the interface-only contract
+  demonstrably failed to prevent breakage. This is an instance of the systemic 'unvalidated
+  interface-DTO' class.
+- **Root cause:** The BE link of the FE->BE->NATS chain broke: the HTTP boundary contract was
+  written as compile-time-only inline interfaces instead of runtime class-validator DTO classes, so
+  the global ValidationPipe (which resolves metatypes from design:paramtypes, where interfaces erase
+  to Object) structurally cannot run. It drifted because the messaging admin module was built as a
+  thin NATS proxy that copied its payload shapes as private interfaces on BOTH sides of the NATS
+  boundary (admin-api controller and messaging-service messaging-admin-nats.handler.ts each declare
+  their own), ignoring two established in-repo patterns: (1) decorated DTO classes used by every
+  other admin-api controller, and (2) shared request-reply contracts in libs/event-contracts
+  (billing-admin-commands.ts is the exact precedent for admin-api -> owning-service commands). No
+  build/test gate detects an Object-typed @Body param, so the violation was invisible (tier-3 gap),
+  and the duplicated contract has already drifted (release payload missing
+  approverId/releaseReason).
+- **Fix design:** Systemic class: 'unvalidated interface-DTO' + duplicated NATS contract. Fix at
+  pattern level plus local application. (A) Tier-1 shared contract at the source: add
+  libs/event-contracts/src/messaging-admin-commands.ts mirroring billing-admin-commands.ts —
+  MESSAGING_ADMIN_COMMAND_SUBJECTS const, request/response interfaces (CreateLegalHoldRequest,
+  ReleaseLegalHoldRequest incl. approverId+releaseReason, UpdateRetentionPolicyRequest,
+  GetAuditLogRequest, TriggerExportRequest, responses), and export ALLOWED_RETENTION_DAYS as the
+  single allowlist SSoT; export from index.ts. Both
+  apps/admin-api-service/src/messaging/messaging-admin.controller.ts and
+  apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts import these types
+  (delete both private interface sets); type sendNatsRequest against a subject->{request,response}
+  map so a payload not matching its subject's contract is a compile error — this immediately
+  surfaces the existing release-payload drift (approverId/releaseReason) and forces the release
+  endpoint to carry those fields, fixed in the same change. set-retention-policy.handler.ts imports
+  ALLOWED_RETENTION_DAYS from the contract instead of its local copy. (B) Tier-2 local DTOs: create
+  apps/admin-api-service/src/messaging/dto/ with class-validator classes implementing the shared
+  request types (implements CreateLegalHoldRequest guarantees DTO/contract lockstep at compile
+  time): CreateLegalHoldDto (@IsUUID tenantId, @IsOptional @IsUUID channelId, @IsString @IsNotEmpty
+  reason, @IsString @IsNotEmpty legalMatterId, @IsOptional @IsISO8601 expiresAt, optional strings),
+  ReleaseLegalHoldDto (@IsUUID approverId, @IsString @MinLength releaseReason),
+  UpdateRetentionPolicyDto (@IsIn(ALLOWED_RETENTION_DAYS) retentionDays, @IsOptional @IsUUID
+  channelId), TriggerExportDto (@IsOptional @IsIn(['csv','json']) format), TenantScopedQueryDto
+  (@IsUUID tenantId) and AuditLogQueryDto extending it (@IsOptional @Type(()=>Number) @IsInt @Min(1)
+  @Max(100) limit, @IsOptional @IsISO8601 startDate/endDate) replacing all bare @Query('tenantId')
+  strings and the manual parseInt. (C) Tier-3 gate for the whole class: new architecture spec
+  apps/admin-api-service/src/**tests**/dto-validation.architecture.spec.ts (same static/reflective
+  style as contract-validation.spec.ts): for every route handler in every admin-api controller,
+  assert each @Body param's design:paramtype is a named class carrying class-validator metadata
+  (getMetadataStorage), and each multi-field @Query param likewise — an interface-typed body
+  anywhere in the service fails CI. No defensive ?., no allowlisting: the spec fails on current code
+  and passes only when the DTOs are real classes.
+- **Files to change:**
+  - `libs/event-contracts/src/messaging-admin-commands.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/dto/create-legal-hold.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/release-legal-hold.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/update-retention-policy.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/trigger-export.dto.ts`
+  - `apps/admin-api-service/src/messaging/dto/tenant-scoped-query.dto.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/compliance/commands/set-retention-policy.handler.ts`
+  - `apps/admin-api-service/src/__tests__/dto-validation.architecture.spec.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+- **Proof of fix:** 1) New apps/admin-api-service/src/**tests**/dto-validation.architecture.spec.ts
+  must FAIL against the current controller (three Object-typed @Body params, bare tenantId queries)
+  and PASS after the fix — proving the interface-DTO class is now build-time detectable
+  service-wide. 2) New
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: e2e-style tests
+  with the platform ValidationPipe applied — POST /messaging/compliance/legal-holds missing
+  reason/legalMatterId -> 400 at the gateway (not 502 via NATS); body with an unknown extra field ->
+  400 forbidNonWhitelisted; GET /messaging/compliance/legal-holds?tenantId=not-a-uuid -> 400; DELETE
+  legal-hold without approverId/releaseReason -> 400. 3) npm run type-check + nx affected
+  --target=build prove the shared contract: both sides now import
+  libs/event-contracts/src/messaging-admin-commands.ts, so any payload/handler drift (like the
+  pre-existing approverId/releaseReason gap) is a compile error. 4) Existing
+  tests/invariants/admin-route-contract-ci.spec.ts continues to gate route parity; messaging-service
+  compliance handler specs (toggle-legal-hold.handler.spec.ts) stay green confirming downstream
+  behavior unchanged.
+- **Effort:** M
+
+### APA-180 [HIGH] NATS error translation collapses deterministic domain 4xx failures into retryable 502s — FE retry storms on every broken flow
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** sendNatsRequest rethrows any non-timeout messaging-service error (including
+  BadRequestException like 'approverId is required' or 'Invalid retentionDays') as HttpException 502
+  BAD_GATEWAY, because errors crossing NATS are not HttpException instances. The admin-panel
+  http-client explicitly retries 502/503/504 up to 3 times with exponential backoff. Every
+  deterministic contract failure in this section therefore fires 4 identical requests and takes ~7s
+  to surface, error banners show raw internals ('Messaging service error:
+  pinTenantTransactionSearchPath: invalid tenantId "undefined"'), and for the 504 case the retry
+  re-executes the non-idempotent full-tenant export. Status semantics also break FE logic that
+  distinguishes 4xx (no retry) from 5xx.
+- **Evidence:**
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:378-424`
+  - `web/modules/admin-panel/src/services/http-client.ts:297-333`
+  - `apps/messaging-service/src/compliance/commands/toggle-legal-hold.handler.ts:65-81`
+- **Verification:** Every link verified in real wiring. (1) messaging-service:
+  messaging-admin-nats.handler.ts @MessagePattern handlers delegate to CommandBus;
+  ToggleLegalHoldHandler:49-81 throws BadRequestException for deterministic contract failures; grep
+  confirms NO RpcException/RpcExceptionFilter anywhere in messaging-service; bootstrapService wires
+  NatsV3Server with no microservice-scoped filters. Under @nestjs/microservices ^11.1.19 the default
+  RpcExceptionsHandler serializes any non-RpcException as {status:'error',message:'Internal server
+  error'}. (2) Wire: NatsV3Server.send→buildPublisher and NatsV3Client.handleReply pass the err
+  object through an identity JSON codec (nats-v3-codec.ts) — no Error/HttpException reconstruction,
+  so firstValueFrom rejects with a plain object. (3) admin-api sendNatsRequest
+  (messaging-admin.controller.ts:378-424): plain object fails `instanceof Error` →
+  String(err)='[object Object]' → misses Timeout/not-connected branches; the
+  `err instanceof HttpException` re-throw is dead code for NATS-originated errors →
+  HttpException 502. (4) FE http-client.ts:297-333: 4xx/500 throw immediately, 502/503/504 retried
+  maxRetries=3 with 1s/2s/4s backoff = 4 identical requests, ~7s; all messagingApi calls
+  (POST/PUT/DELETE included) use the default config. (5) 504 leg: DataExportService.exportTenant
+  runs inline with a fresh crypto.randomUUID() jobId and a compliance-audit write per invocation —
+  NATS timeout does not cancel server work, so retries stack up to 4 concurrent full-tenant
+  exports + 4 audit rows. One detail refuted: the banner cannot show raw internals like
+  'pinTenantTransactionSearchPath: invalid tenantId' — Nest collapses unknown errors to 'Internal
+  server error' before the wire, so the FE shows 'Messaging service error: [object Object]';
+  diagnosability is worse than claimed (the dual-approver denial reasons, a compliance control, are
+  destroyed entirely). Severity HIGH stands: retry storms on mutating compliance endpoints,
+  non-idempotent export re-execution, broken 4xx/5xx semantics platform-admin-wide on this section.
+  The in-repo auth admin boundary (tenant-commands.ts result envelopes +
+  auth-admin-nats.handler.ts + users.service.ts map\*Error) proves the correct architecture already
+  exists and the messaging boundary drifted from it.
+- **Root cause:** The BE→BE link (admin-api → NATS → messaging-service) has no error contract. The
+  messaging admin proxy (ADR-012 Phase 3) was written assuming NestJS exceptions propagate across
+  NATS request-reply — the controller even carries an `err instanceof HttpException` re-throw branch
+  — but Nest's RPC boundary structurally destroys them: non-RpcException errors are serialized by
+  the default RpcExceptionsHandler as {status:'error',message:'Internal server error'} and arrive
+  client-side as a plain object, never an HttpException. The fallback then brands every
+  deterministic domain 4xx as 502 BAD_GATEWAY, the exact class the FE http-client is designed to
+  auto-retry. The drift happened because the platform's established pattern for admin RPC over NATS
+  — typed {success,errorCode,error} result envelopes in @platform/event-contracts with client-side
+  code→HttpException mapping, used on the auth admin boundary — was not applied to the messaging
+  admin boundary; instead each side hand-declared duplicate payload interfaces with no shared error
+  channel. A secondary FE root cause compounds it: apiFetch retries 502/503/504 regardless of HTTP
+  method idempotency, so a 504 (request possibly still executing) re-fires non-idempotent POSTs like
+  the full-tenant export.
+- **Fix design:** SYSTEMIC CLASS: "RPC trust boundary with no error contract" — exceptions thrown
+  across NATS structurally cannot survive, so every domain error collapses into a retryable gateway
+  status. The repo already contains the correct pattern on the auth admin boundary; the fix is to
+  promote it to a shared contract and apply it to the messaging boundary. Tier 1 (make wrong
+  behavior impossible): (a) In libs/event-contracts/src/messaging-admin-commands.ts define the
+  messaging admin RPC contract next to tenant-commands.ts: a discriminated envelope
+  `type AdminRpcResult<T> = { success: true; data: T } | { success: false; errorCode: AdminRpcErrorCode; error: string }`
+  with a fixed vocabulary (`VALIDATION_ERROR | NOT_FOUND | CONFLICT | FORBIDDEN | INTERNAL_ERROR`),
+  plus the per-pattern payload/result types and a MESSAGING_ADMIN_SUBJECTS const (replacing the
+  hand-written interfaces duplicated today in both the controller and the NATS handler). Export from
+  index.ts. (b) In messaging-admin-nats.handler.ts, every @MessagePattern method returns
+  `AdminRpcResult<T>` as a NORMAL reply: wrap the body in try/catch, translate HttpException
+  subclasses from the CommandBus (BadRequestException→VALIDATION_ERROR, NotFoundException→NOT_FOUND,
+  etc.) into `{success:false, errorCode, error: e.message}` — mirroring auth-admin-nats.handler.ts.
+  Nothing ever reaches Nest's default RpcExceptionsHandler, so the 'Internal server error' collapse
+  becomes unreachable; the return type forces the envelope at compile time. Tier 2 (make correct
+  behavior automatic): add a shared helper in libs/backend-common/src/nats/admin-rpc-result.util.ts
+  — `unwrapAdminRpcResult<T>(result: AdminRpcResult<T>): T` that maps errorCode→HttpException
+  (400/404/409/403/500), reusable by users.service.ts's five hand-rolled map\*Error methods later.
+  Rewrite sendNatsRequest to `sendMessagingCommand<T>(subject, payload): Promise<T>` = transport
+  call + unwrap: NATS timeout→504, not-connected→503, any remaining wire-level `{status:'error'}`
+  rejection→502 (now genuinely a gateway/contract failure and legitimately retryable); DELETE the
+  dead `err instanceof HttpException` branch. (c) FE root-cause for the amplification leg: in
+  http-client.ts, gate the 502/503/504 automatic retry on method idempotency — retry only GET/HEAD;
+  POST (triggerExport, createLegalHold) never auto-retries, because a 504 means the request may
+  still be executing server-side. This is one shared-client change that makes re-firing
+  non-idempotent mutations impossible for every current and future admin-panel API. Result:
+  deterministic domain failures surface once, immediately, as real 4xx with the real message
+  ("approverId is required…"), and 5xx retries only fire for transport failures on idempotent reads.
+  Strengthening option (note in PR, not required to close): accept a caller-supplied idempotency key
+  on triggerExport if server-side dedup is later wanted.
+- **Files to change:**
+  - `libs/event-contracts/src/messaging-admin-commands.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `libs/backend-common/src/nats/admin-rpc-result.util.ts`
+  - `libs/backend-common/src/nats/index.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `apps/messaging-service/src/event-handlers/__tests__/messaging-admin-nats.handler.spec.ts`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.spec.ts`
+  - `web/modules/admin-panel/src/services/__tests__/http-client.spec.ts`
+- **Proof of fix:** (1) New spec
+  apps/messaging-service/src/event-handlers/**tests**/messaging-admin-nats.handler.spec.ts: for each
+  @MessagePattern method, when CommandBus/service throws BadRequestException('approverId is
+  required…') the handler RESOLVES (never rejects — proving nothing reaches Nest's default RPC
+  handler) with {success:false, errorCode:'VALIDATION_ERROR', error:'approverId is required…'};
+  happy path resolves {success:true, data}. (2) New spec
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.controller.spec.ts: envelope
+  {success:false,errorCode:'VALIDATION_ERROR'} → BadRequestException 400 with the original message;
+  NATS timeout → 504; 'not connected' → 503; raw {status:'error'} wire rejection → 502; asserts no
+  path maps a success:false envelope to any 5xx. (3) Extend
+  web/modules/admin-panel/src/services/**tests**/http-client.spec.ts: a POST receiving 502/504
+  performs exactly ONE fetch (no auto-retry for non-idempotent methods); a GET receiving 502 retries
+  up to 3 times; 400 is never retried and preserves body message/code. End-to-end proof: releasing a
+  legal hold without approverId now yields a single request returning 400 'approverId is required to
+  release a legal hold (dual-approver protocol)' instead of four requests and a 7s '[object
+  Object]' 502.
+- **Effort:** M
+
+### APA-181 [HIGH] No cross-tenant capability behind a cross-tenant UI: every messaging admin read is strictly single-tenant, but 3 pages assume platform-wide views
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The messaging-service NATS handlers all require one tenantId and run inside
+  runInTenantTransaction, which fail-closes on a missing/invalid UUID. The compliance, retention,
+  and audit pages are designed as platform-wide dashboards (no tenant selector on
+  compliance/retention; 'across tenants' subtitle on audit) and call the APIs without tenantId, so
+  their primary reads can never succeed. messaging-service already contains the cross-tenant
+  enumeration pattern (loadAllPoliciesAcrossTenants iterating tenant\_<16hex> schemas for the
+  nightly sweep) but it is not exposed to any admin endpoint. This single root cause breaks 3 of the
+  7 pages.
+- **Evidence:**
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:32-88`
+  - `libs/backend-common/src/database/tenant-transaction.ts:128-132,183-197`
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts:56-103`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx:213-223`
+  - `web/modules/admin-panel/src/services/api/messaging.ts:217-218`
+- **Verification:** CONFIRMED end-to-end with no mitigating layer found. Reachability: admin-panel
+  routes messaging/compliance, messaging/retention, messaging/audit are registered
+  (web/modules/admin-panel/src/Module.tsx:143-145). CompliancePage calls
+  messagingApi.getComplianceStats() and getLegalHolds() with zero args
+  (MessagingCompliancePage.tsx:214-222); RetentionPage's only data source is getRetentionPolicies(),
+  whose FE signature has no tenantId parameter at all (messaging.ts:217-218); AuditPage defaults
+  tenantId:'' -> omitted, subtitle 'across tenants' (MessagingAuditPage.tsx:53-59,79-87,149).
+  MessagingAdminController binds tenantId as a bare unvalidated @Query primitive (no ParseUUIDPipe;
+  ValidationPipe skips primitives) and forwards { tenantId: undefined } over NATS.
+  MessagingAdminNatsHandler is live (registered in event-handlers.module.ts:42; bootstrapService
+  connects the NATS transport with queue 'messaging-service' via
+  create-service-app.ts:728-739,844-845; MessagingAdminModule wired in admin app.module.ts:233).
+  Every handler feeds tenantId into runInTenantTransaction
+  (LegalHoldService.getHolds/getActiveHolds:457-487, RetentionPolicyService.getPolicies:159-166,
+  ComplianceAuditService.getAuditLog:162-176), which throws on isValidUUID(undefined) in
+  pinTenantTransactionSearchPath (tenant-transaction.ts:128-132) — fail-closed, surfacing as an
+  opaque 502 'Messaging service error' -> FE ErrorBanner. So compliance and retention pages are 100%
+  dead on their primary reads; audit is dead by default and recoverable only by hand-typing a full
+  valid tenant UUID into a free-text filter. The cross-tenant capability exists only as private cron
+  plumbing (RetentionPolicyService.listTenantSchemas/loadAllPoliciesAcrossTenants:62-103) and the
+  controller itself 501s /messaging/tenants citing 'Requires cross-tenant aggregation endpoint' —
+  the gap is acknowledged in-code. Severity stays HIGH: 3 of 7 SUPER_ADMIN messaging pages
+  non-functional from one root cause, and hold-release/retention-edit mutations are unreachable
+  because the lists that supply their IDs never load; not CRITICAL because the failure is
+  fail-closed (no data exposure, no tenant-isolation bypass) and server-side retention/legal-hold
+  machinery still functions.
+- **Root cause:** The FE->BE contract broke at the admin-api/messaging NATS boundary: the
+  admin-panel pages were built to the product design (platform-wide compliance/retention/audit
+  dashboards), while the messaging admin request-reply contract was written strictly single-tenant
+  (every payload extends TenantScopedPayload { tenantId: string }), and the two sides each
+  hand-wrote their own types (FE types in services/api/messaging.ts, controller interfaces in
+  messaging-admin.controller.ts, handler interfaces in messaging-admin-nats.handler.ts) instead of
+  sharing one contract module — unlike billing, which already shares
+  libs/event-contracts/src/billing-admin-commands.ts between admin-api-service and billing-service.
+  Because the controller binds tenantId as a bare unvalidated @Query primitive and the NATS payloads
+  are compile-time-only interfaces, nothing at build, boundary, or test time detects that the UI's
+  default requests carry no tenantId; the mismatch is only caught at the deepest layer
+  (runInTenantTransaction's fail-closed UUID check) as an opaque 502. The cross-tenant enumeration
+  capability the UI needs exists in messaging-service but only as a private nightly-cron helper
+  never exposed on any NATS subject.
+- **Fix design:** Instance of two systemic classes — (a) cross-tenant UI over a single-tenant API,
+  (b) unvalidated interface-DTOs duplicated on each side of a NATS boundary — so the fix is
+  pattern-level plus local. (1) TIER 1, shared contract at the source: create
+  libs/event-contracts/src/messaging-admin-queries.ts following the existing
+  billing-admin-commands.ts convention (MESSAGING*ADMIN_QUERY_SUBJECTS const + typed payloads
+  imported by BOTH admin-api-service and messaging-service; delete both sides' hand-written
+  duplicates). Model read scope as a discriminated union: type AdminReadScope = { scope: 'tenant';
+  tenantId: string } | { scope: 'platform' } — 'no tenantId' becomes a first-class platform-scope
+  request instead of an invalid tenant-scope one; the wrong state is unrepresentable. Response rows
+  always carry tenantId. (2) TIER 2, backend capability: generalize the proven private cron pattern
+  (RetentionPolicyService.listTenantSchemas + loadAllPoliciesAcrossTenants) into
+  runAcrossTenantSchemas(dataSource, sourceSchema, fn) in
+  libs/backend-common/src/database/tenant-transaction.ts (regex-guarded tenant*<16hex> enumeration +
+  per-schema pinned transaction, same fail-closed semantics as the existing pins); refactor the
+  nightly sweep onto it (removes the duplicate); implement platform-scope dispatch in
+  MessagingAdminNatsHandler: complianceStats aggregates counts across schemas, getLegalHolds returns
+  the cross-schema union, getRetentionPolicies is the promoted loadAllPoliciesAcrossTenants,
+  getAuditLog paginates with a composite cursor (tenantSchema, createdAt, id) keeping the 100-row
+  cap. (3) TIER 3, boundary validation: in MessagingAdminController replace bare @Query('tenantId')
+  primitives and TS-interface body DTOs with class-validator DTO classes (@IsOptional() @IsUUID()
+  tenantId?: string; CreateLegalHoldDto etc. as classes) so the platform ValidationPipe actually
+  executes — omitted tenantId maps to { scope: 'platform' }, malformed tenantId is a 400 at the edge
+  instead of a 502 from the DB boundary; the NATS handler validates the scope discriminant on its
+  payloads and rejects invalid ones with a typed RPC error. admin-api-service enriches
+  platform-scope rows with tenantName from its existing tenant directory (messaging-service does not
+  own tenant names) so the FE's tenantName columns become real data. (4) FE alignment: update
+  web/modules/admin-panel/src/services/api/messaging.ts types to the settled contract
+  (compliance/retention pages need no structural change — their tenantId-less calls now legitimately
+  mean platform scope); replace MessagingAuditPage's free-text 'Filter by tenant...' input with a
+  tenant selector fed by the panel's existing tenant list so non-UUID input is impossible. (5) TIER
+  3 gate at the pattern level: new e2e/tests/integration/messaging-admin-contract.spec.ts
+  seeding >=2 tenant schemas and asserting the exact default-page-load requests (GET
+  /messaging/compliance/stats, /messaging/compliance/legal-holds, /messaging/retention/policies,
+  /messaging/audit — all WITHOUT tenantId) return 200 envelopes containing rows from both tenants;
+  tenant-scoped variants return only that tenant's rows; malformed tenantId returns 400. This gate
+  makes any future 'FE default load has no backend capability' regression in this surface fail CI.
+- **Files to change:**
+  - `libs/event-contracts/src/messaging-admin-queries.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/backend-common/src/database/tenant-transaction.ts`
+  - `libs/backend-common/src/database/__tests__/tenant-transaction.spec.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/messaging-service/src/event-handlers/__tests__/messaging-admin-nats.handler.spec.ts`
+  - `apps/messaging-service/src/compliance/services/retention-policy.service.ts`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts`
+  - `apps/messaging-service/src/compliance/services/compliance-audit.service.ts`
+  - `apps/messaging-service/src/compliance/queries/get-retention-policies.query.ts`
+  - `apps/messaging-service/src/compliance/queries/get-retention-policies.handler.ts`
+  - `apps/messaging-service/src/compliance/queries/get-audit-log.query.ts`
+  - `apps/messaging-service/src/compliance/queries/get-audit-log.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `e2e/tests/integration/messaging-admin-contract.spec.ts`
+- **Proof of fix:** New e2e/tests/integration/messaging-admin-contract.spec.ts (multi-tenant seed;
+  asserts the four default-page-load requests without tenantId return 200 with rows from >=2
+  tenants; tenant-scoped requests return only that tenant's rows; malformed tenantId -> 400 not
+  502). Extend libs/backend-common/src/database/**tests**/tenant-transaction.spec.ts for
+  runAcrossTenantSchemas (regex fail-close on schema names, per-schema pin, error isolation per
+  schema). New
+  apps/messaging-service/src/event-handlers/**tests**/messaging-admin-nats.handler.spec.ts asserting
+  scope-discriminant dispatch (platform -> cross-schema aggregation path, tenant ->
+  runInTenantTransaction path, invalid payload -> typed RPC rejection). Existing suites nx affected
+  --target=test must stay green, including tests/invariants/messaging-schema-ssot.spec.ts since no
+  DDL changes.
+- **Effort:** L
+
+### APA-182 [MEDIUM] Hand-written FE types systematically expect enrichment (tenantName/userName/channelName) that no layer produces
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** LegalHold.tenantName/channelName, RetentionPolicy.tenantName,
+  MessagingAuditEntry.tenantName/userName exist only in web/modules/admin-panel/src/services/types —
+  admin-api proxies messaging-service entities verbatim and never joins auth.tenants (the tenant
+  SSoT) or user records. Since admin-api has read access to auth for analytics (app.module.ts
+  comment), the enrichment belongs there; today every 'Tenant' column in this section would render
+  blank. This is the predicted no-codegen drift: FE response types were written against an imagined
+  API, and the controller's own response interfaces (ComplianceStatsResponse, PersonaResponse with
+  isActive, ExportResponse with exportId) don't match what the NATS handlers actually return either
+  — interfaces are compile-time only, so nobody noticed.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/messaging.ts:36-48,65-75,86-97`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts:63-102`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:276-328`
+  - `apps/admin-api-service/src/app.module.ts:97-99`
+- **Root cause:** Systemic no-codegen drift across THREE independently hand-written type layers with
+  zero cross-checking: (1) FE types (services/api/messaging.ts) invent enrichment
+  (LegalHold.tenantName/channelName,
+  RetentionPolicy.tenantName/defaultRetention-enum/nextCleanup/counts,
+  MessagingAuditEntry.tenantName/userName) and offset pagination that no layer produces; (2) the
+  controller's response interfaces drift from the NATS handlers' actual returns
+  (ExportResponse.exportId vs handler jobId, PersonaResponse.isActive vs handler
+  icon/color/capabilities, LegalHoldResponse missing entity fields) — generic type params on
+  sendNatsRequest<T> are unchecked assertions; (3) the release path is runtime-broken: the handler's
+  ReleaseLegalHoldPayload REQUIRES approverId + releaseReason (LEGAL-MEDIUM-002) but the controller
+  sends only {holdId, tenantId, userId}, so every admin-panel legal-hold release fails. No layer
+  joins auth.tenants for names even though admin-api has documented read access to auth
+  (app.module.ts:97-99).
+- **Fix design:** Pattern-level fix at the contract source. (1) Create a shared contract lib
+  libs/admin-contracts/src/messaging-admin.contract.ts: one set of request/response types (and zod
+  or JSON-schema validators for the NATS trust boundary) imported by ALL THREE layers —
+  MessagingAdminNatsHandler return types declared as the contract types (compile error on drift),
+  MessagingAdminController deletes its private interfaces and uses the contract, admin-panel
+  services/api/messaging.ts re-exports the contract types instead of hand-written copies. Tier 1:
+  one source, three consumers, drift is a compile error. (2) Enrichment where the data lives:
+  admin-api gains a TenantDirectoryService (apps/admin-api-service/src/messaging/) reading
+  auth.tenants via its existing read access; the controller composes the contract's Enriched\* DTOs
+  (tenantName, userName) after the NATS reply — the contract defines the enriched shape so the FE
+  column can never reference a field nobody produces. (3) Fix the broken release contract:
+  controller DTO adds approverId + releaseReason (validated, minLength 50), FE releaseLegalHold()
+  and the release UI collect the second approver + justification. (4) Runtime validation at the NATS
+  boundary per repo trust-boundary rule: admin-api validates NATS replies against the contract
+  schema before enveloping. Verification: new contract spec
+  apps/admin-api-service/src/messaging/**tests**/messaging-admin.contract.spec.ts (handler returns
+  satisfy contract via type-level satisfies + schema round-trip) and an integration test exercising
+  createLegalHold→releaseLegalHold end-to-end over NATS.
+- **Files to change:**
+  - `libs/admin-contracts/src/messaging-admin.contract.ts`
+  - `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/messaging/messaging-admin.controller.ts`
+  - `apps/admin-api-service/src/messaging/tenant-directory.service.ts`
+  - `web/modules/admin-panel/src/services/api/messaging.ts`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingLegalHoldsPage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx`
+  - `web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx`
+  - `apps/admin-api-service/src/messaging/__tests__/messaging-admin.contract.spec.ts`
+- **Effort:** L
+
+### APA-183 [MEDIUM] Documented DB-level dual-approver CHECK constraint is missing from the active migration ledger
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** legal-hold.entity.ts and legal-hold.service.ts state that PostgreSQL enforces
+  `chk_legal_hold_no_self_approval` ('so a code regression cannot leak around it'), but the
+  constraint only exists in the ARCHIVED migration 1782700000001-AddLegalHoldDualApprover.ts
+  (.archive/2026-05-18). The active Baseline creates legal_holds WITHOUT any CHECK constraint, so
+  freshly-provisioned databases (and every new tenant-schema clone) lack the schema-level invariant
+  while the code relies on it as defense-in-depth.
+- **Evidence:**
+  - `apps/messaging-service/src/migrations/1800000000000-Baseline.ts:48`
+  - `apps/messaging-service/src/migrations/.archive/2026-05-18T09-42-38-476Z/1782700000001-AddLegalHoldDualApprover.ts:79-84`
+  - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:81-91`
+  - `apps/messaging-service/src/compliance/services/legal-hold.service.ts:253-258`
+- **Root cause:** The baseline squash lost DDL that only lived in a now-archived migration:
+  1800000000000-Baseline.ts:48 creates legal_holds WITH the dual-approver columns
+  (releasedByApprover, releaseReason) but WITHOUT the chk_legal_hold_no_self_approval CHECK, which
+  exists only in .archive/2026-05-18/1782700000001-AddLegalHoldDualApprover.ts:79-84. Entity
+  (legal-hold.entity.ts:85-88) and service (legal-hold.service.ts:253-258) both document the DB as
+  enforcing it ('a code regression cannot leak around it'), so every freshly-provisioned DB and its
+  tenant clones silently lack the documented defense-in-depth. Class: baseline-squash constraint
+  loss with no schema-level invariant test.
+- **Fix design:** Two parts. (1) Restore the constraint via a NEW active migration (never edit
+  Baseline):
+  apps/messaging-service/src/migrations/1802200000000-RestoreLegalHoldNoSelfApprovalCheck.ts,
+  tenant-aware and idempotent, reusing the archived migration's constraintExists guard + ADD
+  CONSTRAINT chk*legal_hold_no_self_approval CHECK ("releasedByApprover" IS NULL OR "releasedBy" <>
+  "releasedByApprover") against the source messaging schema and every tenant*<uuid> schema. Since
+  tenant clones use CREATE TABLE LIKE INCLUDING ALL, fixing the source table also covers all future
+  clones. (2) Tier 3 gate against recurrence of the class: extend
+  e2e/tests/integration/schema-invariants.spec.ts (or the messaging integration suite) to assert
+  pg_constraint contains chk_legal_hold_no_self_approval on messaging.legal_holds and on a
+  provisioned tenant schema — so any future baseline re-squash that drops a documented constraint
+  fails CI instead of silently degrading. Verification: that invariant assertion plus a
+  migration-runner spec run (messaging-migration-runner.spec.ts already exercises the ledger).
+- **Files to change:**
+  - `apps/messaging-service/src/migrations/1802200000000-RestoreLegalHoldNoSelfApprovalCheck.ts`
+  - `e2e/tests/integration/schema-invariants.spec.ts`
+- **Effort:** M
+
+### APA-184 [LOW] Auth/guard chain and schema discipline are correct across the section
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Positive finding: PlatformAdminGuard is a global APP_GUARD requiring SUPER_ADMIN with
+  RS256 verifyAsync + issuer/audience checks, so every messaging admin endpoint is role-protected;
+  the FE path chain resolves correctly (FE '/api' -> nginx rewrite ^/api/(.\*) -> /api/v1/$1 ->
+  bootstrap default globalPrefix 'api/v1' with VERSION_NEUTRAL); and the three compliance entities
+  correctly OMIT schema: (per-tenant tables per the messaging inversion rule), created by the
+  Baseline migration and cloned per tenant. The plumbing is sound — the failures in this section are
+  contract-level, not auth/transport/schema-level.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:277-290`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:148-177`
+  - `infrastructure/nginx/droplet.conf:377-382`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
+  - `apps/messaging-service/src/compliance/entities/legal-hold.entity.ts:22`
+  - `apps/messaging-service/src/migrations/1800000000000-Baseline.ts:46-54`
+- **Root cause:** None — this is a verified POSITIVE finding, re-confirmed against current code:
+  PlatformAdminGuard is registered as APP_GUARD via useExisting (app.module.ts:277-290) with RS256
+  verify + SUPER_ADMIN-only role narrowing (platform-admin.guard.ts:148-177); nginx rewrites
+  ^/api/(.\*) -> /api/v1/$1 to admin-api-service:3000 (droplet.conf:377-383) matching the bootstrap
+  globalPrefix; and the three compliance entities correctly OMIT schema: per the messaging inversion
+  rule (legal-hold.entity.ts:22), created by Baseline and cloned per tenant.
+- **Fix design:** No fix required. Record as a positive control in the audit report: auth, transport
+  routing, and schema discipline are sound for this section — remediation effort should concentrate
+  on the contract-level findings (xc|i3, xc|i4).
+- **Effort:** S
+
+## Finding registry anchors
+
+Registry IDs allocated for findings in this section (store-3 traceability —
+`docs/reviews/_registry/findings.jsonl`):
+
+- `ADMIN-CRITICAL-017` — APA-163 (legal-hold release dual-approver fields dropped across the
+  FE→admin-api→NATS chain).
+- `ADMIN-MEDIUM-034` — Phase-1 RC-5 action-vocabulary drift (APA-162): the MessagingAuditPage action
+  filter offered hand-typed lowercase verbs
+  (`send`/`edit`/`delete`/`create_channel`/`join_channel`/`leave_channel`/`upload_file`) that shared
+  no value with the backend `ComplianceAction` vocabulary stored in `compliance_audit_log.action`
+  (`message_send`/`channel_create`/`legal_hold_toggle`/…), so the action filter never narrowed the
+  result on a SUPER_ADMIN compliance surface. Fixed by adding a checked-in FE mirror
+  `COMPLIANCE_ACTIONS` + `COMPLIANCE_ACTION_LABELS` in `messaging.ts` (admin-panel is a federated
+  remote and cannot import the messaging-service entity), rebuilding
+  `ACTION_OPTIONS`/`ACTION_COLORS` from it with a cast-free type-guarded `actionBadgeClass`, and
+  adding the no-allowlist parity gate `admin-messaging-action-vocab.spec.ts` that asserts the mirror
+  equals the backend `ComplianceAction` vocabulary exactly and bans the dead lowercase verbs (red
+  proven). No admin-api or messaging-service change needed: the messaging-service NATS handler
+  already narrows the wire action via `toComplianceAction` (unrecognised → `null`, never a fake enum
+  member), and its comment records the deliberate decision that `event-contracts` must not import
+  the service entity — so `ComplianceAction` stays domain-local and the FE-mirror + gate is the
+  tier-3 make-detectable ceiling for this federated FE↔backend seam. Same RC-5 architecture as
+  ADMIN-MEDIUM-031/032 and ADMIN-HIGH-033.

@@ -16,7 +16,7 @@
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 
@@ -30,6 +30,10 @@ import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record
 import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
 import { HarvestRecord, QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
+import type {
+  MobileCommandReceiptService,
+  MobileCommandReceiptState,
+} from '@aquaculture/backend-common/mobile-command';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -141,10 +145,18 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
   const backdatePolicy = { validate: jest.fn() };
   const harvestPolicy = { evaluate: jest.fn().mockResolvedValue(undefined) };
-  const mobileCommandReceipts = {
-    begin: jest.fn().mockResolvedValue({ mode: 'execute' }),
+  // MobileCommandReceiptState is `{mode:'legacy'} | {mode:'started', receiptId}
+  // | {mode:'replay', …}`. This double returned `{mode:'execute'}`, which the
+  // union does not admit and no branch of the handler can match — so every test
+  // in this file drove the handler down whatever its unmatched-state path is,
+  // never the receipt-started path the envelope actually produces. The blanket cast on
+  // the enclosing object at the constructor call is what let 'execute' through.
+  const mobileCommandReceipts = stub<MobileCommandReceiptService>({
+    begin: jest
+      .fn()
+      .mockResolvedValue({ mode: 'legacy' } satisfies MobileCommandReceiptState),
     complete: jest.fn().mockResolvedValue(undefined),
-  };
+  });
   const farmStockProjection = {
     refreshContainers: jest.fn().mockResolvedValue(undefined),
   };
@@ -179,7 +191,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
     farmStockProjection as never,
-    mobileCommandReceipts as never,
+    mobileCommandReceipts,
   );
 
   return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };

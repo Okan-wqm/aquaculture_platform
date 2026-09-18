@@ -93,7 +93,7 @@ fn sqlcipher_key_derivation_reuses_shared_helper() {
     // analysis; this invariant document + the actual call
     // site in src/authz/manifest_version_store.rs::open()
     // establish the contract.
-    let _contract = "ManifestVersionStore::open() uses offline_queue::derive_db_encryption_key() — single SQLCipher-key SSoT";
+    let _contract = "ManifestVersionStore::open() routes through db::sqlcipher_factory::open_device_secret(), which delegates to offline_queue::derive_db_encryption_key() — single SQLCipher-key SSoT (EDGE-HIGH-026)";
     assert!(!_contract.is_empty());
 }
 

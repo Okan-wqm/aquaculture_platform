@@ -65,7 +65,7 @@ export function ReportsDuePage(): JSX.Element {
   const deadlinesQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'reportDeadlines'),
     queryFn: async () => {
-      const result = await graphqlRequest<MobileReportDeadlinesQuery>(MOBILE_REPORT_DEADLINES, {});
+      const result = await graphqlRequest(MOBILE_REPORT_DEADLINES, {});
       return result.reportDeadlines;
     },
     enabled: isAuthenticated && !!tenantId && isOnline,

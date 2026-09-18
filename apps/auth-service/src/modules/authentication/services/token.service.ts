@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { readPlatformAdminMfaPolicy } from '@aquaculture/backend-common/security';
 import {
   ISessionManager,
   IUserTokenRevocation,
@@ -12,13 +13,19 @@ import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestj
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
+import {
+  TenantPlan,
+  PLAN_LEVEL,
+  toPlatformCapabilities,
+  type PlatformCapability,
+} from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { LIVE_PLATFORM_CAPABILITY_GRANT_SQL } from '../../tenant/entities/platform-capability-grant.entity';
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { resolveEntitledCapabilities } from '../../tenant/services/permission-catalogue';
 import {
@@ -67,6 +74,14 @@ export interface JwtPayload {
   modules?: string[];
   resourcePermissions?: string[];
   /**
+   * ADR-0016: platform-operator capabilities projected from
+   * `auth.platform_capability_grants` at mint. SUPER_ADMIN only; omitted when
+   * the user holds none (a SUPER_ADMIN with no grant is read-only on the
+   * platform-admin surface). Same staleness contract as `modules`: a grant or
+   * revoke revokes the user's sessions so the claim re-mints immediately.
+   */
+  platformCapabilities?: PlatformCapability[];
+  /**
    * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
    * site authorization). Like `modules`/`resourcePermissions`/`planLevel`, this
    * is an authz claim with the SAME staleness tolerance: a freshly assigned or
@@ -84,10 +99,13 @@ export interface JwtPayload {
   /**
    * Token type discriminator -- prevents refresh tokens from being used as
    * access tokens, and vice versa. The gateway's AuthGuard rejects any token
-   * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens
-   * and opaque refresh tokens cannot be replayed as bearer credentials.
+   * where `type !== 'access'`, ensuring that short-lived MFA challenge tokens,
+   * MFA setup (enrollment) tokens, and opaque refresh tokens cannot be
+   * replayed as bearer credentials. `mfa_setup` (ADR-046) authorizes ONLY the
+   * setupMfa + verifyMfaSetup enrollment pair — MfaService positively requires
+   * it there, and enforceAccessTokenType rejects it on every bearer surface.
    */
-  type: 'access' | 'refresh' | 'mfa_challenge';
+  type: 'access' | 'refresh' | 'mfa_challenge' | 'mfa_setup';
   /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
   firstName?: string;
   /** @deprecated Will be removed in next major version. Fetch from auth-service instead. */
@@ -264,6 +282,28 @@ export class TokenService {
       );
     }
 
+    // ADR-0011 (SEC-CRITICAL-058): a platform admin without MFA cannot hold a
+    // credential, so no code path can skip the check — including the boot-time
+    // SUPER_ADMIN promotion. Enforcement follows the platform switch: until
+    // SUPER_ADMIN_MFA_ENFORCED_AT has passed the mint proceeds and the account
+    // is named in a security event so the operator sees who is un-enrolled.
+    if (user.role === Role.SUPER_ADMIN && !user.mfaEnabled) {
+      const policy = readPlatformAdminMfaPolicy();
+      if (policy.enforced) {
+        throw new ForbiddenException(
+          'A SUPER_ADMIN account must enrol in MFA before it can be issued a token (ADR-0011)',
+        );
+      }
+      this.logger.warn(
+        JSON.stringify({
+          event: 'super_admin_token_without_mfa_enrolment',
+          userId: user.id,
+          mode: policy.mode,
+          enforcedAt: policy.enforcedAt?.toISOString() ?? null,
+        }),
+      );
+    }
+
     const issuedAtEpochSeconds = await this.resolveIssuableEpochSeconds(user.id);
     const establishSession = options?.establishSession ?? true;
 
@@ -295,15 +335,23 @@ export class TokenService {
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
     // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, planLevel, assignedSites, mobileFeatures] =
-      await Promise.all([
-        this.getUserModules(user),
-        this.getUserResourcePermissions(user),
-        this.resolveTenantPlanLevel(effectiveTenantId),
-        this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
-        this.getUserMobileFeatures(user),
-      ]);
+    const [
+      modules,
+      resourcePermissions,
+      tenantPolicy,
+      assignedSites,
+      mobileFeatures,
+      platformCapabilities,
+    ] = await Promise.all([
+      this.getUserModules(user),
+      this.getUserResourcePermissions(user),
+      this.resolveTenantTokenPolicy(effectiveTenantId),
+      this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
+      this.getUserMobileFeatures(user),
+      this.getPlatformCapabilities(user),
+    ]);
     const moduleCodes = modules.map((m) => m.code);
+    const planLevel = tenantPolicy.planLevel;
     const assignedSiteIds = assignedSites.siteIds;
 
     // Generate JWT ID for token blacklisting
@@ -333,6 +381,8 @@ export class TokenService {
       // managers/admins carry no superfluous claim and `'x' in payload` is false.
       ...(assignedSiteIds.length > 0 ? { assignedSiteIds } : {}),
       ...(mobileFeatures.length > 0 ? { mobileFeatures } : {}),
+      // ADR-0016: omitted when empty, like the claims above.
+      ...(platformCapabilities.length > 0 ? { platformCapabilities } : {}),
       type: 'access',
       jti,
       iat: issuedAtEpochSeconds,
@@ -385,6 +435,21 @@ export class TokenService {
       ? this.rememberMeRefreshTokenExpiryDays
       : this.refreshTokenExpiryDays;
 
+    // ADR-046: effective refresh TTL = MIN(configured TTL incl. rememberMe,
+    // tenant session-timeout policy) — the tenant policy WINS, including over
+    // a rememberMe extension. The policy is resolved INSIDE this chokepoint
+    // (resolveTenantTokenPolicy, from the user's own tenant) rather than
+    // threaded by callers, so no mint path — login, both rotation paths,
+    // verifyMfaLogin, verifyStepUp, acceptInvitation, resetPassword, WebAuthn —
+    // can forget the clamp. Applied on every mint (issuance AND rotation), so
+    // a tenant idle window slides forward with activity and a policy REDUCTION
+    // takes effect at the next rotation. Access-token TTL is untouched.
+    const configuredTtlMs = expiryDays * 24 * 60 * 60 * 1000;
+    const effectiveTtlMs =
+      tenantPolicy.sessionTimeoutMinutes === null
+        ? configuredTtlMs
+        : Math.min(configuredTtlMs, tenantPolicy.sessionTimeoutMinutes * 60 * 1000);
+
     // Create refresh token
     const refreshTokenRepository = options.manager.withRepository(this.refreshTokenRepository);
     const refreshToken = refreshTokenRepository.create({
@@ -394,7 +459,7 @@ export class TokenService {
       tenantId: user.tenantId,
       familyId,
       rememberMe,
-      expiresAt: new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + effectiveTtlMs),
       ipAddress,
       userAgent,
     });
@@ -588,24 +653,68 @@ export class TokenService {
   }
 
   /**
-   * Resolve the tenant's plan-tier ordinal for the JWT `planLevel` claim
-   * (MT-MEDIUM-001). Platform accounts with no tenant (SUPER_ADMIN) have no
-   * plan, so the claim is omitted. An unrecognised plan string falls back to 0
-   * (FREE-equivalent) so a data anomaly can never silently unlock a paid tier.
+   * Resolve the per-mint tenant policy in a SINGLE `auth.tenants` read:
+   *
+   *   - `planLevel` — the tenant's plan-tier ordinal for the JWT `planLevel`
+   *     claim (MT-MEDIUM-001). Undefined for platform accounts (SUPER_ADMIN,
+   *     no tenant) so the claim is omitted; an unrecognised plan string falls
+   *     back to 0 (FREE-equivalent) so a data anomaly can never silently
+   *     unlock a paid tier.
+   *   - `sessionTimeoutMinutes` — the ADR-046 idle-session policy that clamps
+   *     the refresh-token TTL. Resolved HERE, inside the single mint
+   *     chokepoint, rather than threaded by callers: that is what makes the
+   *     clamp unforgettable on every path. null = no tenant policy (the
+   *     configured platform TTL applies).
+   *
+   * This widens by one column the same cross-tenant `auth.tenants` read the
+   * planLevel claim already performed on every mint (D14 — auth.tenants is
+   * cross-tenant by design), so it inherits the caller's RLS context (the
+   * login scoped frame / the rotation audited bypass) exactly as before and
+   * adds no round-trip.
    */
-  private async resolveTenantPlanLevel(tenantId: string | null): Promise<number | undefined> {
+  private async resolveTenantTokenPolicy(
+    tenantId: string | null,
+  ): Promise<{ planLevel?: number; sessionTimeoutMinutes: number | null }> {
     if (!tenantId) {
-      return undefined;
+      return { sessionTimeoutMinutes: null };
     }
-    const rows = await this.dataSource.query<Array<{ plan: string }>>(
-      `SELECT plan FROM auth.tenants WHERE id = $1 LIMIT 1`,
-      [tenantId],
+    const rows = await this.dataSource.query<
+      Array<{ plan: string; session_timeout_minutes: number | null }>
+    >(`SELECT plan, session_timeout_minutes FROM auth.tenants WHERE id = $1 LIMIT 1`, [tenantId]);
+    const row = rows[0];
+    if (!row) {
+      return { sessionTimeoutMinutes: null };
+    }
+    const plan = row.plan as TenantPlan | undefined;
+    return {
+      ...(plan ? { planLevel: PLAN_LEVEL[plan] ?? 0 } : {}),
+      sessionTimeoutMinutes: row.session_timeout_minutes ?? null,
+    };
+  }
+
+  /**
+   * ADR-0016: the SUPER_ADMIN's live platform capabilities — the rows of
+   * `auth.platform_capability_grants` that are neither revoked nor expired.
+   * Tenant principals carry no capability claim. Like every authorization
+   * read at mint this is authoritative and fails loud: a query error aborts
+   * the mint rather than issuing a token with a narrower claim than the user
+   * holds (or, worse, with none and a silent read-only downgrade).
+   */
+  private async getPlatformCapabilities(user: User): Promise<PlatformCapability[]> {
+    if (user.role !== Role.SUPER_ADMIN) {
+      return [];
+    }
+    const rows: Array<{ capability: string }> = await this.dataSource.query(
+      `
+      SELECT "capability"
+      FROM "auth"."platform_capability_grants"
+      WHERE "userId" = $1
+        AND ${LIVE_PLATFORM_CAPABILITY_GRANT_SQL}
+      ORDER BY "capability" ASC
+      `,
+      [user.id],
     );
-    const plan = rows[0]?.plan as TenantPlan | undefined;
-    if (!plan) {
-      return undefined;
-    }
-    return PLAN_LEVEL[plan] ?? 0;
+    return toPlatformCapabilities(rows.map((row) => row.capability));
   }
 
   /**

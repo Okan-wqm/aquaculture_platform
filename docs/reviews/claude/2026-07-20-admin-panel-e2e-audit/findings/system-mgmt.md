@@ -1,0 +1,2355 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# System Management — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## FeatureTogglesPage — `/admin/system/features` — verdict: **PARTIAL**
+
+**Chain:** List/create/delete work end-to-end: FE systemSettingsApi
+(web/modules/admin-panel/src/services/api/settings.ts:85-101) -> nginx rewrite /api -> /api/v1
+(infrastructure/nginx/droplet.conf:377-383) -> GlobalSettingsController
+@Controller('system/settings')
+(apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:426) ->
+GlobalSettingsService real TypeORM queries against admin.feature_toggles
+(services/global-settings.service.ts:166-200), table created by Baseline migration
+(apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:56-59). SUPER_ADMIN enforced by
+global APP_GUARD PlatformAdminGuard (src/app.module.ts:283-289,
+src/guards/platform-admin.guard.ts:151-177). However the page's headline Enable/Disable action hits
+a route that does not exist, the Edit form is always rejected by DTO validation, and no code
+anywhere in the platform ever reads or evaluates the toggles - they gate nothing.
+
+**Endpoints exercised:** `GET /api/v1/system/settings/feature-toggles`;
+`POST /api/v1/system/settings/feature-toggles`; `PUT /api/v1/system/settings/feature-toggles/:id`;
+`DELETE /api/v1/system/settings/feature-toggles/:id`;
+`POST /api/v1/system/settings/feature-toggles/:id/toggle (FE-only, no backend route)`;
+`GET /api/v1/system/settings/feature-toggles/key/:key (FE-only, no backend route)`;
+`POST /api/v1/system/settings/feature-toggles/evaluate`
+
+**DB tables:** `admin.feature_toggles`
+
+### APA-260 [HIGH] Enable/Disable button calls POST feature-toggles/:id/toggle which has no backend route (404)
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** FE toggleFeature posts to `/system/settings/feature-toggles/${id}/toggle`
+  (services/api/settings.ts:95-96) and the page's primary Enable/Disable button uses it
+  (FeatureTogglesPage.tsx:105-120). GlobalSettingsController defines only POST feature-toggles, GET,
+  GET/:id, PUT/:id, DELETE/:id, POST evaluate, POST refresh-cache
+  (global-settings.controller.ts:434-489) - there is no :id/toggle route. Every toggle attempt 404s;
+  the contract test knowingly allowlists this drift instead of failing
+  (apps/admin-api-service/src/**tests**/contract-validation.spec.ts:634-639: 'Backend uses PUT ...
+  with status field').
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:95-96`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:105-120`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:434-489`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts:634-639`
+- **Verification:** Confirmed end-to-end and grounded in the current code. FE
+  systemSettingsApi.toggleFeature (settings.ts:95-96) POSTs
+  `/system/settings/feature-toggles/${id}/toggle` with body `{ enabled }` and expects a
+  FeatureToggle back; the FE FeatureToggle type (settings.ts:101-106) and the page's primary
+  Enable/Disable button (FeatureTogglesPage.tsx:105-120, 419-428) both use it.
+  GlobalSettingsController (@Controller('system/settings'), global prefix api/v1) exposes only POST
+  feature-toggles, GET, GET/:id, PUT/:id, DELETE/:id, POST evaluate, POST refresh-cache (controller
+  lines 434-489) — no `:id/toggle`. So every enable/disable hits NestJS's 404 handler while sibling
+  routes resolve. Crucially, the FE contract is already correct: `toggleFeature` sends exactly
+  `{ enabled: boolean }`. The break is a single missing backend link, kept invisible by a FALSE
+  allowlist entry (contract-validation.spec.ts:634-639) whose reason ("Backend uses PUT /:id with
+  status field") is fiction — the edit-modal PUT path (handleUpdate, FeatureTogglesPage.tsx:153-160)
+  omits status entirely, so no working UI path changes enabled/disabled state. correctedSeverity
+  HIGH per prior verdict: a core admin control is 100% non-functional
+  (data-integrity/control-plane), but it is admin-only and non-destructive, not a security/data-loss
+  CRITICAL.
+- **Root cause:** The broken link is the FE->BE REST contract: the FE declares a dedicated semantic
+  toggle action (POST feature-toggles/:id/toggle {enabled}) that the GlobalSettingsController never
+  implemented. It drifted for two compounding reasons. (1) The toggle action was designed FE-first
+  without a matching controller route — the entity `status` column and service `updateFeatureToggle`
+  exist, but no route bridges the FE's boolean intent to a status mutation. (2) The one gate that
+  should have caught it — the static contract-validation test — was told to ignore it via a
+  hand-maintained KNOWN_EXCEPTIONS entry carrying an unverified free-text `reason`. That reason
+  asserted a reconciliation ("backend uses PUT with status field") that does not exist in any FE
+  call path, laundering a genuine 404 into a "known/accepted" mismatch. This is an instance of a
+  systemic class: (a) "FE route with no backend", and more sharply (b) "contract-test allowlist that
+  launders real drift" — KNOWN_EXCEPTIONS reasons are never machine-verified, so an entry can
+  permanently hide a route that should exist.
+- **Fix design:** Fix the contract at the SOURCE by implementing the endpoint the FE already
+  declares, then close the systemic hole in the gate so this class cannot recur. LOCAL (make the
+  declared contract real, Tier-1 for the value semantics — enabled<->status mapping lives
+  server-side, single source of truth): (1) Add a typed DTO
+  `ToggleFeatureDto { @IsBoolean() enabled!: boolean }` (required because the platform
+  ValidationPipe runs whitelist:true+forbidNonWhitelisted:true — an untyped @Body would
+  strip/reject). (2) Add controller route
+  `@Post('feature-toggles/:id/toggle') toggleFeatureToggle(@Param('id') id, @Body() dto: ToggleFeatureDto)`
+  delegating to the service (Controller->Service, no logic in controller). (3) Add service method
+  `toggleFeatureToggle(id, enabled)` that maps boolean->FeatureToggleStatus.ENABLED/DISABLED and
+  routes through the existing update+cache path, keeping the enum mapping in one place. No
+  entity/migration change (the `status` column already exists) and NO FE change (settings.ts already
+  sends `{ enabled }` and the FeatureToggle type already carries `status`) — the whole break was the
+  absent BE link, so implementing it is the minimal root-cause fix. Choosing a dedicated
+  `:id/toggle` route over rewiring the FE onto PUT is deliberate: it honors the FE's existing
+  intent, keeps status-enum knowledge on the server, and is idempotent. PATTERN-LEVEL (Tier-3, make
+  the laundering detectable at test time): remove the now-false KNOWN_EXCEPTIONS entry (spec lines
+  634-639) — once the route exists it is not a mismatch — and add a guard test asserting
+  KNOWN_EXCEPTIONS contains no entry that actually matches a real backend endpoint (matchEndpoint).
+  That guard makes it impossible to allowlist a route while a real backend equivalent exists, and it
+  will force removal of any future stale/false exception because the entry starts failing the moment
+  the true route lands. Removing the entry also re-arms the existing per-domain settings test (spec
+  ~line 871) so the toggle route is now positively required.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Proof of fix:** Extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts: (a)
+  delete the KNOWN_EXCEPTIONS entry at lines 634-639 so the existing settings-domain contract test
+  (line ~871) now requires a backend match for POST /system/settings/feature-toggles/:param/toggle
+  and fails if the route is absent; (b) add a positive assertion in the 'H12 Critical Path
+  Endpoints' describe block — `it('feature toggle enable/disable should have a backend route')` —
+  that finds the FE endpoint and asserts backendEndpoints contains a matchEndpoint for POST
+  feature-toggles/:id/toggle; (c) add a pattern-level guard
+  `it('KNOWN_EXCEPTIONS should not mask routes that actually exist')` iterating KNOWN_EXCEPTIONS and
+  failing on any exception whose url+method matchEndpoint a real backend endpoint. Additionally add
+  a handler-level spec in
+  apps/admin-api-service/src/system-management/**tests**/global-settings.controller.spec.ts (or the
+  existing service spec) asserting toggleFeatureToggle(id, true) sets status=ENABLED and (id, false)
+  sets DISABLED, and that a non-boolean/extra body is rejected by validation. Green run of
+  `nx affected --target=test` for admin-api-service proves FE POST -> BE 200 -> status persisted,
+  with no allowlist masking.
+- **Effort:** S
+
+### APA-261 [HIGH] Edit form always 400s: FE sends scope and isExperimental but UpdateFeatureToggleDto does not whitelist them
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** handleUpdate sends {name, description, scope, category, rolloutPercentage,
+  isExperimental} (FeatureTogglesPage.tsx:153-160). UpdateFeatureToggleDto
+  (global-settings.controller.ts:86-132) has no `scope` and no `isExperimental` fields. The
+  platform-wide ValidationPipe runs with whitelist:true + forbidNonWhitelisted:true
+  (libs/backend-common/src/bootstrap/create-service-app.ts:458-461), so every update request is
+  rejected with 400. Saving an edit can never succeed.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:153-160`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:86-132`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461`
+- **Verification:** Confirmed real against current source. FE handleUpdate
+  (FeatureTogglesPage.tsx:153-160) unconditionally sends {name, description, scope, category,
+  rolloutPercentage, isExperimental} on PUT. UpdateFeatureToggleDto
+  (global-settings.controller.ts:86-132) declares neither `scope` nor `isExperimental`, while its
+  sibling CreateFeatureToggleDto (39-84) declares both — proof of hand-mirror drift. The platform
+  ValidationPipe defaults (create-service-app.ts:458-461) are whitelist:true +
+  forbidNonWhitelisted:true, and admin-api-service passes no override/custom pipe, so any undeclared
+  property throws BadRequestException → 400 on every edit-save. Downstream is fully capable: the
+  entity has both columns (feature-toggle.entity.ts:55-56, 96-97) and the service accepts
+  Partial<FeatureToggle> (global-settings.service.ts:124-139), so only the controller DTO gate is
+  broken. This is an instance of the systemic "DTO-whitelist rejection / body-shape drift" class:
+  write DTOs are hand-authored per resource and can silently omit an editable field, and the
+  whitelist pipe converts each omission into a total 400. The existing FE↔BE contract gate
+  (contract-validation.spec.ts) validates only URL path + HTTP method — it structurally cannot see
+  request-body field mismatches, which is why this passed CI.
+- **Root cause:** The BE contract link broke. Persistence and service already support scope +
+  isExperimental on update (entity columns exist; service takes Partial<FeatureToggle>), and the FE
+  type + form correctly send both. The single failed link is the controller's
+  UpdateFeatureToggleDto: it is a hand-mirrored shape maintained independently of (a) its own
+  CreateFeatureToggleDto sibling, (b) the entity, and (c) the FE editable-field set, and it omitted
+  scope and isExperimental. Under the platform whitelist:true + forbidNonWhitelisted:true
+  ValidationPipe, each omitted-but-sent field is a hard 400, so the edit form can never save.
+  Nothing caught the drift because the FE↔BE contract test only asserts path+method, never body
+  field shape. Systemic class = DTO-whitelist rejection / request-body drift, not a one-off.
+- **Fix design:** Two-layer architectural fix: derive the update contract from the create contract
+  (Tier 1/2), and add a detectable body-shape gate for the whole class (Tier 3).
+
+(1) LOCAL, make Create↔Update drift structurally impossible. Replace the hand-mirrored
+UpdateFeatureToggleDto with one derived from the create DTO using @nestjs/swagger mapped-types (v11
+is a root dep; its PartialType/OmitType preserve class-validator metadata): class
+UpdateFeatureToggleDto extends PartialType(OmitType(CreateFeatureToggleDto, ['key'] as const)) {
+@IsOptional() @IsArray() @IsString({ each: true }) enabledTenants?: string[]; @IsOptional()
+@IsArray() @IsString({ each: true }) disabledTenants?: string[]; @IsOptional() deprecatedAt?: Date;
+@IsOptional() @IsString() deprecationMessage?: string; } This makes every create/edit-form field
+(name, description, scope, category, rolloutPercentage, isExperimental, status, conditions,
+variants, defaultValue, requiresRestart) automatically whitelisted on update — minus the immutable
+`key`, which the FE disables and never sends — while keeping the four update-only fields. Adding a
+field to the create form can no longer 400 on update because both DTOs now share one source. While
+there, strengthen scope validation on CreateFeatureToggleDto from @IsString() to
+@IsEnum(FeatureToggleScope) (Tier 1 value validity — an invalid scope string can currently reach the
+varchar column); it propagates to Update via PartialType.
+
+(2) PATTERN-LEVEL detectable gate (Tier 3), because this is a class, not a one-off. Generalize the
+FE↔BE contract test so it also validates request-body field shape. Extend
+contract-validation.spec.ts with an extraction pass that, for each FE write call (POST/PUT/PATCH)
+whose body is a static object literal, asserts every body key is an allowed property of the matched
+controller handler's @Body() DTO — the SSoT gate that catches this finding and every sibling across
+the panel. Plus a co-located resource-level guard: a spec that runs the exact FE update payload
+through class-validator validate() against UpdateFeatureToggleDto with {whitelist:true,
+forbidNonWhitelisted:true} and asserts zero errors. No defensive code, no whitelist loosening, no
+allowlist entry — the contract is fixed at the source (DTO derives from create + entity-backed
+fields) and drift becomes a red test.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/feature-toggle-dto-contract.spec.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/system-management/**tests**/feature-toggle-dto-contract.spec.ts:
+  plainToInstance(UpdateFeatureToggleDto, { name:'X', description:'d', scope:'global',
+  category:'ui', rolloutPercentage:0, isExperimental:false }) then validate(instance, {
+  whitelist:true, forbidNonWhitelisted:true }) must return [] (fails today on scope+isExperimental
+  unknownValue/whitelistValidation errors, passes after the PartialType refactor); add a negative
+  case sending an unknown key (e.g. bogus:true) that must still be rejected, proving the whitelist
+  stays strict. Extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts with a
+  body-field-superset assertion over FE write endpoints vs their @Body() DTO allowed props — red
+  before the DTO fix, green after, and durable against future body-shape drift. Gate: nx affected
+  --target=test --target=lint green.
+- **Effort:** M
+
+### APA-262 [HIGH] Feature toggles are persisted but consumed by nothing - no gating code exists anywhere
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The only callers of the evaluate endpoint / getFeatureToggleByKey are the admin
+  panel's own unused API wrappers (services/api/settings.ts:88, 97-101). Repo-wide grep finds no
+  backend service, gateway middleware, or frontend module that reads admin.feature_toggles or calls
+  /feature-toggles/evaluate to gate behavior. Creating/enabling a toggle has zero effect on the
+  platform - the page is administrative theater over a real table.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:88`
+  - `web/modules/admin-panel/src/services/api/settings.ts:97-101`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:477-483`
+- **Verification:** Confirmed on re-read. The write chain (FeatureTogglesPage -> admin-api CRUD ->
+  admin.feature_toggles) is intact, and the evaluation engine (global-settings.service.ts:202-303:
+  status, schedule, tenant allow/deny, conditions, percentage bucket, variants) is real — but toggle
+  state propagates only into a process-local Map (featureToggleCache, line 67) inside admin-api
+  itself; there is no event publication, no snapshot RPC, no consumer client, and no FE hook
+  anywhere in the platform. Two latent contract breaks on this exact surface prove zero calls ever
+  happened: (1) the FE evaluate wrapper (settings.ts:97-101) POSTs {key, context} in the body while
+  the controller (global-settings.controller.ts:477-483) reads @Query('key') plus a flat
+  EvaluateFeatureToggleDto — with the platform ValidationPipe (whitelist+forbidNonWhitelisted) that
+  body is a guaranteed 400; (2) FeatureTogglesPage.tsx:108 calls toggleFeature -> POST
+  /system/settings/feature-toggles/:id/toggle, a route the controller does not declare (404 — the
+  page's enable/disable switch is itself broken). This is an instance of the systemic
+  config-table-nobody-reads class, with FE-route-with-no-backend and DTO-shape-mismatch instances
+  riding on the same surface. The repo already remediated the sibling instance (ORPHAN-HIGH-373:
+  legacy admin-api settings stores retired, real dynamic config moved to config-service with the
+  config-runtime contract + backend-common config-client), which is the established pattern this fix
+  must join.
+- **Root cause:** The broken link is the DB->platform consumption edge: the feature was built
+  store-first (UI + CRUD + table + evaluator) and the chain terminates at admin.feature_toggles — no
+  consumption contract was ever defined. No FeatureToggleChanged event exists in
+  libs/event-contracts, no NATS snapshot subject, no consumer client in libs/backend-common, no
+  gateway endpoint or shared-ui hook, and no typed binding between toggle keys and the code paths
+  they should gate (keys are free-text created at runtime, so nothing can compile against them). It
+  drifted because the platform's real dynamic-config distribution architecture was built later
+  around config-service (ConfigurationChanged outbox signal + config.runtime.\* request-reply +
+  libs/backend-common/src/config-client, per config-runtime.ts), and the ORPHAN-HIGH-373 remediation
+  retired the analogous admin-api settings stores but left feature_toggles stranded on the
+  pre-distribution pattern. With no consumer to exercise the contract, the evaluate endpoint
+  (query-vs-body mismatch) and the FE toggle switch (missing /:id/toggle route) silently rotted —
+  the absence of any contract test on this surface is the detection gap that let the theater
+  persist.
+- **Fix design:** Systemic class: config-table-nobody-reads. Fix at pattern level by giving feature
+  toggles the same runtime-distribution contract the repo already established for config-service
+  (config-runtime.ts precedent), plus a typed key registry that makes orphan toggles structurally
+  impossible.
+
+PATTERN LEVEL — feature-toggle runtime contract (Tier 1 + 2):
+
+1. New contract module libs/event-contracts/src/feature-toggle-runtime.ts (exported via index.ts,
+   mirroring config-runtime.ts): (a) FEATURE_TOGGLE_SUBJECTS = { SNAPSHOT:
+   'feature.toggles.snapshot' } — ADR-031-style NATS request-reply, cert-CN identity (exact
+   precedent: INGEST_BACKEND_POLICY_SUBJECTS +
+   apps/admin-api-service/src/policy/services/policy-snapshot.responder.ts); (b) FeatureToggleRule —
+   the wire snapshot shape
+   (key/scope/status/conditions/rolloutPercentage/rolloutSchedule/enabledTenants/disabledTenants/variants/defaultValue),
+   keeping the TypeORM entity as persistence-only per the domain/persistence split; (c)
+   FeatureToggleChangedEvent extends BaseEvent (eventType 'FeatureToggleChanged', metadata-only:
+   key, status, changedAt — no rules payload; consumers re-pull the snapshot), with a \*.schema.ts
+   validator in schemas/ and registration in platform-event-registry.ts; (d) FEATURE_KEYS typed
+   registry: const object of { key, description, defaultEnabled, owner } with type FeatureKey =
+   keyof typeof FEATURE_KEYS — every consumer API takes FeatureKey, so checking an undeclared flag
+   is a compile error, and admin-api rejects create/update for keys outside the registry, so a
+   toggle that gates nothing cannot be created (Tier 1); (e) the pure evaluator moved out of
+   GlobalSettingsService
+   (evaluateFeatureToggle/evaluateWithVariants/evaluateConditions/calculateBucket) into the contract
+   lib so admin-api and every consumer produce identical decisions — single evaluation-semantics
+   SSoT (precedent: canonicalConfigRuntimeBody lives in config-runtime.ts).
+2. Distribution (Tier 2 — automatic): admin-api adds FeatureToggleSnapshotResponder (clone of
+   PolicySnapshotResponder) serving all rules on feature.toggles.snapshot; GlobalSettingsService
+   create/update/delete/toggle writes FeatureToggleChanged through the existing admin_outbox
+   (apps/admin-api-service/src/outbox/) in the same transaction — the process-local Map stops being
+   the propagation mechanism. NATS grants added in infrastructure/nats/services.yaml + regenerated
+   nats.conf in the same commit (ADR-015).
+3. Consumer client libs/backend-common/src/feature-flags/ (FeatureFlagsModule +
+   FeatureFlagsService): snapshot pull on init + TTL re-pull (lost-signal cover, same design as
+   config-client) + FeatureToggleChanged subscription for immediate invalidation; local evaluation
+   via the shared evaluator; fail-closed to the registry's defaultEnabled when the snapshot is
+   unavailable.
+4. FE path: gateway-api controller GET /api/v1/feature-flags returning the evaluated
+   Record<FeatureKey, {enabled, variant?, value?}> for the authenticated tenant/user (uses
+   FeatureFlagsService); web/shared-ui useFeatureFlags()/useFeatureFlag(key: FeatureKey) on TanStack
+   Query keyed with createTenantQueryKey (web/CLAUDE.md invariant); shell/modules consume the hook.
+   Seed FEATURE_KEYS with at least one real production gate wired end-to-end
+   (product-owner-selected, e.g. experimental-module visibility in shell nav) so the chain is
+   exercised, not resurrected as theater.
+
+LOCAL APPLICATION — fix the broken admin-panel contract at the source (no shims):
+EvaluateFeatureToggleDto gains @IsString() key! plus the typed context fields and the controller
+drops @Query('key'), matching the body the FE wrapper already sends; add the missing
+@Post('feature-toggles/:id/toggle') route with an { enabled: boolean } DTO mapping to status
+ENABLED/DISABLED (FeatureTogglesPage.tsx:108 currently 404s); add GET feature-toggles/keys returning
+FEATURE_KEYS so the create form's free-text key input becomes a select; align
+web/modules/admin-panel/src/services/types/settings.ts FeatureToggle type with the entity/DTO in the
+same change.
+
+If the product owner instead rules feature flags out of scope for the platform, the only honest
+alternative is full removal (page + routes + service + entity + table-drop migration) — a partial
+keep is re-shipping the theater. Default recommendation is completion, because the evaluator and
+admin UX already exist and the platform has flag-shaped needs (isExperimental, tenant rollout).
+
+- **Files to change:**
+  - `libs/event-contracts/src/feature-toggle-runtime.ts`
+  - `libs/event-contracts/src/schemas/feature-toggle-runtime.schema.ts`
+  - `libs/event-contracts/src/platform-event-registry.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/services/feature-toggle-snapshot.responder.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/feature-toggle-contract.spec.ts`
+  - `libs/backend-common/src/feature-flags/feature-flags.module.ts`
+  - `libs/backend-common/src/feature-flags/feature-flags.service.ts`
+  - `libs/backend-common/src/index.ts`
+  - `apps/gateway-api/src/routes/feature-flags.controller.ts`
+  - `web/shared-ui/src/hooks/useFeatureFlags.ts`
+  - `web/shared-ui/src/hooks/index.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx`
+  - `infrastructure/nats/services.yaml`
+  - `infrastructure/docker/nats/nats.conf`
+  - `tests/invariants/feature-toggle-consumption.spec.ts`
+  - `e2e/tests/integration/nats-invariants.spec.ts`
+- **Proof of fix:** (1) NEW tests/invariants/feature-toggle-consumption.spec.ts — asserts every
+  FEATURE_KEYS entry has at least one real consumer callsite
+  (FeatureFlagsService.isEnabled/getVariant or useFeatureFlag) outside the flag infrastructure
+  itself, by scanning actual source (not a maintained pass-list): a key declared but consumed
+  nowhere fails CI, which is the structural gate that prevents the config-table-nobody-reads class
+  from regrowing. (2) NEW
+  apps/admin-api-service/src/system-management/**tests**/feature-toggle-contract.spec.ts —
+  integration test bootstrapping the real ValidationPipe (whitelist+forbidNonWhitelisted) and
+  driving the exact request shapes the FE wrappers in
+  web/modules/admin-panel/src/services/api/settings.ts emit: evaluate with body {key,...} returns
+  200 (currently 400), POST /:id/toggle exists and flips status (currently 404), create with an
+  unregistered key returns 400; also asserts every create/update/delete/toggle writes a
+  FeatureToggleChanged row into admin_outbox in the same transaction. (3) EXTEND
+  e2e/tests/integration/nats-invariants.spec.ts — feature.toggles.snapshot grant present in
+  services.yaml SSoT and generated nats.conf, cert-CN only (ADR-015). (4) NEW
+  libs/backend-common/src/feature-flags/**tests**/feature-flags.service.spec.ts — snapshot pull on
+  init, FeatureToggleChanged invalidation, TTL re-pull, fail-closed to registry defaultEnabled when
+  snapshot unavailable. (5) Shared-evaluator unit specs move with the code into
+  libs/event-contracts/src/**tests** (bucket determinism, variant weights, schedule windows, tenant
+  allow/deny) proving admin-api and consumers share one semantics. (6) E2E proof of the full chain
+  in e2e/tests/: toggle a flag via the admin-api route and observe the gateway GET
+  /api/v1/feature-flags response change for a tenant principal.
+- **Effort:** L
+
+### APA-263 [MEDIUM] evaluateFeature FE contract mismatched with backend (key in query vs body) - would 400 if ever used
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE posts body {key, context} (settings.ts:97-101); backend expects key as
+  @Query('key') and the body to be EvaluateFeatureToggleDto (global-settings.controller.ts:477-483,
+  DTO at 134-158) which whitelists neither `key` nor `context` - forbidNonWhitelisted rejects it.
+  Same for getFeatureToggleByKey: GET feature-toggles/key/:key has no backend route (allowlisted at
+  contract-validation.spec.ts:628-632). Both are dead endpoints in the FE API layer.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:88`
+  - `web/modules/admin-panel/src/services/api/settings.ts:97-101`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:477-483`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts:628-632`
+- **Root cause:** FE evaluateFeature POSTs body {key, context} to
+  /system/settings/feature-toggles/evaluate, but the controller
+  (global-settings.controller.ts:477-483) reads key via @Query('key') and binds @Body() to
+  EvaluateFeatureToggleDto (134-158), which whitelists neither `key` nor `context`. Under the
+  platform ValidationPipe (whitelist+forbidNonWhitelisted) both extra body props are rejected ->
+  400, and `key` (never sent as query) is undefined. getFeatureToggleByKey hits GET
+  feature-toggles/key/:key, which does NOT match @Get('feature-toggles/:id') (two path segments vs
+  one) -> 404. Both are instances of the systemic FE-BE contract-drift class: hand-written FE api
+  fns with no shared/generated contract, masked by the KNOWN_DRIFT allowlist (finding xc|i3).
+- **Fix design:** Fix the contract at source. (1) Replace the split query+DTO binding with a single
+  request DTO EvaluateFeatureToggleRequestDto { @IsString key; @ValidateNested @Type(() =>
+  EvaluationContextDto) context } and change the handler to @Body() dto ->
+  service.evaluateFeatureToggle(dto.key, dto.context); this makes the wrong shape structurally
+  impossible (tier 1). (2) Add the missing route @Get('feature-toggles/key/:key') delegating to the
+  already-existing globalSettingsService.getFeatureToggleByKey(key) (service line 161) — the backing
+  method exists, only the route is absent. (3) Remove the corresponding KNOWN_DRIFT allowlist
+  entries (contract-validation.spec.ts:628-632) so the test enforces both routes (tier 3).
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** S
+
+### APA-264 [LOW] No pagination UI despite server-side pagination (default limit 50) - toggles beyond 50 are invisible
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** queryFeatureToggles paginates with default limit 50
+  (global-settings.service.ts:192-196) and returns total, but the page never passes page/limit and
+  renders no pager (FeatureTogglesPage.tsx:67-72), silently truncating the list.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:192-196`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:67-72`
+- **Root cause:** queryFeatureToggles paginates with default limit 50 and returns { items, total }
+  (global-settings.service.ts:192-199), but FeatureTogglesPage.loadData (67-72) never passes
+  page/limit and the page renders no pager; total is discarded. Any tenant/platform with >50 toggles
+  silently loses the tail. Instance of the systemic 'server paginates, FE requests only page 1 and
+  drops meta' class seen across admin-panel list pages.
+- **Fix design:** Add pagination state (page, limit) to FeatureTogglesPage, pass them through
+  getFeatureToggles, and read `total` from the response to render a pager plus 'showing X of total'.
+  Make the FE api fn return the total (the http-client already surfaces {items,total}) and type it
+  so the page cannot ignore it. Because this is a recurring class, prefer a shared paginated-list
+  hook/component in admin-panel used here and by the other system-mgmt list pages so correct
+  pagination is the automatic default (tier 2).
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+- **Effort:** S
+
+## MaintenancePage — `/admin/system/maintenance` — verdict: **BROKEN**
+
+**Chain:** Backend chain is real: GlobalSettingsController system/settings/maintenance routes
+(global-settings.controller.ts:495-580) -> GlobalSettingsService real TypeORM CRUD on
+admin.maintenance_modes (global-settings.service.ts:376-584), table created in Baseline migration
+(1800000000000-Baseline.ts:38-41), plus a cron that auto-starts scheduled windows
+(global-settings.service.ts:819-833). But the page cannot list (envelope shape mismatch always
+yields []), cannot create (payload field rejected by forbidNonWhitelisted), Edit silently POSTs a
+duplicate instead of PUT, and - decisively - no gateway/middleware/frontend consumer of maintenance
+state exists, so a maintenance window blocks nothing.
+
+**Endpoints exercised:** `GET /api/v1/system/settings/maintenance`;
+`POST /api/v1/system/settings/maintenance`;
+`PUT /api/v1/system/settings/maintenance/:id (defined in FE api, never invoked by page)`;
+`POST /api/v1/system/settings/maintenance/:id/start`;
+`POST /api/v1/system/settings/maintenance/:id/end`;
+`POST /api/v1/system/settings/maintenance/:id/cancel`;
+`POST /api/v1/system/settings/maintenance/:id/extend`;
+`GET /api/v1/system/settings/maintenance/check (no consumer anywhere)`
+
+**DB tables:** `admin.maintenance_modes`
+
+### APA-265 [HIGH] Maintenance list is always empty: FE expects a bare array but receives {items,total}
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** queryMaintenanceModes returns {items,total} (global-settings.service.ts:551,
+  582-583). ResponseInterceptor only lifts {data,total} shapes into meta
+  (shared/response.interceptor.ts:47-65), so the envelope is
+  {success,data:{items,total},meta:{timestamp}} with no meta.page; http-client returns envelope.data
+  = {items,total} (services/http-client.ts:341-349). The page then does
+  `Array.isArray(response) ? response : []` (MaintenancePage.tsx:92) - always []. Existing windows
+  in admin.maintenance_modes are never displayed, and start/end/cancel/extend buttons only render on
+  list rows, so every management action is unreachable after a reload.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:582-583`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:47-65`
+  - `web/modules/admin-panel/src/services/http-client.ts:341-349`
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx:92`
+- **Verification:** Prior adversarial verdict (real, HIGH) stands; re-reading the current code
+  confirms every link. queryMaintenanceModes returns {items,total}
+  (global-settings.service.ts:551,582-583); the controller passes it through
+  (global-settings.controller.ts:504-525); ResponseInterceptor lifts only payloads with a 'data' key
+  (response.interceptor.ts:47-65) so the envelope is {success,data:{items,total},meta:{timestamp}};
+  apiFetch sees no meta.page and returns envelope.data (http-client.ts:341-349);
+  MaintenancePage.tsx:92 does Array.isArray(response) ? response : [] which is always []. This is a
+  confirmed instance of a systemic class: at least 12 admin-api service methods return the
+  GraphQL-idiom {items,total} REST payload the envelope cannot lift
+  (global-settings.service.ts:199,583,716,782; error-tracking.service.ts:377,406,451;
+  job-queue.service.ts:543,564; impersonation.service.ts:973; feature-flag-debug.service.ts:165;
+  debug-tools.service.ts:288; custom-plan.service.ts:91-95) while the FE api layer declares
+  PaginatedResult<T> for each. The interceptor contract exists only as duck-typing with no shared
+  type, so nothing binds producer shape to the lift at build or test time.
+- **Root cause:** The break is at the BE service-to-envelope link, caused by two co-existing
+  pagination vocabularies with no reified contract between them. The platform pagination SSoT
+  (libs/backend-common/src/pagination/pagination.dto.ts) canonicalizes {items,total,...} for GraphQL
+  (IStandardPaginatedResult); the admin REST surface has a different implicit contract —
+  ResponseInterceptor duck-lifts {data,total,page,limit,totalPages} into meta, and the FE
+  http-client reassembles PaginatedResult when meta.page exists. That REST contract lives only as an
+  inline structural check in response.interceptor.ts:47-52, imported by nobody, so
+  system-management/impersonation/billing services drifted to the GraphQL items-idiom and the
+  interceptor silently wrapped instead of lifting — 200 OK, no compile error, no failing test. The
+  FE then compounded the drift: services/api/settings.ts correctly declares
+  PaginatedResult<MaintenanceWindow>, but MaintenancePage.tsx ignores its own declared type with a
+  banned defensive shim (Array.isArray ? : [], lines 92/255) and forbidden 'as unknown as' casts
+  (lines 93/136), plus a page-local duplicate MaintenanceWindow interface that hid the fact that the
+  shared FE type (services/types/settings.ts:120-138) is itself stale against the entity enums
+  (nonexistent 'rolling' type, missing rolling_update/database_migration/security_patch, missing
+  'region' scope, missing estimatedDurationMinutes/updatedAt). Because start/end/cancel/extend
+  buttons render only on list rows, the silent shape mismatch makes the entire
+  maintenance-management surface unreachable.
+- **Fix design:** SYSTEMIC CLASS: envelope/shape mismatch ({items,total} REST returns the envelope
+  cannot lift) — fix at pattern level plus local application.
+
+PATTERN (tier 1+2: reify the wire contract; tier 3: gate it):
+
+1. New libs/backend-common/src/pagination/rest-page.ts (decorator-free): export interface
+   RestPage<T> { data: T[]; total: number; page: number; limit: number; totalPages: number },
+   factory toRestPage<T>(items: T[], total: number, page: number, limit: number): RestPage<T>
+   (computes totalPages), and guard isRestPage(value: unknown): value is RestPage<unknown> requiring
+   data-is-array plus all four numeric fields. Export from
+   libs/backend-common/src/pagination/index.ts. This is the single server-side twin of the FE
+   PaginatedResult<T> (web/modules/admin-panel/src/services/types/common.ts).
+2. ResponseInterceptor: replace the inline "'data' in data && 'total' in data" duck check with
+   isRestPage(data) imported from the shared module. Boundary and producers now share one
+   definition; partial shapes can no longer half-lift (today {data,total} without page lifts with
+   page:undefined and the FE "'page' in meta" check still passes — that hole closes).
+3. Convert EVERY admin-api {items,total} producer to return RestPage<T> via toRestPage(), with
+   explicit RestPage<X> return types on service methods so malformed construction is a compile
+   error: global-settings.service (queryFeatureToggles, queryMaintenanceModes, queryVersions,
+   provisioning-templates empty result), error-tracking.service (3 methods), job-queue.service (2),
+   impersonation.service.querySessions, feature-flag-debug.service, debug-tools.service,
+   custom-plan.service (delete its local items-shaped PaginatedResult). Annotate the corresponding
+   controller list endpoints Promise<RestPage<...>>. No allowlist, no stragglers — the gate below
+   forbids them.
+4. New invariant gate tests/invariants/admin-rest-pagination-ssot.spec.ts: (a) static scan of
+   apps/admin-api-service/src (excluding **tests**) fails on any '{ items:' paginated return shape
+   or IStandardPaginatedResult usage — admin-api is REST-only, the GraphQL items-idiom has no
+   consumer that can read it through the envelope; zero-entry baseline, no drift allowlist; (b)
+   asserts response.interceptor.ts imports isRestPage from the pagination SSoT and contains no
+   inline shape check. New behavior spec
+   apps/admin-api-service/src/shared/**tests**/response.interceptor.spec.ts: toRestPage payload
+   lifts to {success,data:[...],meta:{total,page,limit,totalPages,timestamp}}; non-page payload
+   wraps whole with timestamp-only meta.
+
+LOCAL APPLICATION (this finding's chain): 5. queryMaintenanceModes resolves page/limit defaults once
+and returns toRestPage(items,total,page,limit); controller declares
+Promise<RestPage<MaintenanceMode>>. The interceptor then emits meta.page, so apiFetch returns
+{data,total,page,limit,totalPages} — exactly the PaginatedResult<MaintenanceWindow> already declared
+in services/api/settings.ts:104-105. Zero FE http-client or api-fn changes. 6. Fix the FE type at
+the source: align services/types/settings.ts MaintenanceWindow to the entity enums/columns (scope
+adds 'region'; type becomes scheduled|emergency|rolling_update|database_migration|security_patch;
+add estimatedDurationMinutes, updatedAt, affectedTenants). createMaintenanceWindow's Omit<> param
+type inherits the correction. 7. MaintenancePage.tsx: delete the page-local duplicate
+MaintenanceWindow interface (lines 16-36), import the shared type; loadData becomes const result =
+await systemSettingsApi.getMaintenanceWindows(); setMaintenanceList(result.data); delete both
+Array.isArray shims (lines 92, 255) and both 'as unknown as' casts (lines 93, 136 — handleCreate
+uses the typed createMaintenanceWindow return directly). The compiler now enforces the contract end
+to end; the previously-unreachable start/end/cancel/extend/edit actions render from real rows.
+Sibling FE pages consuming the other converted endpoints (errors, jobs, feature-toggles, sessions,
+debug) get the corrected BE emission from this class-wide fix; any page-local shims they carry are
+remediated under their own finding keys.
+
+- **Files to change:**
+  - `libs/backend-common/src/pagination/rest-page.ts`
+  - `libs/backend-common/src/pagination/index.ts`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/shared/__tests__/response.interceptor.spec.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/feature-flag-debug.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/debug-tools.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/__tests__/impersonation.service.token-redaction.spec.ts`
+  - `apps/admin-api-service/src/billing/services/custom-plan.service.ts`
+  - `tests/invariants/admin-rest-pagination-ssot.spec.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx`
+  - `web/modules/admin-panel/src/pages/system/__tests__/MaintenancePage.spec.tsx`
+- **Proof of fix:** (1) NEW tests/invariants/admin-rest-pagination-ssot.spec.ts — zero-allowlist
+  static gate: no '{ items:' paginated return shapes anywhere in apps/admin-api-service/src, and
+  response.interceptor.ts must import isRestPage from @aquaculture/backend-common/pagination; this
+  makes any regression of the whole class build-time detectable. (2) NEW
+  apps/admin-api-service/src/shared/**tests**/response.interceptor.spec.ts —
+  toRestPage(items,total,page,limit) payload produces envelope meta {total,page,limit,totalPages};
+  incomplete shapes wrap whole (proves the lift contract). (3) NEW
+  web/modules/admin-panel/src/pages/system/**tests**/MaintenancePage.spec.tsx — mock
+  systemSettingsApi.getMaintenanceWindows resolving a PaginatedResult with scheduled and in_progress
+  windows; assert rows render with titles and that Start Now/Cancel/End Maintenance buttons are in
+  the document (proves the dead management surface is reachable), and assert setMaintenanceList
+  consumed result.data (no empty-list fallback path exists to assert — it is deleted). (4) EXISTING
+  apps/admin-api-service/src/**tests**/contract-validation.spec.ts (admin-route-contract CI target)
+  stays green — routes unchanged; impersonation.service.token-redaction.spec.ts updated to
+  destructure {data} and stays green. (5) nx affected --target=test and --target=lint green; npm run
+  type-check proves the FE page compiles against the shared MaintenanceWindow type with no casts.
+- **Effort:** M
+
+### APA-266 [HIGH] Schedule Maintenance always 400s: payload includes createdBy which CreateMaintenanceDto does not whitelist
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** handleCreate sends `createdBy: 'admin'` (MaintenancePage.tsx:120-132, field at 130).
+  CreateMaintenanceDto (global-settings.controller.ts:160-212) has no createdBy property. With the
+  global ValidationPipe's forbidNonWhitelisted:true (create-service-app.ts:458-461) every create
+  request is rejected with 400 - the page's primary flow (scheduling a window) can never succeed.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx:120-132`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:160-212`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461`
+- **Verification:** Prior verdict adopted (already adversarially verified). Re-grounded in current
+  code: MaintenancePage.tsx:130 sends createdBy:'admin'; systemSettingsApi.createMaintenanceWindow
+  (services/api/settings.ts:107-108) POSTs it verbatim; CreateMaintenanceDto
+  (global-settings.controller.ts:160-212) whitelists everything else in the payload but not
+  createdBy; the global ValidationPipe (create-service-app.ts:458-497, applied :787, no admin-api
+  override) rejects with 400. HIGH not CRITICAL: the page's primary flow is dead, but no data
+  corruption or security breach occurs. This is an instance of TWO systemic classes: (1)
+  client-asserted actor identity — also CustomPlanBuilderPage.tsx:274/314,
+  DiscountCodePage.tsx:43/95/610, SubscriptionManagementPage.tsx:77/95 ('TODO: get from auth
+  context'), ErrorTrackingPage.tsx:132, support.ts/database.ts request types, and backend
+  DeployVersionDto.deployedBy / RollbackVersionDto.rolledBackBy; billing.ts:70/254 already ships the
+  banned strip-it-client-side shim for the same class; (2) FE-type drift — hand-written request
+  types derived via Omit<> from response models instead of from the backend DTO, made undetectable
+  by MaintenancePage's private duplicate MaintenanceWindow interface bridged with 'as unknown as'
+  casts.
+- **Root cause:** The FE→BE contract broke at the request-DTO boundary, and it broke because actor
+  attribution was modeled on the wrong side of the trust boundary. The backend correctly refused to
+  whitelist createdBy (client-asserted actor identity is spoofable audit data), but it also never
+  derives the actor itself: createMaintenanceMode (controller :495-502) ignores req.user even though
+  MaintenanceMode has createdBy/updatedBy columns (:126-130) and the service signature accepts
+  createdBy? (:391) — so the server abdicated attribution. The FE filled that vacuum: the
+  hand-written response model MaintenanceWindow (services/types/settings.ts:120-138) declares
+  createdBy: string, and the create-payload type is Omit<> of that response model
+  (services/api/settings.ts:107) which does NOT omit createdBy — so the FE type system REQUIRES
+  sending it, and the page satisfies it with the 'admin' placeholder (comment: 'Would come from auth
+  context'). The drift went uncaught because (a) MaintenancePage keeps a private duplicate
+  MaintenanceWindow interface bridged with 'as unknown as' casts, disconnecting even the FE's own
+  type layer, and (b) no build/test gate compares FE payload shapes against Nest DTO whitelists, so
+  forbidNonWhitelisted turned silent type drift into a hard runtime 400.
+- **Fix design:** PATTERN LEVEL (client-asserted actor identity — Tier 1, make it impossible): actor
+  identity is ALWAYS server-derived from the RS256-verified JWT; no request DTO in admin-api may
+  declare an actor field. (a) Add requireAuthUser(req): AuthenticatedUser to
+  apps/admin-api-service/src/shared/authenticated-request.ts — throws UnauthorizedException if
+  req.user is absent (unreachable behind the global PlatformAdminGuard APP\*GUARD; the throw
+  replaces the existing defensive `user?.email || user?.id || 'admin'` fallback chain with an
+  explicit contract). (b) Tighten GlobalSettingsService.createMaintenanceMode's param from
+  `createdBy?: string` to required `createdBy: string` so a controller that forgets to supply the
+  actor fails compilation (same for updateMaintenanceMode → updatedBy). (c) Tier-3 gate: new
+  source-scanning invariant spec that fails if any class-validator request DTO under
+  apps/admin-api-service/src/\**/controllers/ declares an actor-named property
+  (createdBy|updatedBy|deployedBy|rolledBackBy|resolvedBy|performedBy), preventing recurrence
+  platform-wide in admin-api. LOCAL APPLICATION (backend): global-settings.controller.ts —
+  createMaintenanceMode gains @Req() req; pass createdBy = requireAuthUser(req).email ??
+  requireAuthUser(req).id into the service (email is an optional JWT claim; id is
+  compiler-required). updateMaintenanceMode likewise sets updatedBy (column exists, currently never
+  written). Apply the same pattern to the sibling violations in this controller: delete deployedBy
+  from DeployVersionDto (DTO becomes empty → drop the body param) and rolledBackBy from
+  RollbackVersionDto (keeps reason), deriving both from requireAuthUser — grep confirms no FE caller
+  sends them, so no consumer breaks. Do NOT add createdBy to CreateMaintenanceDto: whitelisting it
+  would ship spoofable audit attribution. LOCAL APPLICATION (frontend, fixing the type at the
+  SOURCE): services/types/settings.ts — correct MaintenanceWindow to mirror the entity (scope gains
+  'region'; type becomes the real 5-value enum
+  scheduled|emergency|rolling*update|database_migration|security_patch; add
+  estimatedDurationMinutes, affectedTenants, updatedBy?, updatedAt) and add an explicit
+  CreateMaintenanceWindowRequest that mirrors CreateMaintenanceDto exactly (no createdBy, no
+  status/actual\*/id/timestamps) plus UpdateMaintenanceWindowRequest =
+  Partial<CreateMaintenanceWindowRequest>. services/api/settings.ts —
+  createMaintenanceWindow/updateMaintenanceWindow take these request types instead of
+  Omit<>-of-response-model, so the request contract is no longer derived from the response shape.
+  MaintenancePage.tsx — delete the page-local duplicate MaintenanceWindow interface and import the
+  shared type; delete `createdBy: 'admin'` from apiData and annotate
+  `const apiData: CreateMaintenanceWindowRequest = {...}` so TS excess-property checking makes
+  reintroducing createdBy a compile error; remove the now-unnecessary
+  `as 'scheduled'|'emergency'|'rolling'` narrowing casts (the unified type accepts all five real
+  values, incidentally fixing the latent bug where the form offers
+  rolling_update/database_migration/security_patch but the payload type forbade them) and the
+  `as unknown as MaintenanceWindow` cast on the create response.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/authenticated-request.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx`
+  - `apps/admin-api-service/src/system-management/__tests__/global-settings.maintenance-contract.spec.ts`
+  - `tests/invariants/admin-api-actor-attribution.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/system-management/**tests**/global-settings.maintenance-contract.spec.ts:
+  boot a Nest testing module with GlobalSettingsController, mocked GlobalSettingsService/repos
+  (reuse the mock-repo helpers from the adjacent provisioning-config.spec.ts), the REAL platform
+  pipe options ({whitelist:true, forbidNonWhitelisted:true, transform:true}) and a guard stub that
+  attaches req.user={id,sub,email,...}; assert (1) POST /system/settings/maintenance with the exact
+  FE-shaped payload (no createdBy) → 201 and the service receives createdBy === the JWT identity
+  (never 'admin'), (2) the same payload WITH createdBy:'admin' → 400 (proves the whitelist stays
+  authoritative and was not loosened), (3) PUT sets updatedBy from the JWT. Pattern gate: new
+  tests/invariants/admin-api-actor-attribution.spec.ts scans admin-api controller sources and fails
+  on any request-DTO actor-field declaration (would flag DeployVersionDto/RollbackVersionDto today,
+  green after this fix). FE compile-time proof: npm run type-check — with createMaintenanceWindow
+  typed against CreateMaintenanceWindowRequest and apiData annotated, re-adding createdBy to the
+  payload is a tsc error. Then nx affected --target=test && nx affected --target=lint green.
+- **Effort:** M
+
+### APA-267 [HIGH] Maintenance mode blocks nothing - checkMaintenanceMode has zero consumers
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** GET system/settings/maintenance/check (global-settings.controller.ts:527-540) and
+  GlobalSettingsService.checkMaintenanceMode (global-settings.service.ts:469-519) are called by no
+  gateway middleware, no service guard, and no frontend shell code - grep of gateway-api/src for
+  'maintenance' returns nothing, and the only web reference is the unused FE wrapper
+  checkMaintenanceStatus (services/api/settings.ts:119-120). The cron auto-starts windows every
+  minute (global-settings.service.ts:819-833) but an 'in_progress' global maintenance has no effect
+  on any request path. Flags like allowReadOnlyAccess/bypassForSuperAdmins/whitelistedIPs are stored
+  and never enforced.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:527-540`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:469-519`
+  - `web/modules/admin-panel/src/services/api/settings.ts:119-120`
+- **Verification:** Prior adversarial verification confirmed: checkMaintenanceMode
+  (apps/admin-api-service/src/system-management/services/global-settings.service.ts:469-519) has
+  zero enforcement consumers — its only callers are the admin controller endpoint
+  (global-settings.controller.ts:527-540) and display-only getSystemStatus() (lines 913-928).
+  Re-reading the code confirms two structural reasons enforcement could never have existed: (1) the
+  check endpoint takes its trust inputs (isSuperAdmin, ipAddress, userId, tenantId) as
+  caller-supplied query params — a trust inversion that marks it as a self-report API, not an
+  enforcement primitive; (2) it sits behind the global PlatformAdminGuard (SUPER_ADMIN JWT
+  required), so neither gateway-api nor the tenant-facing shell could legitimately call it. The
+  EVERY_MINUTE cron (lines 819-833) flips windows to in_progress with no downstream effect;
+  allowReadOnlyAccess/bypassForSuperAdmins/whitelistedIPs/whitelistedUsers
+  (maintenance-mode.entity.ts:105-115) are stored, evaluated inside the dead function, and enforced
+  nowhere. Severity HIGH (not CRITICAL) stands: it is a silently non-functional operator control
+  (dangerous false confidence during migrations/security patches) but not an active exploit path.
+- **Root cause:** The broken link is BE-to-ingress: the control plane (FE MaintenancePage ->
+  admin-api CRUD -> admin.maintenance_modes) is complete, but the data plane — a consumer at the
+  platform ingress that reads maintenance state and blocks requests — was never built. It drifted
+  because the feature was designed as a poll endpoint inside admin-api-service rather than as
+  distributed policy: the check endpoint's caller-supplied identity params and its placement behind
+  PlatformAdminGuard made it structurally unconsumable by gateway-api or the shell, and nothing in
+  the type system, module wiring, or tests required a consumer to exist, so the CRUD half shipped
+  and passed review alone. This is an instance of the systemic 'config-table-nobody-reads' /
+  control-plane-without-data-plane class. The repo has already solved this exact class once —
+  ADR-031 ingest-backend-policy, where admin-api-service publishes a policy snapshot + change events
+  over NATS and the enforcement point (Rust sidecar) hydrates via request-reply at cold start and
+  hot-swaps in memory (src/policy/services/policy-snapshot.responder.ts,
+  ingest-backend-policy.service.ts) — but maintenance mode was built outside that pattern.
+- **Fix design:** PATTERN-LEVEL: apply the established ADR-031 policy-distribution pattern
+  (admin-api = policy authority; NATS snapshot request-reply + change event; enforcement point holds
+  a hot-swapped in-memory snapshot) — this is the repo's canonical cure for control-plane state that
+  a data-plane must enforce, and reusing it makes the wrong architecture (per-request HTTP poll to
+  admin-api, or nothing) impossible to justify. LOCAL APPLICATION, five parts. (1) Contract — new
+  libs/event-contracts/src/maintenance-policy.ts: MaintenancePolicySnapshot (only active/enforceable
+  windows projected to enforcement fields: id, scope, tenantId, affectedTenants,
+  allowReadOnlyAccess, bypassForSuperAdmins, whitelistedIPs, whitelistedUsers, title, userMessage,
+  scheduledEnd; plus generatedAt/version), MaintenancePolicyChangedEvent extends BaseEvent
+  (eventType 'MaintenancePolicyChanged', flat per ADR-006, built with createBaseEvent(), carrying
+  the full new snapshot so consumers swap without a read-back race), MAINTENANCE_POLICY_SUBJECTS {
+  snapshot: 'policy.maintenance.snapshot', changed: 'policy.maintenance.changed' } mirroring
+  INGEST_BACKEND_POLICY_SUBJECTS, a JSON Schema validator in schemas/ (trust-boundary crossing), AND
+  the pure decision function evaluateMaintenancePolicy(snapshot, { tenantId, ipAddress, userId,
+  isSuperAdmin, isWriteRequest }) — the existing checkMaintenanceMode logic
+  (scope/bypass/whitelist/read-only evaluation) moves here verbatim so admin-api and gateway share
+  ONE implementation (Tier-1: decision-logic drift becomes impossible). (2) Publisher
+  (admin-api-service) — new MaintenancePolicyPublisher in system-management/services: hangs off the
+  single persistence choke point updateMaintenanceMode() (which start/end/cancel/extend AND the
+  EVERY_MINUTE cron all already funnel through, global-settings.service.ts:424-467,819-833) plus
+  createMaintenanceMode; after each save it recomputes the active-window snapshot and publishes
+  MaintenancePolicyChanged via NatsEventBus (Tier-2: no future state transition can skip
+  publication); a MaintenancePolicySnapshotResponder registers the policy.maintenance.snapshot
+  request-reply exactly like PolicySnapshotResponder does for ingest-backend. NATS ACL: add
+  admin_api publish grants for policy.maintenance.\* and gateway_api subscribe grant to
+  infrastructure/nats/services.yaml and regenerate nats.conf via scripts/nats/generate-nats-conf.py
+  in the same commit (cert-CN SSoT rule). (3) Enforcement (gateway-api) — new MaintenancePolicyStore
+  service: hydrates via request-reply on module init, subscribes policy.maintenance.changed for
+  hot-swap, 60s TTL re-fetch as lost-signal fallback (same durability posture as ADR-031); fail-open
+  on hydration failure with a structured error log + metric (absence of an availability-REDUCING
+  control must not take the platform down). New MaintenanceGuard registered as global APP_GUARD in
+  apps/gateway-api/src/app.module.ts AFTER AuthGuard and TenantIsolationGuard (existing ordered
+  slots at lines 545-590), so it reads tenantId/userId/roles from the VERIFIED JWT on request.user
+  and ipAddress from the connection — killing the trust inversion; it calls
+  evaluateMaintenancePolicy() against the in-memory snapshot (zero per-request I/O) and throws
+  ServiceUnavailableException with a typed body { maintenance: { title, message, estimatedEnd } } +
+  Retry-After header; @SkipMaintenance() decorator applied only to health endpoints and the auth
+  login/refresh proxy routes (super admins must be able to authenticate to exercise
+  bypassForSuperAdmins; the admin panel itself reaches admin-api-service directly via nginx, so
+  operators can always end maintenance); allowReadOnlyAccess admits GET/HEAD/OPTIONS only; the
+  WebSocket adapters consult the same store at connection upgrade. (4) Repurpose, not delete, the
+  existing surface — GET system/settings/maintenance/check stays as the admin observability endpoint
+  but derives isSuperAdmin/userId from the authenticated request context instead of query params
+  (tenantId may remain a query param as an explicit admin 'preview as tenant' input);
+  GlobalSettingsService.checkMaintenanceMode becomes a thin wrapper over
+  evaluateMaintenancePolicy(currentSnapshot, ...); the orphaned FE wrapper checkMaintenanceStatus
+  (web/modules/admin-panel/src/services/api/settings.ts:119-120) gains its consumer: MaintenancePage
+  renders a live 'effective platform status' panel from it. (5) FE user-facing half — the shared
+  fetch/GraphQL error layer (web/shared-ui/src/utils/graphql-utils.ts) recognizes the typed 503
+  maintenance body and web/shell renders a MaintenanceScreen (title, userMessage, estimatedEnd,
+  read-only notice) instead of a generic error; no shell polling needed — the 503 body IS the
+  signal. No defensive ?., no shims: one contract module, one evaluator, one publish choke point.
+- **Files to change:**
+  - `libs/event-contracts/src/maintenance-policy.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/event-contracts/src/schemas/maintenance-policy.schema.ts`
+  - `libs/event-contracts/src/schemas/__tests__/maintenance-policy.schema.spec.ts`
+  - `infrastructure/nats/services.yaml`
+  - `infrastructure/docker/nats/nats.conf`
+  - `apps/admin-api-service/src/system-management/services/maintenance-policy.publisher.ts`
+  - `apps/admin-api-service/src/system-management/services/maintenance-policy-snapshot.responder.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/maintenance-policy.publisher.spec.ts`
+  - `apps/gateway-api/src/services/maintenance-policy.store.ts`
+  - `apps/gateway-api/src/guards/maintenance.guard.ts`
+  - `apps/gateway-api/src/guards/__tests__/maintenance.guard.spec.ts`
+  - `apps/gateway-api/src/app.module.ts`
+  - `e2e/tests/integration/maintenance-enforcement.spec.ts`
+  - `e2e/tests/integration/nats-invariants.spec.ts`
+  - `web/shared-ui/src/utils/graphql-utils.ts`
+  - `web/shell/src/components/MaintenanceScreen.tsx`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/pages (MaintenancePage effective-status panel)`
+- **Proof of fix:** Three layers. (1) Unit (London-school):
+  apps/gateway-api/src/guards/**tests**/maintenance.guard.spec.ts — in-memory global in_progress
+  snapshot yields 503 with Retry-After and typed body for a tenant user; bypassForSuperAdmins
+  honored from JWT roles (and provably NOT from any request param); whitelisted IP/user pass;
+  allowReadOnlyAccess admits GET and rejects POST; empty snapshot passes everything;
+  @SkipMaintenance routes (health, auth) always pass.
+  apps/admin-api-service/src/system-management/**tests**/maintenance-policy.publisher.spec.ts —
+  every transition path (create, start, end, cancel, extend, and the EVERY_MINUTE cron auto-start)
+  publishes exactly one MaintenancePolicyChanged carrying the recomputed snapshot;
+  evaluateMaintenancePolicy shared-function spec in libs/event-contracts covers the
+  scope/bypass/whitelist matrix once for both consumers. (2) Contract/ACL invariant: extend
+  e2e/tests/integration/nats-invariants.spec.ts to assert services.yaml grants admin_api publish and
+  gateway_api subscribe on policy.maintenance.\* (same cross-check the ingest-backend subjects get),
+  and libs/event-contracts/src/schemas/**tests**/maintenance-policy.schema.spec.ts validates the
+  wire shape. (3) The closing-the-loop proof — new
+  e2e/tests/integration/maintenance-enforcement.spec.ts: POST a maintenance window via admin API,
+  start it, assert a tenant-scoped request through gateway-api returns 503 with the maintenance body
+  within the propagation window, assert a super-admin request passes when bypassForSuperAdmins=true,
+  end maintenance, assert 200 resumes. This E2E is the pattern-level gate for the
+  config-table-nobody-reads class: the admin control and its enforcement effect are asserted in one
+  test, so the consumer can never silently disappear again.
+- **Effort:** L
+
+### APA-268 [HIGH] Edit modal submits via handleCreate - updates are silently turned into duplicate creations
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The modal footer button is `onClick={handleCreate}` for both create and edit modes
+  (MaintenancePage.tsx:715-720); the label says 'Update' but the handler always POSTs a new window.
+  systemSettingsApi.updateMaintenanceWindow (settings.ts:109-110) is never called anywhere. Even if
+  the create 400 were fixed, editing would fork a duplicate row instead of updating.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx:715-720`
+  - `web/modules/admin-panel/src/services/api/settings.ts:109-110`
+- **Verification:** Confirmed against current code. The FE->BE->DB chain is fully intact at every
+  link EXCEPT the frontend dispatch decision. Backend: PUT /system/settings/maintenance/:id ->
+  globalSettingsService.updateMaintenanceMode is live (global-settings.controller.ts:547-557),
+  UpdateMaintenanceDto is fully defined and whitelist-safe (317-376), the MaintenanceMode entity
+  declares schema 'admin' and is baselined. FE client: systemSettingsApi.updateMaintenanceWindow(id,
+  data) already exists (settings.ts:109-110) but has zero callers. The break is purely in
+  MaintenancePage.tsx: the modal footer submit is hardcoded onClick={handleCreate} for both modes
+  (715); the 'Update' label toggles but the handler does not (111-145 unconditionally POSTs via
+  createMaintenanceWindow and never reads selectedMaintenance.id). selectedMaintenance is set on
+  Edit (531) and formData pre-filled (532-542) but never consumed by any submit path, and
+  handleCreate's success branch only calls setShowCreateModal(false), never
+  setShowEditModal(false)/setSelectedMaintenance(null). Net effect: editing a scheduled window forks
+  a duplicate row instead of updating. The identical sibling FeatureTogglesPage.tsx in the same
+  system/ folder implements the correct pattern (handleUpdate at 148-171 calling
+  updateFeatureToggle(selectedToggle.id, ...) and onClick={showEditModal ? handleUpdate :
+  handleCreate} at 568), proving MaintenancePage is a half-wired regression, not a backend/contract
+  gap. HIGH stands: silent data-integrity corruption (duplicate maintenance windows) with no
+  user-visible failure.
+- **Root cause:** The broken link is the FE submit-dispatch decision inside MaintenancePage.tsx;
+  backend, DTO, migration, and even the FE api method are all correct and present. The page is a
+  SHARED create/edit modal driven by two independent booleans (showCreateModal, showEditModal) plus
+  a nullable selectedMaintenance. An Edit affordance was bolted onto an originally create-only modal
+  (Edit button pre-fills formData + sets selectedMaintenance, the heading/label toggle to
+  'Edit'/'Update'), but the submit path was never branched: no handleUpdate was written and the
+  button stayed hardcoded to handleCreate, which always calls createMaintenanceWindow (POST) and
+  never uses the selected id. systemSettingsApi.updateMaintenanceWindow therefore became dead code.
+  It drifted because nothing structurally forces the edit mode to invoke the update verb -- the
+  choice of handler is a free onClick binding a developer must remember to branch. The proof it is a
+  wiring omission and not a design gap is the sibling FeatureTogglesPage.tsx (same system/
+  directory, same twin-boolean shared-modal shape) which branches correctly (onClick={showEditModal
+  ? handleUpdate : handleCreate}, 568) and closes/clears state on update success. This is a systemic
+  class: 'shared create/edit modal whose submit must branch on mode; edit silently degrades to a
+  duplicate create when the branch is forgotten, leaving the update API as uncalled dead code.' Both
+  system/ pages share the modal shape; only MaintenancePage regressed, and there is no test gate
+  catching an edit-submit that calls create.
+- **Fix design:** Fix at the source (the page's modal dispatch), mirror the established in-repo
+  sibling pattern, and add a pattern-level detection gate so the class cannot silently recur.
+
+LOCAL APPLICATION (tier 2 -- make the correct behaviour the default, matching FeatureTogglesPage):
+
+1. Add handleUpdate() to MaintenancePage.tsx: guard `if (!selectedMaintenance) return;`, build the
+   SAME apiData mapping used by handleCreate
+   (title/description/scope/type/scheduledStart/scheduledEnd/userMessage/allowReadOnlyAccess/bypassForSuperAdmins/estimatedDurationMinutes),
+   call `await systemSettingsApi.updateMaintenanceWindow(selectedMaintenance.id, apiData)`, then on
+   success replace the row in maintenanceList by id (maintenanceList.map(m => m.id === updated.id ?
+   updated : m)), and reset state: setShowEditModal(false); setSelectedMaintenance(null);
+   setFormData(defaultForm) -- exactly as FeatureTogglesPage handleUpdate (148-171) does.
+2. Branch the footer submit button (currently line 715) to
+   `onClick={showEditModal ? handleUpdate : handleCreate}`, mirroring FeatureTogglesPage:568. This
+   alone activates the already-present, already-correct updateMaintenanceWindow endpoint and
+   eliminates the duplicate-creation fork.
+
+RECOMMENDED TIER-1 HARDENING (make the wrong behaviour impossible for this page): collapse the twin
+booleans + nullable selection into one discriminated union modalState: { mode: 'closed' } | { mode:
+'create' } | { mode: 'edit'; target: MaintenanceWindow }, and a single handleSubmit that
+switch/exhausts on modalState.mode with a `default: never` assertion. In the 'edit' branch target.id
+is structurally in scope, so calling create with no id is an obvious error and an unhandled mode is
+a compile error -- the 'edit-forks-to-create' class is then structurally removed and enforced by
+tsc.
+
+PATTERN-LEVEL DETECTION (tier 3 -- gate the whole system/ shared-modal folder): add a Vitest +
+@testing-library/react component spec that mocks systemSettingsApi, renders the page with one
+scheduled window, clicks Edit, edits the title, clicks Update, and asserts updateMaintenanceWindow
+was called once with (row.id, objectContaining({ title })) AND createMaintenanceWindow was NOT
+called; plus a create-mode case asserting the inverse. This encodes the 'edit submits update, not
+create' invariant that no test currently guards, and should parallel equivalent coverage for the
+sibling FeatureTogglesPage so the shared-modal pattern is locked for both system/ pages.
+
+No backend/DTO/migration/api-client change is required -- updateMaintenanceWindow(id, data) already
+exists; this is a source-level FE dispatch fix plus a regression gate.
+
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/system/MaintenancePage.tsx`
+  - `web/modules/admin-panel/src/pages/system/__tests__/MaintenancePage.spec.tsx`
+- **Proof of fix:** New spec
+  web/modules/admin-panel/src/pages/system/**tests**/MaintenancePage.spec.tsx (Vitest +
+  @testing-library/react, following the existing src/pages/**tests**/\*.spec.tsx convention): (a)
+  EDIT case -- render with a mocked scheduled window, click Edit, change title, click Update; assert
+  systemSettingsApi.updateMaintenanceWindow toHaveBeenCalledTimes(1) with (window.id,
+  expect.objectContaining({ title: <new> })) and systemSettingsApi.createMaintenanceWindow
+  not.toHaveBeenCalled(); (b) CREATE case -- open Schedule Maintenance, fill required fields,
+  submit; assert the inverse (create called, update not). If the discriminated-union hardening is
+  applied, `npm run type-check` (tsc --noEmit) additionally enforces the exhaustive submit switch.
+  Gate: `nx affected --target=test` + `nx affected --target=lint` green.
+- **Effort:** S
+
+## PerformanceDashboardPage — `/admin/system/performance` — verdict: **PARTIAL**
+
+**Chain:** FE (settings.ts:129-154) -> PerformanceController @Controller('system/performance')
+(performance.controller.ts:80) -> PerformanceMonitoringService. Real parts: database metrics are
+genuine pg_stat_activity/pg_stat_database queries (performance-monitoring.service.ts:333-395);
+container health is real HTTP probes to service /health/live endpoints through the circuit breaker
+(l.464-548); CPU/memory/disk come from os.cpus()/os.totalmem()/fs.statfsSync (l.436-457); snapshots
+are persisted per minute to admin.performance_snapshots (l.768-801, Baseline.ts:35-37). Fake/dead
+parts: all application metrics (response time, error rate, throughput, apdex, service breakdown) are
+read from admin.performance_metrics which has NO producer - not Prometheus, not
+observability-service - so they are permanently zero. Not fabricated random numbers, but
+structurally-empty telemetry rendered as a healthy system.
+
+**Endpoints exercised:** `GET /api/v1/system/performance/dashboard`;
+`GET /api/v1/system/performance/infrastructure`; `GET /api/v1/system/performance/database`;
+`POST /api/v1/system/performance/metrics (ingestion endpoint, zero callers)`;
+`POST /api/v1/system/performance/metrics/request (ingestion endpoint, zero callers)`
+
+**DB tables:** `admin.performance_metrics`, `admin.performance_snapshots`
+
+### APA-269 [HIGH] Application metrics have no producer - response time/error rate/throughput/apdex are permanently zero and rendered as healthy
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** getApplicationMetrics/getServiceBreakdown/trends all read admin.performance_metrics
+  (performance-monitoring.service.ts:228-285, 587-618, 638-666). The only writers are POST
+  /system/performance/metrics and /metrics/request (performance.controller.ts:260-278), which sit
+  behind the global SUPER_ADMIN PlatformAdminGuard (app.module.ts:283-289) and have zero callers
+  repo-wide (grep: recordRequestMetric referenced only by its own controller). No HTTP-metrics
+  interceptor feeds it, and observability-service/Prometheus (ServiceMetricsModule,
+  app.module.ts:215-218) is a separate scrape surface never consulted by this dashboard. Result: the
+  dashboard permanently shows 0ms response time, 0% error rate, apdex 1, empty trends and 'No
+  service data available' regardless of real system behavior - silent wrong data.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts:228-285`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts:260-278`
+  - `apps/admin-api-service/src/app.module.ts:283-289`
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts:638-666`
+- **Verification:** Re-read all cited code plus the surrounding metrics architecture. The finding
+  holds exactly as described and is an instance of a SYSTEMIC class: "a read model with no wired
+  producer" existing alongside a real automatic producer that was never connected.
+
+Two independent metrics subsystems live in this repo and were never joined: (1) REAL, AUTOMATIC
+PRODUCER — `MetricsMiddleware` + `ServiceMetricsService` (prom-client) in
+libs/backend-common/src/metrics/_. ServiceMetricsModule.configure() applies MetricsMiddleware to
+`forRoutes('_')`, so EVERY HTTP request in EVERY service (admin-api imports ServiceMetricsModule at app.module.ts:218) automatically observes `http_request_duration_seconds{method,route,status_code}`+`http_requests_total`. A deployed Prometheus (infrastructure/monitoring/droplet/prometheus.yml, job `aqua-services`, file_sd from the catalog SSoT) scrapes every backend's @Public /metrics endpoint every 60s. This surface is populated with real numbers with zero developer effort. (2) BESPOKE, HAND-FED READ MODEL — `admin.performance_metrics` +
+PerformanceMonitoringService. The dashboard readers (getApplicationMetrics :228-285,
+getPerformanceDashboard.trends :587-618, getServiceBreakdown :638-666, calculateApdexScore :287-327)
+all query this table. Its only writers are recordMetric() and
+recordRequestMetric()→aggregateRequestMetrics() (drains an in-memory Map in the EVERY_MINUTE cron
+:803-847). recordRequestMetric has zero callers repo-wide, and the POST ingress
+(performance.controller.ts :260-278 /metrics, /metrics/request, /metrics/flush) sits behind the
+global SUPER_ADMIN PlatformAdminGuard (app.module.ts:283-289) with zero callers. So the Map is
+always empty → the cron writes no RESPONSE_TIME/THROUGHPUT/ERROR_RATE/REQUEST_COUNT/APDEX rows →
+every app-metric read returns 0 (apdex defaulted to 1, serviceBreakdown empty). The FE
+(PerformanceDashboardPage.tsx:130-141) then renders 0ms/0%/apdex-1/"No service data available" with
+GREEN health colors — silent wrong data presented as healthy.
+
+The same disease is independently confirmed platform-wide: observability-service's
+MetricsAggregatorService.aggregateSystemMetrics() (:411-482) hardcodes avgLatency:0, errorRate:0,
+totalApiCalls24h:0 with the comment "Would require centralized request logging" — i.e., nobody
+in-app reads the automatic producer. There is NO in-app PromQL query client anywhere (grep for
+api/v1/query, PROMETHEUS_URL, queryRange = empty; observability's PrometheusService is itself just
+another prom-client EXPOSITION registry, not a reader). The missing architectural link is a READER
+over the automatic producer. Prior verdict (high / HIGH) stands.
+
+- **Root cause:** see reasoning
+- **Fix design:** Architectural principle (tier 1/2 — make the real producer the source and make
+  correct behavior automatic): application/service HTTP performance metrics MUST be DERIVED from the
+  same automatic producer that already records every request platform-wide — the prom-client
+  `http_request_duration_seconds` / `http_requests_total` families scraped into Prometheus — NOT
+  from a hand-fed table. Rejected alternative (Option B: register an admin-api interceptor that
+  calls recordRequestMetric, and have every service POST /metrics/request to admin-api) because it
+  duplicates the existing prom-client pipeline, only captures admin-api's own traffic without a
+  cross-service HTTP fan-in, and that fan-in is a coupling/back-pressure anti-pattern — it rebuilds
+  an inferior second metrics bus.
+
+PATTERN-LEVEL FIX (shared, reused by admin-api and later observability-service):
+
+1. Add a shared PromQL reader `PrometheusQueryService` in libs/backend-common/src/metrics/ (instant
+   `query()` + `queryRange()` against the Prometheus HTTP API `/api/v1/query[_range]`, base from a
+   required `PROMETHEUS_URL` env, wrapped in the existing CircuitBreakerService fail-open-degraded
+   so a Prometheus outage degrades rather than hangs). Expose it via a new `PrometheusQueryModule`
+   and export from the metrics barrel index. This is the missing "reader over the automatic
+   producer" — the SAME gap observability-service admits in aggregateSystemMetrics.
+
+LOCAL APPLICATION (admin-api): 2. Rewrite PerformanceMonitoringService.getApplicationMetrics,
+getServiceBreakdown, calculateApdexScore, and the dashboard `trends` block to compute from PromQL
+over the real families: avg via rate(\_sum)/rate(\_count); p95/p99 via histogram_quantile over
+\_bucket; throughput via sum(rate(http_requests_total[range])); errorRate via
+sum(rate(http_requests_total{status_code=~"5.."}))/sum(rate(...))\*100; apdex from \_bucket le<=0.5
+(satisfied) + le<=2 (tolerated)/total; serviceBreakdown grouped `by (app)` (the file_sd target
+label); trends via queryRange. Return an explicit `metricsBackend: 'ok' | 'unavailable'` in the
+dashboard payload — when Prometheus is unreachable the dashboard renders an honest "metrics backend
+unavailable" state, never silent healthy zeros. 3. DELETE the dead ingest path so the illusion
+cannot re-form: remove recordRequestMetric, aggregateRequestMetrics,
+recordMetric/flushMetrics/metricsBuffer/requestMetrics, and the POST /system/performance/metrics,
+/metrics/request, /metrics/flush endpoints + their DTOs. Drop the now-unused
+`admin.performance_metrics` table via a NEW blue-green-safe migration (generate, never hand-edit
+Baseline) and drop the PerformanceMetric entity + its forFeature registration. Repurpose the
+EVERY_MINUTE snapshot cron to persist the PromQL-DERIVED dashboard into PerformanceSnapshot (now
+real numbers) so history survives. (Same-class sibling: getSlowQueries/getMetricHistory read
+DB_QUERY_TIME rows that also have no producer — flag as the identical class; route DB query-time to
+pg_stat_statements or a postgres-exporter PromQL series in a follow-up finding, out of this
+finding's app-metrics scope.) 4. FE: extend the PerformanceDashboard type with `metricsBackend` and
+render an explicit unavailable banner in PerformanceDashboardPage.tsx instead of green zeros; remove
+the mapping's silent `?? 0`/`?? 1` defaults that manufacture healthy values.
+
+DETECTABLE (tier 3 — so this cannot regress): (a) integration spec proving the readers derive real
+non-zero values from fixture PromQL series and emit metricsBackend:'unavailable' (never silent
+zeros) when the client is down; (b) an invariant that admin-api exposes NO metrics-ingest POST route
+with zero callers and that PerformanceMonitoringService no longer contains the dead
+recordRequestMetric/aggregateRequestMetrics path — closing the producer↔reader loop that
+metrics-endpoint-adoption.spec.ts only checks on the producer side today.
+
+- **Files to change:**
+  - `libs/backend-common/src/metrics/prometheus-query.service.ts`
+  - `libs/backend-common/src/metrics/prometheus-query.module.ts`
+  - `libs/backend-common/src/metrics/index.ts`
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `apps/admin-api-service/src/system-management/entities/performance-metric.entity.ts`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx`
+  - `apps/admin-api-service/src/system-management/__tests__/performance-monitoring.prometheus.spec.ts`
+  - `tests/invariants/metrics-read-model-producer.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/system-management/**tests**/performance-monitoring.prometheus.spec.ts
+  (London-school): mock PrometheusQueryService to return fixture
+  http_request_duration_seconds_bucket/http_requests_total series and assert getApplicationMetrics
+  returns the DERIVED non-zero avgResponseTime/p95/p99/throughput/errorRate/apdex,
+  getServiceBreakdown returns rows grouped by app, and getPerformanceDashboard.trends is populated;
+  then make the mock throw/return unavailable and assert the payload carries
+  metricsBackend:'unavailable' (proving no silent healthy zeros). Add
+  tests/invariants/metrics-read-model-producer.spec.ts asserting (1) PerformanceController exposes
+  no POST metrics-ingest routes and PerformanceMonitoringService no longer declares
+  recordRequestMetric/aggregateRequestMetrics/recordMetric (dead-producer gate), and (2) the
+  app-metric read methods reference PrometheusQueryService (reader-over-real-producer). Add a new
+  blue-green migration test/existing schema-invariants run to confirm admin.performance_metrics is
+  dropped cleanly. Run nx affected --target=test and --target=lint green.
+- **Effort:** L
+
+### APA-270 [MEDIUM] 'Infrastructure Metrics' are the admin-api container's own OS stats presented as platform infrastructure
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** cpuUsage/memoryUsage/diskUsage come from os.cpus(), os.totalmem()/freemem() and
+  fs.statfsSync('/') inside the admin-api process (performance-monitoring.service.ts:436-457) - i.e.
+  one container's cgroup view, not platform telemetry. The page titles this 'Infrastructure Metrics'
+  and colors thresholds off it (PerformanceDashboardPage.tsx:503-592). Operators see admin-api's own
+  container load and will read it as fleet health.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts:436-457`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx:503-592`
+- **Verification:** Confirmed and reachable end-to-end. FE PerformanceDashboardPage.tsx:120/144
+  calls systemSettingsApi.getInfrastructureMetrics() (settings.ts:146) ->
+  apiFetch('/system/performance/infrastructure') -> nginx /api/_->/api/v1/_ -> PerformanceController
+  @Get('infrastructure') (globalPrefix api/v1, SUPER*ADMIN guard) ->
+  PerformanceMonitoringService.getInfrastructureMetrics(), whose cpuUsage/memoryUsage/diskUsage come
+  from os.cpus(), os.totalmem()/freemem() and fs.statfsSync('/') (lines 436-457) — the admin-api
+  process's own node/OS view, not fleet telemetry. os.totalmem/freemem are not even cgroup-aware, so
+  this is the host node the admin-api pod lands on, one node in the fleet. The FE labels it
+  'Infrastructure Metrics' (503-592) plus top CPU/Memory stat cards (380-424) and colors
+  green/yellow/red thresholds off it. Impact is amplified: the same single-node values feed
+  checkThresholds() CPU/MEM/DISK alerts (697-699) and the persisted snapshot.infrastructureMetrics
+  -> calculateHealthScore() (870-875), so admin-api's own load moves the platform 'Active
+  Performance Alerts' banner and 'Overall System Health' score. During an incident a SUPER_ADMIN can
+  be falsely reassured (a farm/sensor node at 99% CPU or disk-full is invisible — only admin-api's
+  node shows) or falsely alarmed (admin-api busy -> whole platform reads red). The 'Healthy
+  Containers'/network-latency portion of the same method IS genuine cross-service health
+  (per-service /health/live probes, 465-548), which makes the mixed card worse: part real fleet
+  data, part single-node, under one header. Two facts confirm the systemic gap: os.*/statfs appears
+  in exactly ONE file across all apps/ (this service), and nothing anywhere records
+  CPU*USAGE/MEMORY_USAGE/DISK_USAGE metric rows, so the trends.cpuUsage/memoryUsage charts (595-617)
+  that read those from the table are perpetually empty — there is no fleet resource-telemetry
+  pipeline; the live os.* read is the only source. This is an instance of a systemic class: a
+  service computing a platform-scope metric from its own process and presenting it as fleet-wide.
+  Real and reachable, so not NOT_A_BUG. Corrected HIGH->MEDIUM: an
+  observability-accuracy/mislabeling defect (misleads operators, drives phantom alerts and a wrong
+  health score) rather than a functional break, security exposure, or data loss — a lying dashboard,
+  most dangerous during an incident but not itself an outage or breach.
+- **Root cause:** The FE->BE->endpoint chain is intact; the break is at the data-source layer inside
+  getInfrastructureMetrics. The 'Infrastructure Metrics' label (and its role feeding overall
+  health + threshold alerts) promises platform/fleet scope, but the implementation delivers the
+  admin-api single process's node scope by reading Node os.cpus()/os.totalmem()/os.freemem() and
+  fs.statfsSync('/'). It drifted because the platform has no fleet resource-telemetry pipeline wired
+  into admin-api: nothing records CPU_USAGE/MEMORY_USAGE/DISK_USAGE metric rows, so instead of
+  aggregating real per-node/per-service telemetry from the observability SSoT the code took the
+  local os.\* shortcut, which produces plausible-looking numbers on one node and 'worked' locally.
+  The platform's observability-service (Prometheus/tracing) is the SSoT for infrastructure
+  telemetry, but this service bypasses it entirely.
+- **Fix design:** Root-cause architectural fix — source infrastructure resource metrics from the
+  platform telemetry SSoT and make single-node-as-fleet structurally impossible (tier 1/2), not
+  merely relabel (tier 4 relabeling is disallowed because the real source exists). (1) Change the
+  contract so scope is explicit and a single-process reading cannot satisfy it: redefine
+  InfrastructureMetrics to carry a per-node breakdown, e.g. nodes: Array<{ host: string; service:
+  string; cpuUsage: number; memoryUsage: number; diskUsage: number }> plus fleet aggregates (max/avg
+  across nodes). A single os.\* read cannot populate nodes[] for the fleet, so the type forces real
+  aggregation. (2) Implement getInfrastructureMetrics by querying the
+  observability-service/Prometheus SSoT via the already-present signed internal HTTP pattern
+  (buildSignedInternalHeaders is imported and used for the health probes in the same method) and
+  aggregating cpu/mem/disk across all service nodes; remove
+  os.cpus/os.totalmem/os.freemem/fs.statfsSync from admin-api. If per-node resource telemetry is not
+  yet exposed there, the highest available tier is to have each service self-report its own
+  cpu/mem/disk as MetricType.CPU_USAGE/MEMORY_USAGE/DISK_USAGE rows tagged with service (also
+  closing the gap that leaves trends.cpuUsage/memoryUsage empty today) and have
+  getInfrastructureMetrics aggregate those rows from performance_metrics keyed by service/host — the
+  same table the trends block already reads. Either way the persisted snapshot, checkThresholds
+  alerts, and calculateHealthScore then operate on true fleet data. (3) FE: update the
+  getInfrastructureMetrics return type in settings.ts and render fleet aggregates plus the per-node
+  breakdown so 'Infrastructure Metrics' is unambiguously fleet-scoped (or per-node with hostname),
+  not one anonymous node. (4) Pattern-level detectability gate for the systemic class: add an
+  invariant test forbidding os.cpus/os.totalmem/os.freemem/os.loadavg/fs.statfsSync inside admin-api
+  service code that backs platform/infrastructure dashboards, so a future 'read my own process and
+  call it platform health' regression fails at test time.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx`
+  - `apps/observability-service/src (expose or consume a per-node resource-telemetry endpoint if absent)`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/system-management/**tests**/performance-monitoring.infrastructure-source.spec.ts:
+  mock the observability/telemetry client (or the stored CPU_USAGE/MEMORY_USAGE/DISK_USAGE metric
+  rows) and assert getInfrastructureMetrics aggregates a fleet nodes[] and never returns a
+  single-process os reading — spy-assert os.cpus/os.totalmem/fs.statfsSync are invoked zero times.
+  Add a source-level invariant tests/invariants/no-process-os-as-platform-metric.spec.ts that scans
+  admin-api service sources and fails on os.cpus/os.totalmem/os.freemem/os.loadavg/fs.statfsSync.
+  Extend the PerformanceDashboardPage test to assert the Infrastructure Metrics card renders the
+  per-node/host breakdown shape, and add a contract test asserting the FE settings.ts type and the
+  BE InfrastructureMetrics interface both include the nodes[] field.
+- **Effort:** L
+
+### APA-271 [MEDIUM] Time-range selector is a silent no-op: FE sends start/end, backend reads startDate/endDate
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE builds `?start=...&end=...` (settings.ts:129-130 spreads timeRange {start,end};
+  PerformanceDashboardPage.tsx:116-119). The controller reads @Query('startDate')/@Query('endDate')
+  (performance.controller.ts:88-98), so both are always undefined and the service falls back to its
+  default last-hour window (performance-monitoring.service.ts:577-578). Selecting 'Son 5 Dakika' vs
+  'Son 24 Saat' changes nothing; no error is surfaced.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:129-130`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx:116-119`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts:88-98`
+- **Root cause:** getPerformanceDashboard spreads timeRange {start,end} into the query string
+  (settings.ts:129-130) producing ?start=...&end=..., but
+  PerformanceController.getPerformanceDashboard reads @Query('startDate')/@Query('endDate')
+  (performance.controller.ts:88-98). The names never match, so startDate/endDate are undefined and
+  the service falls back to its default last-hour window
+  (performance-monitoring.service.ts:577-578); the time-range selector is a silent no-op.
+  getPerformanceMetrics (settings.ts:131-132) has the identical start/end vs startDate/endDate
+  defect. Instance of the systemic query-param-name-drift class (same as errors date filter, xc|i3).
+- **Fix design:** Align the FE to the backend param contract: have the performance api fns emit
+  startDate/endDate (rename the spread keys or map timeRange -> {startDate,endDate}) in
+  getPerformanceDashboard and getPerformanceMetrics. To prevent recurrence, extend the
+  contract-validation gate to compare query-param names (not just path+method) so start/startDate
+  mismatches fail at test time (tier 3). Standardizing on startDate/endDate matches every other
+  performance/maintenance query in the controllers.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** S
+
+### APA-272 [MEDIUM] Health probes hardcode droplet docker hostnames; charts are an explicit placeholder
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Service probes target fixed hostnames aqua-auth/aqua-gateway/...
+  (performance-monitoring.service.ts:465-476) - outside the droplet compose network
+  containerCount/healthyContainers read 0/0. The 'Performance Trends' card is a hardcoded
+  'Interactive Charts Coming Soon' placeholder (PerformanceDashboardPage.tsx:594-633); trends data
+  (always empty anyway) is only shown as a datapoint count.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts:465-476`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx:594-633`
+- **Root cause:** Two coupled issues. (a) Container/network health probes hardcode droplet compose
+  hostnames (http://aqua-auth:3000 ... performance-monitoring.service.ts:465-476); anywhere those
+  DNS names don't resolve (dev, k8s, renamed compose) every probe fails and the fallback reports
+  containerCount/healthyContainers=0/0, which the FE renders as an honest-looking '0/0 healthy'
+  rather than 'unknown'. (b) The 'Performance Trends' card is an explicit hardcoded placeholder
+  (PerformanceDashboardPage.tsx:594-633) — trends are fetched but never charted, only shown as a
+  datapoint count.
+- **Fix design:** (a) Drive the probe target list from configuration (inject a PERF_HEALTH_ENDPOINTS
+  config/registry value, defaulting to the compose names but overridable per environment) instead of
+  a hardcoded array, and when a probe cannot run surface an explicit unknown/degraded state to the
+  FE instead of 0/0 (make the metric honest). (b) Replace the placeholder card with a real trends
+  chart bound to dashboard.trends using the platform's charting approach (dataviz), or, if charting
+  is genuinely deferred, gate it behind a tracked finding with owner+deadline per CLAUDE.md rather
+  than shipping a permanent 'Coming Soon'.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts`
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx`
+- **Effort:** M
+
+### APA-273 [LOW] When no snapshot exists the FE fabricates healthScore 100 / apdex 1 defaults
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** If currentSnapshot is null (fresh deploy), the FE mapping substitutes healthScore
+  100, errorRate 0, apdex 1 (PerformanceDashboardPage.tsx:130-141) - an invented perfect score
+  instead of an honest empty state. The top-level `healthScore` the backend actually computes
+  (performance-monitoring.service.ts:624-635) is ignored by the FE mapping.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx:130-141`
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts:624-635`
+- **Root cause:** When the backend has no snapshot (fresh deploy) getPerformanceDashboard returns
+  currentSnapshot=null, so the FE mapping (PerformanceDashboardPage.tsx:130-141) substitutes
+  invented perfect values: healthScore ?? 100, apdexScore ?? 1, errorRate ?? 0 — a fake 100/100
+  healthy state instead of an honest empty state. Separately the FE reads
+  apiSnapshot.overallHealthScore and ignores the top-level healthScore the backend actually computes
+  via calculateHealthScore (performance-monitoring.service.ts:624/633). The mapping leans on
+  `as Record<string, unknown>` casts because the FE PerformanceDashboard type (flat currentSnapshot)
+  diverges from the backend shape (nested applicationMetrics) — the unvalidated-shape /
+  FE-type-drift class, and the casts themselves violate the repo's no-`as` rule.
+- **Fix design:** Fix the shape at source so no fabrication or casts are needed: define one shared
+  PerformanceDashboard response contract (flat currentSnapshot with
+  healthScore/avgResponseTime/errorRate/throughput/apdexScore) and have the backend return exactly
+  that (moving overallHealthScore/applicationMetrics into the flat shape), then have the FE consume
+  it directly and render an explicit empty/'no data yet' state when currentSnapshot is null instead
+  of defaulting to 100/1. FE must read the backend-computed top-level healthScore. This removes the
+  ?? 100/?? 1 defaults (tier 1/2) and the `as` casts.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts`
+- **Effort:** M
+
+## ErrorTrackingPage — `/admin/system/errors` — verdict: **BROKEN**
+
+**Chain:** Backend is a genuine Sentry-style implementation: ErrorTrackingController system/errors
+routes (error-tracking.controller.ts:197-407) -> ErrorTrackingService with real fingerprinting,
+grouping, regression detection and dashboard aggregation against admin.error_groups /
+admin.error_occurrences / admin.error_alert_rules (error-tracking.service.ts:85-175, 650-751; tables
+in Baseline.ts:65-69). But the chain is dead at both ends: ingestion (POST /system/errors/report)
+has zero callers and is unreachable to services because the global guard demands a SUPER_ADMIN user
+JWT, so the tables are permanently empty; and on the FE, the paginated-envelope mismatch sets
+errorGroups to undefined causing a render crash the moment the API succeeds. Status actions
+additionally hit a nonexistent route (acknowledge) or a non-whitelisted body field (resolve).
+Alert-rule notification handlers are log-only stubs.
+
+**Endpoints exercised:** `GET /api/v1/system/errors/dashboard`; `GET /api/v1/system/errors/groups`;
+`GET /api/v1/system/errors/groups/:id/occurrences`;
+`PUT /api/v1/system/errors/groups/:id/status (FE-only, backend is PUT groups/:id)`;
+`POST /api/v1/system/errors/groups/:id/resolve`; `POST /api/v1/system/errors/groups/:id/ignore`;
+`POST /api/v1/system/errors/report (ingestion, zero callers)`
+
+**DB tables:** `admin.error_groups`, `admin.error_occurrences`, `admin.error_alert_rules`
+
+### APA-274 [HIGH] No error ingestion exists: POST /system/errors/report has zero callers and is blocked for services by the SUPER_ADMIN guard
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** reportError (error-tracking.controller.ts:235-237) is the only write path into
+  admin.error_occurrences/error_groups. Repo-wide grep finds no service, gateway hook, exception
+  filter, or frontend that calls /system/errors/report (only a docs mention in
+  docs/audits/tenant-platform/2026-03-14/discovery/d20-observability.md:346). The global APP_GUARD
+  PlatformAdminGuard requires a SUPER_ADMIN user token on every admin-api route
+  (app.module.ts:283-289, platform-admin.guard.ts:151-177), so backend services could not report
+  errors even if they tried. The tracking tables are structurally empty; the page will forever say
+  'All systems are running smoothly' (ErrorTrackingPage.tsx:346-351) while real errors go untracked.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:235-237`
+  - `apps/admin-api-service/src/app.module.ts:283-289`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:151-177`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx:346-351`
+- **Verification:** Confirmed on all links. (1) reportError (error-tracking.service.ts:85) is called
+  ONLY by @Post('report') (controller:236-237); repo-wide grep for reportError/errors/report yields
+  no service, filter, gateway, lib, or FE caller — only docs. (2) FE settings.ts +
+  ErrorTrackingPage.tsx only READ (getErrorGroups/getErrorDashboard) and hit
+  dashboard/groups/resolve/ignore/status — never /report. (3) @Post('report') is not @Public (no
+  @Public in system-management/), so the global APP_GUARD PlatformAdminGuard (app.module.ts:283-286)
+  requires a SUPER_ADMIN RS256 human JWT (guard:90-179 + enforceAccessTokenType). Backend services
+  authenticate via mTLS NATS cert CN (ADR-015), never a SUPER_ADMIN token, so they are structurally
+  incapable of calling the ingestion endpoint. (4) SystemManagementModule has no
+  @EventPattern/@MessagePattern consumer; admin-api's only @EventPattern is tenant-onboarding; no
+  PlatformErrorReported-style contract exists in libs/event-contracts. (5) admin-api
+  GlobalExceptionFilter and the shared backend-common filters only format envelopes + log — none
+  emit an ingestion event or call reportError. Net: admin.error_groups/error_occurrences are
+  unwriteable in normal operation; the page permanently shows 'All systems are running smoothly'
+  while real errors go untracked (active false assurance). Lowering CRITICAL->HIGH: the feature is
+  entirely dead and misleading, but there is no data-corruption, security, or tenant-isolation
+  impact, and errors are still captured by StructuredLogger/Prometheus/observability-service — this
+  is a monitoring blind spot in one admin tool, not a platform-critical outage. This is a systemic
+  'FE page reads a table nobody writes' / severed-write-chain defect, compounded by a trust-boundary
+  mismatch: a machine-to-machine ingestion concern was placed behind a human-operator SUPER_ADMIN
+  HTTP guard on a platform whose M2M standard is NATS cert-CN identity.
+- **Root cause:** The FE->BE->DB READ chain (page -> getErrorGroups/getErrorDashboard -> service ->
+  repo -> admin.error_groups/error_occurrences) is intact, but the WRITE (ingestion) chain is
+  severed at two points. (a) No producer: the drift is that reportError was built as an HTTP
+  endpoint expecting a caller, but no service, shared exception filter, gateway hook, or client was
+  ever wired to feed it — the ingestion feature shipped as tables + service + controller + FE page
+  with zero source of data. (b) Wrong trust boundary: cross-service error ingestion is a
+  machine-to-machine concern, yet the single ingestion path sits behind the human-operator
+  SUPER_ADMIN guard. On this platform M2M identity is an mTLS NATS cert CN (ADR-015), not a
+  SUPER_ADMIN JWT, so backend services are architecturally unable to authenticate to POST
+  /system/errors/report — the endpoint's auth model contradicts the identity model of its only
+  plausible callers.
+- **Fix design:** Move ingestion off the HTTP/human-auth plane onto the NATS/cert-identity plane
+  where M2M belongs, and make it automatic so every service reports errors for free. Tier 2
+  (automatic): in the SHARED exception path that every service already runs (the backend-common
+  exception filter and/or StructuredLoggerService), emit a PlatformErrorReported event via
+  @platform/event-bus through the outbox (reliable, non-blocking) whenever a 5xx / error-level with
+  a stack is produced. Because this lives in the shared bootstrap path, every service gains error
+  ingestion with no per-service wiring. Consumer: add an
+  @EventPattern('events.\*.PlatformErrorReported') handler in admin-api's system-management module
+  that calls errorTrackingService.reportError(...). A NATS message handler is NOT subject to the
+  HTTP PlatformAdminGuard (which guards only HTTP routes), so this resolves the 'guard blocks
+  services' root cause structurally — admin-api already runs exactly this pattern in
+  tenant/handlers/tenant-onboarding-ack.handler.ts. Event contract: add a PlatformErrorReported
+  interface (extends BaseEvent, PascalCase eventType, flat object per ADR-006) built with
+  createBaseEvent(), exported from index.ts, plus a JSON Schema validator in
+  libs/event-contracts/schemas/ because a service writing into admin-api's tables is a
+  trust-boundary crossing. HTTP endpoint disposition: remove the unreachable @Post('report') to
+  eliminate the competing/dead ingestion contract (the event path is the SSoT); if a synchronous
+  client-side error report is ever genuinely needed, it must be re-scoped behind the
+  service-identity/HMAC signed-request guard (service-identity.util.ts), never SUPER_ADMIN. Tier 3
+  (detectable): an integration test drives a service exception -> asserts a PlatformErrorReported
+  event is emitted, then publishes it into admin-api -> asserts a row lands in
+  admin.error_groups/error_occurrences and surfaces in getErrorDashboard, closing the loop against
+  regression to a dead pipeline.
+- **Files to change:**
+  - `libs/event-contracts/src/observability-events.ts`
+  - `libs/event-contracts/src/index.ts`
+  - `libs/event-contracts/src/schemas/platform-error-reported.schema.ts`
+  - `libs/backend-common/src/filters/http-exception.filter.ts`
+  - `apps/admin-api-service/src/system-management/handlers/platform-error-reported.handler.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/integration/error-ingestion.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/system-management/**tests**/integration/error-ingestion.spec.ts: (1)
+  publish a PlatformErrorReported NATS event -> assert the @EventPattern handler persists an
+  ErrorGroup + ErrorOccurrence row in admin.error_groups/error_occurrences and that
+  getErrorDashboard()/queryErrorGroups() then return it (loop closed, no SUPER_ADMIN token in the
+  path); (2) assert the ingestion path requires NO SUPER_ADMIN HTTP auth (it is a message consumer).
+  Extend a backend-common shared-filter unit spec to assert a 5xx emits exactly one
+  PlatformErrorReported event via the outbox. Add/extend an event-contract validator spec proving
+  PlatformErrorReported conforms to its JSON Schema and is built via createBaseEvent(). Add a
+  guard/contract assertion that POST /system/errors/report is removed (or, if retained, rejected for
+  a SUPER_ADMIN-less service identity only via the signed-request guard, not the SUPER_ADMIN guard).
+- **Effort:** L
+
+### APA-275 [CRITICAL] Page crashes on any successful load once data exists: reads .data from an {items,total} response
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** queryErrorGroups returns {items,total} (error-tracking.service.ts:376-377); after the
+  ResponseInterceptor/http-client unwrap (response.interceptor.ts:47-65, http-client.ts:341-349) the
+  FE receives {items,total}, but the page does setErrorGroups(groupsData.data)
+  (ErrorTrackingPage.tsx:82) - undefined. The next render executes `errorGroups.map(...)` at
+  ErrorTrackingPage.tsx:170 and throws TypeError, unmounting the page. Same bug in the detail modal:
+  occurrencesData.data (l.118-119) is undefined -> errorOccurrences.length crashes (l.505,517). The
+  FE PaginatedResult type ({data,total,page,...}, services/types/common.ts:5-11) never matches what
+  the backend sends.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx:82`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx:170`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts:376-377`
+  - `web/modules/admin-panel/src/services/types/common.ts:5-11`
+- **Verification:** Confirmed end-to-end by reading every link:
+  queryErrorGroups/getOccurrencesForGroup return {items,total}
+  (apps/admin-api-service/src/system-management/services/error-tracking.service.ts:376-377,
+  399-406); the ResponseInterceptor pagination lift is duck-typed on 'data' in payload && 'total' in
+  payload (src/shared/response.interceptor.ts:47-65), so {items,total} falls through to the generic
+  wrap with meta={timestamp} only; the FE http-client
+  (web/modules/admin-panel/src/services/http-client.ts:341-349) reconstructs a PaginatedResult only
+  when 'page' in meta, otherwise returns envelope.data — so the page receives raw {items,total}.
+  ErrorTrackingPage.tsx:82 does setErrorGroups(groupsData.data) → undefined; line 170
+  (errorGroups.map at the top of render, executed unconditionally) throws TypeError and unmounts the
+  page to the shell-level ErrorBoundary (no boundary inside admin-panel). Masking was ruled out: the
+  parallel getErrorDashboard() hits a real @Get('dashboard') route, so Promise.all resolves and the
+  crash path executes. The finding is actually understated: {items:[],total:0} also lacks .data, so
+  the page crashes on EVERY successful load, including an empty error table — the feature is 100%
+  dead, not merely dead-once-data-exists. The detail modal (lines 118-119 → 505/517) is the same
+  defect on the occurrences endpoint (route @Get('groups/:groupId/occurrences') is real). CRITICAL
+  stands: total, unconditional loss of a SUPER_ADMIN observability page. Systemic class confirmed:
+  {items,total} drift exists in 6 services (20 occurrences) while ~26 sites use the canonical
+  {data,total,page,limit} shape the interceptor lifts correctly.
+- **Root cause:** The BE service layer drifted from the platform pagination shape
+  ({data,total,page,limit}) to an ad-hoc {items,total} in error-tracking (and 5 sibling services).
+  The break propagated because the ResponseInterceptor's pagination lift is structurally duck-typed
+  ('data' && 'total' keys) and silently degrades to generic wrapping instead of failing loudly, so
+  the wire carried data:{items,total} with no meta.page; the FE http-client therefore unwrapped to
+  {items,total} while the hand-written FE PaginatedResult&lt;T&gt; type and the page code (.data)
+  encoded the canonical contract. No artifact in the chain — nominal types, interceptor, or a
+  contract test — binds service return shape to the FE type, so the drift compiled clean on both
+  sides and shipped undetected. The FE page itself is written correctly against the declared
+  contract; the backend + interceptor are the broken links.
+- **Fix design:** Pattern-level fix (tier 1 make-wrong-shape-impossible + tier 3 detectable),
+  applied at the source; the FE page and PaginatedResult type need NO changes — they already encode
+  the contract. (1) Create the canonical pagination contract in
+  apps/admin-api-service/src/shared/pagination.ts: an exported PaginatedResponse&lt;T&gt; class
+  {data:T[]; total:number; page:number; limit:number; totalPages:number} plus a
+  paginate&lt;T&gt;(items, total, page, limit) factory that computes totalPages — the ONLY way to
+  produce a paginated body. (2) Convert error-tracking.service.ts queryErrorGroups,
+  getOccurrencesForGroup, and queryOccurrences to return PaginatedResponse&lt;T&gt; via paginate(),
+  passing through the already-computed page/limit; declare
+  Promise&lt;PaginatedResponse&lt;...&gt;&gt; return types on the corresponding controller methods
+  (explicit return types are already mandated repo-wide). (3) Apply the same conversion to the
+  remaining drifted services in the class — job-queue.service.ts, global-settings.service.ts,
+  feature-flag-debug.service.ts, impersonation.service.ts, debug-tools.service.ts — auditing each
+  endpoint's FE consumer in the same change (some may have compensated by reading .items; fix those
+  consumer callsites to PaginatedResult in the same commit, per contract-at-the-source discipline).
+  Mechanically swap the ~26 already-canonical `return {data,total,page,limit}` literals to
+  paginate() so totalPages is always present. (4) Nominalize the interceptor: ResponseInterceptor
+  lifts to meta on `payload instanceof PaginatedResponse` and DELETE the structural 'data'/'total'
+  duck-type branch — after step 3's full sweep, an ad-hoc object literal can never accidentally
+  trigger or accidentally miss the lift; a paginated body that skips paginate() becomes structurally
+  impossible to serialize in the lifted form. (5) Detection gate: a repo invariant spec that fails
+  on any admin-api-service service method returning an object literal with items+total (or
+  data+total outside pagination.ts), plus a supertest contract spec asserting the wire envelope for
+  the two error-tracking endpoints carries meta.page/limit/totalPages and array data. No FE
+  defensive coding, no compat shim in http-client — the wire moves to the shape the FE contract
+  always declared.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/pagination.ts`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/feature-flag-debug.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`
+  - `apps/admin-api-service/src/impersonation/services/debug-tools.service.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/pagination-envelope.contract.spec.ts`
+  - `tests/invariants/admin-api-pagination-shape.spec.ts`
+- **Proof of fix:** New supertest contract spec
+  apps/admin-api-service/src/system-management/**tests**/pagination-envelope.contract.spec.ts: boot
+  the system-management module with a seeded repo double and assert GET /system/errors/groups and
+  GET /system/errors/groups/:id/occurrences respond {success:true, data:[...],
+  meta:{total,page,limit,totalPages,timestamp}} — i.e. meta.page is defined and body.data is an
+  array (this fails red on current code because data is {items,total} and meta.page is absent, and
+  goes green with the fix). New repo invariant tests/invariants/admin-api-pagination-shape.spec.ts:
+  statically scans apps/admin-api-service/src/\*_/services/_.ts and fails on any returned object
+  literal with items+total or data+total pagination shape outside src/shared/pagination.ts, locking
+  the class shut (catches the 5 sibling drifted services and any future drift). FE regression:
+  web/modules/admin-panel/src/pages/system/**tests**/ErrorTrackingPage.spec.tsx renders the page
+  with apiFetch mocked to the exact post-unwrap wire shape
+  ({data:[group],total:1,page:1,limit:20,totalPages:1}) and asserts the group list renders without
+  throwing, plus opens the detail modal against the occurrences shape.
+- **Effort:** M
+
+### APA-276 [HIGH] Acknowledge action 404s (route mismatch) and Resolve action 400s (non-whitelisted body field); both errors swallowed to console
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** FE updateErrorStatus PUTs `/system/errors/groups/${id}/status` (settings.ts:176-177)
+  but the backend route is PUT groups/:id with no /status suffix
+  (error-tracking.controller.ts:276-277) -> 404. FE resolveError posts {resolvedBy, notes}
+  (settings.ts:178-179, invoked with 'admin' at ErrorTrackingPage.tsx:132) but ResolveErrorGroupDto
+  whitelists only userId/notes (error-tracking.controller.ts:95-105) -> forbidNonWhitelisted 400.
+  Both handlers only console.error (ErrorTrackingPage.tsx:136-138, 161-163) - no user-visible
+  failure, and the optimistic stats decrement at l.135/148 leaves wrong counts on screen.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:176-179`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:276-277`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:95-105`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx:128-163`
+- **Verification:** CONFIRMED by independent re-read of all wiring. (1) Acknowledge 404:
+  ErrorTrackingPage.tsx:154-164 calls updateErrorStatus(id,'acknowledged') which PUTs
+  /system/errors/groups/${id}/status (settings.ts:176-177), but error-tracking.controller.ts
+  registers only PUT groups/:id (l.276), POST groups/:id/resolve (l.296), POST
+  groups/:id/acknowledge (l.309), POST groups/:id/ignore (l.314); a repo-wide grep confirms no
+  :id/status route exists under system/errors anywhere in admin-api-service, and Nest :id params
+  match a single segment — the request 404s. Controller is live via SystemManagementModule
+  (app.module.ts:231). (2) Resolve 400: resolveError(id,'admin') sends {"resolvedBy":"admin"}
+  (settings.ts:178-179; undefined notes stripped by JSON.stringify) but ResolveErrorGroupDto
+  whitelists only userId/notes (controller l.95-105); admin-api main.ts uses bootstrapService with
+  no validationPipeOverrides, so createServiceApp's default whitelist:true+forbidNonWhitelisted:true
+  (create-service-app.ts:458-460) rejects it with 400. (3) Swallowed: http-client.ts:309-311 throws
+  4xx without retry; both page catch blocks only console.error (l.136-138, 161-163) and never use
+  the page's existing setError toast (l.582-591). REFUTED sub-claim: the "optimistic stats decrement
+  leaves wrong counts" is wrong — the setStats decrement at l.135 is AFTER the await that throws, so
+  it never runs on failure; counts are not corrupted (l.148 is in handleIgnore, whose route exists
+  and works). Severity stays HIGH: two of three triage actions on a SUPER_ADMIN ops page fail on
+  every invocation with zero user feedback — complete silent feature failure, but not a
+  security/data-integrity issue so not CRITICAL.
+- **Root cause:** The FE→BE link broke at the hand-written API client:
+  web/modules/admin-panel/src/services/api/settings.ts was authored against an imagined REST shape
+  (a PUT .../status sub-route and a resolvedBy field) instead of the actual Nest controller contract
+  (PUT groups/:id with UpdateErrorGroupDto; POST groups/:id/resolve with {userId, notes}; a
+  dedicated POST groups/:id/acknowledge the FE never uses). Nothing binds the FE's endpoint strings
+  and body literals to the controller's routes/DTOs at build or test time, so the drift was
+  invisible until runtime — an instance of the systemic FE-route/DTO-drift class already seen in
+  this audit. Two aggravating local defects: the page hardcodes 'admin' as the resolving user
+  instead of the authenticated identity, and both action handlers swallow the thrown ApiError with
+  console.error instead of the page's existing error surface, converting a hard contract break into
+  a silent no-op.
+- **Fix design:** SYSTEMIC CLASS: FE-route/DTO drift in a hand-written client — fix at the pattern
+  level plus the local application. LOCAL (align to the controller SSoT, no BE change needed): in
+  settings.ts (a) add acknowledgeError(id) => POST `/system/errors/groups/${id}/acknowledge` (exact
+  parallel of the existing ignoreError, hitting the dedicated backend route); (b) change
+  updateErrorStatus to PUT `/system/errors/groups/${id}` with a body typed as the
+  UpdateErrorGroupDto shape {status?, assignedTo?, notes?, linkedTicketUrl?}; (c) change
+  resolveError(id, userId?, notes?) to send {userId, notes} matching ResolveErrorGroupDto. In
+  ErrorTrackingPage.tsx: handleAcknowledge calls acknowledgeError(id); handleResolve passes the
+  authenticated admin's user id from the shared-ui session (not the hardcoded 'admin'); both catch
+  blocks route failures through the page's existing setError toast (mechanism already rendered at
+  l.582-591) instead of console.error-only; after a successful mutation refresh counts from the
+  server via loadData() rather than hand-adjusted setStats decrements (server state is the SSoT —
+  makes correct counts automatic). PATTERN (tier 1, make drift impossible): the admin-api already
+  emits a Swagger document (main.ts swagger config); add an Nx target that dumps openapi.json and
+  wire an OpenAPI-codegen step into `npm run codegen` producing request/response types consumed by
+  services/api/_.ts, so an invented field like resolvedBy becomes a tsc error — the hand-written
+  services/types/_ for these endpoints are replaced by generated types. PATTERN (tier 3, make
+  remaining drift detectable now): add a route-contract spec that boots AppModule via
+  Test.createTestingModule, enumerates the registered (method, path) pairs from the HTTP adapter's
+  router, and asserts every endpoint in a small importable FE route manifest exists — seeded with
+  the error-tracking set; this spec fails today on the phantom /status route and gates future drift
+  in CI. No defensive code, no compat shim, no BE route aliasing: the controller contract is the
+  source and the FE is regenerated/retyped from it.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `apps/admin-api-service/src/__tests__/contract/admin-panel-routes.contract.spec.ts`
+  - `package.json`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/**tests**/contract/admin-panel-routes.contract.spec.ts: boots
+  AppModule, asserts PUT /api/v1/system/errors/groups/:id, POST .../:id/resolve, POST
+  .../:id/acknowledge, POST .../:id/ignore are registered AND that every route in the FE manifest
+  resolves (red today on the phantom /status path, green after the fix). New FE spec
+  web/modules/admin-panel/src/pages/system/**tests**/ErrorTrackingPage.spec.tsx: (a) mock
+  resolveError/acknowledgeError to reject and assert the error toast renders (no silent console-only
+  failure) and stats are unchanged; (b) on success assert acknowledgeError hits the /acknowledge
+  endpoint and resolveError's body is exactly {userId: <session user id>, notes?} with no resolvedBy
+  key. npm run type-check must fail if a request-body field drifts once bodies are typed from the
+  generated/shared contract types. All run under nx affected --target=test.
+- **Effort:** M
+
+### APA-277 [MEDIUM] Dashboard stat drift: FE reads unresolvedErrors/criticalErrors which the backend never returns
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** getErrorDashboard returns totalErrors, newErrors, unresolvedGroups, errorsByService,
+  errorsBySeverity, recentErrors, topErrorGroups, errorTrend (error-tracking.service.ts:735-751).
+  The FE api type and page read dashboardData.unresolvedErrors and dashboardData.criticalErrors
+  (settings.ts:157-165; ErrorTrackingPage.tsx:83-90) - both undefined, so the 'Unresolved' and
+  'Critical' stat cards render blank. Also FE getErrorGroups sends startDate/endDate
+  (ErrorTrackingPage.tsx:76-77) which queryErrorGroups (error-tracking.controller.ts:244-269) never
+  accepts - the date filter is a silent no-op.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts:735-751`
+  - `web/modules/admin-panel/src/services/api/settings.ts:157-165`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx:83-90`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:244-269`
+- **Root cause:** getErrorDashboard returns totalErrors, newErrors, unresolvedGroups,
+  errorsByService, errorsBySeverity, recentErrors, topErrorGroups, errorTrend
+  (error-tracking.service.ts:735-751). The FE api type and page read dashboardData.unresolvedErrors
+  and dashboardData.criticalErrors (settings.ts:157-165; ErrorTrackingPage.tsx:83-90), plus
+  topErrors — none of which the backend returns (it returns unresolvedGroups / topErrorGroups and no
+  critical count). So the Unresolved and Critical stat cards render undefined. Additionally
+  getErrorGroups sends startDate/endDate (ErrorTrackingPage.tsx:76-77) but queryErrorGroups
+  (error-tracking.controller.ts:244-269) declares no such @Query params, so the date filter is a
+  silent no-op. Same FE-type-drift + param-drift class as p2|i2, masked by the xc|i3 allowlist.
+- **Fix design:** Align to a single shared ErrorDashboard contract: rename FE fields to the
+  backend's actual names (unresolvedGroups, topErrorGroups) and add a real criticalErrors count to
+  the backend response (derive from ErrorSeverity.CRITICAL over the window, alongside
+  errorsBySeverity) so the Critical card has a source. For the date filter, add
+  @Query('startDate')/@Query('endDate') to queryErrorGroups and thread them into the
+  occurrence/group query (the service already time-windows in getErrorDashboard, so reuse that).
+  Remove the matching KNOWN_DRIFT allowlist entries so the contract test enforces the aligned shape
+  and params.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+- **Effort:** M
+
+### APA-278 [MEDIUM] Alert-rule notification actions are log-only stubs (email/slack/webhook never sent)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** sendEmailNotification/sendSlackNotification/sendWebhookNotification just
+  this.logger.log with 'In production, this would integrate...' comments
+  (error-tracking.service.ts:631-644). notification-service is never called. Any error alert rule
+  configured via the API fires into a log line only.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts:631-644`
+- **Root cause:** The email/slack/webhook notification handlers registered for error-alert rules are
+  pure stubs that only logger.log with 'In production, this would integrate...' comments
+  (error-tracking.service.ts:631-644); notification-service is never invoked and no HTTP webhook is
+  ever sent. Any alert rule an operator configures via the API dispatches nothing — a stub that
+  presents as a working feature (the 'stub that pretends to work' class).
+- **Fix design:** Wire the handlers to real dispatch. For email/SMS/push, emit a domain event via
+  createBaseEvent (e.g. ErrorAlertTriggered) onto the event bus that notification-service consumes —
+  keeping admin-api out of SMTP/provider concerns and reusing the platform's existing dispatch path
+  (tier 2). For webhook, perform a real signed outbound HTTP POST via the shared signed HTTP client
+  to the rule's configured URL. If any channel genuinely cannot land this session, replace the
+  silent log with a tracked CRITICAL/HIGH finding (owner+deadline) and a visible 'not delivered'
+  status rather than a fake success.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+- **Effort:** M
+
+## JobQueuePage — `/admin/system/jobs` — verdict: **BROKEN**
+
+**Chain:** The 'queue' is a homegrown DB-table queue owned by admin-api itself: JobQueueController
+system/jobs (job-queue.controller.ts:292-463) -> JobQueueService with a @Cron(EVERY_10_SECONDS)
+in-process worker polling admin.background_jobs / admin.job_queues / admin.job_execution_logs
+(job-queue.service.ts:237-296; tables in Baseline.ts:42-51). It is NOT BullMQ/Redis and NOT
+connected to any real platform work: registerHandler has zero callers (grep: only alert-engine's
+unrelated notification dispatcher matches), so executeJob always logs 'No handler registered' and
+returns (job-queue.service.ts:299-303) - any job would sit PENDING forever - and no service outside
+this module ever enqueues (grep 'background_jobs|createJob' hits only system-management +
+migrations). On top of that, FE contract drift empties every tab: the jobs list always shows 'No
+jobs found' and the queues tab is always blank, making retry/cancel/pause/resume unreachable even
+though those backend routes exist and do real DB updates.
+
+**Endpoints exercised:** `GET /api/v1/system/jobs/dashboard`; `GET /api/v1/system/jobs`;
+`POST /api/v1/system/jobs/:id/retry`; `POST /api/v1/system/jobs/:id/cancel`;
+`POST /api/v1/system/jobs/queues/:name/pause`; `POST /api/v1/system/jobs/queues/:name/resume`;
+`GET /api/v1/system/jobs/scheduled (FE-only, shadowed by GET :id)`;
+`GET /api/v1/system/jobs/failed (FE-only, shadowed by GET :id)`;
+`POST /api/v1/system/jobs/cleanup (FE-only, no backend route)`
+
+**DB tables:** `admin.background_jobs`, `admin.job_queues`, `admin.job_execution_logs`
+
+### APA-279 [HIGH] Jobs list is always empty: getJobs reads response.data from an {items,total} payload and the guard silently swallows it
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** queryJobs returns {items,total} (job-queue.service.ts:542-543); after envelope unwrap
+  the FE receives {items,total} but reads response?.data (JobQueuePage.tsx:88-90) and the
+  Array.isArray guard silently substitutes []. The initial dashboard load briefly sets
+  jobs=recentJobs (l.69), but the activeTab==='jobs' effect (l.101-105) immediately overwrites with
+  [] - so the table renders 'No jobs found' permanently (l.414-419), and the per-row Retry/Cancel
+  buttons (l.490-505) are unreachable despite POST :id/retry and :id/cancel being real, working DB
+  updates (job-queue.service.ts:452-485).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx:81-95`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx:101-105`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:542-543`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:452-485`
+- **Verification:** Confirmed end-to-end. GET /system/jobs (JobQueueController.queryJobs) returns
+  the service's raw {items,total} (job-queue.service.ts:543). ResponseInterceptor's pagination
+  branch duck-types on 'data' in payload && 'total' in payload (response.interceptor.ts:47-52), so
+  {items,total} does NOT match and ships nested as {success,data:{items,total},meta:{timestamp}}. FE
+  apiFetch unwrap (http-client.ts:343-349) finds no meta.page, returns envelope.data =
+  {items,total}; JobQueuePage reads response?.data (undefined) and Array.isArray silently
+  substitutes [] (JobQueuePage.tsx:88-90). Route system/jobs is wired (Module.tsx:166). One
+  correction: 'renders No jobs found permanently' is overstated — loadDashboard (9-query
+  Promise.all) and loadJobs race on mount, and the dashboard usually resolves last, seeding the
+  table with its 10 recentJobs (l.70). But any search/filter/tab interaction re-fires loadJobs and
+  deterministically empties the table with no recovery; filtering, search, pagination, and per-row
+  Retry/Cancel beyond the racy 10-row seed never work. Complete break of the page's query/manage
+  path but no data loss or security exposure, and partial visibility survives via the dashboard seed
+  — HIGH, not CRITICAL. Systemic class confirmed: error-tracking.service.ts,
+  global-settings.service.ts (feature toggles, maintenance), and impersonation services all return
+  {items,total} to FE callers typed PaginatedResult — the same silent-empty bug exists on those
+  pages.
+- **Root cause:** The BE→FE wire contract link broke: admin-api-service has two coexisting
+  pagination shapes with no shared type binding them. The canonical page-based shape
+  {data,total,page,limit,totalPages} (users/tenant/modules/audit/ip-access/billing) is what
+  ResponseInterceptor lifts into meta and what FE apiFetch reconstitutes into PaginatedResult when
+  meta.page exists. The system-management and impersonation modules instead adopted the offset-style
+  {items,total} shape (mirroring @aquaculture/backend-common/pagination's createPaginatedResult) and
+  their controllers return it raw. Nothing enforces agreement across the three layers: the
+  interceptor duck-types on key names, the FE types are hand-written assertions with no codegen or
+  runtime validation, and JobQueuePage's defensive Array.isArray(response?.data) guard (a
+  CLAUDE.md-banned pattern) converts the type lie into a silent empty list instead of a visible
+  failure. A secondary trap: even renaming items→data would not fix it, because queryJobs omits
+  page/limit/totalPages, meta.page would serialize away as undefined, and the FE 'page' in meta
+  check would still fail — the drift is in the whole paginated-return contract, not one key name.
+- **Fix design:** Pattern-level fix (Tier 1 + Tier 3) plus local application. (1) Create the single
+  wire-contract SSoT in apps/admin-api-service/src/shared/pagination.ts: export interface
+  PagedResult<T> { data: T[]; total: number; page: number; limit: number; totalPages: number } and a
+  constructor toPagedResult<T>(items: T[], total: number, page: number, limit: number):
+  PagedResult<T> that computes totalPages — co-located with the existing PaginationQueryDto and
+  matched to ResponseInterceptor's lift and the FE's meta.page reconstruction. (2) Local
+  application: job-queue.service.ts queryJobs and getJobLogs return PagedResult (they already
+  compute page/limit; wrap via toPagedResult), and job-queue.controller.ts declares explicit
+  Promise<PagedResult<BackgroundJob>> / Promise<PagedResult<JobExecutionLog>> return types on
+  queryJobs/getJobLogs — the compiler then makes returning {items,total} impossible (Tier 1, and
+  satisfies the 'explicit return type on every public function' rule). (3) Class sweep in the same
+  module: apply the identical PagedResult migration to error-tracking.service.ts
+  (queryErrorGroups/occurrences) and global-settings.service.ts (feature toggles, maintenance
+  windows, versions) plus their controllers' return types; impersonation services are the same class
+  — if they cannot land in the same PR, open tracked findings per the traceability rule rather than
+  leaving them silent. (4) FE: JobQueuePage.tsx loadJobs consumes the typed contract directly —
+  const result = await systemSettingsApi.getJobs(...); setJobs(result.data) — deleting the
+  response?.data + Array.isArray silent-substitution guard so any future shape drift surfaces as the
+  error state instead of an empty table; also delete the setJobs(dashboardData.recentJobs) seeding
+  in loadDashboard (l.70) so the jobs table has exactly one data source (loadJobs) and the mount
+  race disappears. No FE type changes needed: PaginatedResult already declares the canonical shape —
+  the backend moves to the contract, the FE stops defending against its absence. (5) Detection gate
+  (Tier 3): a supertest contract spec boots the system-management module with ResponseInterceptor
+  and mocked repos and asserts the wire body for GET /system/jobs and GET /system/jobs/:id/logs is
+  {success:true, data:Array, meta:{total,page,limit,totalPages}} — pinning the interceptor
+  duck-type, the service shape, and the FE unwrap precondition (meta.page present) in one test.
+- **Files to change:**
+  - `apps/admin-api-service/src/shared/pagination.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx`
+  - `apps/admin-api-service/src/system-management/__tests__/job-queue.pagination-contract.spec.ts`
+  - `web/modules/admin-panel/src/pages/system/__tests__/JobQueuePage.spec.tsx`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/system-management/**tests**/job-queue.pagination-contract.spec.ts:
+  supertest against the system-management module with ResponseInterceptor applied and mocked
+  jobRepo, seed 2 jobs (one failed), assert GET /system/jobs responds {success:true, data:[...2
+  jobs], meta:{total:2, page:1, limit:20, totalPages:1}} and same shape for GET
+  /system/jobs/:id/logs — this fails against current code (data would be {items,total} and meta.page
+  absent) and passes after the fix; extend it to the error-tracking and global-settings list
+  endpoints to gate the whole class. New FE spec
+  web/modules/admin-panel/src/pages/system/**tests**/JobQueuePage.spec.tsx: mock
+  systemSettingsApi.getJobs to resolve a PaginatedResult with one failed job, render JobQueuePage,
+  assert the row and its Retry button appear and that changing the status filter re-queries and
+  still renders rows. Compile-time gate: the explicit Promise<PagedResult<T>> controller return
+  types make {items,total} a tsc error (npm run type-check). Run nx affected --target=test and
+  --target=lint green per repo law.
+- **Effort:** M
+
+### APA-280 [HIGH] The queue executes nothing: no job handler is ever registered and no platform component enqueues into it
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** The cron worker resolves handlers from this.jobHandlers
+  (job-queue.service.ts:298-303); registerHandler (l.224-227) has zero callers anywhere in the repo,
+  so every picked-up job hits 'No handler registered for job' and is returned untouched - jobs stay
+  PENDING forever with no error surfaced. No other service writes to admin.background_jobs or calls
+  POST /system/jobs (grep matches only system-management files + migrations), and real background
+  work (notification dispatch, retention crons, etc.) runs elsewhere. The page therefore monitors a
+  queue that can neither receive real work nor execute anything.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:298-303`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:224-227`
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts:349-356`
+- **Verification:** Verified in current code: (1) JobQueueService.jobHandlers
+  (apps/admin-api-service/src/system-management/services/job-queue.service.ts:75) is populated only
+  by registerHandler (l.224-227), which has zero callers repo-wide — the only other registerHandler
+  matches are alert-engine's unrelated NotificationDispatcherService and docs. (2) The worker IS
+  live — ScheduleModule.forRoot() at apps/admin-api-service/src/app.module.ts:178 plus
+  ScheduleModule import in system-management.module.ts:33 means processJobs() fires every 10s — but
+  executeJob (l.298-303) early-returns on missing handler BEFORE any status mutation, so every
+  enqueued job stays PENDING forever, is re-selected each cycle (infinite warn loop), and no error
+  ever reaches the job row or the admin. (3) Nothing real enqueues:
+  createJob/scheduleJob/scheduleRecurringJob are called only from JobQueueController;
+  background_jobs/job_queues/job_execution_logs appear only in the entity, admin migrations,
+  schema-manager registration, and docs; POST /system/jobs is called only from
+  web/modules/admin-panel/src/services/api/settings.ts:213 (the page itself). Real platform
+  background work runs on per-service @nestjs/schedule crons and NATS, never through this queue. (4)
+  The page is reachable (/admin/system/jobs, Module.tsx:166) and exposes createJob/retryJob — an
+  admin-created job is accepted with 201, persisted, picked up, and silently never executes.
+  Severity lowered from CRITICAL to HIGH: complete functional death of the page plus a
+  silent-acceptance failure mode, but no security or data-integrity impact and no real platform work
+  is routed through the queue today, so nothing real is dropped.
+- **Root cause:** The break is at the execution end of the chain, not FE→BE→DB (page → controller →
+  service → admin.background_jobs is fully wired). The system-management module was built as a
+  self-contained DB-backed job-queue product (entities + worker crons + admin UI) but was never
+  integrated with how the platform actually performs background work (per-service @nestjs/schedule
+  crons and NATS events). Handler registration was left as a mutable runtime map with no providers,
+  no discovery, no startup completeness check, and no fail-loud path — so the contract 'a job name
+  must have a handler' exists nowhere in types, DI, or tests. It drifted because the queue
+  duplicates infrastructure every service already has, so no producer or consumer ever needed it;
+  and because the no-handler path returns silently instead of failing, the emptiness was
+  undetectable at build, boot, and runtime. This is an instance of the systemic 'dead subsystem the
+  FE monitors' class (sibling of config-table-nobody-reads): an admin page wired to storage that no
+  platform component feeds or drains.
+- **Fix design:** Product fork must be decided first: either the queue becomes real or it is deleted
+  wholesale (page + routes + controller + service + entities + migration dropping the three admin
+  tables). Assuming the queue is kept, the architectural fix closes the handler contract at three
+  tiers. TIER 1 (make wrong behavior impossible): introduce a closed job-name contract — a new
+  jobs/job-names.ts exporting a const JOB_NAMES tuple + JobName union as the SSoT. Handlers become
+  Nest providers implementing a JobHandlerPort interface ({ readonly jobName: JobName; execute(job):
+  Promise<...> }) registered under a JOB_HANDLER multi-provider token; a JobHandlerRegistry
+  discovers them via DiscoveryService in onApplicationBootstrap and asserts
+  exactly-one-handler-per-JobName, failing cold start on any gap (compile-time exhaustiveness via a
+  Record<JobName, Type<JobHandlerPort>> map makes a missing handler a tsc error).
+  CreateJobDto/ScheduleJobDto/RecurringJobDto gain @IsIn(JOB_NAMES) on name, so the API structurally
+  cannot accept a job nobody can execute; JobQueueService drops the public mutable
+  registerHandler/unregisterHandler surface and resolves handlers only through the registry. TIER 2
+  (make correct behavior automatic): migrate admin-api-service's real background work into the queue
+  so the page monitors genuine work — move the existing in-service maintenance crons
+  (purgeCompletedJobs/cleanupOldJobs in job-queue.service.ts, error-tracking retention,
+  performance-snapshot rollup) into JobHandlerPort implementations, with an idempotent bootstrap
+  that ensures the corresponding recurring job rows exist (scheduleRecurringJob upsert on boot).
+  Replace the fake calculateNextRun stub with cron-parser so recurring semantics are real. TIER 3
+  (make violations detectable): fail-loud no-handler path — if the worker dequeues a row whose name
+  has no registered handler (legacy rows), transition it to FAILED with errorMessage 'no handler
+  registered', never return it untouched; plus the spec gates listed under verification. FE side:
+  add GET /system/jobs/definitions returning the registered JobName list; JobQueuePage's create-job
+  form becomes a select over that list (no free-text job names), and the hand-written FE types
+  import/mirror the JobName union. The registry + boot-time completeness assertion is the
+  pattern-level fix for the whole 'dead subsystem' class and should be cited by the section rollup.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/jobs/job-names.ts`
+  - `apps/admin-api-service/src/system-management/jobs/job-handler.registry.ts`
+  - `apps/admin-api-service/src/system-management/jobs/handlers/purge-completed-jobs.handler.ts`
+  - `apps/admin-api-service/src/system-management/jobs/handlers/error-retention.handler.ts`
+  - `apps/admin-api-service/src/system-management/jobs/handlers/performance-rollup.handler.ts`
+  - `apps/admin-api-service/src/system-management/jobs/recurring-jobs.bootstrap.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx`
+  - `apps/admin-api-service/src/system-management/__tests__/job-handler-registry.spec.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/job-queue-execution.integration.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/system-management/**tests**/job-handler-registry.spec.ts: (1) registry
+  completeness — every member of JOB_NAMES resolves to exactly one JobHandlerPort provider (mirrors
+  the boot assertion; fails the build if a name is added without a handler); (2) DTO gate — POST
+  /system/jobs with an unknown name is rejected by ValidationPipe (@IsIn), proving un-executable
+  jobs cannot enter the table; (3) fail-loud path — a persisted row with a name outside JOB_NAMES
+  transitions to FAILED with errorMessage on the next processJobs pass, never remains PENDING. New
+  integration spec job-queue-execution.integration.spec.ts: enqueue a real job → run processJobs →
+  assert COMPLETED status, result persisted, JobExecutionLog written, and queue counts updated —
+  proving the queue executes end-to-end for the first time; plus a liveness property test: after a
+  processJobs pass, no due job may still be PENDING (must be RUNNING/COMPLETED/RETRYING/FAILED).
+  Existing gate: nx affected --target=test green including these specs.
+- **Effort:** L
+
+### APA-281 [HIGH] Dashboard shape drift empties the Queues tab and blanks stats: FE expects queues/failedToday, backend sends queueStats/failedJobs
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** getJobDashboard returns {totalJobs, pendingJobs, runningJobs, failedJobs,
+  completedLast24h, avgProcessingTime, queueStats, recentJobs, failedJobsList, scheduledJobs}
+  (job-queue.service.ts:630-641). FE expects {completedToday, failedToday, avgDuration, queues}
+  (JobQueuePage.tsx:19-28). dashboard.queues is undefined -> safeQueues=[] (l.205) -> Queues tab
+  renders nothing and Pause/Resume (l.560-574) plus the queue filter dropdown (l.352-359) are
+  unreachable; the 'Failed Today' card (l.314) renders blank. Field names also diverge per-queue
+  (pending/running vs pendingCount/activeCount, settings.ts types:227-235 vs JobQueueStats
+  job-queue.service.ts:39-47).
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:630-641`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx:19-28`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx:205`
+  - `web/modules/admin-panel/src/services/types/settings.ts:227-235`
+- **Verification:** Confirmed reachable in real wiring. JobQueuePage is routed at system/jobs
+  (Module.tsx:166) and fetches the dashboard on mount (l.68). The controller getJobDashboard()
+  (job-queue.controller.ts:302) is untyped and returns the service-internal JobDashboard interface
+  verbatim: {totalJobs, pendingJobs, runningJobs, failedJobs, completedLast24h, avgProcessingTime,
+  queueStats, recentJobs, failedJobsList, scheduledJobs} (service l.630-641). The
+  ResponseInterceptor envelope is unwrapped by apiFetch to the raw object (no meta.page). FE reads
+  queues/failedToday/completedToday/avgDuration (settings.ts:184-194 and a DUPLICATE local interface
+  JobQueuePage.tsx:19-28). Concretely: dashboard.queues is undefined -> safeQueues=[] (l.205) ->
+  Queues tab renders nothing (l.522), Pause/Resume buttons unreachable (l.560-574), queue-filter
+  dropdown has only 'All Queues' (l.352-359); dashboard.failedToday is undefined -> 'Failed Today'
+  card blank (l.314). Independently confirmed a second-order drift the auditor flagged: the
+  dashboard's queueStats projection (JobQueueStats: pending/running/completed/failed, no
+  isPaused/concurrency) is the wrong shape for the Queues tab, which needs isPaused/concurrency; the
+  full JobQueue entities are already loaded at l.610 but discarded. Also the persistence entity uses
+  runningCount (entity l.256) while the FE JobQueue type uses activeCount (settings.ts:232), so
+  queue.activeCount (l.546) would be blank even if queues were wired. HIGH is correct, not CRITICAL:
+  no data loss or security impact, the Jobs and Scheduled tabs still function, but an entire tab
+  plus queue Pause/Resume management and a stat card are dead. Not over- or under-graded.
+- **Root cause:** The FE->BE contract link broke at the response boundary: the admin-api dashboard
+  endpoint has no shared response DTO. The controller method getJobDashboard() carries no return
+  type and no @ApiOkResponse, so it emits the service-private JobDashboard interface (defined inline
+  in job-queue.service.ts:49-60) which the FE has no visibility into. The FE therefore hand-declares
+  the response shape twice (services/api/settings.ts:184-194 and a duplicate local interface in
+  JobQueuePage.tsx:19-28). With two independently hand-maintained shape declarations and nothing
+  (codegen or contract test) bridging service->FE, they drifted: backend emits
+  queueStats/failedJobs/completedLast24h/avgProcessingTime while FE reads
+  queues/failedToday/completedToday/avgDuration. The per-queue shape drifted the same way (lossy
+  JobQueueStats vs full JobQueue; entity runningCount vs FE activeCount). This is an instance of the
+  systemic FE-type-drift / response-shape-mismatch-with-no-shared-contract class affecting the admin
+  panel.
+- **Fix design:** Fix the contract at the SOURCE and add a detectability gate; name the systemic
+  direction. (1) Create a response DTO as the single SSoT for the dashboard shape:
+  apps/admin-api-service/src/system-management/dto/job-dashboard.dto.ts exporting JobDashboardDto
+  plus JobQueueSummaryDto, with @ApiProperty and explicit fields. Annotate the controller:
+  @Get('dashboard') @ApiOkResponse({ type: JobDashboardDto }) async getJobDashboard():
+  Promise<JobDashboardDto>, and type the service method return as JobDashboardDto (tier 1 — the
+  backend shape becomes compiler-enforced). (2) Make the dashboard return what the Queues tab
+  actually needs: map the JobQueue entities already loaded at service l.610 into JobQueueSummaryDto
+  as `queues` carrying {name, isPaused, concurrency, pendingCount, runningCount, completedCount,
+  failedCount} — the full management shape, not the lossy queueStats projection; remove the FE-dead
+  queueStats/failedJobsList from the returned contract. Add a truthful failedLast24h count (parallel
+  to completedLast24h) so the 'Failed Today' card is semantically correct rather than reusing
+  all-time failedJobs. (3) Canonicalize field names on the DTO and conform the FE to it: pick ONE
+  name per field (e.g. DTO uses completedLast24h/failedLast24h/avgProcessingTime/runningCount),
+  update the FE getJobDashboard api type (settings.ts:184-194), rename FE JobQueue.activeCount ->
+  runningCount (services/types/settings.ts:232) to match the persistence entity, and DELETE the
+  duplicate local JobDashboard interface in JobQueuePage.tsx (import the single shared type) so
+  there is exactly one FE declaration; update JobQueuePage references (queue.activeCount ->
+  queue.runningCount at l.546, dashboard.failedToday -> the canonical field at l.314). (4)
+  Detectability gate (tier 3): add a contract spec asserting the resolved getJobDashboard()
+  payload's top-level keys equal the JobDashboardDto keys and that each `queues` element carries
+  isPaused/concurrency/runningCount, so any future field rename on either side fails CI. Systemic
+  direction to record (not necessarily landed this session): stand up OpenAPI-driven FE type
+  generation for admin-api -> admin-panel so the hand-written services/types/\* cannot drift at all
+  (today only GraphQL codegen exists per root CLAUDE.md) — that is the tier-1 elimination of this
+  entire finding class. No DB migration is required: the JobQueue entity already has isPaused,
+  concurrency, pendingCount, runningCount, completedCount, failedCount.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/dto/job-dashboard.dto.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `web/modules/admin-panel/src/services/types/settings.ts`
+  - `web/modules/admin-panel/src/pages/system/JobQueuePage.tsx`
+  - `apps/admin-api-service/src/system-management/__tests__/job-queue-dashboard.contract.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/system-management/**tests**/job-queue-dashboard.contract.spec.ts: with
+  a mocked jobRepo/queueRepo, assert Object.keys(await service.getJobDashboard()) equals the
+  JobDashboardDto key set (queues present; queueStats/failedJobsList absent) and that each queues[]
+  element exposes isPaused, concurrency, and runningCount — proving the Queues tab, Pause/Resume,
+  filter dropdown, and Failed Today card are drivable. On the FE, after deleting the duplicate
+  interface and renaming activeCount->runningCount / failedToday->canonical field,
+  `npm run type-check` (tsc --noEmit) must fail if JobQueuePage still references any removed field,
+  and pass once aligned. Optionally extend any existing FE-type/response-shape invariant to include
+  the dashboard contract.
+- **Effort:** M
+
+### APA-282 [MEDIUM] Route shadowing and a wrong stat: /jobs/scheduled and /jobs/failed resolve to GET :id; completedLast24h counts all completed jobs ever
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** @Get(':id') (job-queue.controller.ts:399-401) is matched by the FE endpoints GET
+  /system/jobs/scheduled and /system/jobs/failed (settings.ts:226-228) -> NotFound/UUID errors; POST
+  /system/jobs/cleanup (settings.ts:229-230) matches no route at all. Backend completedLast24h uses
+  `completedAt: LessThanOrEqual(now)` with the `yesterday` variable computed but unused
+  (job-queue.service.ts:571-595) - it counts every completed job in history, a silently wrong
+  metric.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts:399-401`
+  - `web/modules/admin-panel/src/services/api/settings.ts:226-230`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:571-595`
+- **Root cause:** Route shadowing: job-queue.controller.ts declares @Get(':id') (399-401) and has NO
+  @Get('scheduled'), @Get('failed'), or @Post('cleanup') routes (verified — the only similar routes
+  are @Post('retry-failed') and @Post('purge-completed')). So FE GET /system/jobs/scheduled and
+  /system/jobs/failed (settings.ts:226-228) resolve to getJob('scheduled')/getJob('failed') ->
+  NotFound/UUID cast error, and POST /system/jobs/cleanup (settings.ts:229-230) matches no route
+  -> 404. Separately, completedLast24h counts { status: COMPLETED, completedAt: LessThanOrEqual(now)
+  } (job-queue.service.ts:590-595) — the `yesterday` variable (573) is computed but never used, so
+  the metric counts every completed job in history, not the last 24h.
+- **Fix design:** (a) Add dedicated collection routes BEFORE the @Get(':id') catch-all:
+  @Get('scheduled') -> service.getScheduledJobs, @Get('failed') -> service.getFailedJobs, and
+  @Post('cleanup') -> service.cleanupJobs (or, if purge-completed/retry-failed are the intended
+  endpoints, repoint the FE api fns to those exact paths). Declaration order matters in Nest, so
+  specific literals must precede :id. (b) Fix completedLast24h to use Between(yesterday, now) /
+  MoreThanOrEqual(yesterday) on completedAt so the 24h metric is correct. (c) Remove the
+  corresponding allowlist entries so the contract test catches the missing routes.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** M
+
+## Cross-cutting findings
+
+### APA-283 [CRITICAL] Systemic paginated-response contract break: backend {items,total} vs FE PaginatedResult {data,...} kills three of five pages
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Every system-management list endpoint returns {items,total} (queryMaintenanceModes
+  global-settings.service.ts:582-583, queryErrorGroups error-tracking.service.ts:376-377,
+  getOccurrencesForGroup l.399-407, queryJobs job-queue.service.ts:542-543, queryFeatureToggles
+  l.198-199). The ResponseInterceptor only promotes {data,total} shapes into meta
+  (response.interceptor.ts:47-65), so http-client's meta.page branch (http-client.ts:343-349) never
+  fires and the FE's hand-written PaginatedResult {data,total,page,limit,totalPages}
+  (services/types/common.ts:5-11) never matches reality. Consequences: MaintenancePage list always
+  empty, JobQueuePage jobs list always empty, ErrorTrackingPage crashes on render. Only
+  FeatureTogglesPage survives via an ad-hoc 'items' normalization labeled BUG-014
+  (FeatureTogglesPage.tsx:73-86) - proof the drift was seen once and patched locally instead of
+  fixed at the contract.
+- **Evidence:**
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:47-65`
+  - `web/modules/admin-panel/src/services/http-client.ts:341-349`
+  - `web/modules/admin-panel/src/services/types/common.ts:5-11`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx:73-86`
+- **Verification:** Verified end-to-end. Every system-management list service returns {items,total}
+  (global-settings.service.ts:198,582,715; error-tracking.service.ts:376,406,450;
+  job-queue.service.ts:542,564). Controllers
+  (@Controller('system/settings'|'system/errors'|'system/jobs')) return the service result verbatim,
+  and the FE routes resolve through nginx /api->/api/v1 + globalPrefix api/v1 (VERSION_NEUTRAL), so
+  this is a genuine shape mismatch, not a 404. ResponseInterceptor (globally registered,
+  app.module.ts:292) only promotes a shape containing BOTH 'data' and 'total'
+  (response.interceptor.ts:47-65); {items,total} lacks 'data' so it falls to the else branch and
+  becomes {success,data:{items,total},meta:{timestamp}}. http-client sees meta without 'page'
+  (http-client.ts:344) and returns envelope.data = {items,total}. Consumers then break concretely:
+  MaintenancePage does Array.isArray(response)?...:[] so the list is always []
+  (MaintenancePage.tsx:90-93); JobQueuePage reads response?.data (undefined) -> []
+  (JobQueuePage.tsx:88-90); ErrorTrackingPage does setErrorGroups(groupsData.data) with data
+  undefined, then errorGroups.map at render (ErrorTrackingPage.tsx:82,170,355) throws -> page crash.
+  FeatureTogglesPage only survives via the ad-hoc 'items' normalization labelled BUG-014
+  (FeatureTogglesPage.tsx:73-86), proving the drift was seen and patched locally. Three SUPER_ADMIN
+  pages non-functional, one white-screens on render: CRITICAL and systemic — the umbrella case for
+  the paginated-response contract break in this section. Not over-graded.
+- **Root cause:** No single source of truth for the paginated-list wire contract; three incompatible
+  definitions coexist. (1) The platform pagination SSoT
+  createStandardPaginatedResult/IStandardPaginatedResult
+  (libs/backend-common/src/pagination/pagination.dto.ts) keys results on `items`. (2) The admin-api
+  REST ResponseInterceptor + FE hand-written PaginatedResult<T> (services/types/common.ts) key on
+  `data` and lift page/limit/totalPages into meta. (3) The system-management services bypass the
+  SSoT entirely and hand-roll `{items,total}` straight from TypeORM getManyAndCount(), missing
+  page/limit/totalPages too. The interceptor's duck-typed `'data' in && 'total' in` promotion
+  silently no-ops on `{items,total}` (wraps instead of erroring), so the drift produces empty lists
+  / a render crash with zero compile-time or test-time signal. The broken link: the
+  service->interceptor boundary emits a shape that neither the interceptor nor the FE type
+  recognises, and nothing enforces agreement.
+- **Fix design:** Umbrella / pattern-level fix (per-page consumer fixes carried by the per-instance
+  findings in this section). Reconcile the three forks at one contract, using the existing platform
+  SSoT:
+
+1. Tier 2 (automatic): every admin-api list method returns
+   createStandardPaginatedResult(items,total,page,limit) from @aquaculture/backend-common instead of
+   a hand-rolled `{items,total}`. This alone gives page/limit/totalPages.
+
+2. Tier 1 (impossible to drift): add a nominal type guard isStandardPaginatedResult() exported
+   alongside the helper (pagination.dto.ts, the SSoT). Rework ResponseInterceptor to detect
+   IStandardPaginatedResult via that guard and map it to the REST envelope: {success, data: items,
+   meta:{total,page,limit,totalPages,timestamp}}. Replace the fragile `'data' in && 'total' in`
+   sniff so mapping is type-driven and centralised. Post-interceptor shape then matches FE
+   PaginatedResult exactly (data,total,page,limit,totalPages) and http-client's meta.page branch
+   fires.
+
+3. Remove the BUG-014 items-normalization patch in FeatureTogglesPage now that the contract holds at
+   source.
+
+4. Tier 3 (detectable): contract spec + invariant (see verification).
+
+This makes createStandardPaginatedResult the single backend pagination SSoT, the interceptor the
+single REST-mapping point, and PaginatedResult the matching FE type — no fourth definition.
+
+- **Files to change:**
+  - `libs/backend-common/src/pagination/pagination.dto.ts`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/services/error-tracking.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/**tests**/integration/paginated-response-contract.spec.ts: boot each
+  system-management list endpoint (maintenance, feature-toggles, versions, errors/groups,
+  errors/groups/:id/occurrences, jobs) through the real ResponseInterceptor and assert the HTTP
+  envelope is exactly {success:true, data:<array>, meta:{total,page,limit,totalPages,timestamp}} (no
+  `items` key anywhere in the body). Add a static invariant (extend tests/invariants/, e.g.
+  admin-api-paginated-contract.spec.ts) that forbids admin-api service methods from returning a bare
+  `{ items` object literal — list results MUST flow through createStandardPaginatedResult. Extend
+  the FE http-client test (web/modules/admin-panel/src/services/**tests**/) to assert the
+  {success,data,meta:{page,...}} envelope round-trips into PaginatedResult
+  {data,total,page,limit,totalPages}. A unit test on isStandardPaginatedResult() guards the
+  interceptor detection.
+- **Effort:** L
+
+### APA-284 [HIGH] Telemetry ingestion endpoints are architecturally unreachable: SUPER_ADMIN user-JWT guard on service-to-service write paths
+
+- **Status:** CONFIRMED+DESIGNED (audited CRITICAL → verified HIGH)
+- **Symptom:** The global APP_GUARD PlatformAdminGuard (app.module.ts:283-289) requires a
+  SUPER_ADMIN user access token on every admin-api route (platform-admin.guard.ts:151-177). That
+  includes the ingestion endpoints the whole observability story depends on: POST
+  /system/errors/report (error-tracking.controller.ts:235-237) and POST
+  /system/performance/metrics[/request] (performance.controller.ts:260-278). Backend services
+  authenticate to each other with signed internal headers, not SUPER_ADMIN JWTs, so no service can
+  ever feed error tracking or application performance metrics. This single design choice is the root
+  cause of both the permanently-empty Error Tracking page and the permanently-zero application
+  metrics on the Performance dashboard.
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:283-289`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:151-177`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:235-237`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts:260-278`
+- **Verification:** Verified against real wiring, not just the cited line ranges. (1)
+  app.module.ts:283-286 registers PlatformAdminGuard as a global APP_GUARD; its canActivate
+  (platform-admin.guard.ts:78-179) short-circuits true ONLY when IS_PUBLIC_KEY is set, otherwise it
+  demands a Bearer JWT with SUPER_ADMIN in roles. It has no HMAC/service-identity branch. (2) The
+  ingestion handlers carry no @Public() and no method-level ServiceIdentityGuard: POST
+  system/errors/report (error-tracking.controller.ts:235-237) and POST
+  system/performance/metrics|metrics/request|metrics/flush (performance.controller.ts:260-284). So
+  the global SUPER_ADMIN gate applies to them. (3) Inter-service auth in this repo is HMAC
+  service-identity headers (generateServiceIdentityHeadersV2 in service-identity.util.ts) verified
+  by ServiceIdentityGuard (libs/backend-common/src/guards/service-identity.guard.ts) — services
+  never mint SUPER_ADMIN user JWTs. A signed internal call therefore arrives with no Bearer header
+  (or a non-SUPER_ADMIN service token) and is rejected 401/403 by PlatformAdminGuard. The finding's
+  core claim survives: the write path is unreachable for the only actor (backend services) that
+  could feed it. Adversarial checks that could have refuted it all failed: no @Public on these
+  routes, no ServiceIdentityGuard applied, no NATS/@EventPattern consumer in system-management, no
+  in-process interceptor calling recordRequestMetric, and no service outside admin-api writing
+  error_occurrences/error_groups/performance_metric. In fact the endpoints have ZERO callers
+  anywhere (grep across apps/libs/web), so there is a co-equal second root cause: no telemetry
+  emission clients exist at all. Both must be fixed for the pages to populate. Severity lowered
+  CRITICAL->HIGH: the defect makes an entire observability subsystem non-functional (Error Tracking
+  page permanently empty; Performance application/request metrics permanently zero, since
+  recordRequestMetric feeds only an in-memory Map that nothing populates), and empty dashboards can
+  mask real incidents — but there is no security bypass, data corruption, or platform-availability
+  loss, which is the HIGH band rather than CRITICAL.
+- **Root cause:** Two links of the FE->BE->DB telemetry chain are broken. (a) AUTH BOUNDARY: the
+  ingestion write endpoints were placed inside the same controllers as the SUPER_ADMIN read/admin
+  surface, so the global PlatformAdminGuard (a user-JWT+SUPER_ADMIN gate) sits on them. Services
+  authenticate with HMAC service-identity headers, never SUPER_ADMIN JWTs, so no service can POST
+  errors or metrics — the write path is an admin-only door on a service-only hallway. (b) EMISSION:
+  there is no telemetry client anywhere — no global exception filter or HTTP-timing interceptor in
+  backend-common bootstrap emits ErrorReport/request-metric writes to admin-api — so even after the
+  door is opened, nobody walks through it. This is an instance of the systemic 'FE feature with no
+  backend ingestion path' + 'service-to-service write path guarded by a user-only guard' class: the
+  write boundary and the read boundary were never separated, and the automatic producer side was
+  never built. It drifted because the ingestion endpoints were scaffolded as ordinary controller
+  methods under the service-wide APP_GUARD without a distinct service-identity boundary, and the
+  consumer UI was shipped ahead of any producer.
+- **Fix design:** Fix the boundary at the source and make emission automatic; add a detectable gate
+  for the whole class. TIER 1 (make the wrong actor impossible): split the ingestion write endpoints
+  out of the user-admin controllers into a dedicated internal boundary. Create a
+  TelemetryIngestionController (routes system/errors/report, system/performance/metrics,
+  metrics/request, metrics/flush) annotated @Public() to yield the global PlatformAdminGuard, and
+  @UseGuards(ServiceIdentityGuard) so the ONLY way in is a valid HMAC v2 service-identity signature
+  bound to an 'admin-api' audience. Register the ServiceIdentityGuard provider + keyring/audience
+  config in app.module.ts (mirroring how gateway/subgraph receivers wire
+  verifyServiceIdentityRequest). This structurally makes a user JWT unable to reach the write path
+  and a service unable to reach the read/admin surface — the two boundaries can never be confused
+  again. Keep the read/dashboard endpoints on PlatformAdminGuard unchanged. TIER 2 (make correct
+  behavior automatic — kills the zero-callers root cause for every service at once): add a
+  backend-common telemetry emitter wired in create-service-app bootstrap: (i) extend the shared
+  GlobalExceptionFilter to POST an ErrorReport, and (ii) add an HTTP-timing interceptor that POSTs
+  request metrics, both via the signed HTTP client using generateServiceIdentityHeadersV2
+  (fire-and-forget, awaited, failure-isolated so telemetry never breaks the request). Because every
+  service already bootstraps through create-service-app, opting in becomes the zero-effort default.
+  Prefer the existing signed-HTTP-client path; if volume argues for it, the same emitter can publish
+  a NATS ErrorReported event consumed by admin-api instead of HTTP — but the guard/boundary split is
+  required either way. TIER 3 (detectable): add an integration spec proving the internal endpoints
+  ACCEPT a valid service-identity-signed request and REJECT both an unsigned request and a
+  SUPER_ADMIN user JWT, plus an architecture spec asserting no ingestion route is left on the bare
+  PlatformAdminGuard (every telemetry-write handler must carry @Public + ServiceIdentityGuard), and
+  a backend-common test asserting the bootstrap emitter signs and posts. No defensive shims, no 'as
+  any', no allowlisting — the boundary is enforced by types/guards and a build-time gate.
+- **Files to change:**
+  - `apps/admin-api-service/src/system-management/controllers/telemetry-ingestion.controller.ts`
+  - `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts`
+  - `apps/admin-api-service/src/system-management/controllers/performance.controller.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `apps/admin-api-service/src/app.module.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `libs/backend-common/src/telemetry/telemetry-emitter.service.ts`
+  - `libs/backend-common/src/filters/global-exception.filter.ts`
+  - `libs/backend-common/src/interceptors/request-metrics.interceptor.ts`
+  - `apps/admin-api-service/src/system-management/__tests__/integration/telemetry-ingestion-auth.spec.ts`
+  - `apps/admin-api-service/src/__tests__/e2e/telemetry-ingestion-boundary.architecture.spec.ts`
+- **Proof of fix:** Add
+  apps/admin-api-service/src/system-management/**tests**/integration/telemetry-ingestion-auth.spec.ts:
+  (1) POST /api/v1/system/errors/report and /system/performance/metrics|metrics/request with a valid
+  generateServiceIdentityHeadersV2 signature (audience 'admin-api') returns 201/200 and persists a
+  row (reportError writes an ErrorOccurrence; recordMetric buffers/flushes a PerformanceMetric); (2)
+  the same POST with a SUPER_ADMIN Bearer JWT and no service-identity headers is rejected; (3) the
+  same POST unsigned is 401. Add
+  apps/admin-api-service/src/**tests**/e2e/telemetry-ingestion-boundary.architecture.spec.ts
+  asserting every POST handler whose path matches system/errors/report|system/performance/metrics\*
+  carries IS_PUBLIC_KEY + ServiceIdentityGuard metadata and is NOT reachable under the bare
+  PlatformAdminGuard. Add a libs/backend-common test asserting the bootstrap-wired emitter signs an
+  outbound ErrorReport/request-metric with v2 headers and targets the admin-api ingestion routes.
+  Full run: nx affected --target=test and nx affected --target=lint green.
+- **Effort:** L
+
+### APA-285 [HIGH] Control-plane theater: feature toggles, maintenance mode, and the job queue all persist real rows that nothing in the platform consumes
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Three of the five features are write-only control planes: feature toggles have no
+  evaluate/gating callers anywhere (only the admin panel's own unused wrappers,
+  settings.ts:88,97-101); maintenance checkMaintenanceMode has no gateway/middleware/shell consumer
+  (grep of gateway-api/src for 'maintenance' is empty); the job queue has no registered handlers and
+  no external producers (registerHandler job-queue.service.ts:224, zero callers). A SUPER_ADMIN can
+  'enable' a flag, 'start' a global maintenance, or 'create' a job and the platform behaves
+  identically. These pages pass shallow testing (data persists and reloads) while delivering none of
+  their operational purpose.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/settings.ts:88`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts:469-519`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts:224-227`
+  - `apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts:477-483`
+- **Verification:** All three "write-only control plane" claims survive adversarial verification
+  against real wiring.
+
+1. FEATURE TOGGLES: `evaluateFeatureToggle`/`getFeatureToggleByKey`
+   (global-settings.service.ts:161,202) are reachable only from the admin controller endpoint and
+   the service's own internals. Repo-wide grep finds no backend service, no gateway
+   guard/middleware, and no FE module that evaluates a flag to gate behavior. The FE wrappers
+   `evaluateFeature` (settings.ts:97) and `getFeatureToggleByKey` (settings.ts:88) are imported by
+   zero pages — FeatureTogglesPage.tsx calls only CRUD/toggle wrappers. Enabling a flag changes
+   nothing.
+
+2. MAINTENANCE MODE: `checkMaintenanceMode` (global-settings.service.ts:469) is consumed only by the
+   admin controller and by the same service's `getSystemStatus` (line 916, self-referential).
+   `grep -i maintenance apps/gateway-api` → zero files; no guard/middleware in libs/backend-common
+   enforces it (the 4 hits are schema/column helpers, not consumers). FE `checkMaintenanceStatus`
+   (settings.ts:119) is imported by no page. Starting a global maintenance blocks no tenant request.
+
+3. JOB QUEUE: ScheduleModule.forRoot() is active (app.module.ts:178) and `processJobs` runs every
+   10s, but there is NO `.registerHandler(` call anywhere in the repo (the only registerHandler
+   callers belong to alert-engine's unrelated NotificationDispatcher). `executeJob` (line 298-303)
+   therefore always logs "No handler registered" and returns, leaving jobs PENDING forever.
+   `createJob`/`scheduleJob`/`scheduleRecurringJob` are reachable only from JobQueueController
+   (admin CRUD) — no external producer; real platform scheduling uses per-service `@Cron` directly
+   (e.g. farm feeding-cron), bypassing this queue.
+
+Severity HIGH is correct: three admin surfaces present operational capability (kill-switches,
+incident maintenance lockout, background jobs) that silently no-ops — a false safety signal during
+incidents. Not CRITICAL (no data loss/security breach). Umbrella finding; per-instance detail lives
+in APA-267 (maintenance), the feature-toggle-theater instance, and the job-queue instance in
+system-mgmt.md.
+
+- **Root cause:** For all three subsystems the control plane (admin-api entities + CRUD
+  controllers + admin-panel pages) was fully built, but the data plane — the runtime
+  enforcement/consumption/production side — was never wired. The link broke at a cross-boundary
+  seam: enforcement for flags and maintenance must live in the gateway or the shared bootstrap guard
+  chain (libs/backend-common), and job execution needs handlers registered by the services that own
+  the work — none of which the admin-api can supply on its own. Because admin-api owns the tables
+  and CRUD, the feature looked "done" at the service boundary and passed shallow persist-and-reload
+  testing, so no one closed the cross-service consumer link. The FE compounded it by shipping
+  evaluate/check wrappers (settings.ts:88,97,119) that no component ever calls, cementing the
+  illusion.
+- **Fix design:** Systemic class: "control-plane theater" — an admin surface whose stored state has
+  no runtime consumer/producer. Two architectural moves, applied per instance (detailed per-instance
+  design lives in the maintenance/feature-toggle/job-queue findings in system-mgmt.md — do not
+  re-derive here):
+
+(A) Close the data-plane link at the enforcement point, not with local patches:
+
+- Maintenance: add a global `MaintenanceGuard` installed automatically by the shared bootstrap
+  (libs/backend-common/src/bootstrap/create-service-app.ts) / gateway-api guard chain, calling
+  checkMaintenanceMode and returning 503 for non-bypassed requests. Enforcement becomes the
+  zero-effort default (tier 2).
+- Feature flags: add a `@RequiresFeature(key)`/evaluation client in backend-common that services
+  call to gate; migrate the FE wrappers to it or delete them.
+- Job queue: register real handlers where the owning work lives, OR delete the subsystem (entity +
+  migration + controller + service + FE page/wrappers) rather than ship non-functional CRUD.
+
+(B) Make recurrence impossible via a build/test gate (tier 3): an invariant that a control surface
+must have a wired consumer — a maintenance-enforcement integration test, a flag-gating test, and a
+job invariant asserting every producible job.name has a registered handler (produced-without-handler
+fails the build). Also delete or wire the three dead FE wrappers.
+
+Whichever direction is chosen per instance (enforce vs delete), the outcome must be that no admin
+page presents a capability the platform ignores.
+
+- **Files to change:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/gateway-api/src`
+  - `apps/admin-api-service/src/system-management/services/global-settings.service.ts`
+  - `apps/admin-api-service/src/system-management/services/job-queue.service.ts`
+  - `apps/admin-api-service/src/system-management/system-management.module.ts`
+  - `web/modules/admin-panel/src/services/api/settings.ts`
+  - `e2e/tests/integration/control-plane-enforcement.spec.ts`
+- **Proof of fix:** Add e2e/tests/integration/control-plane-enforcement.spec.ts asserting the
+  umbrella invariant per subsystem: (1) with a GLOBAL maintenance IN_PROGRESS, a normal tenant
+  request returns 503 and a bypass (SUPER_ADMIN/whitelisted IP) passes; (2) a DISABLED feature flag
+  causes its gated codepath to be skipped while ENABLED runs it (drive an actual
+  @RequiresFeature-guarded route); (3) a created job with a registered handler transitions
+  PENDING→COMPLETED, and a static invariant fails the build if any producible job.name lacks a
+  registered handler. Plus a grep-style unit invariant asserting the FE settings.ts wrappers
+  evaluateFeature/getFeatureToggleByKey/checkMaintenanceStatus are either imported by a page or
+  removed. All green under nx affected --target=test.
+- **Effort:** L
+
+### APA-286 [MEDIUM] contract-validation.spec.ts KNOWN_DRIFT allowlist masks live breakage and contains stale/incorrect reasons
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The FE-BE contract test explicitly allowlists the broken routes found in this audit -
+  POST feature-toggles/:id/toggle ('Backend uses PUT ... with status field', spec:634-639) and PUT
+  errors/groups/:id/status - and also allowlists /system/performance/_ and /system/errors/_
+  endpoints with the reason 'not in global-settings controller' (spec:641-707) even though those
+  endpoints DO exist in PerformanceController/ErrorTrackingController. The allowlist converts real
+  404-producing drift into permanent green tests, which is exactly how the toggle button and
+  acknowledge action shipped broken.
+- **Evidence:**
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts:634-639`
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts:641-707`
+- **Root cause:** contract-validation.spec.ts introspects only a subset of controllers and
+  suppresses everything else via a hand-maintained KNOWN*DRIFT allowlist keyed on path+method only.
+  It allowlists genuinely-broken routes as if intentional — POST feature-toggles/:id/toggle 'Backend
+  uses PUT ... with status field' (634-639; but FE actually POSTs {enabled} to a route that does not
+  exist -> the Enable/Disable button 404s) and feature-toggles/key/:param (628-632) — and it
+  allowlists /system/performance/* and /system/errors/\_ with the stale/incorrect reason 'not in
+  global-settings controller' (641-707) even though those routes DO exist in
+  PerformanceController/ErrorTrackingController. Because the check is path+method only, it cannot
+  see the live param/body drift inside those routes (findings p2|i2, p3|i3), so real breakage stays
+  permanently green. This is the meta-root-cause that let the toggle button, key-lookup, and every
+  param/shape mismatch in this section ship.
+- **Fix design:** Rebuild the gate to be complete and shape-aware (tier 3). (1) Enumerate routes
+  across ALL admin-api controllers (global-settings, performance, error-tracking, job-queue, ...) so
+  legitimately-existing routes are recognized and need no allowlist — deleting the false
+  performance/errors 'not in controller' entries. (2) Extend comparison beyond path+method to
+  query-param names and request-body DTO field shapes, so start-vs-startDate and
+  unresolvedErrors-vs-unresolvedGroups fail the test. (3) Make any remaining allowlist entry require
+  a linked finding ID + owner + expiry date, and fail the test on an expired/unreferenced entry, so
+  drift suppression cannot be permanent. Then remove the toggle and key-lookup entries once findings
+  p0|i3 and the toggle route are fixed.
+- **Files to change:**
+  - `apps/admin-api-service/src/__tests__/contract-validation.spec.ts`
+- **Effort:** L
+
+### APA-287 [NOT_A_BUG] Schema/migration discipline is correct for this module (verified, no finding)
+
+- **Status:** REFUTED
+- **Symptom:** All 11 system-management entities declare schema:'admin' as required for a
+  platform-level service (e.g. feature-toggle.entity.ts:38, maintenance-mode.entity.ts:46,
+  job-queue.entity.ts:52,161,219, error-tracking.entity.ts:65,129,211,
+  performance-metric.entity.ts:63,128), and all tables are created by the active Baseline migration
+  (apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:35-69) with matching indexes; the
+  archived initial migration is outside the runtime glob (app.module.ts:117 'migrations/[0-9]\*').
+  SUPER_ADMIN guarding is uniformly applied via APP_GUARD. Recorded as verified context so other
+  sections do not re-audit it.
+- **Evidence:**
+  - `apps/admin-api-service/src/system-management/entities/feature-toggle.entity.ts:38`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:35-69`
+  - `apps/admin-api-service/src/app.module.ts:117`
+- **Refutation (brief check):** This is a recorded verification note, not a defect. Confirmed
+  against the cited files: all system-management entities declare schema:'admin' (e.g.
+  feature-toggle.entity.ts, maintenance-mode.entity.ts, job-queue.entity.ts,
+  error-tracking.entity.ts, performance-metric.entity.ts) as required for a platform-level
+  (cross-tenant) service, their tables are created by the active Baseline migration
+  (migrations/1800000000000-Baseline.ts:35-69) with matching indexes, the archived initial migration
+  is outside the runtime glob (app.module.ts:117 'migrations/[0-9]\*'), and SUPER_ADMIN guarding is
+  applied uniformly via the global APP_GUARD PlatformAdminGuard. No architectural violation.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-009** — APA-283: RC-1a canonical paginated-response envelope (broken
+  `{items,total}` producers migrated + interceptor recognition).
+- **ADMIN-CRITICAL-007** — RC-1b: migrate the remaining `{data,total}` list producers to the
+  canonical envelope (tracked follow-up to ADMIN-CRITICAL-009).
+- **ADMIN-CRITICAL-083** — APA-283 completion: RC-1a/RC-1b made the interceptor recognise one
+  envelope and gated the obsolete `{data,total}` one, which left a THIRD shape unguarded — a bare
+  `{items,total}` with no page numerics, keyed on `items` like the canonical envelope and therefore
+  rejected by `isStandardPaginatedResult`, shipped unlifted. Two route producers still emitted it
+  (`GET /impersonation/sessions`, `GET /debug/feature-overrides`); alongside them five services each
+  declared a private near-copy of the paginated type that DID lift but understated its own
+  producer's output by the two derived booleans. All converted to `IStandardPaginatedResult` +
+  `createStandardPaginatedResult`, the consumer guards deleted, and `admin-api-pagination-canonical`
+  extended to forbid any admin-api-local declaration pairing an `items` array with `total: number` —
+  no allowlist, per this finding's own design. NOTE: that design specified a `data`-keyed
+  `RestPage<T>` and a gate banning `IStandardPaginatedResult` in admin-api; RC-1a decided the
+  opposite direction (keep `items`, lift it in the interceptor), so the shipped gate enforces the
+  same intent against the shape that actually exists.
+- **ADMIN-HIGH-008** — MaintenancePage renders a LOCAL `MaintenanceWindow` type that diverges from
+  the backend maintenance shape (tracked type-drift).
+- **ADMIN-HIGH-025** — Phase-1 RC-4 class: the admin panel sent request fields the backend DTO
+  didn't whitelist (or read under a different name), so post-RC-2 the writes 400/404/no-op'd. Fixed
+  per-finding at root cause — actor fields (`invitedBy`/`createdBy`) removed from the FE and sourced
+  from the JWT; legitimate fields (`scope`/`isExperimental`) whitelisted; `encrypt` removed as
+  theater (the service mandates encryption); the performance time-range reconciled to the backend's
+  `startDate`/`endDate`; the jobs dashboard returns the real `JobQueue` rows in a canonical shape;
+  revoke-permission targets `superAdminId`. Gates `rc4-fe-dto-parity` +
+  `job-queue-dashboard.contract` lock the FE↔DTO contract (no allowlist). Closes
+  APA-049/261/266/271/281/290/314.

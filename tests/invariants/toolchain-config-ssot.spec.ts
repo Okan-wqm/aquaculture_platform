@@ -1,10 +1,11 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { resolve } from 'path';
 
 import * as YAML from 'yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = process.cwd();
 const RUST_SETUP_ACTION = './.github/actions/setup-rust-workspace';
 const RUST_FANOUT_WORKFLOWS = [
@@ -277,7 +278,7 @@ describe('Toolchain Config SSoT', () => {
         targets: manifest.targets.join(','),
       });
     } finally {
-      rmSync(temporaryDirectory, { recursive: true, force: true });
+      removeFixtureTree(temporaryDirectory);
     }
   });
 
@@ -303,12 +304,19 @@ describe('Toolchain Config SSoT', () => {
       }
     }
 
+    // `ci-affected.yml:type-check` is absent on purpose. It used to drive
+    // `nx affected -t type-check`, which is what made it a broad root Nx
+    // fan-out — and that invocation matched ZERO projects, because no
+    // project.json declares a `type-check` target and nx.json has no default,
+    // so nx exited 0 having run nothing (FARM-MEDIUM-302). The no-op is gone;
+    // the job now runs the changed-file guard plus `gates:type-check-spec`,
+    // neither of which fans out across the Rust workspace, so requiring the
+    // Rust prep there would be a guard for work that does not happen.
     expect(guardedJobs.sort()).toEqual(
       [
         '.github/workflows/ci-affected.yml:build',
         '.github/workflows/ci-affected.yml:lint',
         '.github/workflows/ci-affected.yml:test',
-        '.github/workflows/ci-affected.yml:type-check',
         '.github/workflows/ci-full.yml:build',
         '.github/workflows/ci-full.yml:lint-and-typecheck',
         '.github/workflows/ci-full.yml:test',

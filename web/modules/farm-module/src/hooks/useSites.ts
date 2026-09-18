@@ -20,6 +20,10 @@ import {
   UPDATE_SITE_MUTATION,
   UPSERT_SITE_CONTACTS_MUTATION,
 } from '../graphql/sites.operations';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // Types
 export type SiteType =
@@ -141,12 +145,7 @@ export interface UpdateSiteInput {
   isActive?: boolean;
 }
 
-export interface PaginatedSitesResponse {
-  items: Site[];
-  total: number;
-  page: number;
-  limit: number;
-}
+export type PaginatedSitesResponse = PaginationResultV1<Site>;
 
 export interface SiteListFilter {
   status?: string;
@@ -214,7 +213,7 @@ async function loadAuthorizedSitePages(
   try {
     const firstPage = await requestPage(1);
     assertSitePageContract(firstPage, 1);
-    const pageCount = Math.ceil(firstPage.total / SITE_PAGE_SIZE);
+    const pageCount = firstPage.totalPages;
     if (pageCount > MAX_SITE_LIST_PAGES) {
       throw new Error('Authorized site list exceeds the supported pagination contract');
     }
@@ -241,12 +240,15 @@ async function loadAuthorizedSitePages(
     if (sitesById.size !== firstPage.total) {
       throw new Error('Site pagination did not return every authorized site');
     }
-    return {
-      items: [...sitesById.values()],
-      total: firstPage.total,
-      page: 1,
-      limit: SITE_PAGE_SIZE,
-    };
+    // Every authorized site, collapsed into one minted page — not page 1 of N
+    // wearing an items array gathered from all N.
+    const allSites = [...sitesById.values()];
+    return createStandardPaginatedResult<Site>(
+      allSites,
+      firstPage.total,
+      1,
+      Math.max(1, allSites.length),
+    );
   } finally {
     clearTimeout(timeoutId);
     querySignal.removeEventListener('abort', abortFromQuery);

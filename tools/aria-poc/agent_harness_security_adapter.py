@@ -32,6 +32,20 @@ Runner contract (ARIA tool_runner.run_tool):
     stdout: JSON {observations[], findings[], read_paths[],
                   evidence_sources[], cost_units, metadata}
     exit:   0 on success.
+
+Evidence contract (aria_kernel.evidence_validator.validate_tool_output_evidence,
+the same shape every TypeScript adapter under tools/aria-adapters emits):
+    finding:          {id, rule, severity, path, line?, message,
+                       evidence: [{path, line?}], ...rule fields}
+    read_paths:       EVERY file the scan read — the validator requires each
+                      evidence path to be a declared read path, so a capped
+                      or sampled list is a self-report that contradicts the
+                      findings (ARIA-HIGH-098, trial eleven: 48 findings
+                      carried a `ref` string and no `evidence` list, the
+                      run was `evidence_error`, the tool was quarantined
+                      and the night ended `integrity_failed`).
+    evidence_sources: the distinct evidence paths, plain paths only —
+                      `path:line` is not a path the snapshot can contain.
 """
 from __future__ import annotations
 
@@ -113,6 +127,38 @@ _LEASE_TOKEN_LOG_RE = re.compile(
 _AGENT_WRITE_TOOLS_RE = re.compile(r"tools:.*(Edit|Write).*", re.IGNORECASE)
 
 
+def _finding(
+    rule: str,
+    severity: str,
+    rel_path: str,
+    *,
+    line: int | None,
+    message: str,
+    **fields: Any,
+) -> dict[str, Any]:
+    """The one finding shape this adapter emits.
+
+    `path` + `line` are the location split the way the kernel reads them;
+    `evidence` repeats that location in the list form the validator walks
+    (`validate_evidence_ref`: a dict with `path` and an optional `line`).
+    The id is location-qualified so two hits of one rule in one file stay
+    two findings for the fingerprint.
+    """
+    location = rel_path if line is None else f"{rel_path}:{line}"
+    finding: dict[str, Any] = {
+        "id": f"{rule}:{location}",
+        "rule": rule,
+        "severity": severity,
+        "path": rel_path,
+        "message": message,
+        "evidence": [{"path": rel_path} if line is None else {"path": rel_path, "line": line}],
+    }
+    if line is not None:
+        finding["line"] = line
+    finding.update(fields)
+    return finding
+
+
 def _resolve_repo_root() -> Path:
     override = os.environ.get(REPO_ROOT_ENV)
     if override:
@@ -142,12 +188,11 @@ def _check_secret_leak(rel_path: str, content: str) -> list[dict[str, Any]]:
     for label, pattern in _SECRET_RES:
         for match in pattern.finditer(content):
             line_no = content[: match.start()].count("\n") + 1
-            findings.append({
-                "rule": "secret_leak_in_yaml_or_md",
-                "label": label,
-                "ref": f"{rel_path}:{line_no}",
-                "severity": "CRITICAL",
-            })
+            findings.append(_finding(
+                "secret_leak_in_yaml_or_md", "CRITICAL", rel_path, line=line_no,
+                message=f"credential-shaped literal ({label}) committed in a harness file",
+                label=label,
+            ))
     return findings
 
 
@@ -158,11 +203,10 @@ def _check_untrusted_checkout(rel_path: str, content: str) -> list[dict[str, Any
         return []
     if not _UNTRUSTED_REF_RE.search(content):
         return []
-    return [{
-        "rule": "workflow_run_or_pr_target_untrusted_checkout",
-        "ref": rel_path,
-        "severity": "HIGH",
-    }]
+    return [_finding(
+        "workflow_run_or_pr_target_untrusted_checkout", "HIGH", rel_path, line=None,
+        message="workflow_run / pull_request_target job checks out the untrusted head ref",
+    )]
 
 
 def _check_broad_permission(rel_path: str, content: str) -> list[dict[str, Any]]:
@@ -175,12 +219,11 @@ def _check_broad_permission(rel_path: str, content: str) -> list[dict[str, Any]]
         chunk = "\n".join(content.splitlines()[max(0, line_no - 3): line_no - 1])
         if "reason" in chunk.lower():
             continue
-        findings.append({
-            "rule": "broad_shell_permission",
-            "match": match.group(0),
-            "ref": f"{rel_path}:{line_no}",
-            "severity": "MEDIUM",
-        })
+        findings.append(_finding(
+            "broad_shell_permission", "MEDIUM", rel_path, line=line_no,
+            message="write permission granted without a scoped justification comment",
+            match=match.group(0),
+        ))
     return findings
 
 
@@ -195,19 +238,17 @@ def _check_prompt_injection_surface(rel_path: str, content: str) -> list[dict[st
     fm = fm_match.group(1)
     findings: list[dict[str, Any]] = []
     if not _TOOLS_LINE_RE.search(fm):
-        findings.append({
-            "rule": "prompt_injection_surface",
-            "subkind": "tools_allowlist_missing",
-            "ref": rel_path,
-            "severity": "HIGH",
-        })
+        findings.append(_finding(
+            "prompt_injection_surface", "HIGH", rel_path, line=None,
+            message="agent frontmatter declares no tools allowlist",
+            subkind="tools_allowlist_missing",
+        ))
     if _ALLOWED_PATHS_GLOB_RE.search(fm):
-        findings.append({
-            "rule": "prompt_injection_surface",
-            "subkind": "allowed_paths_double_star",
-            "ref": rel_path,
-            "severity": "MEDIUM",
-        })
+        findings.append(_finding(
+            "prompt_injection_surface", "MEDIUM", rel_path, line=None,
+            message="agent frontmatter allows every path (allowed_paths: **)",
+            subkind="allowed_paths_double_star",
+        ))
     return findings
 
 
@@ -216,22 +257,20 @@ def _check_direct_anthropic_usage(rel_path: str, content: str) -> list[dict[str,
         return []
     if not _DIRECT_ANTHROPIC_RE.search(content):
         return []
-    return [{
-        "rule": "direct_anthropic_api_usage",
-        "ref": rel_path,
-        "severity": "HIGH",
-    }]
+    return [_finding(
+        "direct_anthropic_api_usage", "HIGH", rel_path, line=None,
+        message="@anthropic-ai/sdk referenced outside the approved wrapper",
+    )]
 
 
 def _check_lease_token_in_logs(rel_path: str, content: str) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for match in _LEASE_TOKEN_LOG_RE.finditer(content):
         line_no = content[: match.start()].count("\n") + 1
-        findings.append({
-            "rule": "lease_token_in_logs",
-            "ref": f"{rel_path}:{line_no}",
-            "severity": "CRITICAL",
-        })
+        findings.append(_finding(
+            "lease_token_in_logs", "CRITICAL", rel_path, line=line_no,
+            message="lease_token written to a log or stdout sink",
+        ))
     return findings
 
 
@@ -243,11 +282,10 @@ def _check_agent_self_modification(rel_path: str, content: str) -> list[dict[str
         return []
     fm = fm_match.group(1)
     if _AGENT_WRITE_TOOLS_RE.search(fm):
-        return [{
-            "rule": "agent_self_modification_bypass",
-            "ref": rel_path,
-            "severity": "HIGH",
-        }]
+        return [_finding(
+            "agent_self_modification_bypass", "HIGH", rel_path, line=None,
+            message="agent frontmatter grants Edit/Write, which reaches .claude/agents/**",
+        )]
     return []
 
 
@@ -272,11 +310,19 @@ def scan(repo_root: Path) -> dict[str, Any]:
             _check_agent_self_modification,
         ):
             findings.extend(fn(rel, content))
+    # Every file read is declared: the validator requires each evidence path
+    # to be a declared read path (`evidence_outside_declared_read_paths`),
+    # so the former `[:200]` cap made the self-report contradict any finding
+    # past the 200th file. 546 scanned files measure ~30 KB, far inside the
+    # 128 KB inline-row field cap (`ledger_inline.INLINE_ROW_FIELD_MAX_BYTES`).
+    evidence_sources = sorted({
+        ref["path"] for finding in findings for ref in finding["evidence"]
+    })
     return {
         "observations": [],
         "findings": findings,
-        "read_paths": read_paths[:200],  # cap to keep envelope small
-        "evidence_sources": [f["ref"] for f in findings],
+        "read_paths": sorted(read_paths),
+        "evidence_sources": evidence_sources,
         "cost_units": len(read_paths),
         "metadata": {
             "rule_count": 7,

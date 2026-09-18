@@ -58,10 +58,14 @@ jest.mock('@platform/event-contracts', () => ({
   })),
 }));
 
-// Mock @platform/event-bus
+// Mock @platform/event-bus — the bus itself is mocked away, but the delivery
+// outcome contract the service returns is the real one (PLAT-HIGH-902).
 jest.mock('@platform/event-bus', () => ({
   NatsEventBus: jest.fn(),
   IEventHandler: jest.fn(),
+  HandlerOutcome: jest.requireActual<{ HandlerOutcome: unknown }>(
+    '../../../../../../platform/libs/event-bus/src/interfaces/handler-outcome',
+  ).HandlerOutcome,
 }));
 
 import {
@@ -73,6 +77,9 @@ import {
   expectSearchPathSet,
 } from '../../../../../../libs/backend-common/src/database/__tests__/nats-handler-test.helpers';
 import { AutoRuleTriggerService } from '../auto-rule-trigger.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 // ---------------------------------------------------------------------------
 // Mock NatsEventBus (provided via @Inject('EVENT_BUS'))
@@ -86,8 +93,7 @@ const mockEventBus = {
  * Factory: creates a fresh service instance with fully-mocked dependencies.
  */
 function createService() {
-  const { mockDataSource, mockQueryRunner, mockManager } =
-    createMockDataSourceWithQueryRunner();
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSourceWithQueryRunner();
 
   const mockAutoRuleRepo = {
     find: jest.fn().mockResolvedValue([]),
@@ -107,6 +113,7 @@ function createService() {
     mockAutoRuleRepo,
     mockTaskRepo,
     mockDataSource as any,
+    scheduledJobs.executor,
     mockEventBus as any,
   );
 
@@ -249,9 +256,7 @@ describe('AutoRuleTriggerService', () => {
       });
 
       // SET search_path must come before manager.find
-      const setPathIndex = callOrder.findIndex((c) =>
-        c.startsWith('query:SET search_path'),
-      );
+      const setPathIndex = callOrder.findIndex((c) => c.startsWith('query:SET search_path'));
       const findIndex = callOrder.findIndex((c) => c === 'manager.find');
 
       expect(setPathIndex).toBeGreaterThanOrEqual(0);
@@ -395,12 +400,8 @@ describe('AutoRuleTriggerService', () => {
       await service.processScheduleRules();
 
       // Verify each schema got its own SET search_path
-      expect(qr1.query).toHaveBeenCalledWith(
-        `SET search_path TO "${schema1}", farm, public`,
-      );
-      expect(qr2.query).toHaveBeenCalledWith(
-        `SET search_path TO "${schema2}", farm, public`,
-      );
+      expect(qr1.query).toHaveBeenCalledWith(`SET search_path TO "${schema1}", farm, public`);
+      expect(qr2.query).toHaveBeenCalledWith(`SET search_path TO "${schema2}", farm, public`);
     });
 
     it('should release all QueryRunners even if one schema fails', async () => {
@@ -417,9 +418,7 @@ describe('AutoRuleTriggerService', () => {
         query: jest.fn().mockResolvedValue([]),
         release: jest.fn().mockResolvedValue(undefined),
         manager: {
-          find: jest
-            .fn()
-            .mockRejectedValue(new Error('Schema does not exist')),
+          find: jest.fn().mockRejectedValue(new Error('Schema does not exist')),
           create: jest.fn(),
           save: jest.fn(),
         },

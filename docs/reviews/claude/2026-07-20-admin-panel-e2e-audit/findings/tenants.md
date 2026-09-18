@@ -1,0 +1,1251 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Tenant Management & Creation — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## TenantManagementPage — `/admin/tenants` — verdict: **PARTIAL**
+
+**Chain:** List/stats/bulk chain is real: FE calls /api/admin/tenants* -> nginx rewrites ^/api/(.*)
+to /api/v1/$1 (infrastructure/nginx/droplet.conf:377-383) -> admin-api global prefix 'api/v1' +
+VERSION*NEUTRAL (libs/backend-common/src/bootstrap/create-service-app.ts:610,
+apps/admin-api-service/src/main.ts:16-19) -> TenantAdminController -> CQRS query handlers reading
+the auth.tenants read-replica entity (schema:'auth', synchronize:false) plus batched farm/sensor
+counts from each tenant*<uuid> schema. Bulk suspend/activate delegate persistence to auth-service
+via NATS request/reply (single-writer) and log to admin.tenant_activities. Global APP_GUARD
+PlatformAdminGuard enforces RS256 JWT + SUPER_ADMIN on every route
+(apps/admin-api-service/src/app.module.ts:283-290, guards/platform-admin.guard.ts:151-177). Envelope
+round-trip verified (shared/response.interceptor.ts:44-74 vs web http-client.ts:341-351). Several
+rendered fields are never populated and bulk-op failures are silent.
+
+**Endpoints exercised:** `GET /admin/tenants (ListTenantsQuery)`;
+`GET /admin/tenants/stats (GetTenantStatsQuery, Redis-cached 1h)`;
+`PATCH /admin/tenants/:id/suspend`; `PATCH /admin/tenants/:id/activate`;
+`POST /admin/tenants/bulk/suspend`; `POST /admin/tenants/bulk/activate`
+
+**DB tables:** `auth.tenants (read-only replica entity)`,
+`tenant_<uuid>.farms / tenant_<uuid>.sensors (batched counts)`, `admin.tenant_activities`,
+`auth.tenant_command_receipts (via auth-service NATS commands)`,
+`shared.audit_logs (AuditLogService)`
+
+### APA-016 [HIGH] Bulk suspend/activate failures are completely silent
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** TenantDetailService.bulkSuspend/bulkActivate swallow every exception and return {
+  success: [], failed: tenantIds } with HTTP 200; per-tenant NATS command failures are also only
+  pushed into the failed array. The page never inspects the returned success/failed arrays — it
+  closes the modal, clears selection, and refetches, so an operator who bulk-suspends tenants that
+  all failed sees no error at all and believes the suspension happened.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:498-501`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:582-585`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:461-467`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:185-201`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:208-222`
+- **Verification:** Prior verdict upheld (already adversarially verified). Re-read confirms every
+  link: tenant-detail.service.ts:429-501/515-585 wraps the whole bulk flow in a catch-all that
+  returns { success: [], failed: tenantIds } on ANY exception (including operation-level DB
+  failures), per-tenant NATS command errors at 461-467/546-551 are only warn-logged and pushed as
+  bare IDs; tenant.controller.ts:211-232 returns this with @HttpCode(200); the global
+  ResponseInterceptor wraps it as {success:true, data} so a 100%-failed operation is serialized as
+  {"success":true,"data":{"success":[],"failed":[...]}}; apiFetch (http-client.ts:297-351) throws
+  only on non-2xx and unwraps the envelope without inspecting data;
+  TenantManagementPage.tsx:185-201/208-222 ignores the resolved value — closes modal, clears
+  selection, refetches. Operator sees zero feedback on total failure. HIGH is correct: SUPER_ADMIN
+  believes policy-violation suspensions took effect when none did (tenants remain active), and the
+  refetch even shows unchanged statuses with no explanation.
+- **Root cause:** The broken link is the BE-service→FE-page result contract, defective at both ends
+  for the same reason: partial-success (207-style) semantics were flattened into a 200 body during
+  the HIGH-003 bulk rewrite but never promoted to a contract anyone must honor. (1) BE: the
+  catch-all in bulkSuspend/bulkActivate (tenant-detail.service.ts:498-501, 582-585) conflates
+  operation-level failure (DB/query error — should be a 5xx exception) with per-item failure
+  (legitimately data), so total failure becomes indistinguishable-from-partial data under HTTP 200;
+  per-item failures carry no reason, so they cannot be meaningfully rendered even if consumed. (2)
+  Naming collision: the domain field `success: string[]` is shadowed by the ResponseInterceptor
+  envelope's transport `success: true`, so the wire form of total failure literally reads
+  success:true — masking the defect in every manual inspection and test. (3) FE: the result type is
+  inlined ad hoc in services/api/tenants.ts:85/90 instead of declared in services/types/tenant.ts
+  (the panel's hand-written-type SSoT), and TenantManagementPage handlers await the call purely for
+  sequencing, discarding the result — their only failure channel is apiFetch's non-2xx throw, which
+  the BE contract guarantees never fires. Nothing at type-, test-, or UI-level obliges the caller to
+  consume the domain result, so the drift was invisible: both BE integration specs and the FE page
+  spec mock/assert only the happy-path shape.
+- **Fix design:** This is an instance of a systemic class — "partial-failure-as-200 result the
+  caller never inspects" combined with "domain field named `success` shadowing the transport
+  envelope's `success`" — so the fix is a contract redesign applied at the source (DTO + service +
+  controller + FE type + page together), plus test gates that make regression detectable. Tier-1
+  (make wrong states unrepresentable): (a) Define `BulkLifecycleResultDto` in
+  apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts: { succeeded: string[]; failed: Array<{
+  tenantId: string; reason: 'not_found' | 'invalid_status' | 'command_failed'; message: string }> }.
+  Renaming success→succeeded eliminates the envelope shadowing; structured failure entries make a
+  silent failure impossible to represent — a failed tenant always carries an operator-renderable
+  reason. Controller bulkSuspend/bulkActivate return this DTO. (b) In tenant-detail.service.ts,
+  DELETE the outer try/catch in both methods (no replacement): operation-level failures
+  (status-fetch query, activity-log INSERT) now propagate as exceptions → 5xx → apiFetch throws →
+  the page's existing catch shows the error Alert. Only genuinely per-tenant outcomes populate
+  `failed`: not-found/wrong-status from the validation pass, and the caught per-tenant
+  authProvisioningClient error with reason 'command_failed' plus its message (the
+  BadGatewayException/ServiceUnavailableException text). Build succeeded/failed as new arrays (drop
+  the splice mutation). (c) FE: declare `BulkLifecycleResult` mirroring the DTO in
+  web/modules/admin-panel/src/services/types/tenant.ts, export via types/index.ts, and type
+  tenantsApi.bulkSuspend/bulkActivate with it (removing the inline shape). Tier-2 (correct behavior
+  automatic): in TenantManagementPage.tsx, consume the result in both handlers: when failed.length >
+  0, render a persistent failure Alert listing each failed tenant (name resolved from current
+  `tenants` state, else the ID) with its reason/message, keep exactly the failed IDs selected (retry
+  affordance), clear only succeeded IDs, and close the modal only when failed.length === 0; always
+  refetch and clear the stats cache. Tier-3 (detectable): new BE service spec proving total failure
+  REJECTS (can never again serialize as 200), per-tenant failure lands in failed with reason;
+  integration-spec envelope assertion that the bulk endpoints' data payload contains
+  succeeded/failed and NO top-level `success` key (blocks the shadowing from returning); FE page
+  spec asserting the failure Alert renders and failed tenants stay selected. Existing specs
+  asserting the old {success, failed} shape are UPDATED to the new contract, not allowlisted.
+  Pattern-level rule this establishes for the panel: domain results never use a top-level `success`
+  key (reserved for the transport envelope), and any endpoint returning per-item outcomes must
+  return structured {succeeded, failed[{id, reason, message}]} that the page renders — enforced by
+  the envelope-shape assertion pattern added here, reusable for future bulk endpoints.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `apps/admin-api-service/src/tenant/tenant.controller.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-detail.service.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant.integration.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-api.integration.spec.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/services/types/index.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx`
+- **Proof of fix:** BE: add
+  apps/admin-api-service/src/tenant/**tests**/tenant-detail.service.spec.ts (new — none exists)
+  with: (1) tenantRepository query rejection → await
+  expect(service.bulkSuspend([...])).rejects.toThrow() (total failure can no longer return 200
+  data); (2) authProvisioningClient.suspendTenant rejecting for tenant-2 of [tenant-1, tenant-2] →
+  result.succeeded === ['tenant-1'], result.failed === [{tenantId:'tenant-2',
+  reason:'command_failed', message: expect.stringContaining(...)}], and activity INSERT executed
+  only for tenant-1; (3) not-found and non-ACTIVE tenants → failed with reasons
+  'not_found'/'invalid_status'; mirror cases for bulkActivate. Extend
+  apps/admin-api-service/src/tenant/**tests**/tenant-api.integration.spec.ts (existing bulk tests at
+  ~588-630): update mocks/assertions to the new {succeeded, failed} shape, add a supertest assertion
+  that POST /admin/tenants/bulk/suspend response body.data has 'succeeded' and 'failed' keys and NOT
+  'success' (envelope-shadowing invariant), and a test that detailService throwing yields a 5xx,
+  not 200. Update the old-shape blocks in tenant.integration.spec.ts:586-640. FE: extend
+  web/modules/admin-panel/src/pages/**tests**/TenantManagementPage.spec.tsx: mock
+  tenantsApi.bulkSuspend → {succeeded: [], failed: [{tenantId:'tenant-1', reason:'command_failed',
+  message:'auth-service unavailable'}]}, drive the bulk-suspend flow, assert a failure Alert appears
+  naming the failed tenant and that its checkbox remains selected; second test with a partial result
+  asserting only succeeded IDs are deselected and the modal closes only on failed.length === 0;
+  update the happy-path mock at line 377 to the new field names. Type-check gate: npm run type-check
+  fails if either side drifts from the mirrored BulkLifecycleResult shape after the rename (the old
+  inline {success, failed} type no longer compiles against the consuming page code). Run nx affected
+  --target=test and --target=lint green.
+- **Effort:** M
+
+### APA-017 [HIGH] Bulk activity-log INSERT writes N x N cartesian rows with mismatched previous-status pairing
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The batch audit INSERT puts a set-returning unnest($1::uuid[]) in the SELECT list
+  while FROM unnest($4::text[]) supplies the previous statuses. In PostgreSQL an SRF in the target
+  list expands PER input row, so bulk-suspending/activating N tenants inserts N\*N rows into
+  admin.tenant_activities, each tenantId paired with every tenant's previous status — silently
+  corrupted audit data for any bulk operation with more than one tenant.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:474-494`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:558-578`
+- **Verification:** Verified against current code. Both bulk audit INSERTs
+  (tenant-detail.service.ts:474-494 suspend, :558-578 activate) put
+  unnest($1::uuid[]) in the SELECT target list while FROM unnest($N::text[]) supplies previous
+  statuses — per PostgreSQL SRF semantics that is N×N cartesian pairing. Per the prior empirical
+  verdict, the statement additionally references "updatedAt", which exists in neither the
+  TenantActivity entity (only createdAt, entity lines 34-67) nor the Baseline1800000000000 DDL, so
+  it fails with 42703 before inserting. Real production impact today: bulk suspend/activate commits
+  the per-tenant lifecycle commands in auth-service, then the audit INSERT throws, and the blanket
+  catch (lines 498-501/582-585) returns { success: [], failed: allIds } — the admin panel reports
+  every tenant as failed even though they were actually suspended/activated, and zero audit rows are
+  written. Falsified operation results plus a silently empty audit trail on a SUPER_ADMIN lifecycle
+  action keeps this HIGH. This is an instance of a systemic class: hand-written raw-SQL DML against
+  ORM-managed tables duplicates the schema contract by hand, outside TypeScript, TypeORM metadata,
+  the entity-migration-parity static invariant, and the service tests (which mock
+  TenantDetailService itself — audit theater for this exact path).
+- **Root cause:** The BE→DB link broke at the service layer: the HIGH-003 performance remediation
+  replaced the correct entity-mapped audit path (TenantActivityService.logStatusChange →
+  activityRepository, where columns and pairing are derived from checked entity metadata) with
+  hand-written raw SQL to get a single batch INSERT. Raw SQL re-states the DB contract by hand —
+  column list, enum cast, and row-generation semantics — and nothing in the toolchain checks it: tsc
+  cannot see into the string, TypeORM metadata is bypassed,
+  e2e/tests/integration/entity-migration-parity.spec.ts only compares entities to migrations (never
+  raw query strings), and every test touching bulkSuspend/bulkActivate (tenant.integration.spec.ts,
+  tenant-api.integration.spec.ts, tenant.security.spec.ts) mocks TenantDetailService itself, so the
+  SQL never executes in any test. The author drifted twice in one statement (nonexistent "updatedAt"
+  column; SRF-in-target-list cartesian) and both were undetectable. A secondary root cause is the
+  blanket try/catch spanning all phases: it converts a post-commit audit failure into a fabricated {
+  success: [], failed: all } lifecycle result, hiding the 42703 from operators and falsifying the
+  API response.
+- **Fix design:** Tier 1 — make the wrong behavior impossible (local fix at the source): delete both
+  raw-SQL blocks. Add a batch API to the owning domain service:
+  TenantActivityService.logActivitiesBatch(dtos: CreateActivityDto[]): Promise<void> implemented as
+  a single this.activityRepository.insert(dtos) (TypeORM emits ONE multi-row INSERT ... VALUES
+  generated from entity metadata — preserves the HIGH-003 single-statement goal). Column drift
+  becomes structurally impossible (columns come from the entity, which MA3 already ties to the
+  migration DDL), and cartesian pairing becomes impossible (one VALUES tuple per array element;
+  tenantId→previousStatus pairing is done element-wise in typed TS: activityRows.map(t => ({
+  tenantId: t.id, activityType: ActivityType.SUSPENDED, title: 'Status changed: suspended',
+  description: reason || 'Bulk suspended', previousValue: { status: t.status }, newValue: { status:
+  'suspended' }, performedBy }))). Mirror for bulkActivate with ActivityType.ACTIVATED. Tier 2 —
+  make correct behavior automatic: the batch method lives beside logActivity/logStatusChange on
+  TenantActivityService, so every future bulk operation has a zero-effort correct path and
+  TenantDetailService no longer owns any admin.tenant_activities SQL. Also repair the error
+  semantics in the same code path: remove the blanket try/catch that spans fetch+commands+audit;
+  per-tenant command failures already populate failed[]; infrastructure errors in the pre-fetch
+  propagate as real 500s (ResponseInterceptor/exception filter contract); a failure of the
+  post-commit audit write is logged at error level with the affected tenant IDs and must NOT rewrite
+  the already-committed lifecycle result to { success: [], failed: all }. Tier 3 — make the systemic
+  class detectable (pattern-level application): (a) add a real unit spec for the REAL
+  TenantDetailService (today none exists — all specs mock it): bulk-suspend 3 tenants with distinct
+  statuses → assert logActivitiesBatch called once with exactly 3 DTOs, each tenantId paired with
+  its own previous status, and accurate success/failed when the auth command fails for a subset; (b)
+  extend e2e/tests/integration/entity-migration-parity.spec.ts with a new static invariant MA4
+  'raw-SQL column parity': scan apps/\*\*/src (excluding migrations, tests) for raw INSERT INTO
+  <schema>.<table> ("col", ...) statements inside .ts source, resolve <table> to its owning entity
+  parsed by the existing MA2/MA3 machinery, and fail the PR if any referenced column is absent from
+  the entity's column set — no allowlist; this closes the exact blind spot that let "updatedAt"
+  ship, for every service, in milliseconds; (c) extend
+  e2e/tests/integration/tenant-suspension.spec.ts with a bulk-suspend of ≥2 tenants asserting via
+  db.helper that admin.tenant_activities gains exactly N rows, each row's previousValue.status
+  matching that tenant's own prior status — the runtime proof that kills both the 42703 and the
+  cartesian class end-to-end.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-detail-bulk.spec.ts`
+  - `e2e/tests/integration/entity-migration-parity.spec.ts`
+  - `e2e/tests/integration/tenant-suspension.spec.ts`
+- **Proof of fix:** 1) New unit spec
+  apps/admin-api-service/src/tenant/**tests**/tenant-detail-bulk.spec.ts: instantiate the real
+  TenantDetailService with mocked repository/dataSource/activityService/authProvisioningClient;
+  bulkSuspend(['a','b','c']) with distinct current statuses → logActivitiesBatch called exactly once
+  with 3 DTOs, DTO[i].tenantId paired with tenant i's own previousValue.status; dataSource.query
+  never called with an INSERT; auth-command failure for one tenant yields it in failed[] while the
+  other two stay in success[] with 2 audit DTOs. 2)
+  e2e/tests/integration/entity-migration-parity.spec.ts new MA4 invariant fails red on the current
+  code (flags "updatedAt" in tenant-detail.service.ts as not present on TenantActivity) and goes
+  green after the raw SQL is removed — proving the gate detects the class, not just this
+  instance. 3) e2e/tests/integration/tenant-suspension.spec.ts bulk case: suspend 3 seeded tenants
+  via POST /tenants/bulk/suspend, assert response.success lists all 3, and SELECT from
+  admin.tenant_activities returns exactly 3 new rows (not 9, not 0) with per-tenant correct
+  previousValue.status pairing; repeat for bulk activate. Run nx affected --target=test and
+  --target=lint green before commit per CLAUDE.md.
+- **Effort:** M
+
+### APA-018 [MEDIUM] Trial badge and Last Activity column render fields the list DTO never carries
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The page renders tenant.isTrialActive (Trial badge) and tenant.lastActivityAt, and
+  the hand-written FE Tenant type declares both, but TenantListItemDto contains neither
+  (lastActivityAt was deliberately removed — DB-ADMIN-HIGH-003 — and isTrialActive is only computed
+  on the /detail endpoint). Result: trial tenants are never flagged in the list and Last Activity is
+  always '-'. sensorCount is returned but unused; userCount comes from the unmaintained
+  auth.tenants.user_count denormalization.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:278`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:310-313`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts:168-183`
+  - `web/modules/admin-panel/src/services/types/tenant.ts:70-100`
+- **Root cause:** The hand-written FE Tenant type is a superset of three backend shapes, so
+  TenantManagementPage.tsx:278/310-313 type-checks while rendering isTrialActive and lastActivityAt
+  that TenantListItemDto (tenant-detail.dto.ts:168-183) never emits: lastActivityAt was deliberately
+  deleted (DB-ADMIN-HIGH-003, no backing column) and isTrialActive is computed only on /detail.
+  userCount comes from the unmaintained auth.tenants.user_count denormalization instead of counting
+  auth.users.
+- **Fix design:** Fix the contract at the source, then make the FE mirror exact. Backend: add
+  isTrialActive to TenantListItemDto, derived in ListTenantsHandler.toTenantListItem from the SSoT
+  trialEndsAt (trialEndsAt > now, same rule as detail); replace tenant.userCount with a real count
+  by adding one grouped query (SELECT "tenantId", COUNT(\*) FROM auth.users WHERE "tenantId" =
+  ANY($1) GROUP BY 1) to the existing batched countTenantResources round-trip. FE: introduce an
+  endpoint-scoped TenantListItem type mirroring TenantListItemDto field-for-field; the list page
+  consumes it, renders the Trial badge from the new field, and DELETES the Last Activity column (the
+  concept has no tenant-row data source by design; activity lives in admin.tenant_activities on the
+  detail page). Pin the mirror with the source-parsing invariant spec (tier-enum-ssot.spec.ts
+  mechanism) so future DTO edits fail CI — this is one instance of the systemic FE-type-drift class
+  fixed pattern-wide in tenants|xc|i1.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+- **Effort:** M
+
+### APA-019 [MEDIUM] Stats cards stay stale up to 1 hour after lifecycle actions despite FE cache-busting
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** GetTenantStatsHandler caches the aggregate in Redis under 'tenant:stats:global' with
+  a 3600s TTL and nothing invalidates it on suspend/activate/provisioning. The page carefully clears
+  its own 2-minute cache (statsCacheRef.current = null) after every suspend/activate and refetches —
+  but gets the same stale Redis payload back, so Active/Suspended counters contradict the freshly
+  updated table.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:273-294`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:350-355`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:100`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:141-143`
+- **Root cause:** GetTenantStatsHandler owns a private Redis key 'tenant:stats:global' with 3600s
+  TTL (tenant-query.handlers.ts:273-274) and no write-side hook exists: grep confirms no code
+  anywhere invalidates the key. All lifecycle transitions
+  (SuspendTenantHandler/ActivateTenantHandler/Deactivate/Archive in suspend-tenant.handler.ts, plus
+  the provisioning workflow's activate_tenant) commit without touching it, so the FE's own
+  cache-busting (statsCacheRef.current = null) refetches the same stale payload.
+- **Fix design:** Make invalidation automatic at the only write choke-points. Extract a
+  TenantStatsCacheService (owns CACHE_KEY + TTL, methods get/set/invalidate) registered in
+  tenant.module.ts; GetTenantStatsHandler delegates to it. Call invalidate() after commit in the
+  four lifecycle command handlers (all admin status writes funnel through them per the single-writer
+  design) and in the provisioning workflow after activate_tenant / markRunSucceeded — invalidation
+  is then complete by construction, no TTL guesswork. Extend
+  apps/admin-api-service/src/tenant/**tests**/performance/tenant-stats-caching.spec.ts and
+  **tests**/suspend-tenant.handler.spec.ts to assert each handler invalidates and a subsequent stats
+  query recomputes.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-stats-cache.service.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/handlers/suspend-tenant.handler.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/performance/tenant-stats-caching.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/suspend-tenant.handler.spec.ts`
+- **Effort:** M
+
+### APA-020 [LOW] Per-row suspend/activate UI is unreachable dead code on the list page
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The detail Modal (and with it handleToggleStatus, the only path into the
+  single-tenant suspend-reason modal on this page) can never open: setIsDetailModalOpen(true) is
+  never called anywhere — row clicks navigate to the detail page instead. Only bulk actions work
+  from the list.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:57-58`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:131-147`
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx:499-563`
+- **Root cause:** Row clicks were repointed to navigate('/admin/tenants/:id') but the detail Modal
+  and its feeders were left behind: setIsDetailModalOpen(true) and setSelectedTenant(tenant) are
+  never called anywhere in TenantManagementPage.tsx, so the Modal (lines 499-563) and
+  handleToggleStatus — the only entry into the single-tenant suspend-reason modal on this page — are
+  unreachable. Only bulk actions work from the list.
+- **Fix design:** Restore the intended per-row lifecycle path and delete the orphan: add
+  Suspend/Activate buttons to the existing per-row actions column, gated by tenant.status (ACTIVE
+  shows Suspend, SUSPENDED shows Activate) and wired to handleToggleStatus (which already opens the
+  suspend-reason modal and calls tenantsApi.activate); delete the never-opened detail Modal plus
+  isDetailModalOpen/selectedTenant state (tenant detail is the detail page's job). Add a component
+  spec asserting the row Suspend button opens the reason modal and Activate calls the API — that is
+  the build-time detection for this dead-UI class.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/TenantManagementPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx`
+- **Effort:** S
+
+### APA-021 [LOW] tenants API surface exposes endpoints that cannot work
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** tenantsApi.getApproachingLimits targets a handler that deliberately throws 501
+  NotImplementedException (C-9 fix). tenantsApi.getById returns the raw entity whose 'tier' and
+  'limits' are prototype getters that do not survive JSON serialization, so any consumer typing the
+  result as Tenant gets tier === undefined (the list handler materializes tier for exactly this
+  reason). Neither is called by the three tenant pages today, but both are live drift traps.
+  TenantStatsDto also returns byPlan only while the FE type additionally declares byTier.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:415-421`
+  - `web/modules/admin-panel/src/services/api/tenants.ts:80-81`
+  - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts:167-213`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:172-189`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:329-348`
+- **Root cause:** The FE api module mechanically mirrors every backend route as the fat Tenant type:
+  getApproachingLimits targets a handler that deliberately throws 501
+  (tenant-query.handlers.ts:415-421), and getById/getBySlug/search/getExpiringTrials return the raw
+  Tenant entity whose tier/limits are prototype getters (tenant.entity.ts:168,186) that vanish in
+  JSON serialization — the exact failure the list handler's materialized `tier` comment documents.
+  TenantStatsDto emits byPlan only while the FE TenantStats also declares byTier.
+- **Fix design:** Stop serializing entities: add a toTenantResponseDto() mapper (materializes tier,
+  limits, isTrialActive from trialEndsAt, hydrated compat fields) and use it in
+  GetTenantByIdHandler, GetTenantBySlugHandler, SearchTenantsHandler and GetExpiringTrialsHandler;
+  controller signatures change from Tenant to the DTO class. Remove tenantsApi.getApproachingLimits
+  from the FE surface (the 501 is a deliberate C-9 block — a typed Tenant[] fn is a live trap) and
+  drop byTier from the FE TenantStats. Detection at the pattern level: extend
+  tests/invariants/dead-contract-fe-operations.spec.ts so an FE api fn targeting a
+  NotImplementedException route fails CI, and add a serialization spec asserting
+  JSON.parse(JSON.stringify(response)) carries tier/limits as own properties. Instance of the
+  systemic FE-type-drift class (tenants|xc|i1).
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/tenant.controller.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `tests/invariants/dead-contract-fe-operations.spec.ts`
+- **Effort:** M
+
+## CreateTenantPage — `/admin/tenants/new` — verdict: **BROKEN**
+
+**Chain:** The provisioning machinery itself is real and deep: POST /tenants (Idempotency-Key
+mandatory, guarded by the global SUPER*ADMIN guard) inserts a SERIALIZABLE run into
+admin.tenant_provisioning_runs/steps, then an async lease-based saga executes: ReserveTenant via
+NATS request/reply -> auth-service persists the row in auth.tenants (manager.save(Tenant));
+PENDING->PROVISIONING; module assignment -> auth.tenant_modules;
+platform.request_tenant_schema_provisioning -> the db-migrate tenant-schema-provisioner loop
+container creates tenant*<uuid> (verified against admin.tenant_schemas + platform.tenant_schema_jobs
+with a proper 30s requeue); role/first-admin setup via auth commands; ProvisionTenantSubscription
+via NATS -> billing.subscriptions with receipt evidence; ActivateTenant -> ACTIVE. FE then polls GET
+/tenants/provisioning/:operationId with backoff and offers retry. HOWEVER the mandatory
+wait_for_onboarding_ack step can never pass (see CRITICAL), so every run terminates FAILED and the
+wizard can never reach its success state — while the tenant is in fact already ACTIVE with a live
+subscription.
+
+**Endpoints exercised:** `POST /tenants (202, CreateTenantAcceptedResponse)`;
+`GET /tenants/provisioning/:operationId (status poll)`;
+`POST /tenants/provisioning/:operationId/retry`;
+`GET /billing/module-pricing/with-modules (wizard pricing, billing section)`;
+`POST /billing/calculate-pricing (wizard quote, billing section)`;
+`GET /modules (fallback module list)`
+
+**DB tables:** `admin.tenant_provisioning_runs`, `admin.tenant_provisioning_steps`,
+`admin.tenant_onboarding_acks (never written at runtime — see CRITICAL)`,
+`admin.tenant_schemas + platform.tenant_schema_jobs (db-migrate evidence)`,
+`auth.tenants / auth.tenant_modules / auth.tenant_roles / auth.tenant_command_receipts (via auth-service)`,
+`billing.subscriptions + billing.command_receipts (via billing-service)`,
+`tenant_<uuid>.* (created by db-migrate provisioner)`,
+`admin outbox (TenantProvisioningRequested / TenantOnboardingRequested / TenantProvisioned events)`
+
+### APA-022 [CRITICAL] Onboarding-ack loop is dead — every tenant creation terminates FAILED after the tenant is already ACTIVE
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** The saga's wait_for_onboarding_ack step requires an ACK row per required service
+  (default 'farm-service') in admin.tenant_onboarding_acks. Those rows are only written by
+  TenantOnboardingAckHandler via @EventPattern('events.\*.TenantOnboardingAck'), which needs a NATS
+  microservice listener — but admin-api-service's bootstrap never passes natsTransport, and
+  connectMicroservice/startAllMicroservices only run when it is set (only 8 other services set it).
+  So the handler is dead code, no ack is ever recorded, assertTenantOnboardingAcks always throws
+  'ack missing from owner services: farm-service', and markRunFailed marks the run terminally FAILED
+  (only the db-migrate step has a requeue path; the cron only re-picks QUEUED runs). Manual retry
+  re-runs the same step and fails identically. Net effect: the wizard always ends at 'Tenant
+  provisioning failed' with a retry that can never succeed, while auth.tenants shows the tenant
+  ACTIVE with a live billing subscription (activate_tenant and create_subscription run BEFORE the
+  ack wait) — and markRunFailed additionally fires FailProvisioning against the already-ACTIVE
+  tenant. farm-service does publish the ack correctly on its side; the consumer simply is not wired.
+- **Evidence:**
+  - `apps/admin-api-service/src/main.ts:10-36`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:730-739`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:844-845`
+  - `apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts:19-27`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:601-632`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:434-470`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:501-514`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:1695-1739`
+  - `apps/farm-service/src/water-quality/event-handlers/tenant-onboarding.event-handler.ts:232-240`
+  - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx:837-840`
+- **Verification:** Prior adversarial verdict confirmed; re-read of all cited files matches. The
+  consumer chain (farm-service publisher -> NATS -> admin-api @EventPattern handler ->
+  admin.tenant_onboarding_acks) is complete at every layer EXCEPT the transport:
+  apps/admin-api-service/src/main.ts sets no natsTransport, and create-service-app.ts gates
+  connectMicroservice (line 730) and startAllMicroservices (line 844) on it, so
+  TenantOnboardingAckHandler (tenant.module.ts:98, controllers array) is dead code.
+  assertTenantOnboardingAcks (workflow service lines 601-625) throws a terminal Error on missing
+  acks with no requeue path (only wait_for_db_migrate_provisioner has
+  DbMigrateProvisioningPendingError handling at line 502), so every run ends FAILED via
+  markRunFailed (1695-1739), which also fires FailProvisioning against a tenant already made ACTIVE
+  at step activate_tenant (line 434) with a live subscription (create_subscription, line 430). Three
+  compounding defects, all confirmed in current code. Severity stays CRITICAL: 100% of tenant
+  creations terminate in a contradictory FAILED-but-ACTIVE state with a retry that can never
+  succeed.
+- **Root cause:** The BE-to-BE async link broke at the consumer transport layer, and it drifted
+  because intent and wiring live in different places with no enforcement between them. (1) The
+  contract side is complete: libs/event-contracts/src/platform-event-registry.ts declares
+  TenantOnboardingAck/TenantOnboardingFailed with consumers ['admin-api-service'], the shared
+  gateway_service NATS account already has subscribe 'events.>'
+  (infrastructure/nats/services.yaml:318), the handler exists with correct @EventPattern subjects,
+  and tenant.module.ts registers it as a controller. But the one flag that makes @EventPattern
+  handlers live — natsTransport in bootstrapService options — is opt-in per service in main.ts, and
+  create-service-app.ts never cross-checks that the module tree contains microservice handlers. The
+  registry is documentation, not an enforced contract: the repo knew this class
+  (tests/invariants/tenant-provisioning-ssot.spec.ts:399 hand-asserts notification-service's
+  natsTransport for its command consumers) but the gate was written per-service by hand instead of
+  derived from the registry, so admin-api-service slipped through. (2) Second design fault: the saga
+  models an inherently asynchronous barrier (owner-service acks arriving over NATS) as a synchronous
+  single-shot assertion — the wait/requeue mechanism (PendingError + markRunWaitingForDbMigrate,
+  lines 99-103/1642-1693) was built as a one-off for the db-migrate step instead of a generic wait
+  primitive, so wait_for_onboarding_ack escalates any missing ack straight to terminal FAILED; even
+  with a live consumer, ack latency would fail runs. (3) Third: step ordering commits user-visible
+  state (create_subscription at 430, activate_tenant at 434, audit_provisioned at 438) BEFORE the
+  ack barrier (468), so barrier failure produces ACTIVE tenant + live subscription + terminal FAILED
+  run + FailProvisioning fired against an ACTIVE tenant.
+- **Fix design:** SYSTEMIC CLASS: "declared event consumer with no live listener" (dead
+  @EventPattern handler; registry-consumer-without-transport). Fix at pattern level plus local
+  application.
+
+PATTERN LEVEL — Tier 2 (make it automatic/fail-fast): in
+libs/backend-common/src/bootstrap/create-service-app.ts, after app.init() (line 838) scan the module
+tree (ModulesContainer + MetadataScanner, matching on @nestjs/microservices PATTERN_METADATA
+constants — no magic strings) for controller methods decorated @EventPattern/@MessagePattern. If any
+exist and natsTransport was not configured, log the offending controller#method list via
+logBootstrapError-style fatal and process.exit(1). A dead microservice handler in ANY service
+becomes a cold-start failure (dev, CI e2e, deploy health gate) instead of silent dead code — no
+service can regress into this class again.
+
+PATTERN LEVEL — Tier 3 (build-time gate): new tests/invariants/event-consumer-liveness.spec.ts
+derived from PLATFORM_EVENT_REGISTRY (the SSoT, not a hand-copied list): for every registry entry,
+each declared consumer service must have a real consumption mechanism in apps/<svc>/src — either (a)
+an @EventPattern/@MessagePattern whose pattern matches the registry subject with {tenantId} mapped
+to '\*', AND natsTransport set in that service's main.ts, AND the handler class present in a module
+controllers array; or (b) an event-bus subscribeWildcard('<EventType>') subscription (farm-service's
+mechanism). Both mechanisms checked exhaustively — no allowlist. This fails TODAY for
+admin-api-service (proving the gate) and protects TenantOnboardingFailed and every future registry
+event.
+
+LOCAL APPLICATION (the CRITICAL fix), four coordinated parts:
+
+1. Wire the transport: apps/admin-api-service/src/main.ts adds natsTransport: { queue:
+   'admin-api-service' }. No ACL/cert/infra change: the shared gateway_service account already
+   subscribes events.>, and buildNatsConnectionOptions('admin-api-service') resolves the same
+   ADR-015 mTLS client cert the service's EventBusModule/NatsV3Client already use.
+2. Scope HTTP-boundary enhancers to their jurisdiction (required because
+   APP_GUARD/APP_INTERCEPTOR/APP_FILTER DI providers apply to RPC contexts in a hybrid app). This is
+   the established platform pattern (service-identity.guard.ts:59, roles.guard.ts:177,
+   tenant.guard.ts:121, admin-bypass-rls.interceptor.ts:100, notification-service
+   global-exception.filter.ts:19), not a defensive shim — each enhancer declares its boundary:
+   PlatformAdminGuard.canActivate returns true for context.getType() !== 'http' with an ADR-015
+   comment (NATS caller identity is the broker-verified cert CN; the ACL restricts
+   events.\*.TenantOnboardingAck publishing to farm-service — JWT is an HTTP-boundary credential
+   that does not exist on the NATS surface); shared ThrottlerGuard (libs/backend-common)
+   early-returns for 'rpc' (rate limiting is an ingress-edge concern; NATS flow control is
+   broker/queue-group owned — fixes every current and future hybrid service); admin-api
+   ResponseInterceptor returns next.handle() for non-http (envelope is an HTTP response contract);
+   admin-api GlobalExceptionFilter rethrows for non-http like notification-service's filter.
+3. Make the ack barrier a real asynchronous wait by GENERALIZING the existing one-off db-migrate
+   wait, not adding a second copy: replace
+   DbMigrateProvisioningPendingError/markRunWaitingForDbMigrate with a single
+   ProvisioningWaitPendingError { stepName, retryMs } + markRunWaiting(runId, stepName, error,
+   retryMs, leaseToken) (the existing SQL at 1642-1693 is already parameterized by step name and
+   interval — this is parameterization, not new machinery). assertTenantOnboardingAcks: FAILED ack
+   rows stay a terminal Error (owner service reported failure); missing acks throw
+   ProvisioningWaitPendingError (requeue with ONBOARDING_ACK_RETRY_MS ~15s, attempts decremented as
+   today) up to an explicit deadline (ONBOARDING_ACK_DEADLINE_MS measured from the wait step's first
+   startedAt) after which it escalates to a terminal Error with an actionable message — a genuinely
+   lost ack terminates deterministically instead of spinning. processOperation's catch replaces the
+   instanceof DbMigrateProvisioningPendingError branch with the generic pending branch.
+4. Order the barrier before user-visible commitment so a terminal FAILED can never coexist with
+   ACTIVE: reorder PROVISIONING_STEPS and the runStep sequence to ...
+   wait_for_db_migrate_provisioner -> provision_application_resources ->
+   publish_onboarding_requested -> wait_for_onboarding_ack -> create_subscription -> activate_tenant
+   -> audit_provisioned -> publish_tenant_provisioned. Farm's onboarding handler needs only the
+   tenant schema (provisioned earlier) and module assignments (step assign_modules), so publishing
+   the request earlier is safe. With this order FailProvisioning always targets a tenant still in
+   PROVISIONING (legal machine transition) and a tenant becomes ACTIVE only after every required
+   owner service acked. Update the pinned order assertions in
+   tests/invariants/tenant-provisioning-ssot.spec.ts (lines 345-350 and 499-512) to the corrected
+   contract — a deliberate contract change, not drift allowlisting. FE
+   (web/modules/admin-panel/src/pages/CreateTenantPage.tsx) needs no change: the polling contract is
+   untouched; the failure screen becomes reachable only for genuine owner-service failures, and
+   retry becomes meaningful.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/main.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts`
+  - `libs/backend-common/src/security/throttler/throttler.guard.ts`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts`
+  - `apps/admin-api-service/src/filters/global-exception.filter.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `tests/invariants/tenant-provisioning-ssot.spec.ts`
+  - `tests/invariants/event-consumer-liveness.spec.ts`
+  - `libs/backend-common/src/bootstrap/__tests__/create-service-app.dead-handlers.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning-workflow.service.spec.ts`
+  - `apps/admin-api-service/src/guards/__tests__/platform-admin.guard.spec.ts`
+  - `libs/backend-common/src/security/throttler/__tests__/throttler.guard.spec.ts`
+- **Proof of fix:** (1) NEW tests/invariants/event-consumer-liveness.spec.ts — registry-derived:
+  every PLATFORM_EVENT_REGISTRY consumer has a live consumption mechanism (@EventPattern with
+  subject match + natsTransport in main.ts + controller registration, OR event-bus
+  subscribeWildcard). Must FAIL on pre-fix HEAD for admin-api-service/TenantOnboardingAck and pass
+  after — this is the pattern-level regression gate for the whole class. (2) NEW
+  libs/backend-common/src/bootstrap/**tests**/create-service-app.dead-handlers.spec.ts —
+  bootstrapping a module containing an @EventPattern controller without natsTransport aborts with
+  the fatal dead-handler error; with natsTransport it boots. (3) EXTEND
+  tests/invariants/tenant-provisioning-ssot.spec.ts — assert main.ts contains natsTransport: {
+  queue: 'admin-api-service' }; assert corrected step order publish_onboarding_requested <
+  wait_for_onboarding_ack < create_subscription < activate_tenant < publish_tenant_provisioned;
+  assert workflow throws ProvisioningWaitPendingError (not terminal Error) for missing acks. (4)
+  EXTEND apps/admin-api-service/src/tenant/**tests**/tenant-provisioning-workflow.service.spec.ts —
+  missing ack: run requeued QUEUED with nextRetryAt set, no FailProvisioning, tenant not activated;
+  FAILED ack row: terminal FAILED + FailProvisioning while tenant still PROVISIONING; all acks
+  present: run reaches activate_tenant then SUCCEEDED; deadline exceeded: terminal FAILED with
+  actionable error. (5) Guard specs — PlatformAdminGuard and shared ThrottlerGuard return true on an
+  rpc ExecutionContext and behave unchanged on http. (6) E2E: extend
+  e2e/tests/integration/event-publishing.spec.ts (or the tenant provisioning e2e) — publish
+  events.<tenantId>.TenantOnboardingAck over real NATS, assert the row lands in
+  admin.tenant_onboarding_acks and a queued run transitions to SUCCEEDED; nats-invariants.spec.ts
+  stays green (no CONNECT user/pass added).
+- **Effort:** L
+
+### APA-023 [MEDIUM] wait_for_onboarding_ack has no pending/requeue semantics even if the transport were wired
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The step performs one synchronous SELECT immediately after enqueueing
+  TenantOnboardingRequested into the outbox. Only DbMigrateProvisioningPendingError gets the
+  QUEUED-with-nextRetryAt requeue treatment; a missing ack is a plain Error and terminally fails the
+  run. Even with a working listener, the outbox relay latency plus farm-service's six seeders make
+  it near-certain the ack has not landed within the same tick, so first-attempt runs would still
+  fail. The step needs its own pending/backoff class like the db-migrate wait.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:452-470`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:99-104`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:501-514`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:517-545`
+- **Root cause:** The pending/requeue mechanism was built as a one-off
+  (DbMigrateProvisioningPendingError) for the db-migrate wait instead of a general step outcome.
+  assertTenantOnboardingAcks (workflow service:601-625) does one synchronous SELECT right after the
+  outbox enqueue and throws a plain Error when acks are merely absent; processOperation's catch
+  (:501-514) treats any non-pending error as terminal — markRunFailed sets FAILED and even sends
+  FailProvisioning to auth-service. Outbox relay latency plus farm-service's seeders make a
+  same-tick ack near-impossible, so first attempts would terminally fail.
+- **Fix design:** Generalize the pending contract: introduce ProvisioningStepPendingError {
+  retryAfterMs } as the base class (DbMigrateProvisioningPendingError becomes an instance) and
+  parameterize markRunWaitingForDbMigrate into markRunWaiting(runId, error, retryMs, leaseToken).
+  assertTenantOnboardingAcks throws pending when required acks are missing, and a hard Error only
+  when a row reports status FAILED. Add a wall-clock deadline (env TENANT_ONBOARDING_ACK_TIMEOUT_MS
+  checked against the run's startedAt) so a never-arriving ack converts pending into a real terminal
+  failure instead of waiting forever. Spec: new workflow test asserting missing ack requeues with
+  nextRetryAt (state QUEUED, no FailProvisioning call), FAILED ack terminally fails, and deadline
+  expiry terminally fails.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning-workflow.service.spec.ts`
+- **Effort:** M
+
+### APA-024 [LOW] 'begin_provisioning' step is executed but missing from the seeded step catalog
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** PROVISIONING_STEPS does not include 'begin_provisioning' although processOperation
+  runs it via runStep; it is inserted ad hoc with fallback stepOrder 999, so the step timeline sorts
+  it last instead of second. Cosmetic ordering defect in the operation's step ledger.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:106-119`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:366-368`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:1470-1473`
+- **Root cause:** The step catalog and step execution are unlinked: runStep accepts
+  `stepName: string`, so processOperation executes 'begin_provisioning' (workflow service:366)
+  although PROVISIONING_STEPS (:106-119) never lists it — seedProvisioningSteps skips it and
+  stepOrder() falls back to 999, sorting it last in the step ledger instead of second.
+- **Fix design:** Make an uncataloged step a compile error (tier 1): add 'begin_provisioning' to
+  PROVISIONING_STEPS between 'reserve_auth_tenant' and 'audit_create_requested', and narrow the
+  stepName parameter of runStep and stepOrder from string to (typeof PROVISIONING_STEPS)[number].
+  The 999 fallback in stepOrder and the COALESCE($4, 999) in the runStep upsert become dead and are
+  removed (indexOf can no longer be -1). Existing rows self-heal: seedProvisioningSteps' ON CONFLICT
+  updates stepOrder on the next retry. Extend the workflow spec to assert seeded step order equals
+  execution order.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-provisioning-workflow.service.spec.ts`
+- **Effort:** S
+
+### APA-025 [LOW] Success screen shows the locally computed price, not the provisioned subscription's amount
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The 'Monthly Price' on the success card is the wizard's client-side calculatedTotal
+  (admin.module_pricing rendering in the browser), not the amount billing-service actually persisted
+  on the subscription. Discounts/tier multipliers applied server-side would not be reflected.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx:910-939`
+  - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx:1030-1039`
+- **Root cause:** CreateTenantAcceptedResponse carries no billing outcome (only
+  status/statusUrl/retryAfterMs/availableActions, tenant.dto.ts:380-395), so the success card
+  (CreateTenantPage.tsx:1030-1039) has nothing server-authoritative and renders the wizard's own
+  calculatedTotal — client-side math over admin.module_pricing that ignores any server-side
+  discount/tier adjustment billing-service persisted at create_subscription.
+- **Fix design:** Extend the provisioning contract with the persisted outcome: during the
+  create_subscription step, store the billing reply's summary (subscriptionId, monthlyAmount,
+  currency, billingCycle) on the run — new nullable jsonb column on admin.tenant_provisioning_runs
+  added by a new migration — and surface it as an optional `subscription` field on
+  CreateTenantAcceptedResponse via toAcceptedResponse (populated once the step succeeded). Mirror
+  the field on the FE CreateTenantAcceptedResponse type and render the server amount on the success
+  card, dropping calculatedTotal there (it remains the pre-submit estimate in the wizard only).
+  Spec: workflow test asserting the accepted response of a SUCCEEDED run carries the billing summary
+  persisted by the step.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts`
+  - `apps/admin-api-service/src/migrations/`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/CreateTenantPage.tsx`
+- **Effort:** M
+
+## TenantDetailPage — `/admin/tenants/:tenantId` — verdict: **PARTIAL**
+
+**Chain:** Read path is real: GET /admin/tenants/:id/detail -> TenantDetailService aggregates the
+auth.tenants row (hydrated settings/contacts), auth.users role/activity stats, auth.tenant*modules
+JOIN auth.modules, admin.tenant_activities + admin.tenant_notes, real farm/sensor counts from
+tenant*<uuid>, API-call counts from shared.audit_logs, and availableActions from the canonical
+status machine. Suspend/activate are genuine single-writer flows: NATS command to auth-service
+(which persists status + suspension audit trio under a SERIALIZABLE receipt), then re-read of the
+committed row + admin.tenant_activities insert + outbox events. Notes CRUD hits admin.tenant_notes
+with tenant-ownership checks. Two rendered surfaces are permanently broken: the Edit modal (backend
+rejects all updates) and the Billing tab (reads a table nothing ever writes).
+
+**Endpoints exercised:** `GET /admin/tenants/:id/detail`;
+`GET /modules (module catalog for Modules tab)`; `PUT /admin/tenants/:id (always 400 — see issues)`;
+`PATCH /admin/tenants/:id/suspend`; `PATCH /admin/tenants/:id/activate`;
+`POST /admin/tenants/:id/notes`; `DELETE /admin/tenants/:id/notes/:noteId`;
+`POST /modules/assignments (assign module)`;
+`DELETE /modules/assignments/:tenantId/:moduleId (remove module)`
+
+**DB tables:** `auth.tenants`, `auth.users`, `auth.tenant_modules / auth.modules`,
+`admin.tenant_activities`, `admin.tenant_notes`,
+`admin.tenant_billing_info (read but never written — dead)`,
+`tenant_<uuid>.farms / tenant_<uuid>.sensors`, `shared.audit_logs`
+
+### APA-026 [HIGH] Edit Tenant modal can never succeed — the backend rejects every update by design while the FE still ships the form
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** UpdateTenantHandler unconditionally throws BadRequestException ('Tenant updates are
+  owner-service-owned...') for any non-empty payload; only an empty body returns the unchanged
+  tenant. The detail page still renders a full Edit modal (name, domain, description,
+  country/region, tier, billing email) and PUTs a non-empty payload, so Save always surfaces the 400
+  message. Either the FE modal should be removed or the update path routed through an auth-service
+  owner command like suspend/activate — the FE and backend currently contradict each other.
+  (Additionally, the FE UpdateTenantDto type allows tier 'custom' which the DTO's
+  @IsEnum(TenantPlan) would reject even if the handler worked.)
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/handlers/update-tenant.handler.ts:34-44`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx:226-238`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx:796-857`
+  - `web/modules/admin-panel/src/services/api/tenants.ts:70-71`
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts:420-422`
+  - `libs/event-contracts/src/enums/tenant-plan.enum.ts:41-47`
+- **Verification:** Prior adversarial verification already confirmed the full path: unconditional
+  Edit button -> PUT /admin/tenants/:id with a never-empty editForm -> nginx rewrite -> admin-api
+  PUT handler -> UpdateTenantCommand -> UpdateTenantHandler which unconditionally throws
+  BadRequestException for any non-empty payload (update-tenant.handler.ts:34-44). Re-reading the
+  code confirms every element and adds the decisive architectural context: the sibling lifecycle
+  handlers (suspend-tenant.handler.ts) show the single-writer migration (DB-ADMIN-HIGH-004) was
+  COMPLETED for status transitions via the NATS owner-command + receipt + re-read pattern, while the
+  update path was merely severed — the handler's own error message ('Use an auth tenant command/read
+  facade') documents the missing owner command that was never built. HIGH severity stands: a primary
+  admin capability (tenant profile editing) is 100% broken in production UI, and the dead endpoint +
+  shipping form is a contract lie, though there is no data corruption or security exposure
+  (fail-closed), so not CRITICAL.
+- **Root cause:** The break is at the BE command layer, and it drifted through a half-finished
+  single-writer refactor. DB-ADMIN-HIGH-004 established that auth-service is the sole writer of
+  auth.tenants; the four lifecycle transitions (suspend/activate/deactivate/archive) were fully
+  migrated to the NATS owner-command + SERIALIZABLE-receipt + re-read pattern
+  (suspend-tenant.handler.ts:32-54, tenant-commands.ts TENANT_COMMAND_SUBJECTS), but the
+  profile-update leg was only SEVERED, not migrated: UpdateTenantHandler was rewritten to
+  unconditionally throw 400 (update-tenant.handler.ts:38-44) because no UpdateTenantProfile owner
+  command was ever added to the contract (TENANT_COMMAND_SUBJECTS has RESERVE/SUSPEND/ACTIVATE/...
+  but no UPDATE). Meanwhile every downstream consumer of the old contract kept shipping: the
+  @Put(':id') route (tenant.controller.ts:319-327), the backend UpdateTenantDto, the FE
+  tenantsApi.update, the FE UpdateTenantDto type, and the TenantDetailPage Edit modal. This is
+  exactly the CLAUDE.md-banned 'partial fix shipped as complete'. Secondary drift in the same wound:
+  the FE UpdateTenantDto allows tier including CUSTOM (tenant.ts:25-31, 256) while the backend
+  validates @IsEnum(TenantPlan) which has no 'custom' (tenant.dto.ts:420-422) — an instance of the
+  systemic FE-type-drift class, possible because no invariant pins this DTO pair the way
+  tier-enum-ssot.spec.ts pins the display enums. Systemic classes: 'FE surface with no working
+  backend' + 'FE-type drift'.
+- **Fix design:** PATTERN LEVEL: complete the owner-command delegation that suspend/activate already
+  use, instead of leaving a tombstone endpoint; and close the FE/BE update-contract drift class with
+  a build-time parity gate. Concretely, in the order the contract flows:
+
+(1) Event contract (libs/event-contracts/src/tenant-commands.ts): add
+`UPDATE_TENANT_PROFILE: 'request.auth.tenant.UpdateTenantProfile'` to TENANT_COMMAND_SUBJECTS; add
+`UpdateTenantProfileCommand extends AuthTenantCommandMetadata` carrying ONLY profile fields that
+actually exist on auth.tenants — `name?`, `description?`, `customDomain?`, `contactEmail?`,
+`contactPhone?`, plus the settings-jsonb patch fields `country?`, `region?`, `billingEmail?`,
+`primaryContact?`, `billingContact?`. Deliberately NO `plan`/`tier` (plan changes are billing-owned
+per D14 and must go through the subscription flow, not a profile PUT), NO `status` (lifecycle
+commands own it), NO `limits` (provisioning-owned). Add
+`UpdateTenantProfileResult extends AuthTenantCommandResult { tenant?: AuthTenantSnapshot }` and
+extend the TenantProvisioningCommand union. This is tier-1: the tier-drift bug (FE 'custom' vs
+@IsEnum(TenantPlan)) becomes structurally impossible because tier is no longer part of the update
+contract anywhere.
+
+(2) auth-service owner write (tenant-provisioning-command.service.ts):
+`updateTenantProfile(command)` inside the existing `runWithReceipt` SERIALIZABLE receipt machinery
+(idempotent replay by operationId, like the lifecycle commands). Load the tenant via the manager,
+reject terminal states (ARCHIVED/PURGED), apply only fields present in the payload THROUGH the
+TypeORM Tenant entity (single-writer defines column names once — the same anti-drift argument as
+AdminUpdateUserCommand/CRITICAL-002), MERGE the settings jsonb (spread existing settings, overwrite
+only the provided keys) rather than replace, save, return an AuthTenantSnapshot. Register
+`@MessagePattern(TENANT_COMMAND_SUBJECTS.UPDATE_TENANT_PROFILE)` in auth-admin-nats.handler.ts
+mirroring the SUSPEND_TENANT wrapper.
+
+(3) admin-api client (auth-tenant-provisioning-client.service.ts): add
+`updateTenantProfile(command): Promise<UpdateTenantProfileResult>` via the existing
+sendAuthCommand/requireSuccess pattern.
+
+(4) admin-api UpdateTenantHandler: rewrite on the SuspendTenantHandler template — pre-read
+(fast-fail 404); empty patch returns the unchanged tenant (existing behavior, now the ONLY early
+exit); map UpdateTenantDto -> UpdateTenantProfileCommand (domain -> customDomain;
+country/region/billingEmail/contacts -> settings patch) with buildLifecycleCommandMetadata; delegate
+to auth (the reply is the persistence receipt); then in a local transaction re-read the fresh row
+(requireFreshTenantRow), insert an admin.tenant_activities 'updated' row with previousValue/newValue
+diff, enqueue the already-existing TenantUpdatedEvent (libs/event-contracts/src/tenant-events.ts:74)
+via OutboxPublisher with createBaseEvent, commit, auditLogService.log('TENANT_UPDATED'), call
+hydrateCompatibilityFields() on the refreshed row and return it. No auth.tenants write from
+admin-api — the existing invariant stays intact.
+
+(5) Backend DTO (apps/admin-api-service/src/tenant/dto/tenant.dto.ts): delete `tier` and `limits`
+from UpdateTenantDto so the platform ValidationPipe (whitelist + forbidNonWhitelisted) rejects any
+payload still carrying them with a precise property error.
+
+(6) FE contract + page: remove `tier` and `limits` from the FE UpdateTenantDto interface
+(web/modules/admin-panel/src/services/types/tenant.ts:252-264); in TenantDetailPage.tsx drop `tier`
+from the editForm initialization (line 201) and delete the Tier <Select> from the Edit modal (lines
+831-841) — tier remains visible read-only via the header badge; plan changes belong to the billing
+surface. TypeScript now makes re-introducing tier into the PUT a compile error unless the shared
+contract is changed on both sides.
+
+(7) Pattern-level gate (new tests/invariants/admin-update-tenant-contract.spec.ts, modeled on
+tier-enum-ssot.spec.ts which already pins FE enums to backend SSoT by parsing sources): assert the
+FE UpdateTenantDto property set is exactly the backend UpdateTenantDto validated-property set, so
+the next FE-type/DTO drift in this contract fails CI instead of shipping.
+
+- **Files to change:**
+  - `libs/event-contracts/src/tenant-commands.ts`
+  - `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`
+  - `apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts`
+  - `apps/admin-api-service/src/tenant/services/auth-tenant-provisioning-client.service.ts`
+  - `apps/admin-api-service/src/tenant/handlers/update-tenant.handler.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `tests/invariants/admin-update-tenant-contract.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/update-tenant.handler.spec.ts`
+  - `apps/auth-service/src/modules/tenant/services/__tests__/tenant-profile-update.spec.ts`
+- **Proof of fix:** 1) apps/admin-api-service/src/tenant/**tests**/update-tenant.handler.spec.ts
+  (rewrite alongside the existing suspend-tenant.handler.spec.ts template): non-empty
+  UpdateTenantDto delegates to AuthTenantProvisioningClientService.updateTenantProfile, re-reads the
+  owner-committed row, inserts the admin.tenant_activities 'updated' row and enqueues
+  TenantUpdatedEvent atomically, and RETURNS the updated tenant (asserting the old unconditional
+  BadRequestException is gone); empty payload returns unchanged tenant with zero delegation; owner
+  failure reply propagates without local side effects. 2)
+  apps/auth-service/src/modules/tenant/services/**tests**/tenant-profile-update.spec.ts:
+  receipt-transaction write through the Tenant entity, settings-jsonb merge semantics (unrelated
+  keys preserved), idempotent replay by operationId, plan/status provably untouched, terminal-state
+  rejection. 3) NEW tests/invariants/admin-update-tenant-contract.spec.ts: FE UpdateTenantDto
+  property set === backend UpdateTenantDto property set (and neither contains 'tier'/'limits'),
+  killing the drift class at CI. 4) Existing gates must stay green:
+  tests/invariants/admin-no-auth-tenants-writes.spec.ts (new handler still writes no auth.tenants),
+  tests/invariants/tier-enum-ssot.spec.ts, tests/invariants/admin-route-contract-ci.spec.ts. 5) E2E
+  proof: PUT /api/v1/admin/tenants/:id with {name:'X', country:'US'} returns the success envelope
+  with the mutated row and the Edit modal round-trips (extend
+  apps/admin-api-service/src/tenant/**tests**/tenant.integration.spec.ts, which already simulates
+  the owner-committed write for suspend).
+- **Effort:** L
+
+### APA-027 [MEDIUM] Billing tab is permanently empty: it reads admin.tenant_billing_info, which no code ever writes, instead of billing.subscriptions (the SSoT)
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** getBillingSummary returns undefined unless a row exists in admin.tenant_billing_info.
+  The only writer, TenantActivityService.createOrUpdateBillingInfo, has zero production callers
+  (repo-wide grep: only the entity, module registration, and tests reference it), and tenant
+  provisioning writes the real subscription into billing.subscriptions via the billing command —
+  never into this admin-local table. So every tenant, including ones with live paid subscriptions,
+  shows 'No billing information' on the Billing tab. Silent wrong data against the platform's own
+  D14 rule that billing.subscriptions is the subscription SSoT.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:368-392`
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts:193-206`
+  - `apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts:103-145`
+  - `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:992-1031`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx:687-751`
+- **Verification:** Prior adversarial verdict accepted (isReal=true, MEDIUM: symptom is a visibly
+  empty tab, not plausible-but-wrong figures). Re-confirmed in current code:
+  tenant-detail.service.ts:368-392 reads only the TenantBillingInfo repository
+  (admin.tenant_billing_info); the sole writer createOrUpdateBillingInfo
+  (tenant-activity.service.ts:193-206) has zero production callers (grep: entity, module forFeature,
+  DTO import, one test provider); provisioning writes the real subscription via
+  BillingAdminCommandClientService.provisionTenantSubscription into billing.subscriptions
+  (tenant-provisioning-workflow.service.ts:992-1031). New grounding for the fix: admin-api ALREADY
+  has a sanctioned read path to the SSoT — SubscriptionCoreService.getSubscriptionByTenant
+  (src/billing/services/subscription-core.service.ts:167-194) queries billing.subscriptions
+  directly, BillingModule exports it (billing.module.ts:69-85), and TenantManagementModule already
+  imports BillingModule (tenant.module.ts:93) — so the architectural fix has zero new module wiring.
+- **Root cause:** The BE→DB link broke; FE, HTTP contract, controller, and DTO are intact.
+  TenantDetailService.getBillingSummary sources TenantDetail.billing from a legacy admin-local
+  mirror table (admin.tenant_billing_info, self-described in the entity as 'simplified - full
+  billing would be in billing-service') whose only writer,
+  TenantActivityService.createOrUpdateBillingInfo, was never wired to any controller, event
+  subscriber, or workflow. When subscription ownership was consolidated onto billing-service (D14
+  rule; provisioning issues PROVISION_TENANT_SUBSCRIPTION which writes billing.subscriptions — the
+  ORPHAN-CRITICAL-393 rework), the admin detail read path was never repointed at the SSoT. It
+  drifted because two parallel data models existed for the same fact with no invariant tying the
+  read side to a written table — the systemic 'dead mirror / table-nobody-writes' class, already
+  recognized in-repo as DB-ADMIN-MEDIUM-005 and ORPHAN-LOW-407 (which also names the sibling
+  admin.custom_plans overlap).
+- **Fix design:** Tier 1 — delete the parallel data model so reading it becomes impossible, and make
+  the correct read automatic by reusing the existing SSoT path. (A) Repoint the read: inject
+  SubscriptionCoreService (already exported by admin BillingModule, already imported by
+  TenantManagementModule) into TenantDetailService; getBillingSummary sources from
+  billing.subscriptions via getSubscriptionByTenant(tenantId). Harden that shared query with AND
+  s.is_deleted = false — the partial unique index UQ_subscriptions_tenantId_active deliberately lets
+  soft-deleted historical rows coexist, so result[0] without the filter is non-deterministic.
+  Last-payment fields come from billing.payments (tenant_id, amount, payment_date, status columns
+  confirmed in payment-management.service.ts): add
+  PaymentManagementService.getLatestCompletedPayment(tenantId) (SELECT amount, payment_date FROM
+  billing.payments WHERE tenant_id=$1 AND status='completed' ORDER BY payment_date DESC LIMIT 1);
+  PaymentManagementService is also already exported. (B) Fix the contract at the source across all
+  layers in one commit: BillingSummary (tenant-detail.dto.ts) becomes subscription-shaped —
+  currentPlan (planTier), planName, subscriptionStatus (SubscriptionStatus:
+  trial|active|past_due|cancelled|suspended|expired, replacing the mirror's free-text
+  paymentStatus), monthlyAmount (pricing->>'basePrice'), currency (pricing->>'currency'),
+  billingCycle (BillingCycle enum), nextBillingDate (current_period_end, null when
+  cancelled/!auto_renew), autoRenew, lastPaymentDate, lastPaymentAmount. Propagate the identical
+  shape to the hand-written FE type (web/modules/admin-panel/src/services/types/tenant.ts:163-171)
+  and update the Billing tab render (TenantDetailPage.tsx:687-751: 'Subscription Status' label,
+  badge success for active|trial). No compat aliasing — the rename lands on both sides
+  simultaneously; tsc catches any straggler. (C) Delete the dead mirror wholesale: remove the
+  TenantBillingInfo entity (tenant-activity.entity.ts:103-145); remove
+  getBillingInfo/createOrUpdateBillingInfo and the repo injection from TenantActivityService; remove
+  the repo injection from TenantDetailService; remove from TypeOrmModule.forFeature
+  (tenant.module.ts:87) and the DTO import (tenant-detail.dto.ts:3) and the getRepositoryToken
+  provider in tenant.integration.spec.ts:279; remove 'tenant_billing_info' from the admin tables
+  list in MODULE_SCHEMAS (libs/backend-common/src/database/schema-manager.service.ts:759) so the
+  drift validator stops expecting it; add a new migration DropTenantBillingInfoMirror (DROP TABLE IF
+  EXISTS admin.tenant_billing_info; down recreates the baseline DDL) — never edit the
+  1800000000000-Baseline. (D) Pattern level: with table+entity+writer+reader all deleted, this
+  dead-mirror instance is structurally unrepeatable — the only remaining subscription read path in
+  admin-api is the billing.subscriptions SSoT used by the whole billing module. The commit closes
+  this finding and DB-ADMIN-MEDIUM-005 via Closes: lines; the sibling admin.custom_plans overlap
+  stays tracked under ORPHAN-LOW-407 (explicit owner/ID, not silent scope expansion). Doc sync:
+  remove the table from docs/db/DATABASE-ARCHITECTURE-MAP.md, 01-schema-separation.md,
+  20-frontend-to-db-map.md.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts`
+  - `apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/billing/services/subscription-core.service.ts`
+  - `apps/admin-api-service/src/billing/services/payment-management.service.ts`
+  - `apps/admin-api-service/src/migrations/1801500000000-DropTenantBillingInfoMirror.ts`
+  - `libs/backend-common/src/database/schema-manager.service.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant.integration.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-detail-billing.spec.ts`
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `docs/db/DATABASE-ARCHITECTURE-MAP.md`
+  - `docs/db/01-schema-separation.md`
+  - `docs/db/20-frontend-to-db-map.md`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/tenant/**tests**/tenant-detail-billing.spec.ts: (1) with
+  SubscriptionCoreService/PaymentManagementService mocked to return a billing.subscriptions row
+  (planTier, status, pricing.basePrice/currency, current_period_end) plus a latest completed
+  payment, getTenantDetail() returns a BillingSummary carrying exactly those SSoT values; (2) with
+  no subscription row, billing is undefined; (3) subscription-core spec asserts
+  getSubscriptionByTenant emits is_deleted = false and returns the active row when a soft-deleted
+  historical row coexists. Compile-time gate: deleting the TenantBillingInfo class makes any
+  resurrected mirror read a tsc error (npm run type-check also forces the FE type + TenantDetailPage
+  rename to land together). DB gate: e2e/tests/integration/schema-invariants.spec.ts + the
+  SchemaDrift runtime validator prove admin.tenant_billing_info is gone AND MODULE_SCHEMAS agrees
+  (either side alone fails the invariant). End-to-end: extend tenant-api.integration.spec.ts to
+  assert GET /admin/tenants/:id/detail returns non-null billing for a tenant with a seeded
+  billing.subscriptions row. Run nx affected --target=test and --target=lint green before commit;
+  commit carries Closes: for this finding + DB-ADMIN-MEDIUM-005.
+- **Effort:** M
+
+### APA-028 [MEDIUM] Overview renders lastActivityAt which was removed from the backend contract — always '-'
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** TenantDetailDto explicitly removed lastActivityAt (DB-ADMIN-HIGH-003: no auth.tenants
+  column ever backed it), but the FE TenantDetail/Tenant types still declare it and the Overview
+  card renders it, so 'Last Activity' is permanently '-'. The hand-written FE type also keeps
+  userCount/farmCount/sensorCount required on the base Tenant while only /detail actually supplies
+  farm/sensor counts.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts:159-165`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx:418-423`
+  - `web/modules/admin-panel/src/services/types/tenant.ts:88-99`
+- **Root cause:** Same FE-type-drift class: TenantDetailDto explicitly removed lastActivityAt
+  (tenant-detail.dto.ts:162-164, DB-ADMIN-HIGH-003 — no auth.tenants column ever backed it) but the
+  hand-written FE Tenant type (types/tenant.ts:92) still declares it and
+  TenantDetailPage.tsx:418-423 renders it, so 'Last Activity' is permanently '-'. The base Tenant
+  type also keeps userCount/farmCount/sensorCount required although only /detail supplies
+  farm/sensor counts.
+- **Fix design:** Delete lastActivityAt from the FE Tenant/TenantDetail types (aligning with the
+  deliberate backend removal) and render the Overview field from the truthful SSoT already in the
+  detail payload: recentActivities[0]?.createdAt (admin.tenant_activities), labeled 'Last Admin
+  Activity', with '-' only when no activity rows exist. Move userCount/farmCount/sensorCount off the
+  base Tenant type onto the endpoint-scoped list/detail mirrors created in tenants|xc|i1, and pin
+  TenantDetail to TenantDetailDto in the contract invariant spec so a future one-sided removal fails
+  CI.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+- **Effort:** S
+
+### APA-029 [LOW] Note update/delete ownership violations surface as HTTP 500, and user-stats errors are silently zeroed
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** TenantActivityService.updateNote/deleteNote throw plain Error for 'Note not found'
+  and cross-tenant mismatch, which the global filter maps to 500 instead of 404/403. Separately,
+  getUserStats catches all query errors and returns all-zero stats (roles supervisor/operator are
+  hardcoded 0), so a broken auth.users read renders as a tenant with zero users rather than an error
+  state.
+- **Evidence:**
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts:156-162`
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts:173-181`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts:186-210`
+- **Root cause:** Two error-shape defects: (a) TenantActivityService.updateNote/deleteNote throw
+  untyped Error for 'Note not found' and cross-tenant mismatch (tenant-activity.service.ts:156-181),
+  which the global filter maps to 500; the ownership check is also optional (tenantId?: string), so
+  the guard depends on the callsite remembering to pass it. (b) TenantDetailService.getUserStats
+  (tenant-detail.service.ts:195-210) swallows every query error into an all-zero UserStatsByRole — a
+  broken auth.users read is indistinguishable from an empty tenant — and byRole hardcodes
+  supervisor/operator to 0.
+- **Fix design:** (a) Make ownership structural, not conditional: tenantId becomes a required
+  parameter and the lookup is findOne({ where: { id: noteId, tenantId } }) — a cross-tenant noteId
+  is simply absent and throws NotFoundException (404, no existence leak); untyped Errors disappear.
+  (b) Let the contract express absence: userStats is already optional on TenantDetailDto, so on
+  query failure log and return undefined instead of fabricated zeros; TenantDetailPage renders an
+  explicit 'stats unavailable' state when userStats is missing. Replace the hardcoded role columns
+  with GROUP BY role so byRole reflects actual role values. Specs: service tests asserting 404 for
+  missing/foreign notes and undefined userStats on query failure.
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/services/tenant-activity.service.ts`
+  - `apps/admin-api-service/src/tenant/services/tenant-detail.service.ts`
+  - `web/modules/admin-panel/src/pages/TenantDetailPage.tsx`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-activity.service.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-detail.service.spec.ts`
+- **Effort:** M
+
+## Cross-cutting findings
+
+### APA-030 [HIGH] admin-api-service has no NATS microservice transport — every @EventPattern consumer in the service is dead code
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** bootstrapService only calls connectMicroservice/startAllMicroservices when
+  options.natsTransport is set; admin-api's main.ts never sets it
+  (auth/farm/billing/notification/messaging/sensor/config/ai all do). TenantOnboardingAckHandler is
+  registered as a controller with @EventPattern handlers and is currently the only such consumer —
+  it never receives events, which is the root cause of the CRITICAL tenant-creation failure. Any
+  future @EventPattern handler added to admin-api will silently no-op the same way. The
+  tenant-provisioning-ssot invariant spec checks the handler/migration/farm-publisher text but never
+  asserts the transport is started, so CI cannot catch this class of gap. Fix is architectural:
+  either add natsTransport to admin-api's bootstrap (making the existing handler live) or move the
+  ack sink to the @platform/event-bus subscription pattern the same module already uses for erasure
+  events (tenant-erasure.handler.ts subscribeWildcard), plus an invariant that any @EventPattern
+  usage requires natsTransport.
+- **Evidence:**
+  - `apps/admin-api-service/src/main.ts:10-36`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:156-161`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:730-739`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:844-845`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts:98`
+  - `apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:237-239`
+  - `tests/invariants/tenant-provisioning-ssot.spec.ts:484-513`
+- **Verification:** Prior adversarial verdict stands and re-reading the code confirms every link:
+  apps/admin-api-service/src/main.ts:10-36 passes no natsTransport;
+  libs/backend-common/src/bootstrap/create-service-app.ts:730-740 and 844-847 only connect/start the
+  NATS microservice transport when that option is set; TenantOnboardingAckHandler (the service's
+  only @EventPattern consumer, registered as a controller at tenant.module.ts:98) is therefore never
+  bound and is dead code. Consequence is live-path breaking: tenant-provisioning-workflow.service.ts
+  step 'wait_for_onboarding_ack' (line 468-470) reads admin.tenant_onboarding_acks whose ONLY writer
+  is the dead handler, so assertTenantOnboardingAcks always throws 'ack missing from owner services:
+  farm-service' (line 623) and POST /tenants terminally fails — HIGH as the transport-gap finding
+  (the user-facing failure is the linked CRITICAL). The claimed alternative pattern is verified real
+  and live in the same module: TenantErasureProofHandler subscribes via @Inject('EVENT_BUS')
+  subscribeWildcard (tenant-erasure.handler.ts:236-243), EventBusModule.forRootAsync is registered
+  (app.module.ts:180-183), and the shared gateway_service NATS account already grants subscribe
+  'events.>' (infrastructure/nats/services.yaml:318), so the event-bus fix needs no cert/ACL change.
+  The CI-gap claim is also confirmed: tests/invariants/tenant-provisioning-ssot.spec.ts:484-513
+  text-checks the handler/migration/farm-publisher but never asserts the consumer transport is
+  started.
+- **Root cause:** The broken link is BE→BE event consumption: farm-service publishes
+  TenantOnboardingAck/TenantOnboardingFailed onto JetStream subjects events.{tenantId}.{type} via
+  @platform/event-bus, but admin-api's sink was written against the OTHER consumption mechanism —
+  Nest's microservice transport (@EventPattern controller) — whose activation is a per-service
+  opt-in (`natsTransport`) living in a different file (main.ts) with zero compile-, boot-, or
+  CI-time coupling between "pattern handler exists" and "transport started". It drifted because the
+  platform has two parallel NATS consumption mechanisms and admin-api had only ever consumed via the
+  event bus (erasure proofs), so its main.ts legitimately lacked natsTransport; when the onboarding
+  ack sink was added it silently adopted the microservice idiom from other services without the
+  matching bootstrap flag, and Nest gives no error for @EventPattern decorators on a controller when
+  no microservice is connected — they are simply never bound. The tenant-provisioning-ssot invariant
+  reinforced the illusion by asserting the handler's text, the migration, and the farm publisher,
+  i.e. every artifact EXCEPT the transport binding, so CI stayed green while the consumer was dead.
+  Secondary defect of the dead design even if enabled: a core-NATS @EventPattern subscriber is
+  at-most-once — an ack published during an admin-api restart would be lost forever and the workflow
+  would still terminally fail — whereas the event-bus JetStream consumer is durable.
+- **Fix design:** Systemic class: consumer-registered-on-unstarted-transport (an instance of
+  config-nobody-reads at the transport layer). Fix at the pattern level plus local application, per
+  the tier hierarchy.
+
+LOCAL (root cause, tier 1 — make the wrong mechanism impossible here by removing it): consolidate
+admin-api on the single consumption mechanism the service already runs. Rewrite
+apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts from a @Controller with
+@EventPattern into an @Injectable IEventHandler mirroring TenantErasureProofHandler in the same
+module: inject @Inject('EVENT_BUS') IEventBus (non-optional) + DataSource; onModuleInit awaits
+eventBus.subscribeWildcard('TenantOnboardingAck', this) and
+subscribeWildcard('TenantOnboardingFailed', this); handle() discriminates on event.eventType
+('TenantOnboardingAck' → record(...,'ACK',null); 'TenantOnboardingFailed' →
+record(...,'FAILED',event.error)); keep the existing ON CONFLICT upsert unchanged — it is exactly
+what makes JetStream at-least-once redelivery idempotent. Drop the @nestjs/microservices imports. In
+tenant.module.ts move TenantOnboardingAckHandler from controllers to providers. This is symmetric
+with the farm publisher (eventBus.publish of createBaseEvent), routes the subject through
+buildWildcardEventSubject (the centralized Tier-1 subject SSoT, eliminating the hand-written
+'events.\*.TenantOnboardingAck' decorator string — the ORPHAN-013 drift surface), upgrades delivery
+to durable at-least-once so an ack published during an admin-api restart is replayed instead of
+lost, and requires no NATS ACL change (gateway_service account already subscribes events.>). Do NOT
+add natsTransport to admin-api — that would leave two consumption mechanisms in one service and keep
+at-most-once semantics for a workflow-gating event.
+
+PATTERN (tier 1, runtime): in libs/backend-common/src/bootstrap/create-service-app.ts, when
+natsTransport is NOT set, scan the built app's controllers (ModulesContainer + MetadataScanner) for
+@MessagePattern/@EventPattern metadata after NestFactory.create and abort startup with an error
+naming the offending controller.method — a service can no longer boot with dead pattern consumers,
+for every current and future service.
+
+PATTERN (tier 3, CI): extend e2e/tests/integration/nats-invariants.spec.ts — it already extracts
+@EventPattern/@MessagePattern subjects per app (lines ~283-300) — with a new invariant: every app
+whose source contains at least one @MessagePattern/@EventPattern must contain `natsTransport` in its
+src/main.ts (and admin-api must contain none after this fix). No allowlist.
+
+TRACEABILITY (close the specific spec gap): extend tests/invariants/tenant-provisioning-ssot.spec.ts
+'orders onboarding ack...' invariant to pin the LIVE wiring, not just artifact text: the admin
+handler file contains subscribeWildcard('TenantOnboardingAck' and
+subscribeWildcard('TenantOnboardingFailed', and tenant.module.ts lists TenantOnboardingAckHandler in
+providers and NOT in the controllers array.
+
+Plus a unit spec for the reworked handler (mock EVENT_BUS + DataSource): onModuleInit subscribes to
+both types; handle() upserts ACK and FAILED rows correctly.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts`
+  - `apps/admin-api-service/src/tenant/tenant.module.ts`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `e2e/tests/integration/nats-invariants.spec.ts`
+  - `tests/invariants/tenant-provisioning-ssot.spec.ts`
+  - `apps/admin-api-service/src/tenant/__tests__/tenant-onboarding-ack.handler.spec.ts`
+- **Proof of fix:** 1) NEW unit spec
+  apps/admin-api-service/src/tenant/**tests**/tenant-onboarding-ack.handler.spec.ts: with mocked
+  EVENT_BUS and DataSource, onModuleInit calls subscribeWildcard exactly for 'TenantOnboardingAck'
+  and 'TenantOnboardingFailed'; handle() with each event type issues the upsert with status ACK
+  (error null) / FAILED (error propagated). 2) EXTEND
+  tests/invariants/tenant-provisioning-ssot.spec.ts ('orders onboarding ack before final tenant
+  provisioned aliases'): assert the admin handler source contains
+  "subscribeWildcard('TenantOnboardingAck'" and "subscribeWildcard('TenantOnboardingFailed'", and
+  that tenant.module.ts has TenantOnboardingAckHandler in providers and not in controllers — this is
+  the assertion whose absence let the dead consumer pass CI. 3) EXTEND
+  e2e/tests/integration/nats-invariants.spec.ts with the pattern gate: for every apps/\* whose src
+  contains @MessagePattern/@EventPattern, src/main.ts must contain natsTransport (fails today for
+  admin-api before the local fix, passes after because admin-api ends with zero pattern
+  handlers). 4) EXTEND libs/backend-common bootstrap tests: bootstrapService against a module whose
+  controller carries @EventPattern and no natsTransport option exits/throws with the named-offender
+  error; with natsTransport it boots. 5) End-to-end proof of the CRITICAL chain: e2e tenant-creation
+  flow — POST /tenants completes with the workflow row passing wait_for_onboarding_ack and
+  admin.tenant_onboarding_acks containing (operationId, 'farm-service', 'ACK'). All via nx affected
+  --target=test.
+- **Effort:** M
+
+### APA-031 [MEDIUM] Hand-written FE tenant types drift from backend DTOs in both directions (no codegen)
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** web/modules/admin-panel/src/services/types/tenant.ts is maintained by hand against
+  three different backend shapes (raw Tenant entity, TenantListItemDto, TenantDetailDto). Concrete
+  drift found: Tenant declares isTrialActive/lastActivityAt/sensorCount/limits/settings as if the
+  list returned them (it does not); TenantStats declares byTier which the stats handler never emits
+  (byPlan only); UpdateTenantDto allows tier 'custom' which backend @IsEnum(TenantPlan) rejects; the
+  raw-entity endpoints (getById, getBySlug, search, expiring-trials) serialize without the prototype
+  getters tier/limits, so the required Tenant.tier field is absent from those responses. Each
+  individual symptom is reported on its page; the structural fix is a single generated (or
+  invariant-pinned, like tier-enum-ssot.spec.ts) response type per endpoint.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/tenant.ts:70-111`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts:168-183`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:172-189`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts:329-348`
+  - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts:167-213`
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts:420-422`
+- **Root cause:** One hand-maintained fat FE type (types/tenant.ts) serves three different backend
+  response shapes (raw Tenant entity with prototype getters, TenantListItemDto, TenantDetailDto)
+  with no build-time link. Every verified drift follows: phantom
+  isTrialActive/lastActivityAt/sensorCount/limits/settings on list consumers, byTier never emitted
+  (handler builds byPlan only), FE UpdateTenantDto offering 'custom' against backend
+  @IsEnum(TenantPlan) (tenant.dto.ts:420-422 — itself mismatched, decorating a TenantTier-typed
+  field with the TenantPlan enum), and required Tenant.tier absent from raw-entity endpoint JSON.
+- **Fix design:** Pattern-level fix in two layers. (1) Backend: every tenant endpoint returns a
+  declared response DTO, never a raw entity (completes the toTenantResponseDto work from
+  tenants|p0|i5) — with getters materialized, the response shape IS the DTO class and becomes
+  pinnable. (2) Contract gate: replace the fat Tenant with per-endpoint FE mirrors (TenantListItem,
+  TenantDetail, TenantResponse, TenantStats, UpdateTenantRequest) and add
+  tests/invariants/admin-tenant-api-contract.spec.ts using the proven tier-enum-ssot.spec.ts
+  mechanism (source-parse both sides, assert member-for-member field-set equality) since web modules
+  cannot import backend libs — any one-sided field change fails CI. For the tier enum: decide one
+  enum per operation and pin it via the existing tier-enum-ssot spec — UpdateTenantDto persists into
+  tenant.plan (TenantPlan), so either backend routes 'custom' through customPlanId like
+  CreateTenantDto or the FE update type drops CUSTOM; both sides then validate against the same
+  pinned member list. This is the systemic fix that subsumes p0|i2, p0|i5 and p2|i2's type edits.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/tenant.ts`
+  - `web/modules/admin-panel/src/services/api/tenants.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant.dto.ts`
+  - `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`
+  - `apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts`
+  - `apps/admin-api-service/src/tenant/tenant.controller.ts`
+  - `tests/invariants/admin-tenant-api-contract.spec.ts`
+  - `tests/invariants/tier-enum-ssot.spec.ts`
+- **Effort:** L
+
+### APA-032 [NOT_A_BUG] Auth, routing, and schema discipline for the tenants section verified sound (context, not a defect)
+
+- **Status:** REFUTED
+- **Symptom:** Verified explicitly so other sections need not re-derive it: (1) every tenant route
+  including the 'public' POST /tenants is covered by the global APP_GUARD PlatformAdminGuard (RS256
+  verifyAsync + SUPER_ADMIN role check, isPublic not set on any tenant controller); (2) FE '/api'
+  paths reach the versioned backend via nginx rewrite ^/api/(.\*) -> /api/v1/$1 with global prefix
+  'api/v1' + VERSION_NEUTRAL, and the provisioning statusUrl contract '/tenants/provisioning/<uuid>'
+  round-trips through the FE same-origin normalizer; (3) all admin-owned tables used by this section
+  (tenant_activities, tenant_notes, tenant_billing_info, tenant_provisioning_runs/steps,
+  tenant_onboarding_acks) declare schema 'admin' and are created by migrations in
+  apps/admin-api-service/src/migrations (Baseline + 1800400000000 + 1801200000000);
+  auth.tenants/tenant_invitations are declared read-only replicas (schema 'auth', synchronize:false)
+  and admin-api performs no auth.tenants writes (delegated via NATS owner commands, enforced by
+  invariant).
+- **Evidence:**
+  - `apps/admin-api-service/src/app.module.ts:283-290`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:78-179`
+  - `infrastructure/nginx/droplet.conf:377-383`
+  - `apps/admin-api-service/src/migrations/1800000000000-Baseline.ts:19-26`
+  - `apps/admin-api-service/src/migrations/1800400000000-TenantProvisioningWorkflow.ts:64-174`
+  - `apps/admin-api-service/src/tenant/entities/tenant.entity.ts:49`
+  - `web/modules/admin-panel/src/services/api/tenants.ts:18-36`
+  - `tests/invariants/tenant-provisioning-ssot.spec.ts:515-537`
+- **Refutation (brief check):** Not a defect. This is a cross-cutting verification note, and every
+  claim in it checks out against the cited code: (1) PlatformAdminGuard is registered as a global
+  APP_GUARD (app.module.ts:283-290) and performs RS256 jwtService.verifyAsync + case-insensitive
+  SUPER_ADMIN role enforcement with isPublic as the only bypass (platform-admin.guard.ts:78-179); no
+  tenant controller opts into isPublic. (2) nginx rewrites ^/api/(.\*) -> /api/v1/$1 into
+  admin-api-service (droplet.conf:377-383), aligning FE '/api' calls with the api/v1 global prefix,
+  and the FE provisioning normalizer round-trips the '/tenants/provisioning/<uuid>' same-origin
+  contract (tenants.ts:18-36). (3) admin-owned tenant tables declare schema 'admin' via migrations,
+  while Tenant maps the auth replica read-only (@Entity('tenants',{schema:'auth',synchronize:false})
+  tenant.entity.ts:49) and the invariant tenant-provisioning-ssot.spec.ts:515-537 forbids direct
+  auth.tenants writes, requiring delegation through authProvisioningClient. The claims are grounded
+  and correct.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-CRITICAL-006** — APA-022: tenant-provisioning onboarding-ack barrier ordered before
+  `create_subscription`/`activate_tenant` (+ generic wait/requeue).
+- **ADMIN-MEDIUM-004** — APA-022 (retry recovery): `retryOperation` clears local ack state and
+  re-arms the onboarding-ack publish.

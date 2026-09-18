@@ -267,7 +267,7 @@ const FeedingPage: React.FC = () => {
 
   // Memoize forecast input to prevent stale-time bypass (PERF-003)
   // Faz 8: başlık KPI'ları v2 forecast snapshot'ından okur (K-10 dilimi) —
-  // legacy feedConsumptionForecast sorgusu emekli. Kapsam D-9 gereği site
+  // v1 forecast sorgusu emekli. Kapsam D-9 gereği site
   // bazlıdır; site seçilmediyse ilk site okunur (ForecastTab ile aynı kural).
   // Siteler yüklenmeden sorgu ATILMAZ (enabled — FARM-MEDIUM-232).
   const kpiSiteId = selectedSiteId || sitesData?.items?.[0]?.id;

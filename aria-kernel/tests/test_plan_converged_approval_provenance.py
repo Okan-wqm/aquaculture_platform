@@ -68,14 +68,18 @@ def _fake_child_process():
 
     from aria_kernel import validation as validation_module
 
-    real_run = _sp.run
+    # ARIA-HIGH-124 (round 4) — the runner's one spawn seam, the same
+    # substitution point `tests/test_pr_manager_e2e._fake_child_process`
+    # uses: every validation child goes through it, and the module's git
+    # calls stay real by construction.
+    real_spawn = validation_module._run_to_completion
 
-    def _run(argv, *args, **kwargs):
+    def _spawn(argv, **kwargs):
         if argv and str(argv[0]) in ("npx", "npm", "cargo"):
             return _sp.CompletedProcess(argv, 0, "ok\n", "")
-        return real_run(argv, *args, **kwargs)
+        return real_spawn(argv, **kwargs)
 
-    return patch.object(validation_module.subprocess, "run", _run)
+    return patch.object(validation_module, "_run_to_completion", _spawn)
 
 
 def _sweep(base_dir: Path) -> tuple[int, list[tuple[str, str]]]:

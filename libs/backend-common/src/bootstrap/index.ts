@@ -11,6 +11,17 @@ export {
 } from './create-service-app';
 
 export {
+  mountEdgeHardening,
+  resolveTrustProxy,
+  type EdgeHardeningHost,
+  type EdgeRequestHandler,
+  type ServiceVisibility,
+  type TrustProxySetting,
+} from './edge-hardening';
+
+export { buildOpenApiConfig, type OpenApiDocumentOptions } from './openapi-config';
+
+export {
   sanitizeForLogging,
   truncateStack,
   logBootstrapError,

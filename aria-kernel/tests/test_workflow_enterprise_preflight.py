@@ -176,13 +176,16 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertTrue(verdict.valid, verdict.reasons)
 
     def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
-        # D1 (ADR-036) — the kernel workflows are audited-excluded with a
+        # D1 (ADR-036) — the kernel workflow is audited-excluded with a
         # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05
-        # time-bomb is rejected. (aria-kernel-full was deleted outright —
-        # ORPHAN-MEDIUM-769 — so it is neither excluded nor contracted.)
-        for workflow_id in ("aria-kernel", "aria-kernel-fast"):
-            self.assertIn(workflow_id, AUDITED_WORKFLOW_EXCLUSIONS)
-            self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS[workflow_id].expires_at, "9999-12-31")
+        # time-bomb is rejected. (aria-kernel-full and aria-kernel-fast were
+        # deleted outright — ORPHAN-MEDIUM-769, ARIA-MEDIUM-135 — so they
+        # are neither excluded nor contracted; an exclusion for a workflow
+        # that does not exist would be a standing licence for its return.)
+        self.assertIn("aria-kernel", AUDITED_WORKFLOW_EXCLUSIONS)
+        self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS["aria-kernel"].expires_at, "9999-12-31")
+        for retired in ("aria-kernel-full", "aria-kernel-fast"):
+            self.assertNotIn(retired, AUDITED_WORKFLOW_EXCLUSIONS)
 
     def test_workflow_registry_rejects_expired_audited_exclusion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,9 +698,23 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # 45 → 150 (ORPHAN-HIGH-640): the drain loop's whole window including
         # the last child's 1800s worst case plus a 30-minute publish reserve
         # must fit; the first live drain night was reaped mid-child at 45.
+        # 150 → 200 (2026-09-12): the child's worst case now prices its
+        # claim, pre-claim probe, submit and release waits too, and the
+        # reserve is derived from the store's git bounds
+        # (`ci_executor_drain.JOB_RESERVE_SECONDS`); the window-plus-reserve
+        # arithmetic is pinned in test_state_lock_liveness_bound. 200 → 280:
+        # the reserve's restore and publish arcs are sums over the store's
+        # registered lifecycle git steps (`state_store_lifecycle_arcs`).
+        # 280 → 500 (ARIA-HIGH-124 round 3): the window holds an
+        # implementation child whose delivery — the contained apply gate at
+        # the canonical ceiling per command, the publication, the push, the
+        # PR — is priced into the child's worst case. 500 -> 510 (round 6):
+        # the drain window grew to 21000 s so an implementation child has a
+        # 657 s start window (the first `next-pending` alone took over 40 s
+        # under load), and this cap moves with the YAML timeout it mirrors.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (510 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # 50 → 360 (operator decision 2026-08-13): the night's window is the
         # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the

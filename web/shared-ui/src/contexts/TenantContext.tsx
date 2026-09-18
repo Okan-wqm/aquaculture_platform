@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useReducer, useCallback } from 'react';
 import type { Tenant } from '../types';
+import { clearActAsContext, setActAsContext, setTenantId } from '../utils/api-client';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -22,8 +23,20 @@ type TenantAction =
   | { type: 'TENANT_ERROR'; payload: string }
   | { type: 'CLEAR_TENANT' };
 
+/** Why a SUPER_ADMIN is acting on a tenant that is not their own (ADR-0007). */
+export interface ActAsJustification {
+  reason: string;
+  ticket?: string;
+}
+
 interface TenantContextValue extends TenantState {
-  switchTenant: (tenantId: string) => Promise<void>;
+  /**
+   * Act on `tenant` as a SUPER_ADMIN. The kernel refuses a cross-tenant act-as
+   * without a reason, so the justification is part of the call, not optional
+   * follow-up state. The caller supplies the tenant it already holds (a list
+   * row, a detail page) — nothing is fetched or fabricated here.
+   */
+  switchTenant: (tenant: Tenant, justification: ActAsJustification) => Promise<void>;
   clearTenant: () => void;
 }
 
@@ -80,14 +93,27 @@ export const TenantProvider: React.FC<TenantProviderProps> = ({
     tenant: initialTenant ?? null,
   });
 
-  // CRIT-5/BUG-004/PERF-008: switchTenant is not yet implemented.
-  // Throw a clear error rather than silently returning fabricated mock data.
-  // When implementing: make a real API call, dispatch TENANT_LOADED with real data.
-  const switchTenant = useCallback(async (_tenantId: string): Promise<void> => {
-    throw new Error('switchTenant: not implemented. Provide a real tenant fetch before calling this.');
-  }, []);
+  const switchTenant = useCallback(
+    async (tenant: Tenant, justification: ActAsJustification): Promise<void> => {
+      dispatch({ type: 'TENANT_LOADING' });
+      try {
+        // Order matters: the active tenant must be set BEFORE the justification
+        // is bound to it, because getActAsContext() drops a context whose
+        // tenant is not the active one.
+        setTenantId(tenant.id);
+        setActAsContext({ tenantId: tenant.id, reason: justification.reason, ticket: justification.ticket });
+        dispatch({ type: 'TENANT_LOADED', payload: tenant });
+      } catch (error) {
+        clearActAsContext();
+        dispatch({ type: 'TENANT_ERROR', payload: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+    },
+    [],
+  );
 
   const clearTenant = useCallback(() => {
+    clearActAsContext();
     dispatch({ type: 'CLEAR_TENANT' });
   }, []);
 

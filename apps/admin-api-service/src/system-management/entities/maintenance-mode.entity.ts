@@ -78,16 +78,16 @@ export class MaintenanceMode {
   @Column({ type: 'jsonb', nullable: true })
   affectedRegions?: string[];
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   scheduledStart!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   scheduledEnd?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   actualStart?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   actualEnd?: Date;
 
   @Column({ type: 'int', default: 60 })
@@ -129,9 +129,9 @@ export class MaintenanceMode {
   @Column({ nullable: true })
   updatedBy?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

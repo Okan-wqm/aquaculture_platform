@@ -1,3 +1,4 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -15,7 +16,8 @@ import {
   SuspendTenantCommand,
 } from '../commands/tenant.commands';
 import { SuspendTenantDto } from '../dto/tenant.dto';
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
+import { SubscriptionReadOnly, InvoiceReadOnly } from '../../analytics/entities/external';
+import { TenantActivity, TenantNote } from '../entities/tenant-activity.entity';
 import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import {
   SuspendTenantHandler,
@@ -31,7 +33,6 @@ import {
   ListTenantsHandler,
   GetTenantStatsHandler,
   GetTenantUsageHandler,
-  GetTenantsApproachingLimitsHandler,
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from '../query-handlers/tenant-query.handlers';
@@ -44,7 +45,7 @@ import { TenantAdminController } from '../tenant.controller';
 
 // Mock services
 const mockAuditLogService = {
-  log: jest.fn(),
+  record: jest.fn(),
   logTenantAction: jest.fn(),
 };
 
@@ -194,7 +195,10 @@ const mockTenantRepository = createMockRepository();
 const mockInvitationRepository = createMockRepository();
 const mockActivityRepository = createMockRepository();
 const mockNoteRepository = createMockRepository();
-const mockBillingRepository = createMockRepository();
+// admin.tenant_billing_info retired (ADMIN-HIGH-012): the tenant-detail
+// billing block reads billing's own tables.
+const mockSubscriptionRepository = createMockRepository();
+const mockInvoiceRepository = createMockRepository();
 
 const mockQueryRunner = {
   connect: jest.fn(),
@@ -259,6 +263,12 @@ describe('Tenant Integration Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: getRepositoryToken(Tenant),
           useValue: mockTenantRepository,
@@ -276,8 +286,12 @@ describe('Tenant Integration Tests', () => {
           useValue: mockNoteRepository,
         },
         {
-          provide: getRepositoryToken(TenantBillingInfo),
-          useValue: mockBillingRepository,
+          provide: getRepositoryToken(SubscriptionReadOnly),
+          useValue: mockSubscriptionRepository,
+        },
+        {
+          provide: getRepositoryToken(InvoiceReadOnly),
+          useValue: mockInvoiceRepository,
         },
         {
           provide: DataSource,
@@ -335,7 +349,6 @@ describe('Tenant Integration Tests', () => {
         ListTenantsHandler,
         GetTenantStatsHandler,
         GetTenantUsageHandler,
-        GetTenantsApproachingLimitsHandler,
         GetExpiringTrialsHandler,
         SearchTenantsHandler,
       ],
@@ -411,7 +424,7 @@ describe('Tenant Integration Tests', () => {
         expect(mockAuthProvisioningClient.activateTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.deprovisionTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.archiveTenant).toHaveBeenCalledTimes(1);
-        expect(mockAuditLogService.log).toHaveBeenCalledTimes(4);
+        expect(mockAuditLogService.record).toHaveBeenCalledTimes(4);
         expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(4);
         // Single-writer: admin-api never writes auth.tenants (the owner does).
         expect(queryRunner.manager.save).not.toHaveBeenCalled();
@@ -558,18 +571,6 @@ describe('Tenant Integration Tests', () => {
         ]);
 
         // Execute stats query
-      });
-    });
-
-    describe('GetTenantsApproachingLimitsQuery', () => {
-      it('should return tenants above usage threshold', async () => {
-        const nearLimitTenant = createMockTenant({
-          maxUsers: 50,
-          // Assume current users is 45 (90%)
-        });
-        mockTenantRepository.createQueryBuilder().getMany.mockResolvedValueOnce([nearLimitTenant]);
-
-        // Query should find tenants at 80% or more of their limits
       });
     });
   });

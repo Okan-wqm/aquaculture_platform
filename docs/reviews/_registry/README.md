@@ -27,6 +27,28 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
    └── arbiter ruling / override tracked ──► BLOCKED
 ```
 
+### Reopening
+
+`RESOLVED` is derived from merged history: `finding-registry reconcile` (and the
+`finding-registry-closure-drift` gate) treat any `origin/main` commit whose `Closes:` trailer names
+the finding as closure evidence. Two reopen paths exist, and they differ in what they say about that
+evidence:
+
+- `finding-registry reopen <id>` — registration repair. Only for a row registered `RESOLVED` at
+  birth in error (no `closing_commits`). Clears the close fields; the real fix commit closes it later
+  through `close`.
+- `finding-registry reopen <id> --reject-closure=<sha> --reason=<why>` — override reopen. The row was
+  closed through the ceremony, but the change did not actually close it (a version-gated tracking
+  finding swept shut, a partial fix). The SHA moves from `closing_commits` to
+  `rejected_closing_commits`; `close`, `reconcile` and the drift gate refuse it from then on, so the
+  finding stays open until a NEW commit carries its trailer. Every closer must be rejected in the
+  same decision: the recorded `closing_commits`, and every other `origin/main` commit whose trailer
+  names the finding (`--reject-closure` may be repeated; the command lists what is still standing
+  and refuses to write until nothing is). It also works on a row that is already OPEN, when the
+  drift gate reports a merged commit as closing it. A free-text "[REOPENED ...]" note carries no such
+  weight: the next reconcile would re-close the row from the same old commit, which is exactly what
+  happened to PLAT-MEDIUM-901 on 2026-09-04.
+
 ## How to append a finding
 
 Create a stub without an `id`, then let the CLI allocate and append it:

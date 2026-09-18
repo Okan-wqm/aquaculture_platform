@@ -8,8 +8,10 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
+import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 import { HealthController } from '../health.controller';
 
 // Mock response object for @Res() endpoints
@@ -25,6 +27,8 @@ describe('HealthController (Sensor Service)', () => {
   let controller: HealthController;
   let isInitialized: boolean;
   let queryMock: jest.Mock;
+  let mqttConnected: boolean;
+  let mqttSubscribed: boolean;
 
   const createMockDataSource = () => ({
     get isInitialized() {
@@ -33,17 +37,26 @@ describe('HealthController (Sensor Service)', () => {
     query: queryMock,
   });
 
+  const createMockMqttClient = () => ({
+    isConnectedToBroker: () => mqttConnected,
+    isSubscribed: () => mqttSubscribed,
+  });
+
+  const createMockConfig = () =>
+    new ConfigService({ SENSOR_SERVICE_PROFILE: 'legacy', MQTT_ENABLED: 'true' });
+
   beforeEach(async () => {
     isInitialized = true;
     queryMock = jest.fn();
+    mqttConnected = true;
+    mqttSubscribed = true;
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
-        {
-          provide: DataSource,
-          useFactory: createMockDataSource,
-        },
+        { provide: DataSource, useFactory: createMockDataSource },
+        { provide: MqttClientService, useFactory: createMockMqttClient },
+        { provide: ConfigService, useFactory: createMockConfig },
       ],
     }).compile();
 
@@ -77,19 +90,44 @@ describe('HealthController (Sensor Service)', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         status: 'ok',
-        checks: { database: 'ok', timescale: 'ok' },
+        checks: { database: 'ok', timescale: 'ok', mqtt: 'ok' },
       });
     });
 
-    it('should return 503 when database is not connected', async () => {
+    it('returns degraded (200) when only the database is down — MQTT still healthy', async () => {
       isInitialized = false;
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const jsonCall = res.json.mock.calls[0][0];
+      expect(jsonCall.status).toBe('degraded');
+      expect(jsonCall.checks.database).toBe('error');
+      expect(jsonCall.checks.mqtt).toBe('ok');
+    });
+
+    it('returns 503 not_ready when database AND MQTT are both down (SENSOR-MEDIUM-123)', async () => {
+      isInitialized = false;
+      mqttConnected = false;
       const res = createMockResponse();
 
       await controller.readiness(res);
 
       expect(res.status).toHaveBeenCalledWith(503);
       const jsonCall = res.json.mock.calls[0][0];
-      expect(jsonCall.checks.database).toBe('error');
+      expect(jsonCall.checks.mqtt).toBe('error');
+    });
+
+    it('reports mqtt error when connected but subscribed to nothing (the old green-but-dead state)', async () => {
+      mqttSubscribed = false;
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      const jsonCall = res.json.mock.calls[0][0];
+      expect(jsonCall.checks.mqtt).toBe('error');
+      expect(jsonCall.status).toBe('degraded');
     });
 
     it('should return degraded when timescale is not installed', async () => {

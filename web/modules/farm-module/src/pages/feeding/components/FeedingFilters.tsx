@@ -23,8 +23,8 @@ interface FeedingFiltersProps {
   selectedBatchId: string;
   onSiteChange: (siteId: string) => void;
   onBatchChange: (batchId: string) => void;
-  sites: Site[];
-  batches: Batch[];
+  sites: readonly Site[];
+  batches: readonly Batch[];
   sitesLoading: boolean;
   batchesLoading: boolean;
 }

@@ -8,9 +8,10 @@
  * and `messaging_nats_reconnects_total` (recovery counter, initial connect
  * excluded).
  */
+import { stub } from '@aquaculture/testing';
 import { MessagingMetricsService } from '../messaging-metrics.service';
 import { NatsConnectionMetricsService } from '../nats-connection-metrics.service';
-import type { CoreNatsConnectionSnapshot } from '@platform/event-bus';
+import type { CoreNatsConnectionSnapshot, IEventBus } from '@platform/event-bus';
 
 type Listener = (snapshot: CoreNatsConnectionSnapshot) => void;
 
@@ -34,14 +35,21 @@ function createLifecycleBus() {
   return bus;
 }
 
-const snapshot = (
-  state: CoreNatsConnectionSnapshot['state'],
-): CoreNatsConnectionSnapshot => ({ connection: null, generation: 1, state });
+const snapshot = (state: CoreNatsConnectionSnapshot['state']): CoreNatsConnectionSnapshot => ({
+  connection: null,
+  generation: 1,
+  state,
+});
 
-function buildService(bus: object) {
+/**
+ * The service duck-types the injected bus for `onCoreConnectionLifecycle`
+ * (a NatsEventBus-only hook, absent from IEventBus), so the double is a
+ * partial IEventBus carrying that optional hook.
+ */
+function buildService(bus: Partial<IEventBus> & Partial<ReturnType<typeof createLifecycleBus>>) {
   const metrics = new MessagingMetricsService();
   metrics.onModuleInit();
-  const service = new NatsConnectionMetricsService(bus as never, metrics);
+  const service = new NatsConnectionMetricsService(stub<IEventBus>(bus), metrics);
   return { service, metrics };
 }
 

@@ -34,22 +34,18 @@ import {
   RecordMortalityCommand,
   MortalityReason as MortalityCommandReason,
 } from '../../batch/commands/record-mortality.command';
-import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
+import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
-import { TankAllocation, AllocationType } from '../../batch/entities/tank-allocation.entity';
+import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
-import { BatchService } from '../../batch/services/batch.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
-import {
-  Department,
-  DepartmentStatus,
-  DepartmentType,
-} from '../../department/entities/department.entity';
+import { TankBatchService } from '../../batch/services/tank-batch.service';
+import { Department } from '../../department/entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
@@ -67,50 +63,27 @@ import { DeleteHarvestRecordHandler } from '../../harvest/handlers/delete-harves
 import { ListHarvestsHandler } from '../../harvest/handlers/list-harvests.handler';
 import { ListHarvestsQuery } from '../../harvest/queries/list-harvests.query';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
-import {
-  Species,
-  SpeciesCategory,
-  SpeciesStatus,
-  SpeciesWaterType,
-} from '../../species/entities/species.entity';
-import { Site, SiteStatus, SiteType } from '../../site/entities/site.entity';
+import { Species } from '../../species/entities/species.entity';
+import { Site } from '../../site/entities/site.entity';
 import { SubSystem } from '../../system/entities/sub-system.entity';
 import { System } from '../../system/entities/system.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import {
-  Tank,
-  TankMaterial,
-  TankStatus,
-  TankType,
-  WaterType,
-} from '../../tank/entities/tank.entity';
+  FIXTURE_ENTITIES,
+  createFarmTenantFixture,
+  createFixtureBatchWriters,
+  type FixtureBatchWriters,
+} from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
+  createFarmStockReadModelTables,
   createSourceEquipmentTypesReferenceTable,
-  createTenantSchemaFromSource,
+  createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
-const TENANT_BUSINESS_TABLES = [
-  'sites',
-  'departments',
-  'systems',
-  'sub_systems',
-  'equipment',
-  'equipment_systems',
-  'tanks',
-  'species',
-  'batches_v2',
-  'batch_documents',
-  'tank_allocations',
-  'tank_batches',
-  'tank_operations',
-  'mortality_records',
-  'harvest_plans',
-  'harvest_records',
-] as const;
-
 interface TenantFixture {
   site: Site;
   department: Department;
@@ -136,7 +109,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
   let equipmentRepository: Repository<Equipment>;
   let equipmentTypeRepository: Repository<EquipmentType>;
   let harvestRepository: Repository<HarvestRecord>;
-  let batchService: BatchService;
+  let batchWriters: FixtureBatchWriters;
   let recordMortality: RecordMortalityHandler;
   let recordCull: RecordCullHandler;
   let createHarvest: CreateHarvestRecordHandler;
@@ -153,24 +126,11 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       ...pg.connectionOptions,
       name: `farm-service-stock-ops-${randomBytes(4).toString('hex')}`,
       entities: [
-        Site,
-        Department,
-        System,
-        SubSystem,
-        Equipment,
-        EquipmentSystem,
-        EquipmentType,
-        Tank,
-        Species,
-        Batch,
-        BatchDocument,
-        TankAllocation,
-        TankBatch,
-        TankOperation,
-        MortalityRecord,
+        // The fixture's production writers declare their own closure; this
+        // suite adds only what IT needs on top (FARM-HIGH-109).
+        ...FIXTURE_ENTITIES,
         HarvestPlan,
         HarvestRecord,
-        FarmOutbox,
       ],
       synchronize: true,
       logging: false,
@@ -181,20 +141,13 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
 
     await dataSource.initialize();
     await createFarmOutboxTable(dataSource);
+    await createFarmStockReadModelTables(dataSource);
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
 
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_A),
-      TENANT_BUSINESS_TABLES,
-    );
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_B),
-      TENANT_BUSINESS_TABLES,
-    );
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_A));
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_B));
 
     siteRepository = dataSource.getRepository(Site);
     departmentRepository = dataSource.getRepository(Department);
@@ -209,15 +162,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     equipmentTypeRepository = dataSource.getRepository(EquipmentType);
     harvestRepository = dataSource.getRepository(HarvestRecord);
 
-    batchService = new BatchService(
-      batchRepository,
-      allocationRepository,
-      tankBatchRepository,
-      operationRepository,
-      tankRepository,
-      dataSource,
-      new MortalityCullPolicyService(),
-    );
+    // The stocked-tank fixture writes through the production command handlers
+    // (FARM-HIGH-109); this suite no longer builds a BatchService of its own.
+    batchWriters = createFixtureBatchWriters(dataSource);
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
     const backdatePolicy = { validate: jest.fn() };
@@ -239,6 +186,16 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // specs cover them) while the policy guards run for real against the DB rows.
     const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
     const mortalityCullPolicy = new MortalityCullPolicyService();
+    // The REAL TankBatch SSoT writer, not a stub. Every removal path routes its
+    // `batchDetails[]` mutation through `applyBatchDelta`, which is the single
+    // writer of `totalQuantity`/`totalBiomassKg` and (since ORPHAN-HIGH-272) of
+    // `Tank.currentCount` too. This suite asserts those exact columns below, so
+    // stubbing the writer made four assertions unsatisfiable by construction —
+    // the counts could only ever read back as the seeded values. The service
+    // takes no constructor dependencies, so running it for real costs nothing
+    // and turns those assertions into a genuine check that the Batch aggregate
+    // and the per-tank composition agree after a removal.
+    const tankBatchService = new TankBatchService();
     // Gün-içi recalc (P-31) mock — bu e2e tenant-izolasyon davranışına odaklı;
     // giriş modu politikası (D-3) gerçek (saf servis).
     const dayPlanRecalc = { recalcForUnit: jest.fn().mockResolvedValue(null) };
@@ -247,7 +204,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     const mobileCommandReceipts = {
       // A non-legacy 'started' receipt lets the stock-mutating handler proceed
       // without touching the receipts table; complete() is a no-op stub.
-      begin: jest.fn().mockResolvedValue({ mode: 'started', receiptId: randomBytes(8).toString('hex') }),
+      begin: jest
+        .fn()
+        .mockResolvedValue({ mode: 'started', receiptId: randomBytes(8).toString('hex') }),
       complete: jest.fn().mockResolvedValue(undefined),
     };
     recordMortality = new RecordMortalityHandler(
@@ -267,7 +226,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -283,7 +242,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       removalQuantityPolicy,
       auditLogService as never,
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -308,7 +267,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // TankBatchService SSoT writer — create-harvest routes its tank-batch
       // decrement through applyBatchDelta (ORPHAN-HIGH-272), same as the
       // mortality/cull/transfer handlers above.
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       new FinanceSettingsService(dataSource),
       new SiteAuthorizationService(),
       // CreateHarvestRecordHandler also defaults farmStockProjection +
@@ -328,7 +287,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       // TankBatchService SSoT writer — the harvest reversal routes through
       // applyBatchDelta (ORPHAN-HIGH-272).
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       // DeleteHarvestRecordHandler also defaults farmStockProjection to a
       // throwing test-only stub; supply the working no-op so the delete path
       // reaches the tenant-isolation assertions.
@@ -506,117 +465,44 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // HarvestRecordCancelled is emitted by the delete-harvest step (now wired
     // with a working farmStockProjection stub) — it is correctly tenant-scoped
     // to TENANT_A's outbox, which is exactly what this isolation e2e asserts.
+    //
+    // `BatchCreated` and `BatchAllocatedToTank` come from STOCKING the fixture
+    // tank. They are new to this assertion only because the fixture used to
+    // stock through `BatchService`, which emitted nothing at all: creating a
+    // batch and putting fish in a tank produced no domain event, and this
+    // suite encoded that silence as the expectation. Routing the fixture
+    // through the real command handlers (FARM-HIGH-109) makes the outbox show
+    // what production actually publishes — and the tenant-scoping assertion
+    // below now covers those two events too.
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
       'BatchHarvested',
       'CullRecorded',
       'HarvestRecordCancelled',
       'MortalityRecorded',
     ]);
-    expect(tenantBOutboxRows.map((row) => row.eventType)).toEqual(['MortalityRecorded']);
+    expect(tenantBOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
+      'MortalityRecorded',
+    ]);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
   });
 
+  /**
+   * Stocked-tank fixture comes from the SHARED builder
+   * (`helpers/farm-tenant-fixture.ts`): every suite that touches per-tank
+   * biomass needs the same site → department → species → tank → batch →
+   * allocation chain, and a per-suite copy would let the stocking semantics
+   * drift apart silently.
+   */
   async function createTenantFixture(tenantId: string, codePrefix: string): Promise<TenantFixture> {
-    const site = await withTenantContext(tenantId, () =>
-      siteRepository.save(
-        siteRepository.create({
-          tenantId,
-          name: `${codePrefix} Site`,
-          code: `${codePrefix}-SITE`,
-          type: SiteType.LAND_BASED,
-          country: 'NO',
-          timezone: 'UTC',
-          status: SiteStatus.ACTIVE,
-          isActive: true,
-        }),
-      ),
-    );
-    const department = await withTenantContext(tenantId, () =>
-      departmentRepository.save(
-        departmentRepository.create({
-          tenantId,
-          siteId: site.id,
-          name: `${codePrefix} Department`,
-          code: `${codePrefix}-DEPT`,
-          type: DepartmentType.PRODUCTION,
-          status: DepartmentStatus.ACTIVE,
-          isActive: true,
-          isDeleted: false,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const species = await withTenantContext(tenantId, () =>
-      speciesRepository.save(
-        speciesRepository.create({
-          tenantId,
-          scientificName: 'Salmo salar',
-          commonName: 'Atlantic Salmon',
-          code: `${codePrefix}-SALMON`,
-          category: SpeciesCategory.FISH,
-          waterType: SpeciesWaterType.SALTWATER,
-          status: SpeciesStatus.ACTIVE,
-          isActive: true,
-          isCleanerFish: false,
-          isDeleted: false,
-          tags: [],
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const tank = await withTenantContext(tenantId, () =>
-      tankRepository.save(
-        tankRepository.create({
-          tenantId,
-          name: `${codePrefix} Tank`,
-          code: `${codePrefix}-TANK`,
-          departmentId: department.id,
-          tankType: TankType.CIRCULAR,
-          material: TankMaterial.FIBERGLASS,
-          waterType: WaterType.SALTWATER,
-          diameter: 5,
-          depth: 2,
-          waterDepth: 2,
-          maxBiomass: 1500,
-          currentBiomass: 1,
-          currentCount: 100,
-          maxDensity: 30,
-          status: TankStatus.ACTIVE,
-          isActive: true,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const batch = await withTenantContext(tenantId, () =>
-      batchService.createBatch({
-        tenantId,
-        batchNumber: `${codePrefix}-BATCH`,
-        speciesId: species.id,
-        inputType: BatchInputType.FRY,
-        initialQuantity: 100,
-        initialAvgWeightG: 10,
-        stockedAt: new Date('2026-04-29T00:00:00.000Z'),
-        currency: 'USD',
-        createdBy: USER_ID,
-      }),
-    );
-
-    await withTenantContext(tenantId, () =>
-      batchService.allocateBatchToTank({
-        tenantId,
-        batchId: batch.id,
-        tankId: tank.id,
-        quantity: 100,
-        avgWeightG: 10,
-        allocationType: AllocationType.INITIAL_STOCKING,
-        allocatedBy: USER_ID,
-      }),
-    );
-
-    return { site, department, species, tank, batch };
+    return createFarmTenantFixture(dataSource!, batchWriters, {
+      tenantId,
+      codePrefix,
+      userId: USER_ID,
+    });
   }
 
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {

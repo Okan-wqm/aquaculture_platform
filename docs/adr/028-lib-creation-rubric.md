@@ -59,6 +59,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/farm-shared` | libs/<domain>/ | web/farm-module |
 | `libs/node-components` | libs/node-components/ | web/sensor-module (process-editor, scada-builder) |
 | `libs/migration-harness` | libs/backend-common/ (deploy-time only) | apps/db-migrate CLI |
+| `libs/mqtt-test-harness` | libs/backend-common/ (deploy-time only) | apps/sensor-service MQTT ACL E2E spec (SENSOR-HIGH-118: real Mosquitto+go-auth container wired to the MqttAuthService under test) |
 | `libs/shared-contracts` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
 | `libs/sdk` | libs/<domain>/ (TypeScript SDK generator outputs) | scripts/sdk codegen, agent harness |
 | `libs/sensor-automation-types` | libs/<domain>/ (IEC 61131 ST AST types) | apps/sensor-service parser/analyzer/formatter, web/modules/sensor-module simulator |
@@ -69,6 +70,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `platform/libs/cqrs` | platform/libs/<name>/ | every CQRS handler in apps/ |
 | `platform/libs/event-bus` | platform/libs/<name>/ | every event-emitting service in apps/ |
 | `platform/libs/outbox` | platform/libs/<name>/ | services using the transactional outbox pattern |
+| `platform/libs/pagination-contracts` | `platform/libs/<name>/` | admin-api-service list producers, admin-panel HTTP consumers, farm-service resolvers, farm-module hooks — the versioned paginated-result shape both tiers must agree on |
 | `platform/libs/service-catalog` | platform/libs/<name>/ | service-catalog artifact generator, deploy SSOT gates, gateway subgraph registry |
 | `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
 

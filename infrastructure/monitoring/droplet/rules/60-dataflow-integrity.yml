@@ -51,7 +51,11 @@ groups:
 
       - alert: NotificationChannelFailing
         expr: |
-          sum by (app) (increase(http_requests_total{namespace="aquaculture",app="notification-service",status=~"5.."}[15m])) > 10
+          # `status_code`, not `status`: the label the shared metrics middleware
+          # emits (metrics.service.ts). With `status` this selector matched
+          # nothing, so the alert has never been able to fire — the same defect
+          # 10-service-health.yml records fixing when these rules were extracted.
+          sum by (app) (increase(http_requests_total{namespace="aquaculture",app="notification-service",status_code=~"5.."}[15m])) > 10
         for: 10m
         labels:
           severity: warning

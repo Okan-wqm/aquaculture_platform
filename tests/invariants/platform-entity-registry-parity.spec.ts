@@ -30,7 +30,8 @@ const SCHEMA_MANAGER = resolve(
 
 /** schema → app source dir, for platform-level services WITH a MODULE_SCHEMAS entry. */
 const COVERED: ReadonlyArray<{ schema: string; appDir: string; minEntities: number }> = [
-  { schema: 'admin', appDir: 'apps/admin-api-service/src', minEntities: 40 },
+  // 40 -> 39: admin.tenant_billing_info retired 2026-09-07 (ADMIN-HIGH-012).
+  { schema: 'admin', appDir: 'apps/admin-api-service/src', minEntities: 39 },
   { schema: 'billing', appDir: 'apps/billing-service/src', minEntities: 8 },
   { schema: 'notification', appDir: 'apps/notification-service/src', minEntities: 2 },
   { schema: 'config', appDir: 'apps/config-service/src', minEntities: 2 },

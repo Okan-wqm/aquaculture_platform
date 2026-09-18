@@ -81,6 +81,9 @@ export const SITES_LIST_QUERY = `
       total
       page
       limit
+      totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

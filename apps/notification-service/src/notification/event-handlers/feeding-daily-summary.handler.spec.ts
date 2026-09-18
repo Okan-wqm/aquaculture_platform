@@ -1,17 +1,16 @@
 /**
  * FeedingDailySummaryEventHandler (K-8c) — pinler: tenant fail-closed;
  * alıcılar cihaz-token dizininden; push deterministik deliveryId ile
- * makbuz-idempotent; replay'de in-app yazılmaz; push hatası in-app'i düşürmez.
+ * makbuz-idempotent; in-app satırı AYNI deliveryId makbuzunu taşır (W7 /
+ * FARM-LOW-282 — kopya DB kısıtıyla imkânsız); push hatası in-app'i düşürmez;
+ * hiçbir alıcıya yazılamazsa hata fırlatılır (one_shot → DLQ).
  */
 import type { FeedingDailySummaryEvent } from '@platform/event-contracts';
 
 import { FeedingDailySummaryEventHandler } from './feeding-daily-summary.handler';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function summaryEvent(
   overrides: Partial<FeedingDailySummaryEvent> = {},
@@ -61,11 +60,11 @@ function makeHandler(opts: HarnessOpts = {}) {
   const subscribeWildcard = jest.fn().mockResolvedValue(undefined);
 
   const handler = new FeedingDailySummaryEventHandler(
-    mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>({
+    stub<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>({
       dispatchCommandNotification,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>),
     { createNotification },
-    mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
+    stub<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
       createQueryBuilder: deviceTokenRepository.createQueryBuilder,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>),
     { subscribeWildcard },
@@ -108,10 +107,41 @@ describe('FeedingDailySummaryEventHandler', () => {
     expect(body).toContain('kaçırıldı');
   });
 
-  it('replay edilen makbuz için in-app satırı YENİDEN yazılmaz (idempotent yeniden teslim)', async () => {
+  /**
+   * W7 / FARM-LOW-282 — idempotency artık `replayed` bayrağına DEĞİL, in-app
+   * satırının kendi makbuzuna bağlı.
+   *
+   * Eski davranış "push replay edildiyse in-app'i atla" idi ve tam da kopyayı
+   * üreten pencereyi açık bırakıyordu: push hata verip in-app yazıldıktan sonra
+   * gelen yeniden teslimde push TAZE makbuzla başarılı olur (`replayed=false`)
+   * ve in-app İKİNCİ kez yazılırdı. Artık in-app yazımı aynı deliveryId'yi
+   * taşıyor ve kopyayı `(tenant, alıcı, deliveryId)` kısmi unique index'i
+   * engelliyor — handler her teslimde çağırır, DB tekilleştirir.
+   */
+  it('in-app yazımı push replay bayrağından bağımsızdır ve kendi deliveryId makbuzunu taşır', async () => {
     const { handler, createNotification } = makeHandler({ pushResult: { replayed: true } });
     await handler.handle(summaryEvent());
-    expect(createNotification).not.toHaveBeenCalled();
+
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    const [, , , , , options] = createNotification.mock.calls[0];
+    expect(options).toEqual({
+      deliveryId: `feeding-summary:${TENANT}:2026-07-17:user-1`,
+    });
+  });
+
+  /**
+   * `FeedingDailySummary` `one_shot` sınıfında (W7 / D-B5): farm'ın
+   * `feeding_job_runs` claim'i tenant'ın yerel gününde ikinci bir özet
+   * ÜRETİLMESİNİ engeller, dolayısıyla teslim kaybı özetin kendisini kaybeder.
+   * Hiçbir alıcıya in-app yazılamadıysa yut DEĞİL fırlat → NAK → platform DLQ akışı (AQUACULTURE_DLQ).
+   */
+  it('tüm alıcılarda in-app yazımı başarısızsa hata fırlatır (tek-atımlık sinyal DLQ’ya gitmeli)', async () => {
+    const { handler, createNotification } = makeHandler();
+    createNotification.mockRejectedValue(new Error('db down'));
+
+    await expect(handler.handle(summaryEvent())).rejects.toThrow(
+      /in-app fan-out failed for all 1 recipient/,
+    );
   });
 
   it('push hatası in-app yazımını düşürmez (retry makinesi push tarafını devralır)', async () => {

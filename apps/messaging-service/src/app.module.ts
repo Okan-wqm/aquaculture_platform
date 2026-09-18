@@ -111,10 +111,7 @@ import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000
 import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
 import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
 import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-DropTenantAiSettings';
-// MSGFIX-FAZ2 2.1b: backfill messages.embedding (nullable + HNSW index) into
-// every provisioned tenant schema — the column only ever landed in the
-// messaging source schema, so similarMessages 500'd on live tenants.
-import { EnsureMessagesEmbeddingColumnTenantFanout1802200000000 } from './migrations/1802200000000-EnsureMessagesEmbeddingColumnTenantFanout';
+import { EnsureTenantMessagesEmbeddingColumn1802200000000 } from './migrations/1802200000000-EnsureTenantMessagesEmbeddingColumn';
 // MSGFIX-FAZ3 3.4: GIN expression index for to_tsvector('english', content) —
 // partition-aware (per-partition CONCURRENTLY + ON ONLY parent + ATTACH),
 // transaction=false (CONCURRENTLY cannot run inside a tx; db-migrate honors it).
@@ -134,6 +131,7 @@ import { MessagingNotificationModule } from './notification/notification.module'
 import { MetricsModule } from './metrics/metrics.module';
 // MSGFIX-FAZ0: GraphQL error-code contract — see filters/global-exception.filter.ts
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
@@ -211,7 +209,7 @@ type QueryComplexityOperationContext = {
             EnsureMessagingTenantErasureProofLedger1801000000000,
             DropChannelAiServiceUrl1802000000000,
             DropTenantAiSettings1802100000000,
-            EnsureMessagesEmbeddingColumnTenantFanout1802200000000,
+            EnsureTenantMessagesEmbeddingColumn1802200000000,
             AddMessagesContentSearchGinIndex1802300000000,
           ],
         }),
@@ -300,6 +298,9 @@ type QueryComplexityOperationContext = {
 
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'messaging-service' }),
 
     // NATS JetStream Event Bus — required by @platform/outbox OutboxWorkerService.
     // The worker publishes via IEventBus.publish() using subject pattern

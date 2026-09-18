@@ -7,7 +7,7 @@
  * the archival emits FinanceCategoryArchived atomically.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { createMockDataSource } from '@aquaculture/testing';
+import { createMockDataSource, stub } from '@aquaculture/testing';
 import type { OutboxPublisher } from '@platform/outbox';
 
 import { ArchiveFinanceCategoryHandler } from '../handlers/archive-finance-category.handler';
@@ -21,11 +21,6 @@ import { DERIVED_SYSTEM_CODES } from '../services/derived-cost-sources';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
-
-/** Fully-typed partial double (same helper pattern as the feeding spec). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function makeHarness(category: Partial<FinanceCategory> | null) {
   const row: FinanceCategory | null =
@@ -52,7 +47,7 @@ function makeHarness(category: Partial<FinanceCategory> | null) {
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const handler = new ArchiveFinanceCategoryHandler(
     mockDataSource,
-    mock<OutboxPublisher>({ enqueue }),
+    stub<OutboxPublisher>({ enqueue }),
   );
 
   return { handler, enqueue };

@@ -4,17 +4,15 @@ import { useMemo } from 'react';
 import { useAuth } from './useAuth';
 import { useTanks } from './useTanks';
 
+import type { GetStockEventsSummaryQuery } from '@/generated/graphql';
 import { GET_STOCK_EVENTS_SUMMARY } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { StockEventsSummary, StockEvent } from '@/types';
+import type { StockEventsSummary } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// WHY inline response type: keeps the GraphQL response shape co-located
-// with the query that produces it, avoiding a global type for an internal detail.
-interface StockEventsSummaryResponse {
-  thisWeekEventsCount: number;
-  recentEvents: StockEvent[];
-}
+// MOB-HIGH-022: the aggregate's shape is the generated result of the document
+// that produces it — the hand-written mirror is gone.
+type StockEventsSummaryResponse = GetStockEventsSummaryQuery['stockEventsSummary'];
 
 /**
  * Aggregates batch count from useTanks and stock event data from a dedicated
@@ -28,25 +26,17 @@ interface StockEventsSummaryResponse {
 export function useStockEventsSummary(): {
   summary: StockEventsSummary;
   isLoading: boolean;
-  /** ORPHAN-HIGH-595: either source failing makes the zeroes unknown, not real. */
-  isError: boolean;
 } {
   const { tenantId, isAuthenticated } = useAuth();
 
   // --- Source 1: Active batch count from cached tank data ---
-  const { data: tanks, isLoading: tanksLoading, isError: tanksError } = useTanks();
+  const { data: tanks, isLoading: tanksLoading } = useTanks();
 
   // --- Source 2: Stock events aggregate ---
-  const {
-    data: eventsSummary,
-    isLoading: eventsLoading,
-    isError: eventsError,
-  } = useQuery<StockEventsSummaryResponse>({
+  const { data: eventsSummary, isLoading: eventsLoading } = useQuery<StockEventsSummaryResponse>({
     queryKey: createTenantQueryKey(tenantId, 'stockEventsSummary', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{
-        stockEventsSummary: StockEventsSummaryResponse;
-      }>(GET_STOCK_EVENTS_SUMMARY, { daysBack: 7 });
+      const result = await graphqlRequest(GET_STOCK_EVENTS_SUMMARY, { daysBack: 7 });
       return result.stockEventsSummary;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -75,9 +65,6 @@ export function useStockEventsSummary(): {
   }, [tanks, eventsSummary]);
 
   const isLoading = tanksLoading || eventsLoading;
-  // ORPHAN-HIGH-595: either source failing means the summary's zeroes are
-  // unknown rather than real — the hub must be able to say so.
-  const isError = tanksError || eventsError;
 
-  return { summary, isLoading, isError };
+  return { summary, isLoading };
 }

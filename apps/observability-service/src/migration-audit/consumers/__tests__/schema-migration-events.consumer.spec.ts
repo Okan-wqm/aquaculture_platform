@@ -56,9 +56,7 @@ describe('SchemaMigrationEventsConsumer', () => {
     const { commandBus, natsBus } = makeBus();
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationStartedEvent = {
       ...createBaseEvent('SchemaMigrationStarted', GLOBAL_TENANT_UUID, {
@@ -89,9 +87,7 @@ describe('SchemaMigrationEventsConsumer', () => {
     const { commandBus, natsBus } = makeBus();
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationAppliedEvent = {
       ...createBaseEvent('SchemaMigrationApplied', GLOBAL_TENANT_UUID, {
@@ -115,9 +111,7 @@ describe('SchemaMigrationEventsConsumer', () => {
     const { commandBus, natsBus } = makeBus();
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationFailedEvent = {
       ...createBaseEvent('SchemaMigrationFailed', GLOBAL_TENANT_UUID, {
@@ -154,9 +148,7 @@ describe('SchemaMigrationEventsConsumer', () => {
     const { commandBus, natsBus } = makeBus();
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationSkippedEvent = {
       ...createBaseEvent('SchemaMigrationSkipped', GLOBAL_TENANT_UUID, {
@@ -179,9 +171,7 @@ describe('SchemaMigrationEventsConsumer', () => {
     const { commandBus, natsBus } = makeBus();
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationAppliedEvent = {
       ...createBaseEvent(
@@ -204,16 +194,14 @@ describe('SchemaMigrationEventsConsumer', () => {
     expect(cmd.payload.tenantSchema).toBe('tenant_1234567890abcdef');
   });
 
-  it('handler failures are SWALLOWED (prevents NATS redelivery storms)', async () => {
+  it('handler failures are reported as a retry outcome (the bus owns redelivery within its budget)', async () => {
     const { commandBus, natsBus } = makeBus();
     (commandBus.execute as jest.Mock).mockRejectedValue(
       new Error('handler threw'),
     );
     const consumer = new SchemaMigrationEventsConsumer(natsBus, commandBus);
     await consumer.onModuleInit();
-    const handler = (natsBus.subscribeTo.mock.calls[0]![1] as unknown as {
-      handle: (e: unknown) => Promise<void>;
-    }).handle;
+    const handler = natsBus.subscribeTo.mock.calls[0]![1].handle;
 
     const event: SchemaMigrationStartedEvent = {
       ...createBaseEvent('SchemaMigrationStarted', GLOBAL_TENANT_UUID, {
@@ -226,7 +214,7 @@ describe('SchemaMigrationEventsConsumer', () => {
       targetSchema: 'hr',
       environment: 'staging',
     };
-    await expect(handler(event)).resolves.toBeUndefined();
+    await expect(handler(event)).resolves.toEqual(expect.objectContaining({ kind: 'retry' }));
   });
 
   it('onModuleDestroy unsubscribes cleanly', async () => {

@@ -15,11 +15,12 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-from .ledger import append_declared_jsonl, load_declared_jsonl, verify_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
+    ensure_tools_dir_readonly,
     parse_utc_stamp,
     utc_now,
 )
@@ -191,14 +192,17 @@ def submit_challenger_plan(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
     return _mutate(
         plan_id=plan_id,
         command_name="submit-challenger-plan",
         canonical_payload=challenger,
         event_type="challenger_plan_drafted",
         payload=_normalize_challenger_plan(challenger),
-        base_dir=base_dir,
-        validator=_validate_challenger_plan,
+        base_dir=root,
+        validator=lambda state, payload: _validate_submitted_plan(
+            state, payload, root, _validate_challenger_plan, payload["plan_content"],
+        ),
     )
 
 
@@ -553,15 +557,45 @@ def record_revision(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
     return _mutate(
         plan_id=plan_id,
         command_name="record-revision",
         canonical_payload=revision,
         event_type="revision_recorded",
         payload=_normalize_revision(revision),
-        base_dir=base_dir,
-        validator=_validate_revision,
+        base_dir=root,
+        # A structured revision IS a plan body: it is judged as one at
+        # submission. Legacy prose stays recordable (the drainer renders it)
+        # and cannot converge, because no body reproduces its hash.
+        validator=lambda state, payload: _validate_submitted_plan(
+            state, payload, root, _validate_revision, _coerce_plan_body(payload.get("content")),
+        ),
     )
+
+
+def _validate_submitted_plan(
+    state: dict[str, Any],
+    payload: dict[str, Any],
+    root: Path,
+    state_validator: Any,
+    body: dict[str, Any] | None,
+) -> None:
+    """Submission-time judgement of an agent-authored plan body.
+
+    Runs in the command path ONLY — never in ``_validate_event``, which the
+    fold replays over recorded history — so the plan contract (the
+    ``architectural_tier`` claim and the declared validation vocabulary) binds
+    every writer that appends a challenger draft or a structured revision
+    from here on, while every historical ledger keeps folding.
+    """
+    from .plan_contract import require_plan_contract
+
+    state_validator(state, payload)
+    if body is None:
+        return
+    _validate_plan_content(body)
+    require_plan_contract(body, base_dir=root)
 
 
 def record_coverage(
@@ -610,6 +644,45 @@ def evaluate_plan(
         if state.get("current_round") != round_number:
             raise GovernanceError("round_number must match the current critique round")
         decision = _evaluate_cross_review_state(state, round_number, max_rounds=max_rounds) if state.get("state") == "CROSS_REVIEWED" else _evaluate_state(state, round_number)
+        from .architecture_spine_gate import _plan_comparison_obligation
+
+        spine = _plan_comparison_obligation(root, plan_id)
+        if spine is not None:
+            decision["gate_decisions"].append({"gate": "architecture_spine", **spine,
+                                                "passed": spine["status"] == "clean"})
+            if spine["status"] != "clean":
+                reason = ("architecture_spine_regression" if spine["status"] == "regression"
+                          else "architecture_spine_unavailable:" + spine["reason"])
+                # Keep stronger existing review/environment refusals. Only
+                # an otherwise eligible decision enters the native retry path.
+                if decision["terminal_state"] == "CONVERGED":
+                    decision["reason_codes"] = []
+                decision["reason_codes"].append(reason)
+                if spine["status"] == "unavailable" or round_number >= max_rounds:
+                    decision["terminal_state"] = "HUMAN_REQUIRED"
+                    if round_number >= max_rounds:
+                        decision["reason_codes"].append("max_rounds_reached")
+                elif decision["terminal_state"] != "HUMAN_REQUIRED":
+                    decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        # The plan contract, judged on the body that would converge. A plan
+        # that reached this row around the submission refusal (a seed no
+        # agent revised, a prose revision, any other writer) still cannot
+        # CONVERGE: it would die at staging, and the next round's primary
+        # envelope carries the exact reasons to fix.
+        from .plan_contract import plan_contract_gate
+
+        contract = plan_contract_gate(state, base_dir=root)
+        decision["gate_decisions"].append(contract)
+        if not contract["passed"]:
+            if decision["terminal_state"] == "CONVERGED":
+                decision["reason_codes"] = []
+            decision["reason_codes"].append("plan_contract_incomplete")
+            if round_number >= max_rounds:
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                if "max_rounds_reached" not in decision["reason_codes"]:
+                    decision["reason_codes"].append("max_rounds_reached")
+            elif decision["terminal_state"] != "HUMAN_REQUIRED":
+                decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -618,6 +691,7 @@ def evaluate_plan(
                 "status": "next_round_required",
                 "reason_codes": decision["reason_codes"],
                 "gate_decisions": decision["gate_decisions"],
+                **({"architecture_spine": spine} if spine is not None else {}),
             }
         payload = {
             "round_number": round_number,
@@ -1783,6 +1857,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "content_hash": payload["content_hash"],
             "source": "revision_recorded",
             "round": payload["round"],
+            "content": payload["content"],
         }
         # C8/E11 — per-round primary authorship for the duel ledger.
         if payload.get("revised_by_agent"):
@@ -2428,27 +2503,32 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
     # ORPHAN-CRITICAL-728 — the architectural-tier CLAIM, validated when it is
     # made. Not added to PLAN_CONTENT_REQUIRED for exactly the reason above:
     # the fold re-validates every historical plan_started payload, so a new
-    # required field would break replay of the whole recorded history.
-    # `apply_engine.stage_converged_plan_for_pr` refuses a plan that reaches
-    # IMPLEMENTATION without one — which is where the claim is needed and
-    # where its author can still be told to make it. What this check adds is
+    # required field would break replay of the whole recorded history. The
+    # claim is REQUIRED of every agent-authored body at submission
+    # (`_validate_submitted_plan`, command path only) and of the body that
+    # would converge (`evaluate_plan`'s plan_contract_complete row) — both
+    # through `plan_contract`, which also renders the rule into the
+    # planners' envelopes and contracts. What this fold-time check adds is
     # that a claim which IS made must be a tier, so the cross-reviewers are
     # reviewing a value the change ledger will accept.
-    tier = plan.get("architectural_tier")
-    if tier is not None:
-        from .change_ledger import ARCHITECTURAL_TIERS
+    from .plan_contract import architectural_tier_violation
 
-        if tier not in ARCHITECTURAL_TIERS:
-            raise GovernanceError(
-                f"architectural_tier must be one of {ARCHITECTURAL_TIERS}, "
-                f"got {tier!r}"
-            )
+    tier_violation = architectural_tier_violation(plan.get("architectural_tier"), required=False)
+    if tier_violation is not None:
+        raise GovernanceError(tier_violation)
 
 
 def _validate_validation_command(command: dict[str, Any]) -> None:
     if not isinstance(command, dict):
         raise GovernanceError("validation command must be a JSON object")
-    _require_non_empty(command.get("cmd"), "validation command cmd")
+    # Either spelling the plan contract admits: a `cmd` (canonical suite or a
+    # registered recipe's command) or a `recipe_id` naming a registered
+    # recipe. Staging resolved `{recipe_id}` entries while this validator
+    # refused them for a missing `cmd`, so the contract advertised a shape
+    # no plan could carry.
+    recipe_id = command.get("recipe_id")
+    if not (isinstance(recipe_id, str) and recipe_id.strip()):
+        _require_non_empty(command.get("cmd"), "validation command cmd")
     expected_exit = command.get("expected_exit", 0)
     timeout_ms = command.get("timeout_ms", 60_000)
     if not isinstance(expected_exit, int):
@@ -2846,7 +2926,11 @@ def _require_coverage_for_implementation(state: dict[str, Any]) -> None:
 
 
 def _require_started(state: dict[str, Any], action: str) -> None:
-    if state["plan_started"] is None:
+    # A fold always carries the key; a caller-shaped state (a resumed
+    # persistence record, a round controller's minimal view) may not, and
+    # "no plan_started" IS "not started" — the named refusal every caller
+    # of this gate catches, never a KeyError that escapes it.
+    if state.get("plan_started") is None:
         raise GovernanceError(f"cannot {action}: plan has not been started")
 
 
@@ -2872,6 +2956,65 @@ def _require_hash(value: Any, field: str) -> str:
 def _validate_id(value: str, field: str) -> None:
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", value or ""):
         raise GovernanceError(f"{field} contains invalid characters")
+
+
+# ARIA-HIGH-104 (3) — the ONE ``key_changes[]`` entry shape. An entry is
+# either a string (one numbered plan step) or an object carrying
+# ``description`` (the step), optional ``paths`` (the repo-relative files the
+# step touches — the spelling `plan_synthesizer._cluster_changes` and
+# `convert_candidate_to_plan_content` emit) and optional ``id``. The
+# implementer prompt used to read ``key_changes[].file``, a field no producer
+# wrote and no validator knew; the field names below are what that prompt
+# may cite (tests/invariants/v9/test_phase_v9_1_aria_implementer_agent.py
+# derives its check from this tuple), what staging reads for
+# ``intended_affected_files`` and what the envelope's per-change obligations
+# carry.
+KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths")
+
+
+def key_change_description(change: Any) -> str:
+    """The step text of one ``key_changes[]`` entry."""
+    if isinstance(change, str):
+        return change
+    if isinstance(change, dict):
+        return str(change.get("description") or "")
+    return ""
+
+
+def key_change_id(change: Any) -> str | None:
+    """The plan's own id for one ``key_changes[]`` entry, or None (a string step has none)."""
+    if not isinstance(change, dict):
+        return None
+    value = change.get("id")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def key_change_paths(change: Any) -> list[str]:
+    """The repo paths one ``key_changes[]`` entry declares (a string step declares none)."""
+    if not isinstance(change, dict):
+        return []
+    paths = change.get("paths")
+    return [path for path in paths if isinstance(path, str) and path.strip()] if isinstance(paths, list) else []
+
+
+def key_change_violation(change: Any) -> str | None:
+    """Why one ``key_changes[]`` entry is not the shape above, or None."""
+    if isinstance(change, str):
+        return None if change.strip() else "empty string entry"
+    if not isinstance(change, dict):
+        return f"entry must be a string or an object, got {type(change).__name__}"
+    unknown = sorted(set(change) - set(KEY_CHANGE_FIELDS))
+    if unknown:
+        return f"unknown field(s) {unknown}; an entry carries only {list(KEY_CHANGE_FIELDS)}"
+    description = change.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return "description is required"
+    if "id" in change and (not isinstance(change["id"], str) or not change["id"].strip()):
+        return "id must be a non-empty string when present"
+    paths = change.get("paths")
+    if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
+        return "paths must be a list of repo-relative POSIX paths"
+    return None
 
 
 def affected_surface_paths(affected_surfaces: Any) -> list[str]:
@@ -2933,6 +3076,89 @@ def converged_plan_body(
     return plan_body_from_state(state)
 
 
+def resolve_converged_plan_observation(
+    *,
+    plan_id: str,
+    revision_id: str,
+    expected_content_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Read an exact historical convergence from a freshly verified ledger.
+
+    The current plan may already be in implementation. Its observation must
+    still name the body and event that actually converged. Verify one full
+    snapshot, including its suffix, without the fold cache or state writes.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(revision_id, "revision_id")
+    _require_hash(expected_content_hash, "expected_content_hash")
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        raise GovernanceError("converged_observation_requires_existing_tools_root")
+    path = root / "plans" / "events.jsonl"
+    try:
+        snapshot = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise GovernanceError("converged_observation_ledger_unavailable") from exc
+    events = load_jsonl_verified_text(
+        snapshot, source=path, expected_surface="plan_convergence_events",
+    )
+    state = _initial_state(plan_id)
+    observation: dict[str, Any] | None = None
+    for event in events:
+        if event.get("plan_id") != plan_id:
+            continue
+        _validate_event(event)
+        payload = event["payload"]
+        converged = (
+            event["event_type"] == "plan_evaluated"
+            and payload["terminal_state"] == "CONVERGED"
+        )
+        if converged:
+            # Derive a copy: the reducer retains raw request states between
+            # events, while the evaluation producer consumes a derived fold.
+            reviewed = copy.deepcopy(state)
+            _derive_state(reviewed)
+            _require_state(reviewed, {"CRITIQUED", "CROSS_REVIEWED"}, "evaluate plan")
+            round_number = payload.get("round_number")
+            if not isinstance(round_number, int) or round_number <= 0:
+                raise GovernanceError("round_number must be a positive integer")
+            if reviewed.get("current_round") != round_number:
+                raise GovernanceError("round_number must match the current critique round")
+            decision = (
+                _evaluate_cross_review_state(
+                    reviewed, round_number, max_rounds=MAX_CROSS_REVIEW_ROUNDS,
+                )
+                if reviewed["state"] == "CROSS_REVIEWED"
+                else _evaluate_state(reviewed, round_number)
+            )
+            if decision["terminal_state"] != "CONVERGED":
+                raise GovernanceError("converged_observation_evaluation_gates_failed")
+        _apply_event(state, event)
+        latest = state.get("latest_revision") or {}
+        if (
+            converged
+            and latest.get("revision_id") == revision_id
+            and latest.get("content_hash") == expected_content_hash
+        ):
+            if observation is not None:
+                raise GovernanceError("converged_observation_ambiguous")
+            body = plan_body_from_state(state)
+            _validate_plan_content(body["plan_content"])
+            observation = copy.deepcopy({
+                **body,
+                "convergence_event_id": event["event_id"],
+                "convergence_event_hash": event["ledger_hash"],
+            })
+    _derive_state(state)
+    if observation is None:
+        raise GovernanceError(
+            f"converged_observation_not_found: plan_id={plan_id!r} "
+            f"revision_id={revision_id!r} content_hash={expected_content_hash!r}"
+        )
+    return observation
+
+
 def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """``converged_plan_body`` for a fold the caller already has.
 
@@ -2950,11 +3176,30 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
             "latest_revision.content_hash, so no body can be proven to be "
             "the one it converged on"
         )
-    # Every place the reducer keeps a plan body, newest first. `content` is
-    # the post-revision body (revision_recorded), `plan_content` the initial
-    # seed (plan_started) and the challenger draft. Which one is CURRENT is
-    # decided by the hash, never by the order — the order only bounds the
-    # search.
+    body = _recorded_body_hashing_to(state, target_hash)
+    if body is not None:
+        return {
+            "plan_content": body,
+            "revision_id": revision_id,
+            "content_hash": target_hash,
+        }
+    raise GovernanceError(
+        f"plan_body_unavailable_for_revision: no recorded body hashes to "
+        f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
+        f"revision's identity but not a body that reproduces it"
+    )
+
+
+def _recorded_body_hashing_to(state: dict[str, Any], target_hash: str) -> dict[str, Any] | None:
+    """The recorded body whose content hash is ``target_hash``, or None.
+
+    Every place the reducer keeps a plan body, newest first. `content` is
+    the post-revision body (revision_recorded), `plan_content` the initial
+    seed (plan_started) and the challenger draft. Which one matches is
+    decided by the hash, never by the order — the order only bounds the
+    search.
+    """
+    latest = state.get("latest_revision") or {}
     challenger = state.get("challenger") or {}
     candidates = (
         latest.get("content"),
@@ -2964,16 +3209,51 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
     for candidate in candidates:
         body = _coerce_plan_body(candidate)
         if body is not None and content_hash(body) == target_hash:
-            return {
-                "plan_content": body,
-                "revision_id": revision_id,
-                "content_hash": target_hash,
-            }
-    raise GovernanceError(
-        f"plan_body_unavailable_for_revision: no recorded body hashes to "
-        f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
-        f"revision's identity but not a body that reproduces it"
-    )
+            return body
+    return None
+
+
+def plan_body_for_revision(
+    *, plan_id: str, content_hash: str, base_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """The recorded body of ``plan_id`` that hashes to ``content_hash``, or None.
+
+    ARIA-HIGH-104 (1) — the one lookup both the envelope mint
+    (``agent_invocations.create_agent_invocation_request`` deriving
+    ``validation_commands``) and the request validator
+    (``agent_contract.validate_request`` checking them) make, so the two read
+    the same body for the same (plan, revision) pair. None means the store
+    holds no plan of that id, or no recorded body reproduces the hash (a
+    legacy prose revision): a caller that needs the body decides what that
+    absence means for its role.
+    """
+    root = ensure_tools_dir(base_dir)
+    if not events_path(root).is_file():
+        return None
+    state = fold_plan_state(plan_id=plan_id, base_dir=root)
+    if not state.get("plan_started"):
+        return None
+    body = _recorded_body_hashing_to(state, content_hash)
+    return None if body is None else {"plan_content": body, "content_hash": content_hash}
+
+
+def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) -> tuple[list[str], str | None, list[str] | None]:
+    """Common source inputs from a caller's verified current fold.
+
+    Legacy prose revisions may have no reconstructible structured body.
+    Preserve their ordinary caller refs with no matched revision claim;
+    never use a previous seed's refs and label them current. This helper
+    derives retrieval inputs only, not write scope or planner proposals.
+    """
+    try:
+        body = plan_body_from_state(state)
+    except GovernanceError:
+        return list(fallback_refs), None, None
+    refs = body["plan_content"].get("evidence_refs")
+    paths = affected_surface_paths(body["plan_content"].get("affected_surfaces", []))
+    if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+        refs = fallback_refs
+    return list(refs), body["content_hash"], paths or None
 
 
 def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:

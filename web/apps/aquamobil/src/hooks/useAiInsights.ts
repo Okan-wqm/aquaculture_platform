@@ -54,9 +54,7 @@ export function useAiDashboardInsights(): UseQueryResult<FarmDashboardInsights |
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'ai', 'dashboard-insights', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{
-        farmDashboardInsights: FarmDashboardInsights | null;
-      }>(FARM_DASHBOARD_INSIGHTS_QUERY);
+      const result = await graphqlRequest(FARM_DASHBOARD_INSIGHTS_QUERY);
 
       // WHY: Backend returns null when MCP_ENABLED=false or MCP is unreachable.
       // We treat null as a valid response — the component shows "unavailable".
@@ -84,9 +82,10 @@ export function useTankRiskAssessment(
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'ai', 'tank-risk', tankId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{
-        tankRiskAssessment: TankRiskAssessment | null;
-      }>(TANK_RISK_ASSESSMENT_QUERY, { tankId });
+      // WHY guard-throw: `enabled` gates on tankId but does not narrow it; the
+      // generated variables require a string. The impossible branch fails loudly.
+      if (!tankId) throw new Error('useTankRiskAssessment: tankId is required');
+      const result = await graphqlRequest(TANK_RISK_ASSESSMENT_QUERY, { tankId });
 
       return result.tankRiskAssessment;
     },
@@ -112,9 +111,8 @@ export function useBatchGrowthPrediction(
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'ai', 'growth-prediction', batchId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{
-        batchGrowthPrediction: BatchGrowthPrediction | null;
-      }>(BATCH_GROWTH_PREDICTION_QUERY, { batchId });
+      if (!batchId) throw new Error('useBatchGrowthPrediction: batchId is required');
+      const result = await graphqlRequest(BATCH_GROWTH_PREDICTION_QUERY, { batchId });
 
       return result.batchGrowthPrediction;
     },
@@ -139,9 +137,8 @@ export function useFeedingAdvice(
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'ai', 'feeding-advice', tankId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{
-        feedingAdvice: FeedingAdvice | null;
-      }>(FEEDING_ADVICE_QUERY, { tankId });
+      if (!tankId) throw new Error('useFeedingAdvice: tankId is required');
+      const result = await graphqlRequest(FEEDING_ADVICE_QUERY, { tankId });
 
       return result.feedingAdvice;
     },

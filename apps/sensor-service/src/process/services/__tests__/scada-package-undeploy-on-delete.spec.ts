@@ -1,16 +1,13 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
-
 import { validateCommandEnvelope, validateUndeployScadaPackageParams } from '@platform/sensor-contracts/validators';
 
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaDeployStatus } from '../../entities/scada-deploy-log.entity';
-import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { ScadaDeployLogService } from '../scada-deploy-log.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * WF-011 — undeploy-on-delete.
@@ -73,18 +70,14 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
       return Promise.resolve(device);
     });
 
-    const module: TestingModule = await Test.createTestingModule({
+    ({ service } = await createScadaPackageHarness({
+      scadaPackageRepository: repo,
       providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
         { provide: MqttClientService, useValue: { isConnectedToBroker: () => true, publish } },
         { provide: EdgeDeviceService, useValue: { findByIdOrFail } },
         { provide: ScadaDeployLogService, useValue: { getByPackage, createLog } },
       ],
-    }).compile();
-    service = module.get(ScadaPackageService);
+    }));
   });
 
   it('sends a contract-valid undeploy envelope to every device with a live deploy', async () => {
@@ -188,15 +181,12 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
   });
 
   it('degrades to archive-only when the optional deps are absent', async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-      ],
-    }).compile();
-    const bare = module.get(ScadaPackageService);
+    // No MQTT, no edge-device lookup, no deploy log: the harness provides only
+    // the two required repositories, so this stays a real "optional deps absent"
+    // case rather than one that merely does not call them.
+    const { service: bare } = await createScadaPackageHarness({
+      scadaPackageRepository: repo,
+    });
 
     const result = await bare.deleteScadaPackage(PKG_ID, TENANT);
 

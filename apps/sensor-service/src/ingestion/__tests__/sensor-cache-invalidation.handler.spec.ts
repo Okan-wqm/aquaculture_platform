@@ -173,12 +173,12 @@ describe('SensorCacheInvalidationHandler', () => {
         throw new Error('cache boom');
       });
       const { handler } = makeHandler({ cache });
-      // The handler MUST swallow the throw and continue — the
-      // platform redelivers if we ack-fail, and a buggy cache layer
-      // would otherwise lock the entire lifecycle subscription.
+      // The handler MUST catch the throw and acknowledge — invalidation is
+      // idempotent and the cache self-heals on TTL, so a buggy cache layer
+      // must not lock the entire lifecycle subscription in redelivery.
       await expect(
         handler.handle(lifecycleEventCases[0]![1]()),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ kind: 'ack' });
     });
   });
 });

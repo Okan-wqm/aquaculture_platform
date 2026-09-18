@@ -112,7 +112,7 @@ export class PerformanceMetric {
   @Column({ type: 'float', nullable: true })
   maxValue?: number;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
   @Column({ type: 'int', default: 60 })
@@ -121,8 +121,70 @@ export class PerformanceMetric {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+}
+
+/**
+ * The measured shapes, declared ONCE.
+ *
+ * `PerformanceMonitoringService` used to re-declare all three, so the jsonb
+ * column and the API response could drift apart silently — and did: the service
+ * now models "not measured" as `null`, which a duplicated `number` here would
+ * have rejected at exactly the boundary that persists it.
+ *
+ * `null` is NOT MEASURED and it is a different fact from zero. Every one of
+ * these was a plain `number` filled with a fabricated 0 whenever the value could
+ * not be read, so an unreachable database rendered as an idle healthy one and an
+ * empty metrics window rendered as a perfect Apdex of 1.0
+ * (ADMIN-HIGH-014 / OBS-CRITICAL-003).
+ */
+export interface ApplicationMetrics {
+  avgResponseTime: number | null;
+  p95ResponseTime: number | null;
+  p99ResponseTime: number | null;
+  throughput: number | null;
+  errorRate: number | null;
+  apdexScore: number | null;
+  activeRequests: number | null;
+  totalRequests: number | null;
+}
+
+export interface DatabaseMetrics {
+  activeConnections: number | null;
+  poolSize: number | null;
+  poolUtilization: number | null;
+  avgQueryTime: number | null;
+  slowQueryCount: number | null;
+  cacheHitRatio: number | null;
+  deadlockCount: number | null;
+}
+
+/**
+ * The infrastructure half of a snapshot.
+ *
+ * These three interfaces describe the shape stored INSIDE the `applicationMetrics`
+ * / `databaseMetrics` / `infrastructureMetrics` jsonb columns below. Widening a
+ * field here to `| null` is therefore a TypeScript change with no DDL: jsonb has
+ * no per-key column to alter, and every reader already handles the null. Say so
+ * in the PR body (`ENTITY-DIFF-OK: admin-api-service — …`) so
+ * `entity-diff-witness` does not ask for a migration that would have nothing to
+ * execute.
+ */
+export interface InfrastructureMetrics {
+  /** `os.cpus()` and `os.totalmem()` cannot fail, so these are always measured. */
+  cpuUsage: number;
+  memoryUsage: number;
+  memoryTotal: number;
+  /** `statfs` can fail; a fabricated 0 here reads as an empty disk. */
+  diskUsage: number | null;
+  diskTotal: number | null;
+  /** No probe answered, so there is no latency to report — not a 0 ms one. */
+  networkLatency: number | null;
+  containerCount: number | null;
+  healthyContainers: number | null;
+  /** Requires Kubernetes API access this service does not have. */
+  podRestarts: number | null;
 }
 
 @Entity('performance_snapshots', { schema: 'admin' })
@@ -135,44 +197,17 @@ export class PerformanceSnapshot {
   @Column({ length: 100, nullable: true })
   service?: string;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
   @Column({ type: 'jsonb' })
-  applicationMetrics!: {
-    avgResponseTime: number;
-    p95ResponseTime: number;
-    p99ResponseTime: number;
-    throughput: number;
-    errorRate: number;
-    apdexScore: number;
-    activeRequests: number;
-    totalRequests: number;
-  };
+  applicationMetrics!: ApplicationMetrics;
 
   @Column({ type: 'jsonb' })
-  databaseMetrics!: {
-    activeConnections: number;
-    poolSize: number;
-    poolUtilization: number;
-    avgQueryTime: number;
-    slowQueryCount: number;
-    cacheHitRatio: number;
-    deadlockCount: number;
-  };
+  databaseMetrics!: DatabaseMetrics;
 
   @Column({ type: 'jsonb' })
-  infrastructureMetrics!: {
-    cpuUsage: number;
-    memoryUsage: number;
-    memoryTotal: number;
-    diskUsage: number;
-    diskTotal: number;
-    networkLatency: number;
-    containerCount: number;
-    healthyContainers: number;
-    podRestarts: number;
-  };
+  infrastructureMetrics!: InfrastructureMetrics;
 
   @Column({ type: 'jsonb', nullable: true })
   alerts?: Array<{
@@ -182,9 +217,10 @@ export class PerformanceSnapshot {
     severity: 'warning' | 'critical';
   }>;
 
+  /** `null` when the snapshot's inputs were not measurable — never a default 100. */
   @Column({ type: 'float', nullable: true })
-  overallHealthScore?: number;
+  overallHealthScore?: number | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

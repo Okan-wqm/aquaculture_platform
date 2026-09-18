@@ -10,55 +10,6 @@ import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
 
 // ============================================================================
-// CSRF Protection
-// ============================================================================
-
-/**
- * SEC-M03: Read the CSRF token from a <meta> tag or a cookie.
- *
- * The backend is expected to set the token via one of these mechanisms:
- *   1. A `<meta name="csrf-token">` tag rendered in the HTML shell, OR
- *   2. A non-httpOnly cookie named `XSRF-TOKEN` (the Angular / Django convention).
- *
- * The token is sent back on every mutating request (POST, PUT, PATCH, DELETE)
- * in the `X-CSRF-Token` header so the server can verify it against the
- * session-bound value.  GET / HEAD / OPTIONS are safe methods and are excluded.
- */
-function getCsrfToken(): string | null {
-  if (typeof document === 'undefined') return null;
-
-  // Strategy 1: <meta name="csrf-token" content="...">
-  const metaTag = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]');
-  if (metaTag?.content) {
-    return metaTag.content;
-  }
-
-  // Strategy 2: cookie named XSRF-TOKEN (non-httpOnly, set by server)
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-
-  return null;
-}
-
-/** HTTP methods that mutate state and therefore require CSRF protection. */
-const CSRF_PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-/**
- * Attach the X-CSRF-Token header to mutating requests.
- * Safe methods (GET, HEAD, OPTIONS) are excluded per OWASP guidelines.
- */
-function attachCsrfHeader(headers: Record<string, string>, method: string): void {
-  if (!CSRF_PROTECTED_METHODS.has(method.toUpperCase())) return;
-
-  const token = getCsrfToken();
-  if (token) {
-    headers['X-CSRF-Token'] = token;
-  }
-}
-
-// ============================================================================
 // Type Definitions
 // ============================================================================
 
@@ -200,6 +151,73 @@ let accessToken: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
+/**
+ * SEC-MEDIUM-113 (2026-08-23 scan №58): cross-tab refresh single-flight.
+ *
+ * tokenRefreshPromise only serialized refreshes WITHIN one JS context — two
+ * tabs firing silentRefresh simultaneously each rotated the shared cookie,
+ * and the loser's now-stale refresh landed in reuse containment (all-session
+ * logout + a false CRITICAL alert). The BroadcastChannel lease makes ONE
+ * tab the refresher process-wide; other tabs poll the shared access token
+ * from localStorage (written by the winner's setTokens — see
+ * persistAccessTokenForTabs below) until the lease clears.
+ */
+const REFRESH_TAB_CHANNEL = 'aqua-refresh-single-flight';
+let refreshLeaseChannel: BroadcastChannel | null = null;
+try {
+  refreshLeaseChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(REFRESH_TAB_CHANNEL) : null;
+} catch {
+  refreshLeaseChannel = null;
+}
+const REFRESH_LEASE_TIMEOUT_MS = 10_000;
+let refreshLeaseHeld = false;
+
+async function tryAcquireCrossTabRefreshLease(): Promise<boolean> {
+  if (!refreshLeaseChannel) return true; // no BC support: fall back to per-tab behavior
+  if (refreshLeaseHeld) return true;
+  return new Promise<boolean>((resolveLease) => {
+    const controller = new AbortController();
+    // Global setTimeout, matching createRequestAbortScope: the lease
+    // contention window and the request-abort window must live on the
+    // SAME timer surface or a faked-timer test advances one and stalls
+    // the other.
+    const timer = setTimeout(() => {
+      controller.abort();
+      // Nobody objected inside the contention window — take the lease.
+      refreshLeaseHeld = true;
+      resolveLease(true);
+    }, 50);
+    const onContended = (): void => {
+      controller.abort();
+      clearTimeout(timer);
+      resolveLease(false);
+    };
+    refreshLeaseChannel!.addEventListener('message', onContended, { signal: controller.signal });
+    refreshLeaseChannel!.postMessage({ type: 'refresh-intent' });
+  });
+}
+
+function releaseCrossTabRefreshLease(): void {
+  refreshLeaseHeld = false;
+}
+
+// Winner relays the fresh access token to contended tabs over the channel —
+// IN MEMORY ONLY. The access token never touches storage (SEC posture:
+// memory-only tokens; localStorage copies would be XSS-stealable).
+let relayedAccessToken: string | null = null;
+if (refreshLeaseChannel) {
+  refreshLeaseChannel.onmessage = (event: MessageEvent) => {
+    const data = event.data as { type?: string; token?: string } | null;
+    if (data?.type === 'refresh-done' && typeof data.token === 'string') {
+      relayedAccessToken = data.token;
+    }
+  };
+}
+
+function relayAccessTokenToTabs(token: string): void {
+  refreshLeaseChannel?.postMessage({ type: 'refresh-done', token });
+}
+
 type SharedAuthState = {
   accessToken: string | null;
   tenantId: string | null;
@@ -312,6 +330,7 @@ export function clearTokens(): void {
 export function clearSession(): void {
   accessToken = null;
   tenantId = null;
+  clearActAsContext();
   const sharedState = getSharedAuthState();
   if (sharedState) {
     sharedState.accessToken = null;
@@ -413,6 +432,22 @@ export async function silentRefresh(): Promise<boolean> {
     }
   }
 
+  // SEC-MEDIUM-113 (№58): cross-tab single-flight — if ANOTHER tab holds the
+  // refresh lease, wait for it to publish the rotated token instead of
+  // racing the shared cookie into rotation/reuse-containment paths.
+  if (!(await tryAcquireCrossTabRefreshLease())) {
+    const deadline = Date.now() + REFRESH_LEASE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (relayedAccessToken && relayedAccessToken !== getAccessToken()) {
+        setTokens(relayedAccessToken);
+        relayedAccessToken = null;
+        return true;
+      }
+    }
+    // Lease holder never finished — take over rather than leave the tab dead.
+  }
+
   // Take the lock so concurrent handleUnauthorized() calls wait on us
   let resolve: () => void;
   let reject: (err: Error) => void;
@@ -431,6 +466,7 @@ export async function silentRefresh(): Promise<boolean> {
   try {
     const success = await performTokenRefresh();
     if (success) {
+      relayAccessTokenToTabs(getAccessToken() ?? '');
       resolve!();
     } else {
       reject!(new Error('Silent refresh failed'));
@@ -441,6 +477,7 @@ export async function silentRefresh(): Promise<boolean> {
     return false;
   } finally {
     tokenRefreshPromise = null;
+    releaseCrossTabRefreshLease();
   }
 }
 
@@ -500,6 +537,117 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
   };
 }
 
+// ── SUPER_ADMIN act-as context (ADR-0007) ──
+
+/**
+ * The justification a SUPER_ADMIN gave for acting on a tenant that is not
+ * their own. The kernel `EffectiveTenantMiddleware` REFUSES a cross-tenant
+ * act-as without a reason, so this context is the only way a platform account
+ * reads tenant data; it travels as `X-Act-As-Tenant` / `X-Act-As-Reason` /
+ * `X-Act-As-Ticket` on every request and lands on the audit rows the request
+ * produces.
+ */
+export interface ActAsContext {
+  /** The tenant acted on — must equal the active tenant id. */
+  tenantId: string;
+  /** Operator-supplied justification, 1–512 characters. */
+  reason: string;
+  /** Ticket reference when the access is tracked elsewhere. */
+  ticket?: string;
+}
+
+const ACT_AS_STORAGE_KEY = 'act_as_context';
+const ACT_AS_REASON_MAX_LENGTH = 512;
+const ACT_AS_TICKET_MAX_LENGTH = 128;
+const ACT_AS_TICKET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/#]*$/;
+
+let actAsContext: ActAsContext | null = null;
+
+function readStoredActAsContext(): ActAsContext | null {
+  try {
+    const raw = sessionStorage.getItem(ACT_AS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as ActAsContext).tenantId === 'string' &&
+      typeof (parsed as ActAsContext).reason === 'string'
+    ) {
+      return parsed as ActAsContext;
+    }
+  } catch {
+    // Storage unavailable or corrupt — no act-as context.
+  }
+  return null;
+}
+
+/**
+ * Declare why the current SUPER_ADMIN is about to act on `tenantId`. Validated
+ * with the same bounds the kernel enforces so a bad value fails here, in the
+ * UI, rather than as a 403 on the first request.
+ */
+export function setActAsContext(context: ActAsContext): void {
+  const reason = context.reason.trim();
+  const ticket = context.ticket?.trim();
+  if (reason.length === 0 || reason.length > ACT_AS_REASON_MAX_LENGTH) {
+    throw new Error(`Act-as reason must be 1–${ACT_AS_REASON_MAX_LENGTH} characters`);
+  }
+  if (ticket !== undefined && ticket.length > 0) {
+    if (ticket.length > ACT_AS_TICKET_MAX_LENGTH || !ACT_AS_TICKET_PATTERN.test(ticket)) {
+      throw new Error(`Act-as ticket must be a ticket reference of at most ${ACT_AS_TICKET_MAX_LENGTH} characters`);
+    }
+  }
+  actAsContext = {
+    tenantId: context.tenantId,
+    reason,
+    ...(ticket ? { ticket } : {}),
+  };
+  try {
+    sessionStorage.setItem(ACT_AS_STORAGE_KEY, JSON.stringify(actAsContext));
+  } catch {
+    // Session storage unavailable — the in-memory context still applies.
+  }
+}
+
+export function clearActAsContext(): void {
+  actAsContext = null;
+  try {
+    sessionStorage.removeItem(ACT_AS_STORAGE_KEY);
+  } catch {
+    // Ignore
+  }
+}
+
+/** The act-as context bound to the ACTIVE tenant, or null when none applies. */
+export function getActAsContext(): ActAsContext | null {
+  if (!actAsContext) {
+    actAsContext = readStoredActAsContext();
+  }
+  if (!actAsContext) return null;
+  if (actAsContext.tenantId !== getTenantId()) {
+    // An act-as justification is bound to one tenant; a different active
+    // tenant means the operator never justified this one.
+    clearActAsContext();
+    return null;
+  }
+  return actAsContext;
+}
+
+/**
+ * Attach the act-as headers the kernel validates (ADR-0007). A regular user
+ * never has an act-as context, so this is a no-op for them.
+ */
+function attachActAsHeaders(headers: Record<string, string>): void {
+  const context = getActAsContext();
+  if (!context) return;
+  headers['X-Act-As-Tenant'] = context.tenantId;
+  headers['X-Act-As-Reason'] = context.reason;
+  if (context.ticket) {
+    headers['X-Act-As-Ticket'] = context.ticket;
+  }
+}
+
 /**
  * Tenant ID'yi ayarla.
  *
@@ -509,6 +657,10 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
 export function setTenantId(id: string | null): void {
   const previousTenantId = tenantId;
   tenantId = id;
+  if (actAsContext && actAsContext.tenantId !== id) {
+    // The justification was for the previous tenant; it does not carry over.
+    clearActAsContext();
+  }
   const sharedState = getSharedAuthState();
   if (sharedState) {
     sharedState.tenantId = id;
@@ -634,12 +786,10 @@ class GraphQLClient {
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
+    attachActAsHeaders(headers);
 
     // Add request ID for distributed tracing
     headers['X-Request-Id'] = this.generateRequestId();
-
-    // SEC-M03: Attach CSRF token to all GraphQL requests (always POST, which is mutating)
-    attachCsrfHeader(headers, 'POST');
 
     // Timeout controller
     const abortScope = createRequestAbortScope(timeout || this.config.timeout, signal);
@@ -827,7 +977,7 @@ class RestClient {
    * Send an HTTP request
    */
   /**
-   * Shared transport: auth + tenant + CSRF header injection, lifecycle barrier,
+   * Shared transport: auth + tenant header injection, lifecycle barrier,
    * timeout, response-body consumption, and single-shot 401 refresh-and-retry.
    * FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
    * re-implementing headers per call. Keeping consumption inside this method is
@@ -892,10 +1042,7 @@ class RestClient {
     if (currentTenantId) {
       headers['X-Tenant-Id'] = currentTenantId;
     }
-
-    // SEC-M03: Attach CSRF token to mutating REST requests (POST, PUT, PATCH, DELETE).
-    // GET requests are safe methods and are excluded automatically by attachCsrfHeader.
-    attachCsrfHeader(headers, method);
+    attachActAsHeaders(headers);
 
     let requestBody: BodyInit | undefined;
     if (typeof FormData !== 'undefined' && body instanceof FormData) {

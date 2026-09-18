@@ -1,10 +1,26 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
+import { TenantStatus } from '@platform/event-contracts';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { ModulesController, CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../modules.controller';
-import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
+import {
+  AssignModuleDto,
+  CreateModuleDto,
+  UpdateModuleDto,
+} from '../dto/module-request.dto';
+import { ModulesController } from '../modules.controller';
+import { createStandardPaginatedResult } from '@platform/pagination-contracts';
+
+import {
+  ModulesService,
+  ModuleDto,
+  PaginatedModules,
+  ModuleStats,
+  ModuleTenantAssignment,
+  TenantModuleAssignment,
+} from '../modules.service';
 
 // Mock ModulesService
 const mockModulesService = {
@@ -39,14 +55,13 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
   ...overrides,
 });
 
-// Helper to create paginated response
-const createPaginatedModules = (modules: ModuleDto[], total: number = modules.length): PaginatedModules => ({
-  data: modules,
-  total,
-  page: 1,
-  limit: 50,
-  totalPages: Math.ceil(total / 50),
-});
+// Helper to create paginated response. The fixture is minted by the same
+// authority the service uses, so a spec cannot assert a page shape the runtime
+// can never produce.
+const createPaginatedModules = (
+  modules: ModuleDto[],
+  total: number = modules.length,
+): PaginatedModules => createStandardPaginatedResult<ModuleDto>(modules, total, 1, 50);
 
 // Helper to create mock assignment
 const createMockAssignment = (overrides: Partial<TenantModuleAssignment> = {}): TenantModuleAssignment => ({
@@ -71,6 +86,12 @@ describe('ModulesController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ModulesController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: ModulesService,
           useValue: mockModulesService,
@@ -180,7 +201,7 @@ describe('ModulesController', () => {
     it('should return all assignments without filter', async () => {
       const mockAssignments = [createMockAssignment()];
       mockModulesService.getAssignments.mockResolvedValueOnce({
-        data: mockAssignments,
+        items: mockAssignments,
         total: 1,
         page: 1,
         limit: 50,
@@ -189,12 +210,14 @@ describe('ModulesController', () => {
 
       const result = await controller.getAllAssignments();
 
-      expect(result.data).toEqual(mockAssignments);
+      expect(result.items).toEqual(mockAssignments);
       expect(service.getAssignments).toHaveBeenCalledWith({}, 1, 50);
     });
 
     it('should filter by tenantId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult<TenantModuleAssignment>([], 0, 1, 50),
+      );
 
       await controller.getAllAssignments('tenant-123');
 
@@ -202,7 +225,9 @@ describe('ModulesController', () => {
     });
 
     it('should filter by moduleId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult<TenantModuleAssignment>([], 0, 1, 50),
+      );
 
       await controller.getAllAssignments(undefined, 'module-123');
 
@@ -210,7 +235,9 @@ describe('ModulesController', () => {
     });
 
     it('should handle pagination parameters', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult<TenantModuleAssignment>([], 0, 2, 10),
+      );
 
       await controller.getAllAssignments(undefined, undefined, '2', '10');
 
@@ -258,7 +285,7 @@ describe('ModulesController', () => {
     it('should return tenants for a module', async () => {
       const mockTenants = [{ id: 'tenant-1', name: 'Tenant 1' }];
       mockModulesService.getModuleTenants.mockResolvedValueOnce({
-        data: mockTenants,
+        items: mockTenants,
         total: 1,
         page: 1,
         limit: 50,
@@ -267,12 +294,14 @@ describe('ModulesController', () => {
 
       const result = await controller.getModuleTenants('module-id');
 
-      expect(result.data).toEqual(mockTenants);
+      expect(result.items).toEqual(mockTenants);
       expect(service.getModuleTenants).toHaveBeenCalledWith('module-id', 1, 50);
     });
 
     it('should handle pagination', async () => {
-      mockModulesService.getModuleTenants.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getModuleTenants.mockResolvedValueOnce(
+        createStandardPaginatedResult<ModuleTenantAssignment>([], 0, 2, 10),
+      );
 
       await controller.getModuleTenants('module-id', '2', '10');
 
@@ -376,8 +405,10 @@ describe('ModulesController', () => {
   });
 
   describe('assignModuleToTenant', () => {
+    // ADMIN-CRITICAL-009: the tenant arrives verified through @TenantParam('body'),
+    // never as a DTO field; the controller folds it back into the service input.
+    const tenantId = 'tenant-uuid';
     const assignDto: AssignModuleDto = {
-      tenantId: 'tenant-uuid',
       moduleId: 'module-uuid',
     };
 
@@ -385,10 +416,10 @@ describe('ModulesController', () => {
       const mockAssignment = createMockAssignment();
       mockModulesService.assignModuleToTenant.mockResolvedValueOnce(mockAssignment);
 
-      const result = await controller.assignModuleToTenant(assignDto);
+      const result = await controller.assignModuleToTenant(tenantId, assignDto);
 
       expect(result).toEqual(mockAssignment);
-      expect(service.assignModuleToTenant).toHaveBeenCalledWith(assignDto);
+      expect(service.assignModuleToTenant).toHaveBeenCalledWith({ ...assignDto, tenantId });
     });
 
     it('should assign with expiration date', async () => {
@@ -397,10 +428,10 @@ describe('ModulesController', () => {
       const mockAssignment = createMockAssignment({ expiresAt });
       mockModulesService.assignModuleToTenant.mockResolvedValueOnce(mockAssignment);
 
-      const result = await controller.assignModuleToTenant(dtoWithExpiry);
+      const result = await controller.assignModuleToTenant(tenantId, dtoWithExpiry);
 
       expect(result.expiresAt).toEqual(expiresAt);
-      expect(service.assignModuleToTenant).toHaveBeenCalledWith(dtoWithExpiry);
+      expect(service.assignModuleToTenant).toHaveBeenCalledWith({ ...dtoWithExpiry, tenantId });
     });
   });
 

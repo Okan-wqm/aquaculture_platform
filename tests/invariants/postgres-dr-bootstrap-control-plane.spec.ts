@@ -1,16 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = '.github/manifests/postgres-dr-bootstrap-policy.json';
 const WORKFLOW_PATH = '.github/workflows/postgres-dr-bootstrap-candidate.yml';
@@ -78,7 +71,7 @@ function selectEffectiveCheck(checks: unknown) {
       },
     );
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeFixtureTree(directory);
   }
 }
 
@@ -485,7 +478,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
         ]).status,
       ).not.toBe(0);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -527,7 +520,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
       expect(competing.status).toBe(2);
       expect(competing.stderr).toContain('different PostgreSQL DR bootstrap candidate');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 
@@ -854,7 +847,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
       );
       expect(corrupt.status).not.toBe(0);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 

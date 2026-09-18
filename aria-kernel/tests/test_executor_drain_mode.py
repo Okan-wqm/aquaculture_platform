@@ -40,6 +40,16 @@ class _FakeProc:
         self.stderr = stderr
 
 
+def _succeeded_summary(request_id: str, target: str | None) -> dict:
+    """The `aria/dispatch-result/v1` row a completed child publishes."""
+    return {
+        "$schema": "aria/dispatch-result/v1", "schema_version": 1, "request_id": request_id,
+        "role": "evidence_judgment", "target_agent": target or "aria-evidence-judge",
+        "provider": "anthropic", "model": "opus", "outcome": "succeeded",
+        "failure_class": None, "retryable": False, "failure_detail_code": None, "exit_code": 0,
+    }
+
+
 def _drain(queue, child_results, env=None, tmp=None):
     """Run drain_pending against a scripted queue.
 
@@ -76,12 +86,20 @@ def _drain(queue, child_results, env=None, tmp=None):
         calls["dispatch"].append((request_id, target))
         exit_code, publishes = child_results[request_id]
         child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
+        lines = []
         if publishes:
-            child_output.write_text(
-                f"envelope_path=outputs/{request_id}.md\n"
-                f"transcript_path=outputs/{request_id}.transcript.jsonl\n",
-                encoding="utf-8",
-            )
+            lines += [f"envelope_path=outputs/{request_id}.md",
+                      f"transcript_path=outputs/{request_id}.transcript.jsonl"]
+        if exit_code == 0 and publishes:
+            # What a real child that ran to completion writes: its v1 summary
+            # (B8 — the summary, never the exit code, is the drain's evidence
+            # of success). A child scripted as (0, False) is one that exited 0
+            # and said nothing, which the drain must NOT count as drained.
+            summary_path = Path(kwargs["env"]["RUNNER_TEMP"]) / f"dispatch-result-{request_id}.json"
+            summary_path.write_text(json.dumps(_succeeded_summary(request_id, target)), encoding="utf-8")
+            lines.append(f"dispatch_summary_path={summary_path}")
+        if lines:
+            child_output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
         return _FakeProc(returncode=exit_code)
 
     env_vars = {
@@ -91,6 +109,13 @@ def _drain(queue, child_results, env=None, tmp=None):
     }
     with patch.dict(os.environ, env_vars), patch.object(
         ci_executor_drain.subprocess, "run", side_effect=fake_run
+    ), patch.object(
+        # The loop contract under test is independent of the operator's live
+        # executor block (worktree_per_request is on since B8); the serial
+        # shared-checkout lane keeps every subprocess a next-pending or a
+        # child. Worktree provisioning: test_executor_request_worktree.py.
+        ci_executor_drain, "_executor_policy",
+        return_value={"max_concurrent": 1, "worktree_per_request": False},
     ):
         rc = ci_executor_drain.drain_pending(
             tools_dir=out_dir / "aria-tools", repo_root=_REPO_ROOT
@@ -127,6 +152,24 @@ class DrainPendingTests(unittest.TestCase):
         self.assertIn("outputs/AIR-2.md", output)
         self.assertIn("drained=2\n", output)
         self.assertIn("drain_failed=0\n", output)
+
+    def test_an_exit_zero_child_that_published_no_summary_is_not_drained(self) -> None:
+        # B8 — the false green: a child that exits 0 without its dispatch
+        # summary (the native admission's target_revision_mismatch refusal
+        # before this fix) used to count as drained=1 with rc 0. The
+        # summary, not the exit code, is the evidence of success; silence
+        # is a named failure and the run is red.
+        queue = [
+            {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+            {"request_id": "AIR-2", "target_agent": "aria-evidence-judge"},
+        ]
+        rc, calls, output = _drain(
+            queue, {"AIR-1": (0, False), "AIR-2": (0, True)}, tmp=self._tmp.name
+        )
+        self.assertEqual(rc, 1)
+        self.assertEqual([rid for rid, _ in calls["dispatch"]], ["AIR-1", "AIR-2"])
+        self.assertIn("drained=1\n", output)
+        self.assertIn("drain_failed=1\n", output)
 
     def test_poison_request_is_skipped_not_fatal(self) -> None:
         # E3/F10 — AIR-1 fails and releases its claim; the kernel-side
@@ -249,7 +292,9 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
     that child could legally run 1800s more, sailed past the job reaper, and
     the run was cancelled before the state publish — two submitted results
     died with the runner. The loop now starts a child only when
-    elapsed + MAX_TIMEOUT_SECONDS still fits inside the budget.
+    elapsed + the child's WHOLE worst case (`ci_executor.child_worst_case_seconds`:
+    claim, pre-claim probe, CLI run at MAX_TIMEOUT_SECONDS, submit, release)
+    still fits inside the budget.
     """
 
     def setUp(self) -> None:
@@ -283,14 +328,119 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
             {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
             None,
         ]
+        # A window that holds one whole child at its worst case, with room
+        # for the loop's own setup — derived, so a retune of any bound the
+        # worst case is built from cannot silently turn this into the
+        # overflow case above.
+        window = ci_executor.child_worst_case_seconds(1800) + 600
         rc, calls, _ = _drain(
             queue,
             {"AIR-1": (0, True)},
             env={
-                "ARIA_DRAIN_BUDGET_SECONDS": "3600",
+                "ARIA_DRAIN_BUDGET_SECONDS": str(window),
                 "MAX_TIMEOUT_SECONDS": "1800",
             },
             tmp=self._tmp.name,
         )
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls["dispatch"]), 1)
+
+    def test_the_default_window_holds_one_child_at_its_worst_case(self) -> None:
+        # The env-less default (a local drain, these tests) is derived from
+        # the engine's own bounds, so it cannot again fall below one child's
+        # worst case and dispatch nothing.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MAX_TIMEOUT_SECONDS", None)
+            os.environ.pop("ARIA_DRAIN_BUDGET_SECONDS", None)
+            self.assertGreaterEqual(
+                ci_executor_drain._drain_budget_seconds(),
+                ci_executor._child_worst_case_seconds() + ci_executor_drain.DRAIN_WINDOW_MARGIN_SECONDS,
+            )
+
+    def test_a_request_whose_own_worst_case_exceeds_the_window_is_skipped_without_a_claim(self) -> None:
+        # ARIA-HIGH-124 (round 3) — an implementation child runs its
+        # delivery (the publication, the contained gate at the staged
+        # ceiling per command, the push, the PR) after the CLI, priced off
+        # the request's STAGED action once the request is known. A window
+        # that holds a judge child but not this implementation's own worst
+        # case skips the implementation by name — no claim, PENDING for a
+        # drain with the room, a governance row — and keeps draining the
+        # roles that fit; before this the delivery term was unpriced, and
+        # the implementation was started into the window's edge.
+        from aria_kernel.ledger import load_declared_jsonl
+
+        judge_child = ci_executor.child_worst_case_seconds(1800)
+        implementation_delivery = 4 * 2700
+        queue = [
+            {"request_id": "AIR-IMPL", "target_agent": "aria-implementer", "role": "implementation"},
+            {"request_id": "AIR-JUDGE", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            None,
+        ]
+        with patch.object(
+            ci_executor, "_request_delivery_seconds",
+            side_effect=lambda *, tools_dir, request_id: implementation_delivery if request_id == "AIR-IMPL" else 0,
+        ):
+            rc, calls, output = _drain(
+                queue,
+                {"AIR-IMPL": (0, True), "AIR-JUDGE": (0, True)},
+                env={
+                    # Holds the judge child with room, not the implementation's.
+                    "ARIA_DRAIN_BUDGET_SECONDS": str(judge_child + implementation_delivery - 1),
+                    "MAX_TIMEOUT_SECONDS": "1800",
+                },
+                tmp=self._tmp.name,
+            )
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["dispatch"], [("AIR-JUDGE", "aria-evidence-judge")])
+        self.assertIn("drained=1\n", output)
+        rows = [row for row in load_declared_jsonl(Path(self._tmp.name) / "aria-tools" / "governance.jsonl",
+                                                    expected_surface="tools_governance")
+                if row.get("kind") == "executor_drain_window_skip"]
+        self.assertEqual([row["details"]["request_id"] for row in rows], ["AIR-IMPL"])
+        self.assertEqual(rows[0]["details"]["worst_case_seconds"], judge_child + implementation_delivery)
+        # With the room, the implementation is started first (the quota
+        # round's first role) and priced at its whole worst case.
+        queue = [
+            {"request_id": "AIR-IMPL", "target_agent": "aria-implementer", "role": "implementation"},
+            None,
+        ]
+        with patch.object(
+            ci_executor, "_request_delivery_seconds",
+            side_effect=lambda *, tools_dir, request_id: implementation_delivery,
+        ):
+            rc, calls, _ = _drain(
+                queue, {"AIR-IMPL": (0, True)},
+                env={"ARIA_DRAIN_BUDGET_SECONDS": str(judge_child + implementation_delivery + 60), "MAX_TIMEOUT_SECONDS": "1800"},
+                tmp=self._tmp.name,
+            )
+        self.assertEqual((rc, calls["dispatch"]), (0, [("AIR-IMPL", "aria-implementer")]))
+
+    def test_the_worst_case_is_the_whole_child(self) -> None:
+        # A child's legal worst case is the claim child and its pre-claim
+        # probe, the Claude CLI at MAX_TIMEOUT_SECONDS, the kernel submit at
+        # SUBMIT_RESULT_TIMEOUT_SECONDS and the release child — the ONE
+        # derivation `ci_executor.child_worst_case_seconds`. Pricing the CLI
+        # cap alone let a submit that waited its full lock bound run past
+        # the drain window into the publish reserve; pricing the CLI cap and
+        # the submit alone left two lock waits and the probe to do the same.
+        # One second short of the sum: nothing starts; the sum plus the
+        # loop's own setup time (well under a minute): the child starts.
+        worst_case = ci_executor.child_worst_case_seconds(1800)
+        self.assertGreater(worst_case, 1800 + ci_executor.SUBMIT_RESULT_TIMEOUT_SECONDS)
+        for budget, dispatched in ((worst_case - 1, 0), (worst_case + 60, 1)):
+            with self.subTest(budget=budget):
+                queue = [
+                    {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+                    None,
+                ]
+                rc, calls, _ = _drain(
+                    queue,
+                    {"AIR-1": (0, True)},
+                    env={
+                        "ARIA_DRAIN_BUDGET_SECONDS": str(budget),
+                        "MAX_TIMEOUT_SECONDS": "1800",
+                    },
+                    tmp=self._tmp.name,
+                )
+                self.assertEqual(rc, 0)
+                self.assertEqual(len(calls["dispatch"]), dispatched)

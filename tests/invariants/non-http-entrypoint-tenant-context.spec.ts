@@ -66,7 +66,7 @@ const TENANT_SCOPED_SERVICES = [
   'alert-engine',
 ] as const;
 
-const ENTRY_POINT = /@(MessagePattern|EventPattern|Cron)\s*\(/;
+const ENTRY_POINT = /@(MessagePattern|EventPattern|Cron|Interval|Timeout|ScheduledJob)\s*\(/;
 const ORM_WRITE = /\.(save|insert|update|delete|softDelete|softRemove|remove|upsert)\s*\(/;
 const RAW_WRITE = /(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)/i;
 
@@ -88,6 +88,10 @@ const UNBOUND_ENTRYPOINT_ALLOWLIST = new Map<string, string>([
   [
     'apps/auth-service/src/audit/audit-log.service.ts',
     "writes AuditLog, declared @Entity('audit_logs', { schema: 'auth' }) — a cross-tenant infrastructure ledger, one of the tables MODULE_SCHEMAS keeps out of per-tenant routing on purpose",
+  ],
+  [
+    'apps/farm-service/src/feeding-protocol/services/feeding-job-run.service.ts',
+    "writes FeedingJobRun, declared @Entity('feeding_job_runs', { schema: 'farm' }) and listed in farm's MODULE_SCHEMAS.infrastructureTables — the same cross-tenant class as the auth audit ledger above. Its raw INSERT is schema-qualified (farm.feeding_job_runs) and its rows are keyed by tenantId, so it is the claim ledger the hourly UTC tick consults BEFORE it has a tenant to bind; binding context here would route a cross-tenant table into tenant_<uuid> and break the uniqueness the claim depends on",
   ],
   [
     'apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts',

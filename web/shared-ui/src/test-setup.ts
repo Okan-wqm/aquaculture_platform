@@ -5,6 +5,11 @@
 
 import { vi, beforeEach, afterEach } from 'vitest';
 
+// jest-dom matchers (toBeInTheDocument, toHaveTextContent, ...) for vitest.
+// The dependency was already present; the matchers were simply never wired,
+// so every spec that used them had to import the entry point itself.
+import '@testing-library/jest-dom/vitest';
+
 // ============================================================================
 // localStorage mock (jsdom provides a basic one, but we ensure it's clean)
 // ============================================================================

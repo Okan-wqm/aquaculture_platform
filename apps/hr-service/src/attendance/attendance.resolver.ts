@@ -1,7 +1,17 @@
 import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
-import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
-import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+  fromCqrsPaginated,
+} from '@aquaculture/backend-common/pagination';
+import type { PaginatedQueryResult } from '@platform/cqrs';
+import {
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
+  UseGuards,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -45,18 +55,6 @@ interface GraphQLContext {
       tenantId: string;
       roles?: string[];
     };
-  };
-}
-
-interface CqrsPaginatedResult<T> {
-  data: T[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
   };
 }
 
@@ -128,7 +126,7 @@ export class AttendanceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
   ): Promise<IStandardPaginatedResult<Shift>> {
     const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute<GetShiftsQuery, CqrsPaginatedResult<Shift>>(
+    const result = await this.queryBus.execute<GetShiftsQuery, PaginatedQueryResult<Shift>>(
       new GetShiftsQuery(tenantId, isActive, shiftType, limit, page),
     );
     return fromCqrsPaginated(result);
@@ -163,7 +161,7 @@ export class AttendanceResolver {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
       GetAttendanceRecordsQuery,
-      CqrsPaginatedResult<AttendanceRecord>
+      PaginatedQueryResult<AttendanceRecord>
     >(
       new GetAttendanceRecordsQuery(
         tenantId,
@@ -193,7 +191,7 @@ export class AttendanceResolver {
     const employee = await this.resolveEmployee(userId, tenantId);
     const result = await this.queryBus.execute<
       GetAttendanceRecordsQuery,
-      CqrsPaginatedResult<AttendanceRecord>
+      PaginatedQueryResult<AttendanceRecord>
     >(
       new GetAttendanceRecordsQuery(
         tenantId,
@@ -253,10 +251,8 @@ export class AttendanceResolver {
     const userId = this.getUserId(context);
     const result = await this.queryBus.execute<
       GetPendingAttendanceApprovalsQuery,
-      CqrsPaginatedResult<AttendanceRecord>
-    >(
-      new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, page),
-    );
+      PaginatedQueryResult<AttendanceRecord>
+    >(new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, page));
     return fromCqrsPaginated(result);
   }
 

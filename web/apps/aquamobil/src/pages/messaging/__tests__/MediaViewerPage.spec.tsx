@@ -31,6 +31,7 @@ function messageWithAttachment(attachmentId: string, fileName = 'tank-photo.jpg'
       id: 'user-1',
       firstName: 'Ada',
       lastName: 'Lovelace',
+      profileImageUrl: null,
       isOnline: true,
     },
     attachments: [

@@ -56,7 +56,6 @@ export class BestEffortEventPublisher {
     // own — a lost email degrades UX, never correctness.
     'UserProfileUpdated', // profile sync; audit log is the SoT
     'UserPasswordChanged', // security signal; audit log is the SoT
-    'PasswordResetRequested', // email-delivery trigger; user can re-request
     'PasswordResetCompleted', // security signal; audit log is the SoT
     'InvitationAccepted', // onboarding-complete signal; the user + invitation
     // rows are already durably committed, the actor can be a platform admin
@@ -65,10 +64,15 @@ export class BestEffortEventPublisher {
     'UserInvited', // notification trigger. The invitation row IS durably
     // persisted; if the event is lost the admin sees the pending invitation and
     // re-sends, so it is recoverable rather than a data-loss vector. NOTE: the
-    // *ideal* end-state is durable (outbox), but createUser is currently a
-    // non-transactional dual-write (ORPHAN-HIGH-090) — making UserInvited
-    // durable requires first wrapping the whole user-creation flow in a
-    // transaction, a focused change tracked separately.
+    // *ideal* end-state is durable (outbox). Its precondition — every producer
+    // minting the user + invitation + action-token rows in one transaction —
+    // is met (mintInvitation); the outbox move itself stays tracked under
+    // ORPHAN-HIGH-090.
+    //
+    // NOT on this list, deliberately: 'PasswordResetRequested'. A user who
+    // cannot log in has no second channel to notice a lost e-mail, so that
+    // event commits with its ActionToken row through the durable outbox
+    // (AuthenticationService.initiatePasswordReset, SEC-HIGH-159).
   ]);
 
   constructor(@Inject('EVENT_BUS') private readonly eventBus: EventPublishPort) {}

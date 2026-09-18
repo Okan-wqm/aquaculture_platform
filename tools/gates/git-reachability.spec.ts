@@ -20,11 +20,12 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
+import { removeFixtureTree } from './fixture-tree';
 import { commitReachableFrom } from './git-reachability';
 
 const repo = mkdtempSync(join(tmpdir(), 'git-reachability-spec-'));
@@ -72,7 +73,7 @@ git(['commit', '--quiet', '--no-verify', '-m', 'c2 (branch-only)']);
 const c2 = git(['rev-parse', 'HEAD']);
 
 void after(() => {
-  rmSync(repo, { recursive: true, force: true });
+  removeFixtureTree(repo);
 });
 
 void test('sha reachable from origin/main → ok', () => {

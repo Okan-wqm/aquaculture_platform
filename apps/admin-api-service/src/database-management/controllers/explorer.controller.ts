@@ -6,6 +6,15 @@
  */
 
 import {
+  ExecuteQueryDto,
+  ExportQueryDto,
+  InsertRowDto,
+  TableQueryDto,
+  UpdateRowDto,
+} from './dto/explorer.dto';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -17,7 +26,6 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
-  Res,
   Req,
   StreamableFile,
 } from '@nestjs/common';
@@ -25,15 +33,15 @@ import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
-import { Response, Request } from 'express';
+import { Request } from 'express';
 import { DataSource } from 'typeorm';
-import type { AuditLogInput } from '../../audit/audit.service';
+import type { AuditEntry } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
-import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 // ============================================================================
 // Module Table Access Control
 // ============================================================================
@@ -50,9 +58,7 @@ const ALLOWED_SCHEMAS = new Set(['public', 'auth', 'admin', 'billing']);
  * These tables exist in the public schema but contain tenant-specific data
  * and must not be accessible through the superadmin explorer.
  */
-const MODULE_TABLE_NAMES: Set<string> = new Set(
-  MODULE_SCHEMAS.flatMap(m => m.tables),
-);
+const MODULE_TABLE_NAMES: Set<string> = new Set(MODULE_SCHEMAS.flatMap((m) => m.tables));
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -125,80 +131,6 @@ function maskSensitiveData(
     }
   }
   return maskedRow;
-}
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class TableQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
-  orderBy?: string;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  orderDirection?: 'ASC' | 'DESC';
-
-  // H-S2-01: Dead `filter` field removed. It was declared in the DTO but never
-  // used in the query builder, creating a latent SQL injection vector if a future
-  // developer adds WHERE interpolation following the DTO field name convention.
-
-  // Fix: C12 -- includeSensitive kaldırıldı, sensitive data her zaman maskelenir
-}
-
-class ExportQueryDto {
-  @IsOptional()
-  @IsIn(['csv', 'json'])
-  format?: 'csv' | 'json';
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'orderBy must be a valid SQL identifier' })
-  orderBy?: string;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  orderDirection?: 'ASC' | 'DESC';
-}
-
-class InsertRowDto {
-  @IsObject()
-  data!: Record<string, unknown>;
-}
-
-class UpdateRowDto {
-  @IsObject()
-  data!: Record<string, unknown>;
-}
-
-/**
- * SECURITY: DTO for raw SQL query execution
- * Only for SUPER_ADMIN in development/staging environments
- */
-class ExecuteQueryDto {
-  @IsString()
-  @Transform(({ value }) => value?.trim())
-  sql!: string;
-
-  @IsOptional()
-  params?: unknown[];
 }
 
 // ============================================================================
@@ -321,28 +253,28 @@ export class DatabaseExplorerController {
     }
   }
 
-  private async requireAuditLog(input: AuditLogInput): Promise<void> {
-    const auditLog = await this.auditLogService.log(input);
-    if (!auditLog) {
+  private async requireAuditLog(entry: AuditEntry): Promise<void> {
+    // The writer fails closed (ADMIN-CRITICAL-102); a refused audit row is a
+    // refused explorer operation, surfaced as 403 rather than a bare 500.
+    try {
+      await this.auditLogService.record(entry);
+    } catch (error) {
+      this.logger.error(
+        `Database explorer operation refused: audit row could not be written (${(error as Error).message})`,
+      );
       throw new ForbiddenException('Database explorer operation could not be audited');
     }
   }
 
   private async auditExplorerWriteIntent(
-    req: Request,
     operation: ExplorerWriteOperation,
     schema: string,
     table: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    const user = getAuthUser(req);
     await this.requireAuditLog({
       action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
       entityType: 'DatabaseTable',
-      performedBy: user?.id || 'SUPER_ADMIN',
-      performedByEmail: user?.email,
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
       severity: AuditSeverity.CRITICAL,
       details: {
         schema,
@@ -392,7 +324,8 @@ export class DatabaseExplorerController {
 
     try {
       // Tablo bilgilerini al (DISTINCT ile duplicate önleme)
-      const tables = await queryRunner.query(`
+      const tables = await queryRunner.query(
+        `
         SELECT DISTINCT ON (t.tablename)
           t.tablename as table_name,
           t.schemaname as schema_name,
@@ -402,7 +335,9 @@ export class DatabaseExplorerController {
         LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
         WHERE t.schemaname = $1
         ORDER BY t.tablename
-      `, [schema]);
+      `,
+        [schema],
+      );
 
       // Filter out module tables from the listing
       const filteredTables = tables.filter(
@@ -451,6 +386,7 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: TableQueryDto,
+    @Req() req: Request,
   ): Promise<TableData> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
@@ -481,7 +417,10 @@ export class DatabaseExplorerController {
         `SELECT COUNT(*) as count FROM "${schema}"."${table}"`,
       );
       const totalRows = parseInt(countResult[0]?.count || '0', 10);
-      const totalPages = Math.ceil(totalRows / limit);
+      // The row browser carries column metadata alongside its page, so it
+      // cannot BE a `PaginationResultV1`; it takes its page arithmetic from
+      // the same authority instead of deriving a second answer.
+      const totalPages = expectedTotalPages(totalRows, limit);
 
       // Verileri al - SECURITY: Use parameterized queries for LIMIT and OFFSET
       let dataQuery = `SELECT * FROM "${schema}"."${table}"`;
@@ -518,7 +457,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
         details: { schema, table, page, limit, rowsReturned: rows.length },
       });
 
@@ -546,8 +484,8 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: ExportQueryDto,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile | Record<string, unknown>[]> {
+    @Req() req: Request,
+  ): Promise<StreamableFile> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -597,18 +535,21 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
       });
 
       if (format === 'json') {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${table}_export.json"`,
-        );
-        return rows;
+        // A StreamableFile, not a bare array: the global ResponseInterceptor
+        // maps every ordinary handler return into `{success,data,meta}`, so the
+        // JSON export downloaded the envelope under the attachment filename
+        // instead of the rows. The interceptor's binary passthrough streams
+        // this untouched.
+        const jsonBuffer = Buffer.from(JSON.stringify(rows), 'utf-8');
+        return new StreamableFile(jsonBuffer, {
+          type: 'application/json',
+          disposition: `attachment; filename="${table}_export.json"`,
+        });
       }
 
       // CSV format
@@ -634,13 +575,13 @@ export class DatabaseExplorerController {
       const csvContent = [csvHeader, ...csvRows].join('\n');
       const buffer = Buffer.from(csvContent, 'utf-8');
 
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${table}_export.csv"`,
-      );
-
-      return new StreamableFile(buffer);
+      // Headers travel with the StreamableFile so the response never needs the
+      // `@Res` escape hatch — which is what made the two formats diverge in the
+      // first place.
+      return new StreamableFile(buffer, {
+        type: 'text/csv; charset=utf-8',
+        disposition: `attachment; filename="${table}_export.csv"`,
+      });
     } finally {
       await queryRunner.release();
     }
@@ -653,9 +594,11 @@ export class DatabaseExplorerController {
   async getPublicTableData(
     @Param('table') table: string,
     @Query() query: TableQueryDto,
+    @Req() req: Request,
   ): Promise<TableData> {
     this.validateExplorerAccess('public', table);
-    return this.getTableData('public', table, query);
+    // Delegates to the audited read, so the operator has to travel with it.
+    return this.getTableData('public', table, query, req);
   }
 
   // ============================================================================
@@ -667,6 +610,8 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'DatabaseExplorer', action: 'INSERT_ROW' })
+  @RequiresCapability('security-ops')
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
@@ -695,7 +640,7 @@ export class DatabaseExplorerController {
       }
     }
 
-    await this.auditExplorerWriteIntent(req, 'insert', schema, table, { columns });
+    await this.auditExplorerWriteIntent('insert', schema, table, { columns });
 
     // WHY: Write operations must use a write-capable runner, not the read-only runner.
     // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
@@ -723,6 +668,8 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -762,7 +709,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'update', schema, table, {
+      await this.auditExplorerWriteIntent('update', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
         columns,
@@ -792,6 +739,9 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
@@ -816,7 +766,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'delete', schema, table, {
+      await this.auditExplorerWriteIntent('delete', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
       });
@@ -845,10 +795,7 @@ export class DatabaseExplorerController {
    * Tablo yapısını getir
    */
   @Get('schemas/:schema/tables/:table/structure')
-  async getTableStructure(
-    @Param('schema') schema: string,
-    @Param('table') table: string,
-  ) {
+  async getTableStructure(@Param('schema') schema: string, @Param('table') table: string) {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -860,7 +807,8 @@ export class DatabaseExplorerController {
       const columns = await this.getColumnInfo(queryRunner, schema, table);
 
       // Index bilgileri
-      const indexes = await queryRunner.query(`
+      const indexes = await queryRunner.query(
+        `
         SELECT
           i.relname as index_name,
           a.attname as column_name,
@@ -873,10 +821,13 @@ export class DatabaseExplorerController {
         JOIN pg_namespace n ON n.oid = t.relnamespace
         WHERE n.nspname = $1 AND t.relname = $2
         ORDER BY i.relname
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       // Constraint bilgileri
-      const constraints = await queryRunner.query(`
+      const constraints = await queryRunner.query(
+        `
         SELECT
           tc.constraint_name,
           tc.constraint_type,
@@ -892,7 +843,9 @@ export class DatabaseExplorerController {
           ON tc.constraint_name = ccu.constraint_name
           AND tc.table_schema = ccu.table_schema
         WHERE tc.table_schema = $1 AND tc.table_name = $2
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       return {
         tableName: table,
@@ -916,8 +869,10 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Query', action: 'EXECUTE' })
+  @RequiresCapability('security-ops')
   @Post('query')
-  async executeQuery(@Body() dto: ExecuteQueryDto) {
+  async executeQuery(@Body() dto: ExecuteQueryDto, @Req() req: Request) {
     const { sql, params = [] } = dto;
 
     // Fix: C4 -- fail-closed raw SQL koruması
@@ -944,7 +899,7 @@ export class DatabaseExplorerController {
     // Remove SQL comments to prevent bypass attempts
     const sqlWithoutComments = sql
       .replace(/\/\*[\s\S]*?\*\//g, '') // Remove /* ... */ comments
-      .replace(/--.*$/gm, '');          // Remove -- comments
+      .replace(/--.*$/gm, ''); // Remove -- comments
 
     // Fix: C1 -- multi-statement SQL bypass engeli
     if (sqlWithoutComments.includes(';')) {
@@ -1051,7 +1006,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
-        performedBy: 'SUPER_ADMIN',
         severity: AuditSeverity.WARNING,
         details: {
           sql: sql.substring(0, 2000),
@@ -1081,7 +1035,8 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<ColumnInfo[]> {
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.column_name,
         c.data_type,
@@ -1116,7 +1071,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = $2
       ORDER BY c.ordinal_position
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return columns.map((col: Record<string, unknown>) => ({
       columnName: col['column_name'] as string,
@@ -1143,7 +1100,8 @@ export class DatabaseExplorerController {
       return new Map();
     }
 
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.table_name,
         c.column_name,
@@ -1180,7 +1138,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.table_name = c.table_name AND fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = ANY($2)
       ORDER BY c.table_name, c.ordinal_position
-    `, [schema, tableNames]);
+    `,
+      [schema, tableNames],
+    );
 
     const result = new Map<string, ColumnInfo[]>();
 
@@ -1212,14 +1172,17 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<string | null> {
-    const result = await queryRunner.query(`
+    const result = await queryRunner.query(
+      `
       SELECT kcu.column_name
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
       WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
       LIMIT 1
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return result[0]?.column_name || null;
   }

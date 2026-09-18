@@ -13,12 +13,9 @@ import type {
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { FeedingExecutionAlertService } from '../feeding-execution-alert.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function underfedEvent(overrides: Partial<MealUnderfedEvent> = {}): MealUnderfedEvent {
   return {
@@ -92,7 +89,7 @@ describe('FeedingExecutionAlertService', () => {
   const create = jest.fn().mockImplementation((row: object) => row);
   const ensureIncident = jest.fn().mockResolvedValue(undefined);
   const service = new FeedingExecutionAlertService(
-    mock<ConstructorParameters<typeof FeedingExecutionAlertService>[0]>({
+    stub<ConstructorParameters<typeof FeedingExecutionAlertService>[0]>({
       save,
       create,
     } as Partial<ConstructorParameters<typeof FeedingExecutionAlertService>[0]>),

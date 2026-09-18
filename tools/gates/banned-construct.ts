@@ -14,6 +14,8 @@
  * Banned constructs (canonical list: CLAUDE.md "Code Quality Standards"):
  *   - `as any`                      — find the correct type or write a generic
  *   - `as unknown as X`             — casting hack; fix the interface
+ *   - `as never`                    — the same hack wearing a different hat;
+ *                                     use the typed doubles in @aquaculture/testing
  *   - `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` — fix the type error
  *   - `it.skip(` / `test.skip(` / `describe.skip(` / `xit(` / `xdescribe(` /
  *     `xtest(`                      — test silencing (Susturma yasak)
@@ -37,6 +39,19 @@
  * diff-based mode enforces exactly that, no more, no less. Pre-existing
  * debt is burned down by the lint/cleanup train, not by ambushing
  * unrelated commits.
+ *
+ * WHY `as never` joined the list: it was the one cast CLAUDE.md did not name, so
+ * it absorbed the pressure from the ones it did — 403 code-level uses across 102
+ * files, 100 of them spec files, while `as any` and `as unknown as` were refused
+ * at commit time. It is strictly worse than either: `as any` at least keeps
+ * property access checkable at the use site, whereas `x as never` asserts the
+ * value is of the type with NO values, so every subsequent check is vacuous. In
+ * practice each one was a partial test double standing in for a real class, free
+ * to drift from it forever — the failure mode being `TypeError: <method> is not a
+ * function` at runtime, or worse, a suite that stays green because the assertion
+ * it makes no longer touches the code it names. The replacement is
+ * `stub<T>()` / `collaborator<T>()` in libs/testing, which type-check the shape
+ * against the real `T`.
  *
  * Manual-review items NOT automated here (AHEAD checklist item 3 keeps
  * them human-judged): optional-chaining (`?.`) growth and JSON-column
@@ -89,6 +104,14 @@ interface BannedConstructRule {
   readonly remedy: string;
   /** Per-rule path exemptions on top of the global EXEMPT_PATHS. */
   readonly exemptPaths?: readonly RegExp[];
+  /**
+   * Match the line as written, comments included.
+   *
+   * A suppression directive IS a comment — `// @ts-ignore` has no other
+   * spelling — so blanking comments would make it undetectable. Every other
+   * construct is code, and matching it inside prose is a false positive.
+   */
+  readonly livesInComments?: boolean;
 }
 
 const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
@@ -101,20 +124,48 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
     construct: /\bas\s+unknown\s+as\b/,
     label: 'as unknown as',
     remedy: 'fix the interface or the implementation, not the cast',
+    exemptPaths: [
+      // The doubling SSOT. `stubMember` exists because TypeScript genuinely
+      // cannot check a single-signature jest mock against an overloaded or
+      // generic member (Repository.save, EntityManager.getRepository); the cast
+      // is unavoidable, so it lives in ONE tested function that forces the call
+      // site to name the member type, instead of at hundreds of call sites that
+      // name nothing. Same rationale as the getRepository exemption below.
+      /^libs\/testing\/src\/doubles\//,
+    ],
+  },
+  {
+    // `\bas` so the English "w[as never]" / "h[as never]" cannot match — the
+    // naive substring inflates the repo count by ~15% with pure prose.
+    construct: /\bas\s+never\b/,
+    label: 'as never',
+    remedy:
+      'use stub<T>() for a value or collaborator<T>() for an injected service, from ' +
+      "@aquaculture/testing — `as never` type-checks NOTHING, so the double drifts from " +
+      'the type it stands in for and the suite goes green for the wrong reason',
+    exemptPaths: [
+      // The replacement itself. Its docblock has to quote the construct it
+      // replaces to explain why, and its spec has to name it in test titles —
+      // same self-exemption rationale as banned-construct.spec.ts below.
+      /^libs\/testing\/src\/doubles\//,
+    ],
   },
   {
     construct: /@ts-ignore\b/,
     label: '@ts-ignore',
+    livesInComments: true,
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-expect-error\b/,
     label: '@ts-expect-error',
+    livesInComments: true,
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-nocheck\b/,
     label: '@ts-nocheck',
+    livesInComments: true,
     remedy: 'fix the file, never opt it out of the compiler',
   },
   {
@@ -130,6 +181,7 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
   {
     construct: /eslint-disable/,
     label: 'eslint-disable',
+    livesInComments: true,
     remedy:
       'fix the violation; if the rule itself is wrong, change .eslintrc (the lint-policy SSOT) with a documented WHY',
   },
@@ -142,7 +194,22 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
       // one place the bare call legitimately lives.
       /^libs\/backend-common\//,
       // Mock factories construct repository doubles around the raw shape.
-      /^platform\/libs\/testing\//,
+      // Path corrected from `platform/libs/testing/`, which has never existed in
+      // this repository — the shared testing library is `libs/testing` (aliased
+      // @platform/testing, which is presumably where the wrong path came from).
+      // The exemption therefore matched nothing at all until now.
+      /^libs\/testing\//,
+      // Shared e2e fixture builders, same rationale as the mock factories above
+      // but for REAL repositories: a suite that drives a production service
+      // against a real database has to hand that service the `Repository<T>`
+      // instances its constructor declares, and there is no tenant-scoped
+      // equivalent of that shape. Scoped to `__tests__/e2e/helpers/` so the
+      // exemption covers shared fixture code only — the specs themselves stay
+      // subject to the rule, which is what keeps the raw call in ONE place per
+      // service instead of copied into every suite. Not a production path: the
+      // rule protects request-scoped data access from bypassing tenant
+      // isolation, and nothing here serves a request.
+      /^apps\/[^/]+\/src\/__tests__\/e2e\/helpers\//,
     ],
   },
 ];
@@ -194,13 +261,43 @@ function isExempt(relPath: string, rule: BannedConstructRule): boolean {
   return false;
 }
 
+/**
+ * The line with its COMMENT text blanked, so a rule matches code and not prose.
+ *
+ * Every construct here is spelled with words that also occur in English —
+ * `as never` is the clearest: "recorded every service as never having
+ * acknowledged" is a sentence, not a cast. The `\bas` guard in that rule
+ * already excludes "w[as never]" and "h[as never]", but it cannot exclude a
+ * genuine standalone "as", so a docblock explaining a defect tripped the gate
+ * that exists to prevent the defect. That the module's own docblock and its
+ * spec are self-exempted is the same symptom: without this, a gate cannot
+ * document what it bans.
+ *
+ * Blanking rather than deleting keeps every column where it was, so a
+ * violation still points at the right place on the line.
+ *
+ * Line-scoped by construction, because staged mode sees a diff and not whole
+ * files. The three shapes that covers are the three that occur: a trailing
+ * `//`, a `/* … *\/` that opens and closes on one line, and a `*` continuation
+ * line inside a block comment — which is where multi-line prose actually
+ * lives. A generator (`*values()`) is not one: the continuation form requires
+ * whitespace or end-of-line after the star.
+ */
+export function codeOnly(text: string): string {
+  const blank = (match: string): string => ' '.repeat(match.length);
+  if (/^\s*\*(\s|$)/.test(text)) return blank(text);
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/\/\/.*$/, blank);
+}
+
 export function scanAddedLines(lines: readonly AddedLine[]): Violation[] {
   const violations: Violation[] = [];
   for (const line of lines) {
     if (!CODE_FILE.test(line.path)) continue;
     for (const rule of BANNED_CONSTRUCTS) {
       if (isExempt(line.path, rule)) continue;
-      if (!rule.construct.test(line.text)) continue;
+      if (!rule.construct.test(rule.livesInComments ? line.text : codeOnly(line.text))) continue;
       violations.push({
         path: line.path,
         line: line.lineNumber,
@@ -296,7 +393,7 @@ function scanAllIgnoringExemptions(lines: readonly AddedLine[]): Violation[] {
   for (const line of lines) {
     if (!CODE_FILE.test(line.path)) continue;
     for (const rule of BANNED_CONSTRUCTS) {
-      if (!rule.construct.test(line.text)) continue;
+      if (!rule.construct.test(rule.livesInComments ? line.text : codeOnly(line.text))) continue;
       violations.push({
         path: line.path,
         line: line.lineNumber,

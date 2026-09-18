@@ -1,10 +1,8 @@
-"""plan_coverage.compute_plan_coverage — London-school pins (no subprocess).
+"""Coverage wrapper controls and a native Git/TypeScript/Nx producer control.
 
-The wrapper's contract: NEVER raise for environmental problems; exit 0/1 from
-the witness is "computed" (covered/gaps), everything else — missing
-toolchain, timeout, non-zero-non-one exit, garbage stdout — becomes
-verdict="environment_unable", which the evaluator escalates to
-HUMAN_REQUIRED. A fake runner injects each case.
+PlanCoverageWrapperTests uses a declared runner substitute for computed reports
+and unavailable toolchains. NativePlanCoverageTests executes the actual witness,
+checks its graph and manifest, and records the real plan coverage event.
 """
 from __future__ import annotations
 
@@ -16,6 +14,7 @@ from pathlib import Path
 
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
+from tests._helpers.node_modules import installed_node_modules
 
 PLAN_CONTENT = {
     "schema_version": 2,
@@ -143,6 +142,144 @@ class PlanCoverageWrapperTests(unittest.TestCase):
         self.assertNotEqual(r1["risk_id"], r2["risk_id"])
         self.assertTrue(r1["risk_id"].startswith("COV-R1-"))
         self.assertTrue(r2["risk_id"].startswith("COV-R2-"))
+
+
+class NativePlanCoverageTests(unittest.TestCase):
+    def test_nested_plan_surfaces_reach_real_witness_and_native_coverage_record(self) -> None:
+        from datetime import datetime, timedelta, timezone
+        import hashlib
+        import os
+        from unittest.mock import patch
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.plan_convergence import (
+            content_hash, plan_status, record_coverage, record_critique,
+            request_critics, start_plan,
+        )
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+
+        fixture_directory = tempfile.TemporaryDirectory(prefix="aria-native-coverage-")
+        self.addCleanup(fixture_directory.cleanup)
+        fixture = Path(fixture_directory.name)
+        tools = fixture / "store" / "tools"
+        selected_repo = Path(__file__).resolve().parents[2]
+        source_path = "libs/interval-core/src/index.ts"
+        note_path = "docs/coverage-note.md"
+        native_tool_paths = ("tools/gates/plan-coverage-witness.ts", "tools/gates/tsconfig.json")
+        native_tool_bytes = {path: (selected_repo / path).read_bytes() for path in native_tool_paths}
+        files = {
+            ".gitignore": "/node_modules\n.nx/\naria-debts/\n",
+            "package.json": json.dumps({"name": "native-coverage-fixture", "private": True}),
+            "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
+            "libs/interval-core/project.json": json.dumps({
+                "name": "interval-core", "root": "libs/interval-core", "projectType": "library", "targets": {},
+            }),
+            "apps/farm-service/project.json": json.dumps({
+                "name": "farm-service", "root": "apps/farm-service", "projectType": "application",
+                "implicitDependencies": ["interval-core"], "targets": {},
+            }),
+            source_path: "export const interval = 30;\n",
+            "apps/farm-service/src/index.ts": "export const unit = 'seconds';\n",
+            note_path: "This documentation path has no owning Nx project.\n",
+            ".claude/agents/farm-expert.md": "---\nname: farm-expert\ndescription: Fixture reviewer.\n---\nOwns `apps/farm-service/**`.\n",
+            **{path: data.decode("utf-8") for path, data in native_tool_bytes.items()},
+        }
+        environment_values = {name: value for name, value in os.environ.items()
+            if not name.startswith(("ARIA_", "NX_", "npm_config_", "NPM_CONFIG_"))
+            and name != "NODE_OPTIONS"}
+        witness_tmp = fixture / "witness-tmp"
+        witness_tmp.mkdir()
+        environment_values.update({
+            "ARIA_TOOLS_DIR": str(tools), "ARIA_REPO_STATE_ROOT": str(fixture / "repo-state"),
+            "ARIA_STATE_STORE_ROOT": str(fixture / "state-store"),
+            "ARIA_WORKSPACE_BASE": str(fixture / "workspaces"),
+            "NX_DAEMON": "false", "NX_ISOLATE_PLUGINS": "false", "NX_SKIP_NX_CACHE": "true",
+            "NX_CACHE_DIRECTORY": str(fixture / "nx-cache"),
+            "NX_WORKSPACE_DATA_DIRECTORY": str(fixture / "nx-data"),
+            "npm_config_cache": str(fixture / "npm-cache"), "npm_config_offline": "true",
+            "TMPDIR": str(witness_tmp),
+        })
+        environment = patch.dict(os.environ, environment_values, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        repo = make_repo_with_initial_commit(fixture / "source", files)
+        installed = installed_node_modules("nx", "typescript", "ts-node")
+        (repo / "node_modules").symlink_to(installed, target_is_directory=True)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo), b"")
+        for path, expected_bytes in native_tool_bytes.items():
+            self.assertEqual((repo / path).read_bytes(), expected_bytes)
+            self.assertEqual(subprocess.check_output(["git", "show", head + ":" + path], cwd=repo), expected_bytes)
+        ensure_tools_binding(tools, workspace_root=repo)
+        set_profile("strict", operator_approval_ref="test:native-plan-coverage", base_dir=tools)
+        plan_id = "plan-native-nested-coverage"
+        plan_content = {
+            "schema_version": 2, "title": "Inspect interval dependency coverage",
+            "summary": "The source owner and its dependent need separate coverage.",
+            "affected_surfaces": [{"paths": [source_path]}, {"paths": [note_path]}],
+            "key_changes": ["inspect the declared interval source"],
+            "validation_commands": [], "evidence_refs": [source_path + ":1"],
+            "coverage": {"waivers": []},
+        }
+        start_plan(plan_id=plan_id, initial_revision_id="rev-0", plan_content=plan_content, base_dir=tools)
+        latest = plan_status(plan_id=plan_id, base_dir=tools)["latest_revision"]
+        task = {
+            "task_id": "coverage-task-1", "task_packet_hash": content_hash({"task": "coverage-task-1"}),
+            "target_agent": "farm-expert", "target_revision_id": latest["revision_id"],
+            "target_plan_content_hash": latest["content_hash"],
+            "sla_deadline": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        }
+        request_critics(plan_id=plan_id, request={"round_number": 1,
+            "target_revision_id": latest["revision_id"], "target_plan_content_hash": latest["content_hash"],
+            "tasks": [task]}, base_dir=tools)
+        record_critique(plan_id=plan_id, critique={
+            "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
+            "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
+            "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+        }, workspace_root=repo, base_dir=tools)
+        self.assertEqual(plan_status(plan_id=plan_id, base_dir=tools)["state"], "CRITIQUED")
+        events_path = tools / "plans" / "events.jsonl"
+        before = load_declared_jsonl(events_path, expected_surface="plan_convergence_events")
+        self.assertEqual(before[0]["payload"]["plan_content"]["affected_surfaces"], plan_content["affected_surfaces"])
+        payload = compute_plan_coverage(plan_content=plan_content, plan_id=plan_id, round_number=1,
+            target_revision_id=latest["revision_id"], target_plan_content_hash=latest["content_hash"],
+            workspace_root=repo, base_dir=tools)
+        self.assertIn(payload["witness"].get("exit_code"), (0, 1), payload)
+        self.assertEqual(payload["witness"]["tool"], native_tool_paths[0])
+        self.assertEqual(payload["computed_at_sha"], head)
+        generated_graphs = list(witness_tmp.glob("plan-coverage-*/nx-graph.json"))
+        self.assertEqual(len(generated_graphs), 1)
+        graph = json.loads(generated_graphs[0].read_text())["graph"]
+        self.assertEqual(graph["nodes"]["interval-core"]["data"]["root"], "libs/interval-core")
+        self.assertEqual(graph["nodes"]["farm-service"]["data"]["root"], "apps/farm-service")
+        self.assertTrue(any(edge["target"] == "interval-core"
+            for edge in graph["dependencies"]["farm-service"]))
+        manifest_path = tools / "coverage" / (plan_id + "-r1.json")
+        manifest_bytes = manifest_path.read_bytes()
+        self.assertEqual(payload["closure_manifest_hash"], "sha256:" + hashlib.sha256(manifest_bytes).hexdigest())
+        self.assertEqual(load_declared_jsonl(events_path, expected_surface="plan_convergence_events"), before)
+        # First intended regression: the real dependent must not disappear
+        # because the wrapper stringified a normal nested affected surface.
+        self.assertEqual(payload["verdict"], "gaps", payload)
+        witness_input = json.loads((tools / "coverage" / (plan_id + "-r1-input.json")).read_text())
+        self.assertEqual(witness_input["affected_paths"], [source_path, note_path])
+        report = json.loads(manifest_bytes)
+        self.assertEqual({row["name"] for row in report["closure"]["projects"]}, {"interval-core", "farm-service"})
+        self.assertEqual(report["unmapped_paths"], [note_path])
+        self.assertEqual([row["node_id"] for row in payload["uncovered"]], ["project:farm-service"])
+        self.assertEqual(payload["closure_summary"]["projects"], 2)
+        self.assertEqual(payload["closure_summary"]["unmapped_paths"], 1)
+        self.assertEqual(len(payload["synthetic_risks"]), 1)
+        recorded = record_coverage(plan_id=plan_id, coverage=payload, base_dir=tools)
+        native_after = load_declared_jsonl(events_path, expected_surface="plan_convergence_events")
+        self.assertEqual(native_after[:-1], before)
+        self.assertEqual(native_after[-1], recorded["event"])
+        self.assertEqual(native_after[-1]["event_type"], "coverage_computed")
+        self.assertEqual(native_after[-1]["payload"], payload)
+        self.assertEqual(plan_status(plan_id=plan_id, base_dir=tools)["coverage_by_round"][1], payload)
+        self.assertEqual(manifest_path.read_bytes(), manifest_bytes)
+
 
 
 if __name__ == "__main__":

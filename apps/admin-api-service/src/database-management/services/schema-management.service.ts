@@ -22,10 +22,32 @@ import {
   TableInfo,
   ConnectionPoolStatus,
 } from '../entities/database-management.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
+
+import { SchemaSummaryDto } from '../dto/schema-summary.dto';
 
 // ============================================================================
 // Interfaces
 // ============================================================================
+
+/**
+ * The five aliases `getSchemaSummary`'s aggregate selects, as the driver
+ * returns them — every one a string, `count` and `sum` included.
+ *
+ * NOT `Record<keyof SchemaSummaryDto, string>`: `avgSizeBytes` is derived in
+ * TypeScript and never selected, so that shape would promise a column the row
+ * does not carry.
+ */
+interface SchemaSummaryRow {
+  totalSchemas: string;
+  activeSchemas: string;
+  suspendedSchemas: string;
+  totalSizeBytes: string;
+  totalTableCount: string;
+}
 
 /** Context about the user performing a destructive operation, passed from the controller. */
 export interface DestructiveActionContext {
@@ -60,19 +82,6 @@ export class SchemaManagementService {
     return getTenantSchemaName(tenantId);
   }
 
-  /**
-   * Create schema for new tenant with all module tables.
-   * Delegates to backend-common SchemaManagerService for full module table creation
-   * (sensor, farm, hr, hydroponics) so tenant schemas are production-ready.
-   */
-  createTenantSchema(tenantId: string): never {
-    void tenantId;
-    throw new ConflictException(
-      'Runtime tenant schema creation is disabled. Tenant schema creation must be requested ' +
-        'through the tenant provisioning workflow and completed by aqua-db-migrate.',
-    );
-  }
-
   // ============================================================================
   // Schema Operations
   // ============================================================================
@@ -82,7 +91,7 @@ export class SchemaManagementService {
    */
   async getAllSchemas(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: TenantSchema[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<TenantSchema>> {
     const { page = 1, limit = 50 } = options;
 
     const [data, total] = await this.schemaRepository.findAndCount({
@@ -91,7 +100,7 @@ export class SchemaManagementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<TenantSchema>(data, total, page, limit);
   }
 
   /**
@@ -129,33 +138,6 @@ export class SchemaManagementService {
       lastMigrationAt: schema.lastMigrationAt,
       lastBackupAt: schema.lastBackupAt,
     };
-  }
-
-  /**
-   * Update schema status
-   */
-  updateSchemaStatus(tenantId: string, status: SchemaStatus): never {
-    void tenantId;
-    void status;
-    throw new ConflictException(
-      'Runtime admin.tenant_schemas status writes are disabled. Status evidence is owned by aqua-db-migrate.',
-    );
-  }
-
-  /**
-   * Suspend tenant schema
-   */
-  suspendSchema(tenantId: string): never {
-    this.logger.log(`Suspending schema for tenant: ${tenantId}`);
-    return this.updateSchemaStatus(tenantId, 'suspended');
-  }
-
-  /**
-   * Activate tenant schema
-   */
-  activateSchema(tenantId: string): never {
-    this.logger.log(`Activating schema for tenant: ${tenantId}`);
-    return this.updateSchemaStatus(tenantId, 'active');
   }
 
   /**
@@ -436,17 +418,6 @@ export class SchemaManagementService {
   }
 
   /**
-   * Update schema statistics
-   */
-  updateSchemaStats(tenantId: string): never {
-    void tenantId;
-    throw new ConflictException(
-      'Runtime admin.tenant_schemas statistics writes are disabled. ' +
-        'Read live schema details through getSchemaInfo; durable evidence is owned by aqua-db-migrate.',
-    );
-  }
-
-  /**
    * Sync missing tables for existing tenant schemas.
    * If tenantId is provided, syncs only that tenant. Otherwise syncs all active tenants.
    */
@@ -509,27 +480,41 @@ export class SchemaManagementService {
   }
 
   /**
-   * Get schema summary stats
+   * Platform-wide tenant-schema totals.
+   *
+   * One aggregate over every row, not `find()` plus four passes in Node: the
+   * counts are what a platform admin reads as the size of the estate, and
+   * materialising every schema record to add up two integers is work the
+   * database does in a single scan. `size_bytes` is a bigint, so the driver
+   * hands back a string — hence the explicit `Number` on the coalesced sums
+   * rather than trusting the row's runtime type.
    */
-  async getSchemaSummary(): Promise<{
-    totalSchemas: number;
-    activeSchemas: number;
-    suspendedSchemas: number;
-    totalSizeBytes: number;
-    avgSizeBytes: number;
-  }> {
-    const schemas = await this.schemaRepository.find();
+  async getSchemaSummary(): Promise<SchemaSummaryDto> {
+    const row = await this.schemaRepository
+      .createQueryBuilder('schema')
+      .select('COUNT(*)', 'totalSchemas')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE schema.status = 'active')",
+        'activeSchemas',
+      )
+      .addSelect(
+        "COUNT(*) FILTER (WHERE schema.status = 'suspended')",
+        'suspendedSchemas',
+      )
+      .addSelect('COALESCE(SUM(schema.sizeBytes), 0)', 'totalSizeBytes')
+      .addSelect('COALESCE(SUM(schema.tableCount), 0)', 'totalTableCount')
+      .getRawOne<SchemaSummaryRow>();
 
-    const activeSchemas = schemas.filter((s) => s.status === 'active').length;
-    const suspendedSchemas = schemas.filter((s) => s.status === 'suspended').length;
-    const totalSizeBytes = schemas.reduce((sum, s) => sum + Number(s.sizeBytes), 0);
+    const totalSchemas = Number(row?.totalSchemas ?? 0);
+    const totalSizeBytes = Number(row?.totalSizeBytes ?? 0);
 
     return {
-      totalSchemas: schemas.length,
-      activeSchemas,
-      suspendedSchemas,
+      totalSchemas,
+      activeSchemas: Number(row?.activeSchemas ?? 0),
+      suspendedSchemas: Number(row?.suspendedSchemas ?? 0),
       totalSizeBytes,
-      avgSizeBytes: schemas.length > 0 ? Math.round(totalSizeBytes / schemas.length) : 0,
+      totalTableCount: Number(row?.totalTableCount ?? 0),
+      avgSizeBytes: totalSchemas > 0 ? Math.round(totalSizeBytes / totalSchemas) : 0,
     };
   }
 

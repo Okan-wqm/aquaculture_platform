@@ -43,17 +43,8 @@ vi.mock('@/hooks/useWebAuthn', () => ({
   storeBiometricEmail: vi.fn(),
 }));
 
-vi.mock('@/hooks/useTheme', () => ({
-  useTheme: () => ({
-    theme: 'night',
-    preference: 'system',
-    setPreference: vi.fn(),
-    isDark: true,
-  }),
-}));
-
-vi.mock('@/hooks/useDensity', () => ({
-  useDensity: () => ({ density: 'standard', setDensity: vi.fn(), isGlove: false }),
+vi.mock('@/hooks/useDarkMode', () => ({
+  useDarkMode: () => ({ preference: 'system', setPreference: vi.fn() }),
 }));
 
 vi.mock('@/pwa/offline-queue', () => ({

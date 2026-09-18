@@ -1,0 +1,2417 @@
+<!-- markdownlint-disable MD011 MD013 MD029 MD033 MD034 MD037 MD038 MD049 MD052 -->
+<!-- WHY: imported verbatim FE<->BE<->DB audit evidence. The quoted TypeScript is
+     what makes a finding checkable, and markdown's inline rules cannot tell it
+     from markup: `Record<string, T>` and `[P]['req']` read as inline HTML and a
+     reference link, `(typeof X)[number]` as a reversed link, snake_case
+     fragments as emphasis, a template literal as a code span with spaces, an
+     internal service URL as a bare URL, and an inline "1)" enumeration as an
+     ordered list that starts at 2. Long lines are identifier-dense finding
+     titles and evidence paths that cannot wrap without breaking the reference.
+     Reflowing them would corrupt the record this file exists to preserve --
+     the same rationale scripts/ci/markdownlint-changed.mjs states for its
+     changed-line filter. Structure is enforced by the parsers instead:
+     tools/gates/finding-registry.ts and tools/gates/commit-msg-validator.ts. -->
+
+# Analytics & Reports — findings
+
+> Part of [Admin Panel E2E Audit](../README.md). IDs `APA-xxx` are stable; severity shown is the
+> verified severity where status is CONFIRMED, else the auditor's grade pending verification.
+
+## AnalyticsDashboardPage — `/admin/analytics` — verdict: **PARTIAL**
+
+**Chain:** Page (web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:397-403) fires 5 calls
+via analyticsApi/systemApi -> '/api' base -> nginx rewrite ^/api/(.\*) -> /api/v1/$1
+(infrastructure/nginx/droplet.conf:377-383) -> admin-api-service global prefix 'api/v1'
+(create-service-app.ts:610) -> AnalyticsController/SystemMetricsController, all guarded by global
+PlatformAdminGuard (APP_GUARD, app.module.ts:283-286; RS256 JWT + SUPER_ADMIN role,
+guards/platform-admin.guard.ts:112-177). Tenant/user/financial KPIs are real SQL aggregations over
+auth.tenants, auth.users, billing.subscriptions, billing.invoices (analytics.service.ts:259-276,
+348-362, 480-519) with 5-min Redis cache. System metrics and usage metrics are largely
+hardcoded/zero placeholders. The three trend charts read admin.analytics_snapshots populated by a
+real daily 1AM cron (analytics-snapshot.scheduler.ts:12-15, ScheduleModule.forRoot in
+app.module.ts:178), but the trend read path calls Date methods on a TypeORM 'date' column that
+hydrates as a string, so trends 500 as soon as snapshot data exists and the page silently shows its
+empty state.
+
+**Endpoints exercised:** `GET /api/analytics/dashboard`;
+`GET /api/analytics/tenants/growth?range&granularity`;
+`GET /api/analytics/revenue/trend?range&granularity`;
+`GET /api/analytics/users/activity?range&granularity`; `GET /api/system/services/health`
+
+**DB tables:** `auth.tenants`, `auth.users`, `billing.subscriptions`, `billing.invoices`,
+`shared.audit_logs`, `admin.analytics_snapshots`
+
+### APA-130 [HIGH] All three trend charts 500 once snapshot data exists — Date methods called on TypeORM 'date' column hydrated as string
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** AnalyticsSnapshot.snapshotDate is declared @Column({type:'date'}) but typed Date
+  (apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:113-114). TypeORM's
+  Postgres driver hydrates 'date' columns to 'YYYY-MM-DD' strings (DateUtils.mixedDateToDateString
+  in prepareHydratedValue), so getTrendFromSnapshots calls s.snapshotDate.toISOString() on a string
+  (analytics.service.ts:990) and getRevenueTrendAnalytics calls snapshot.snapshotDate.getFullYear()
+  (analytics.service.ts:1288) -> TypeError -> 500 on /analytics/tenants/growth,
+  /analytics/revenue/trend, /analytics/users/activity whenever admin.analytics_snapshots has >=1
+  row. With an empty table the .map never runs, so the bug is invisible in fresh environments. The
+  page's Promise.allSettled swallows the rejection and renders 'No analytics data available yet'
+  (AnalyticsDashboardPage.tsx:430-449, 649-653), so the trend feature silently never works in a
+  populated production DB.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:113-114`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:990`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:1288`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:430-449`
+- **Verification:** Prior adversarial verification confirmed every link; I re-read the code and it
+  is unchanged: apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:113-114
+  declares @Column({type:'date'}) snapshotDate!: Date with no transformer; getSnapshots
+  (analytics.service.ts:906-916) uses queryBuilder.getMany() (entity hydration path where
+  PostgresDriver.prepareHydratedValue maps type 'date' through DateUtils.mixedDateToDateString →
+  'YYYY-MM-DD' string); analytics.service.ts:990 calls s.snapshotDate.toISOString() and :1288 calls
+  .getFullYear()/.getMonth() → TypeError → 500 on /analytics/tenants/growth,
+  /analytics/revenue/trend, /analytics/users/activity whenever admin.analytics_snapshots has rows;
+  AnalyticsDashboardPage's Promise.allSettled swallows the rejection so production silently shows
+  'No analytics data available yet'. Additionally confirmed this is a systemic class inside the same
+  service: custom-plan.entity.ts validFrom/validTo (type:'date' typed Date; isActive() at :256-257
+  compares Date >= string → NaN → always false, silently deactivating every custom plan) and
+  analytics/entities/external/invoice.entity.ts periodStart/periodEnd; reports.service.ts:750-752
+  already contains a defensive typeof-string shim proving the drift was patched around once before.
+  Repo-wide, ~100 more @Column({type:'date'}) properties typed Date exist in farm/hr/billing
+  services — same class as the numeric-as-string drift the repo already solved architecturally with
+  MoneyColumn (libs/backend-common/src/monetary/decimal-column.decorator.ts).
+- **Root cause:** The BE→DB link broke at the persistence-entity type contract. Postgres `date` is a
+  calendar date (no time, no zone); TypeORM's Postgres driver deliberately hydrates it as a
+  'YYYY-MM-DD' string (DateUtils.mixedDateToDateString in prepareHydratedValue). The entity
+  annotated the property `Date` anyway, and TypeORM never checks the TS property annotation against
+  the driver's hydration type — the annotation is an unchecked assertion the compiler then trusts,
+  so `.toISOString()`/`.getFullYear()` type-check but crash at runtime. The drift stayed invisible
+  because (a) the write path works — `Date` serializes to `date` fine, so createDailySnapshot
+  succeeds; (b) the read path's .map only executes with rows present, so fresh/dev environments
+  never hit it; (c) London-school unit mocks supply Date objects that match the wrong declared type,
+  so tests confirm the lie; (d) the FE's Promise.allSettled + empty-state fallback converts the 500
+  into 'No analytics data'. The deeper modeling error that caused the drift: a calendar date was
+  modeled as `Date` (an instant), which is exactly the class of bug (DB scalar ≠ TS scalar) the repo
+  already recognized and fixed for numeric columns with the MoneyColumn decorator — that fix was
+  never generalized to `date` columns.
+- **Fix design:** SYSTEMIC CLASS: 'TypeORM hydration-type drift' — DB column type whose driver
+  hydration differs from the entity's TS annotation. Fix at the pattern level (tier 1: make the
+  wrong type impossible), mirroring the existing MoneyColumn precedent, plus tier-3 gates.
+
+PATTERN LEVEL (shared contract in backend-common):
+
+1. New `libs/backend-common/src/database/date-only-column.decorator.ts`:
+   - `export type IsoDateString = string & { readonly __isoDate: unique symbol }` — branded
+     calendar-date string ('YYYY-MM-DD').
+   - `export function toIsoDateString(value: Date | string): IsoDateString` — the single
+     normalization boundary: Date → UTC `toISOString().slice(0,10)`; string → validated against
+     /^\d{4}-\d{2}-\d{2}$/ (throws on mismatch). Explicit return type per repo rules.
+   - `class DateOnlyTransformer implements ValueTransformer` —
+     `to(value: IsoDateString | Date | null): string | null` normalizes via toIsoDateString
+     (FindOperator values like LessThanOrEqual(date) pass through to(), so query sites stay correct
+     and deterministic in UTC); `from(value: string | null): IsoDateString | null` validates+brands
+     the driver string.
+   - `export function DateOnlyColumn(options?: { name?: string; nullable?: boolean; primary?: boolean; comment?: string }): PropertyDecorator`
+     returning `Column({ type: 'date', transformer: DATE_ONLY_TRANSFORMER, ... })` — exact analogue
+     of MoneyColumn. Export from the backend-common barrel. Modeling a calendar date as a branded
+     string (not Date) is the point: it matches driver reality, removes all timezone ambiguity (a
+     from()-side string→Date conversion would reintroduce off-by-one-day bugs via local-time
+     getFullYear/getMonth on UTC-midnight instants), and makes every Date-method call a compile
+     error — the compiler then enumerates every misuse site for us.
+
+LOCAL APPLICATION (admin-api-service — all three class instances, forced by the gate below): 2.
+analytics-snapshot.entity.ts: `@DateOnlyColumn() snapshotDate!: IsoDateString;` (composite index
+unchanged; no migration — the DB already has `"snapshotDate" DATE NOT NULL` per
+1800200000000-CreateAdminEntitySurfaceTables.ts:163, only the TS side drifted). 3.
+analytics.service.ts: :990 becomes `date: s.snapshotDate` (already 'YYYY-MM-DD'); :1288 becomes
+`const monthKey = snapshot.snapshotDate.slice(0, 7)` (pure string ops, no parsing); saveSnapshot
+(:865-896) keeps `snapshotDate: Date = new Date()` at its API boundary but normalizes once via
+`const key = toIsoDateString(snapshotDate)` and assigns `snapshotDate: key` in create();
+calculateGrowthRate/:getSnapshotsNear FindOperator sites pass `toIsoDateString(...)` explicitly;
+getSnapshots range params converted via toIsoDateString. 4. custom-plan.entity.ts: validFrom/validTo
+→ `DateOnlyColumn()` + `IsoDateString`/`IsoDateString | null`; rewrite isActive() to compare against
+`toIsoDateString(new Date())` (lexicographic compare on 'YYYY-MM-DD' is correct ordering) — this
+also fixes the latent always-false isActive() bug (:256-257). custom-plan.service.ts create/update
+paths convert DTO Dates at the boundary (compile-forced). 5.
+analytics/entities/external/invoice.entity.ts: periodStart/periodEnd → DateOnlyColumn +
+IsoDateString (consumers compile-checked). 6. reports.service.ts:750-752: delete the dead defensive
+`typeof row.snapshotDate === 'string'` branch (raw SQL ::text always returns string) — the shim the
+shared contract obsoletes. FE: no change — the wire contract for the three endpoints ({date: string,
+value}/{date: 'YYYY-MM', revenue, growth}) is unchanged; the FE hand-written types already say
+string.
+
+TIER-3 GATES (make recurrence detectable): 7.
+`apps/admin-api-service/src/__tests__/architecture/date-only-column.architecture.spec.ts` — scans
+apps/admin-api-service/src/**/entities/**/\*.ts and fails on any `type: 'date'` inside a raw @Column
+(i.e., not via DateOnlyColumn) or any date column property annotated `Date`. Admin scope = zero
+tolerance in this PR. 8. `tests/invariants/date-column-hydration.spec.ts` — repo-wide ratchet:
+per-service baseline of existing raw `type:'date'`+Date-typed properties (farm/hr/billing frozen at
+current counts, admin=0); any NEW violation fails CI. The platform-wide conversion of the ~100
+remaining instances is opened as a tracked HIGH systemic finding (owner: platform team, deadline per
+tracker) — the ratchet makes the class un-growable while the burn-down proceeds; this is not a
+silent deferral.
+
+- **Files to change:**
+  - `libs/backend-common/src/database/date-only-column.decorator.ts`
+  - `libs/backend-common/src/database/__tests__/date-only-column.decorator.spec.ts`
+  - `libs/backend-common/src/index.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts`
+  - `apps/admin-api-service/src/billing/entities/custom-plan.entity.ts`
+  - `apps/admin-api-service/src/billing/services/custom-plan.service.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/date-only-column.architecture.spec.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/integration/analytics-snapshot-hydration.integration.spec.ts`
+  - `tests/invariants/date-column-hydration.spec.ts`
+- **Proof of fix:** Primary proof — new integration spec
+  `apps/admin-api-service/src/analytics/__tests__/integration/analytics-snapshot-hydration.integration.spec.ts`
+  (same real-Postgres infra as tenant-api.integration.spec.ts): INSERT daily rows into
+  admin.analytics_snapshots (tenant/user/financial categories, multiple dates), then call GET
+  /analytics/tenants/growth, /analytics/users/activity, /analytics/revenue/trend through the app;
+  assert 200 with non-empty data arrays, every point.date matching
+  /^\d{4}-\d{2}-\d{2}$/ (trend) and /^\d{4}-\d{2}$/ (revenue monthKey), and correct month bucketing
+  across a month boundary. This spec fails on current code with TypeError (snapshotDate.toISOString
+  is not a function) — the true hydration path, which unit mocks structurally cannot exercise, is
+  what it pins. Transformer unit spec
+  `libs/backend-common/src/database/__tests__/date-only-column.decorator.spec.ts`: to(Date)
+  UTC-normalizes, to/from round-trip is identity on 'YYYY-MM-DD', invalid strings throw. Recurrence
+  gates: `apps/admin-api-service/src/__tests__/architecture/date-only-column.architecture.spec.ts`
+  (zero raw type:'date' columns in admin entities) and
+  `tests/invariants/date-column-hydration.spec.ts` (repo-wide must-not-grow ratchet). Compile-time
+  proof is intrinsic: IsoDateString has no Date methods, so `npm run type-check` fails on any
+  reintroduced .toISOString()/.getFullYear() against a date column. Run
+  `nx affected --target=test` + `--target=lint` green before commit; commit carries `Closes:` for
+  this finding ID.
+- **Effort:** M
+
+### APA-131 [HIGH] System Metrics card and API-call KPIs are fabricated constants presented as live data
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** getSystemMetrics hardcodes activeConnections=10, totalStorageBytes=1TB,
+  uptimePercent=100 and returns 0 for apiCallsToday, apiCallsThisMonth, avgResponseTimeMs,
+  errorRate, queuedJobs; usedStorageBytes is a rows\*1KB guess (analytics.service.ts:629-660).
+  getApiCallsTrend/getErrorRateTrend return empty arrays with only a logger.warn (666-687). The page
+  renders these as real metrics: 'API Calls (Today)' KPI (AnalyticsDashboardPage.tsx:630-641),
+  'Error rate' subtitle (582), and the whole System Metrics grid (828-855). Uptime is separately
+  overwritten client-side from /system/services/health as an instantaneous healthy-service ratio
+  mislabeled 'Uptime' (418-425).
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:629-660`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:666-687`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:828-855`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:418-425`
+- **Verification:** Prior verdict confirmed against current code.
+  apps/admin-api-service/src/analytics/services/analytics.service.ts:629-660 hardcodes
+  activeConnections=10, totalStorageBytes=1TB, uptimePercent=100, zeros for
+  apiCalls/avgResponseTime/errorRate/queuedJobs and estimates usedStorageBytes as rows\*1024;
+  getApiCallsTrend/getErrorRateTrend (666-687) return empty series. The FE
+  (AnalyticsDashboardPage.tsx 630-641, 582, 828-855) renders these as live KPIs, and 418-425
+  overwrites uptimePercent with an instantaneous healthy-service ratio mislabeled 'Uptime'. The
+  degraded-mode 'unavailable' channel (getDashboardSummary/extractOrDefault) fires only on promise
+  REJECTION, so a resolving-but-fabricated getSystemMetrics() bypasses it entirely; the fabricated
+  values are additionally persisted into admin.analytics_snapshots by createDailySnapshot and cached
+  5 min in Redis, laundering them into 'historical' data. Aggravating fact found during remediation
+  grounding: the platform ALREADY produces every needed real signal — ServiceMetricsService
+  (libs/backend-common/src/metrics) records http_requests_total/http_request_duration_seconds per
+  service, docker-compose.droplet.yml deploys aqua-prometheus on the same aqua-internal network
+  scraping all backends (infrastructure/monitoring/droplet/prometheus.yml, 15d retention), and
+  SystemMetricsService in the SAME app already measures pg_stat_activity connections and
+  pg_database_size — so the fabrication is not 'missing infrastructure', it is a missing query
+  client plus a contract that cannot express 'unavailable'. Severity stays HIGH (not CRITICAL): it
+  misleads SUPER_ADMIN operational decisions (100% uptime / 0% error shown during real outages) but
+  has no tenant-data or security impact.
+- **Root cause:** The break is at the BE metrics-source boundary, with a contract defect that made
+  the drift inevitable. (1) Contract defect: SystemMetrics
+  (apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:70-81) types every
+  metric as a bare `number`, so the type system cannot distinguish 'measured 0', 'not instrumented',
+  and 'fabricated 100' — when the observability integration was deferred, filling the contract with
+  constants was the path of least resistance, and the degraded-mode channel
+  (`unavailable: string[]`) only models whole-source rejection, not per-metric absence. (2) Unwired
+  real sources: the Prometheus pipeline (ServiceMetricsService counters -> /metrics ->
+  aqua-prometheus TSDB) and SystemMetricsService's real pg_stat_activity/pg_database_size queries
+  both exist, but no Prometheus HTTP-API query client exists anywhere in the repo and
+  AnalyticsService duplicates rather than delegates — duplicate ownership of 'system metrics' inside
+  admin-api-service. (3) FE-type drift (systemic class): SystemMetrics is hand-copied three times
+  (entity interface, web/modules/admin-panel/src/services/types/analytics.ts:46-57, and inline again
+  in AnalyticsDashboardPage.tsx:63-95), and the page compensates for known-fake uptime by
+  client-side overwriting it with a semantically different instantaneous health ratio (418-425) — a
+  consumer-side patch layered on a producer-side fabrication. This is an instance of the systemic
+  'contract promises data nobody produces -> producer fabricates -> consumer presents as live' class
+  (same class as observability-service's totalApiCalls24h=0 and SystemMetricsService.apiCallsLast24h
+  using audit-log counts as a proxy).
+- **Fix design:** Two-part architectural fix: make fabrication structurally impossible (Tier 1) and
+  wire the real sources that already exist (Tier 2), with build/test gates (Tier 3).
+
+PATTERN LEVEL (systemic class: fabricated-constant metrics / per-metric unavailability):
+
+1. Provenance-carrying metric contract. Define once, at the producer:
+   `type MetricValue = { status: 'measured'; value: number; source: 'prometheus' | 'postgres' | 'snapshot'; asOf: string } | { status: 'unavailable'; reason: string }`
+   in analytics-snapshot.entity.ts (exported via analytics/index.ts), mirrored in
+   web/modules/admin-panel/src/services/types/common.ts. Every SystemMetrics field becomes
+   MetricValue. The service can no longer return `uptimePercent: 100` — a raw number no longer
+   typechecks; an unwired metric MUST be `{status:'unavailable', reason}`. On the FE, a single
+   `MetricStat`/`renderMetric` helper takes MetricValue and the discriminated union makes rendering
+   `.value` for an unavailable metric a compile error — unavailable renders an explicit em-dash +
+   'not instrumented' caption. This eliminates the whole class, not just these six fields (FE
+   inline-duplicate interface is deleted; the page imports from services/types — kills the 3-copy
+   drift).
+2. Platform Prometheus query client. Add `PrometheusQueryService` to libs/backend-common/src/metrics
+   (fetch against `${PROMETHEUS_URL}/api/v1/query` and `/api/v1/query_range`, typed vector/matrix
+   parsing, timeout + typed failure result — no throw-into-zeros). This is reusable by the sibling
+   instances of the class (observability-service MetricsAggregatorService.totalApiCalls24h, tenant
+   apiCalls24h) in tracked follow-up findings.
+
+LOCAL APPLICATION (admin analytics): 3. Rewrite AnalyticsService.getSystemMetrics() to compose real
+sources: apiCallsLast24h = sum(increase(http_requests_total[24h])); avgResponseTimeMs =
+sum(rate(http_request_duration_seconds_sum[24h]))/sum(rate(...\_count[24h]))*1000; errorRate =
+increase(http_requests_total{status_code=~"5.."}[24h])/increase(http_requests_total[24h])*100;
+uptimePercent = avg(avg_over_time(up{job="aqua-services"}[24h]))\*100. Rename
+apiCallsToday->apiCallsLast24h across entity+FE (honest window; BREAKING CHANGE footer).
+apiCallsThisMonth = SUM of measured daily apiCallsLast24h values over current-month
+admin.analytics_snapshots (the createDailySnapshot cron already persists daily system snapshots;
+this outlives Prometheus's 15d retention) — source:'snapshot'. activeConnections + usedStorageBytes:
+DELEGATE to the existing SystemMetricsService (inject it; extend getDatabaseMetrics with raw
+`pg_database_size(current_database())` bytes alongside pg_size_pretty) — removes the duplicate
+ownership. totalStorageBytes/storageUtilization: node-exporter
+`node_filesystem_size_bytes`/`node_filesystem_avail_bytes` on the data mount via Prometheus;
+unavailable if unreachable. queuedJobs: delegate to system-management JobQueueService count;
+unavailable until wired. Prometheus unreachable => affected fields {status:'unavailable',
+reason:'prometheus_unreachable'} — never zeros. 4. Implement getApiCallsTrend/getErrorRateTrend via
+query_range (<=15d windows) and analytics_snapshots (longer), returning the FE's existing
+TimeSeriesResponse shape whose `source`/`asOf` fields are already declared but never populated. 5.
+Snapshot compatibility: extend getMetricValue() to read both legacy raw-number jsonb and
+MetricValue-shaped jsonb (versioned read-upcast, matching the repo's upcaster discipline) so
+historical snapshots keep feeding trends. 6. FE: delete inline DashboardSummary/SystemMetrics
+interfaces in AnalyticsDashboardPage.tsx; import from services/types. DELETE the uptime overwrite
+block (418-425) — uptime is now a measured 24h availability from the TSDB; the 'Uptime' KPI
+(580-590), 'API Calls' KPI (630-641), error-rate subtitle (582) and System Metrics grid (828-855)
+render through MetricStat. 7. Config: add PROMETHEUS_URL=http://aqua-prometheus:9090 to
+admin-api-service in docker-compose.droplet.yml (and dev compose/env); absent env => client reports
+unavailable, honestly.
+
+- **Files to change:**
+  - `libs/backend-common/src/metrics/prometheus-query.service.ts`
+  - `libs/backend-common/src/metrics/metrics.module.ts`
+  - `libs/backend-common/src/metrics/index.ts`
+  - `libs/backend-common/src/metrics/__tests__/prometheus-query.service.spec.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/analytics.module.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/analytics-system-metrics.spec.ts`
+  - `apps/admin-api-service/src/metrics/system-metrics.service.ts`
+  - `web/modules/admin-panel/src/services/types/common.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx`
+  - `docker-compose.droplet.yml`
+  - `e2e/tests/integration/admin-analytics-contract.spec.ts`
+- **Proof of fix:** (1) New BE spec
+  apps/admin-api-service/src/analytics/**tests**/analytics-system-metrics.spec.ts: with a mocked
+  PrometheusQueryService returning fixture vectors, getSystemMetrics() yields status:'measured'
+  values exactly matching the fixtures (uptime != 100 when `up` avg is 0.97, errorRate computed from
+  5xx/total); with the Prometheus client failing AND with PROMETHEUS_URL unset, every TSDB-backed
+  field is {status:'unavailable'} — assert NO field carries a numeric value in that mode (regression
+  gate against reintroducing constants: fabrication now fails this assertion AND fails tsc, since
+  bare numbers no longer satisfy MetricValue). Also assert activeConnections/usedStorageBytes
+  delegate to SystemMetricsService (mock called) and apiCallsThisMonth sums current-month snapshot
+  fixtures. (2) Prometheus client spec
+  libs/backend-common/src/metrics/**tests**/prometheus-query.service.spec.ts: PromQL request/parse
+  round-trip, timeout -> typed unavailable result (never zero). (3) New FE spec
+  web/modules/admin-panel/src/pages/**tests**/AnalyticsDashboardPage.spec.tsx: unavailable metrics
+  render the explicit 'not instrumented' state and no numeral; displayed Uptime equals the
+  BE-measured value even when the mocked /system/services/health reports a different healthy ratio
+  (proves the client-side overwrite is gone); page compiles against the single imported type (inline
+  duplicate deleted). (4) Contract gate e2e/tests/integration/admin-analytics-contract.spec.ts: GET
+  /api/v1/analytics/dashboard response system.\* fields each validate against the MetricValue
+  discriminated-union JSON shape (status is 'measured' xor 'unavailable'; measured requires
+  source+asOf), locking the FE/BE wire contract. Run nx affected --target=test && nx affected
+  --target=lint green; commit carries Closes: reference for analytics|p0|i1 and a BREAKING CHANGE
+  footer for the apiCallsToday->apiCallsLast24h rename.
+- **Effort:** L
+
+### APA-132 [HIGH] 'Bolgesel Dagilim' (regional distribution) is fabricated — every tenant hardcoded to TR
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** getTenantMetrics sets byRegion = { TR: total, EU: 0, US: 0, APAC: 0 } with no region
+  column or query (analytics.service.ts:293). The page renders this as a real regional breakdown
+  with percentages (AnalyticsDashboardPage.tsx:858-868). auth.tenants has no region data
+  (TenantReadOnly entity, external/tenant.entity.ts:23-54), so the card is pure invention.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:293`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:858-868`
+  - `apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts:23-54`
+- **Verification:** Re-verified every link: analytics.service.ts:293 hardcodes
+  byRegion={TR:total,EU:0,US:0,APAC:0}; the aggregation SQL (lines 259-276) reads only
+  status/plan/createdAt/updatedAt from auth.tenants; the authoritative Tenant entity
+  (apps/auth-service/src/modules/tenant/entities/tenant.entity.ts) has no region/country column
+  (only free-text address), and provisioning captures none. AnalyticsDashboardPage.tsx:857-868
+  renders the map as 'Bolgesel Dagilim' with counts and percentages next to genuinely real metrics.
+  Aggravating fact found during remediation grounding: the daily snapshot job
+  (analytics.service.ts:928 -> saveSnapshot:865) persists the fabricated map into
+  admin.analytics_snapshots.metrics jsonb, so the invention is also stored as historical record.
+  HIGH stands: a SUPER_ADMIN operations dashboard presenting invented geographic distribution as
+  fact, with no disclaimer, is materially misleading for business decisions.
+- **Root cause:** The break is at the BE contract layer, and it propagated both down (DB) and up
+  (FE). TenantMetrics
+  (apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:38) declares a
+  required byRegion field that no data source in the platform can populate — auth.tenants (the
+  tenant SSoT, single-writer auth-service) has no region column and tenant provisioning never
+  captures one. The contract was authored aspirationally ('what a SaaS analytics dashboard should
+  show') ahead of any data model, and because the field is REQUIRED, the type system actively FORCED
+  fabrication: the only way for getTenantMetrics() to satisfy the interface was to invent a
+  constant. Nothing at build/test time distinguishes a query-derived metric from a hardcoded literal
+  (no grounding gate), and the FE hand-duplicates the shape in two more places
+  (services/types/analytics.ts:17 and inline in AnalyticsDashboardPage.tsx:31), so no single
+  contract point existed where 'field has no source' could be caught. This is an instance of the
+  systemic class 'fabricated placeholder rendered as real data' (contract field with no backing data
+  source, satisfied by a constant), compounded by the systemic 'FE hand-written type drift' class (3
+  copies of DashboardSummary). The fabrication then leaked to rest via the snapshot job, poisoning
+  admin.analytics_snapshots.
+- **Fix design:** Tier 1 (make it impossible) — remove the unsourceable field from the contract
+  end-to-end; a field the platform has no data for must not exist in the type, making fabrication a
+  compile error instead of a compile obligation. (1) BE: delete byRegion from TenantMetrics in
+  analytics-snapshot.entity.ts; delete analytics.service.ts:293 and the byRegion key in
+  getTenantMetrics()'s return and in getDefaultTenantMetrics() (line 1088) — TS excess-property
+  checking then enforces removal at every construction site. (2) Data hygiene: new migration
+  1801600000000-PurgeFabricatedByRegionFromAnalyticsSnapshots.ts running UPDATE
+  admin.analytics_snapshots SET metrics = metrics - 'byRegion' WHERE category = 'tenant' AND metrics
+  ? 'byRegion' — the fabricated data must also leave the durable record (snapshots are the trend
+  SSoT); data-only, blue-green safe, new file per the never-hand-edit rule. (3) FE: delete byRegion
+  from services/types/analytics.ts and delete the 'Bolgesel Dagilim' card
+  (AnalyticsDashboardPage.tsx:857-868); as the local application of the FE-type-drift pattern fix,
+  delete the page's inline duplicate metric interfaces (lines 20-96) and getDefaultData's byRegion,
+  importing DashboardSummary from ../services/types/analytics so exactly ONE FE declaration of this
+  shape remains — after which data.tenants.byRegion is a compile error, so the card cannot silently
+  return. Tier 3 (make it detectable, pattern-level for the systemic class): (4) new
+  apps/admin-api-service/src/analytics/**tests**/analytics-metrics-grounding.spec.ts — a
+  data-variance gate: invoke getTenantMetrics() with two different mocked dataSource.query aggregate
+  rows and assert (a) the returned key set equals the TenantMetrics contract exactly (no
+  extra/invented keys) and (b) every count/distribution field differs between the two runs — a
+  hardcoded constant map is invariant to input and cannot pass; apply the same two-row variance
+  pattern to the other four metric loaders to gate the whole fabrication class in this service. (5)
+  new tests/invariants/admin-analytics-contract-parity.spec.ts — compile-time mutual-assignability
+  assertion (AssertExact-style, with Date->string serialization mapping) between the BE
+  DashboardSummary (analytics-snapshot.entity.ts) and the FE DashboardSummary (admin-panel
+  services/types/analytics.ts), so future FE/BE shape drift — the enabling condition for this
+  finding — fails the invariant suite that runs every PR. Explicit non-goal recorded to keep scope
+  honest: if product later wants a REAL regional breakdown, the correct path is a structured
+  country/region column on auth.tenants (auth-service migration + provisioning DTO capture +
+  TenantReadOnly mapping + GROUP BY), a product feature needing an owner; reintroducing byRegion
+  without that backing column is blocked by gates (4)+(5).
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/migrations/1801600000000-PurgeFabricatedByRegionFromAnalyticsSnapshots.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `apps/admin-api-service/src/analytics/__tests__/analytics-metrics-grounding.spec.ts`
+  - `tests/invariants/admin-analytics-contract-parity.spec.ts`
+- **Proof of fix:** (1)
+  apps/admin-api-service/src/analytics/**tests**/analytics-metrics-grounding.spec.ts (new): mocks
+  dataSource.query with two distinct aggregate rows; asserts getTenantMetrics() output key set ===
+  exact TenantMetrics contract keys (proves byRegion gone and no new invented keys) and that every
+  count/distribution field varies between the two runs (proves no metric is a hardcoded constant —
+  the regression class). (2) tests/invariants/admin-analytics-contract-parity.spec.ts (new):
+  compile-time exact-shape parity between BE DashboardSummary and the single FE DashboardSummary
+  declaration — fails if byRegion is re-added on either side alone or if the FE re-forks the type.
+  (3) apps/admin-api-service/src/migrations/**tests**/: add coverage that the purge migration strips
+  the byRegion key from category='tenant' snapshot jsonb and leaves other categories untouched. (4)
+  npm run type-check green proves zero surviving byRegion references platform-wide (the deleted page
+  card would otherwise fail on data.tenants.byRegion). Run nx affected --target=test and
+  --target=lint per CLAUDE.md before commit; commit carries Closes: line for this finding ID.
+- **Effort:** M
+
+### APA-133 [HIGH] Module Usage / Feature Adoption cards render placeholder zeros as real usage data
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** getUsageMetrics returns a fixed 7-module map where only
+  moduleUsage.dashboard.activeUsers carries a real value (DAU from auth.users); all other modules,
+  all sessions/durations, and all featureAdoption rates are hardcoded 0 with topFeatures=[]
+  (analytics.service.ts:717-740). Because moduleUsage has 7 keys, the page's empty-state check
+  (Object.keys(...).length===0, AnalyticsDashboardPage.tsx:773) never fires and 6 modules render as
+  0-user bars presented as measured usage. Feature Adoption shows the empty-state only because
+  topFeatures is empty (803-806).
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:717-740`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:773-798`
+- **Verification:** Prior adversarial verdict accepted (isReal=true, HIGH). Re-grounded every link:
+  getUsageMetrics (analytics.service.ts:698-741) fabricates 7 moduleUsage keys / 6 featureAdoption
+  keys of zeros with the only real value being 24h DAU; the FE empty-state
+  (AnalyticsDashboardPage.tsx:773) keys on Object.keys().length===0 and can never fire on the
+  success path; the degraded `unavailable[]` channel (lines 203-232 + extractOrDefault:1057-1072) is
+  unreachable for usage because the swallowing try/catch (711-713) makes rejection impossible. Found
+  two additional grounded facts that shape the fix: (a) getDefaultUsageMetrics (line 1117) already
+  encodes the honest empty shape — the codebase's own fallback contradicts the fabricated success
+  payload; (b) reports.service.ts (657-714) consumes the fabricated map, so Module/Feature Usage
+  reports also present zeros as measurements, and its summary aggregates NaN on the empty set, so
+  the fix must include it or it regresses. Severity stays HIGH: SUPER_ADMIN operators see 6 modules
+  of '0 users' bars indistinguishable from measured data on a decision-making dashboard, with no
+  degraded indicator.
+- **Root cause:** The BE→FE link broke at the metric-availability contract, and it drifted because
+  the type system forced fabrication. `UsageMetrics` (analytics-snapshot.entity.ts:83-93) can only
+  express measured numbers — it has no representation for 'not instrumented'. When getUsageMetrics
+  was written there was no per-module usage data source (needs audit-log/session analysis), but the
+  interface demanded a full shape, so the implementer satisfied the compiler by emitting a
+  fully-keyed zero map and shunted the truth into `logger.warn` — a channel the API contract never
+  carries. The purpose-built degraded-mode channel (`unavailable[]` via Promise.allSettled +
+  extractOrDefault) only activates on rejection, and getUsageMetrics structurally cannot reject (its
+  only await sits inside a swallowing try/catch at lines 711-713). Meanwhile the FE empty-state
+  (page line 773) was written for the honest encoding — absent key = no data — so the two sides hold
+  opposite semantics for key-presence: FE reads it as 'measured', BE emits it as 'schema template'.
+  The result is fabricated zeros rendered as measured usage, with the ironic detail that
+  getDefaultUsageMetrics() (the failure fallback) already returns the honest empty shape the success
+  path refuses to produce.
+- **Fix design:** SYSTEMIC CLASS — 'placeholder-metrics-presented-as-measured': the same fabrication
+  pattern exists in getModuleUsageChart/getFeatureAdoptionChart (analytics.service.ts:746-770,
+  duplicated hardcoded label arrays + zero series), getSystemMetrics (uptimePercent:100,
+  apiCallsToday:0), and downstream in reports.service.ts module/feature usage reports. Pattern-level
+  rule to codify in the contract SSoT: **presence means measured** — a key/row/series appears in an
+  analytics payload only if it was actually queried from a data source; 'not instrumented' is
+  encoded as structural absence (empty map/array), and source failure is encoded via rejection ->
+  the existing `unavailable[]` degraded channel. `logger.warn` must never be the only carrier of
+  unavailability.
+
+LOCAL APPLICATION (tiers 1-3 of the hierarchy): (1) Contract (`analytics-snapshot.entity.ts`):
+extract a named `ModuleUsageStats` interface; retype
+`UsageMetrics.moduleUsage: Partial<Record<ModuleKey, ModuleUsageStats>>` where `ModuleKey` is the
+explicit union of platform modules
+('dashboard'|'farm_management'|'sensor_monitoring'|'alerts'|'reports'|'hr_module'|'billing'), with
+the documented invariant 'key present ⟺ value was measured from a real source'. Same doc on
+`featureAdoption`. This is the single BE source of truth (also typed into the jsonb `metrics` union
+at line 117 — no migration needed, jsonb narrows compatibly). (2) Service (`analytics.service.ts`
+getUsageMetrics): delete the fabricated 7-key moduleUsage and 6-key featureAdoption maps; return
+only measured data: `moduleUsage: {}`, `featureAdoption: {}`, `topFeatures: []`, `peakHours: []`,
+`avgDailyActiveUsers: activeLastDay` (the one real value — no longer mislabeled as 'dashboard
+module' usage). Remove the swallowing try/catch around the DAU COUNT query so a genuine DB failure
+REJECTS: getDashboardSummary's Promise.allSettled + extractOrDefault then pushes 'usage' into
+`unavailable[]` (making the degraded banner reachable for this source, per the prior verdict's
+refutation note), and direct GET /analytics/usage returns an honest 500 instead of fake success.
+When the audit-log/session instrumentation pipeline lands later, modules populate incrementally —
+the Partial<Record<ModuleKey,...>> contract already supports it without another shape change. (3)
+Derive, don't duplicate: rewrite getModuleUsageChart/getFeatureAdoptionChart to build
+labels/datasets from getUsageMetrics() output (empty today) instead of their own hardcoded
+module/feature name arrays — removes the second and third copies of the fabricated list. (4)
+Downstream (`reports.service.ts` generateModuleUsageReport/generateFeatureUsageReport): rows already
+derive from Object.entries so they become honestly empty; fix the empty-set aggregates so they are
+well-defined (avgAdoptionRate of zero rows = 0, totalModules/totalFeatures = 0, omit mostUsedModule)
+— currently `reduce(...)/data.length` at lines 681/709 would emit NaN. (5) FE: mirror
+`ModuleUsageStats` + the presence-means-measured invariant in `services/types/analytics.ts`
+(hand-written FE contract), and delete the drift-prone page-local duplicate interfaces in
+AnalyticsDashboardPage.tsx (lines ~20-96) in favor of importing the services/types definitions — one
+FE type SSoT, which is the local application of the systemic FE-type-drift fix. No page logic change
+is needed: the existing empty-state checks at lines 773/803 ('No analytics data available yet') fire
+automatically once the backend stops fabricating keys — correct behavior becomes the zero-effort
+default (tier 2).
+
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `apps/admin-api-service/src/analytics/__tests__/analytics.service.spec.ts`
+  - `web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx`
+- **Proof of fix:** Extend/add
+  `apps/admin-api-service/src/analytics/__tests__/analytics.service.spec.ts` (new — only a
+  performance spec exists today) with: (1) anti-fabrication invariant — getUsageMetrics with mocked
+  dataSource returning DAU=N deep-equals
+  `{ moduleUsage: {}, featureAdoption: {}, topFeatures: [], peakHours: [], avgDailyActiveUsers: N }`
+  (deep-equality means re-adding any hardcoded zero key fails the test); (2) getUsageMetrics REJECTS
+  when the DAU query throws (no swallow); (3) getDashboardSummary with a rejecting usage source
+  returns `unavailable` containing 'usage' and usage === getDefaultUsageMetrics shape (proves the
+  degraded channel is now reachable); (4) getModuleUsageChart/getFeatureAdoptionChart labels/data
+  derive from getUsageMetrics output (empty when unmeasured — no hardcoded label arrays); (5)
+  reports.service: generateModuleUsageReport/generateFeatureUsageReport on empty usage return
+  data:[] with finite (non-NaN) summary numbers. Add
+  `web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx` (harness exists —
+  CreateTenantPage/TenantManagementPage specs alongside): renders the page with a mocked summary
+  where moduleUsage={} and asserts 'No analytics data available yet' appears in the Module Usage
+  card and zero module bars render; second case with one measured module key asserts exactly one bar
+  renders. Gate: `nx affected --target=test` green; `npm run type-check` proves the FE page compiles
+  against the single imported type after the local duplicates are deleted.
+- **Effort:** M
+
+### APA-134 [MEDIUM] KPI trend indicators hardcoded — negative growth renders as green up-arrow; churn delta is a literal -0.5
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Tenants/Users/MRR KpiCards pass trend="up" unconditionally and KpiCard shows
+  Math.abs(change) (AnalyticsDashboardPage.tsx:544-546, 557-559, 570-572, 226-231), so a negative
+  growthRate displays as a green upward percentage. The Churn Rate card passes a hardcoded
+  change={-0.5} (610-611) shown as '0.5% vs last month' regardless of data.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:544-546`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:610-611`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:226-231`
+- **Root cause:** KpiCard derives arrow AND color exclusively from the string `trend` prop
+  (getTrendColor/getTrendIcon, AnalyticsDashboardPage.tsx:206-216) and renders Math.abs(change)
+  (228), so trend and change are two independent inputs that can contradict each other. The three
+  growth cards hardcode trend="up" (546/559/572) regardless of the sign of
+  growthRate/revenueGrowthRate, and the Churn card passes a fabricated change={-0.5} (610-611) that
+  has no backing data field (DashboardSummary carries tenants.churnRate but no churn delta).
+  Instance of the systemic 'FE fabricates/hardcodes presentational data that contradicts the real
+  value' class.
+- **Fix design:** Tier-1/2: make trend un-representable independently of the number. Drop the
+  `trend` prop from KpiCard and compute direction internally from Math.sign(change) (change>0 =>
+  up/green, <0 => down/red, ~0 => stable/gray), plus an optional `higherIsWorse` boolean so
+  churn/error-rate invert the color mapping (down = good = green) without inverting the arrow. Pass
+  real deltas only: growthRate/revenueGrowthRate flow through unchanged and now render correct
+  color+arrow; remove the literal change={-0.5} on the Churn card. If a real churn delta is wanted,
+  add `churnRateChange` to TenantMetrics computed backend-side via the existing
+  calculateGrowthRate('tenant','churnRate',…) helper (analytics.service.ts:998) and surface it in
+  the summary; otherwise omit `change` on the churn card so no delta is shown. Verification: add
+  web/modules/admin-panel/src/pages/**tests**/AnalyticsDashboardPage.kpi.spec.tsx asserting a
+  negative change renders the red down-arrow and no card passes a literal trend/change.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+- **Effort:** S
+
+### APA-135 [MEDIUM] churnedThisMonth/churnRate proxy is wrong: any update to an already-suspended tenant re-counts it as churned this month
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** Churn is computed as COUNT(\*) FILTER (WHERE status IN ('CANCELLED','SUSPENDED') AND
+  "updatedAt" >= date_trunc('month', NOW())) (analytics.service.ts:271-274). updatedAt moves on ANY
+  row update (UpdateDateColumn), so an admin editing a long-suspended tenant inflates this month's
+  churn; conversely tenants cancelled last month but untouched since are not counted in prior
+  months' trend snapshots consistently. KPI 'X churned this month' and churnRate (page 607-609)
+  silently misreport.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:271-274`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:607-609`
+- **Root cause:** churned_this_month uses
+  `status IN ('CANCELLED','SUSPENDED') AND "updatedAt" >= date_trunc('month', NOW())`
+  (analytics.service.ts:271-274). updatedAt is a TypeORM @UpdateDateColumn that advances on ANY row
+  mutation, so it is a proxy for 'last touched', not 'churn event date'. Editing a long-suspended
+  tenant re-dates it into the current month (false positive), and a tenant cancelled last month but
+  touched this month is also mis-attributed. There is no authoritative timestamp of the status
+  transition, so churnRate (analytics.service.ts:290) and the 'X churned this month' KPI (page
+  607-609) are unreliable.
+- **Fix design:** Tier-1: record the actual state-transition instant instead of inferring it. Add a
+  dedicated `canceledAt`/`suspendedAt` (or a single `statusChangedAt`) timestamp to the
+  authoritative tenant record and set it exactly when the status flips. Per repo rules auth owns
+  auth.tenants and billing.subscriptions is the SSoT for subscription lifecycle, so the column +
+  migration + transition handler land in the owning service (auth-service tenant status-change
+  command handler, or billing subscription-cancel handler), then admin reads it via TenantReadOnly
+  (or a subscription read entity) and the FILTER becomes
+  `WHERE "canceledAt" >= date_trunc('month', NOW())`. Blue-green safe: nullable column -> backfill
+  from the latest status-change audit event in shared.audit_logs -> query. Verification: extend the
+  churn aggregation spec to assert an UPDATE to an already-suspended tenant does NOT change
+  churned_this_month once the transition timestamp is the filter key.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts`
+  - `apps/auth-service/src/tenant/entities/tenant.entity.ts`
+  - `apps/auth-service/src/database/migrations`
+- **Effort:** L
+
+### APA-136 [MEDIUM] Total API failure renders an all-zero dashboard with no error indication
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** The catch block sets getDefaultData() (all zeros) and empty trends with no error
+  banner (AnalyticsDashboardPage.tsx:450-455); individual endpoint failures are likewise absorbed by
+  Promise.allSettled defaults (407-415). A SUPER_ADMIN seeing 0 tenants / $0 MRR cannot distinguish
+  outage from an empty platform. Only backend-reported partial degradation (data.unavailable) gets a
+  banner (532-536).
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:450-455`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:407-415`
+- **Root cause:** AnalyticsDashboardPage has no error state. The outer catch collapses any total
+  failure of getDashboardSummary()/trend fetches into getDefaultData() (all zeros) with no banner
+  (450-455), and each Promise.allSettled rejection is silently swapped for defaults (407-449). The
+  only degraded-mode signal shown is the backend-provided data.unavailable[] (532-536), which is
+  only populated on PARTIAL backend aggregation failure — a network/auth/500 on the whole endpoint
+  produces a clean all-zero dashboard indistinguishable from an empty platform. Instance of the
+  systemic 'catch -> silent default data, outage rendered as real zeros' class shared by other admin
+  pages.
+- **Fix design:** Tier-2/3: introduce an explicit fetch-error state. Track per-source settle
+  outcomes: if getDashboardSummary rejects, set an error state and render an error banner (with a
+  Retry that re-invokes loadData) instead of substituting zeros; if only some of the five allSettled
+  promises reject, merge their source names into the same degraded-mode banner already driven by
+  data.unavailable so client-side failures surface identically to backend-side ones. Keep zeros only
+  for genuinely-empty successful responses. Verification: add AnalyticsDashboardPage.error.spec.tsx
+  mocking getDashboardSummary rejection and asserting an error banner (not a $0/0-tenant dashboard)
+  renders.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+- **Effort:** M
+
+### APA-137 [LOW] Period selector (7d/30d/90d/1y) only affects the three trend charts; every KPI stays fixed to 'this month'
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** selectedPeriod feeds only getTenantGrowthTrend/getRevenueTrend/getUserActivity
+  (AnalyticsDashboardPage.tsx:394-403); getDashboardSummary takes no range and all KPI windows are
+  hardcoded month-to-date in SQL (analytics.service.ts:270-274, 353). The UI implies the whole
+  dashboard re-scopes.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:394-403`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:270-274`
+- **Root cause:** selectedPeriod is passed only to
+  getTenantGrowthTrend/getRevenueTrend/getUserActivity (394-403); getDashboardSummary() is
+  range-unaware and every KPI window in the backend is hardcoded month-to-date
+  (`date_trunc('month', NOW())` for new/churn/growth, analytics.service.ts:270-274, and
+  revenueThisMonth 513-514). The single top-of-page 7d/30d/90d/1y control (507-519) visually governs
+  the whole dashboard but only the three MiniCharts actually re-scope, so every KPI card silently
+  ignores the selector.
+- **Fix design:** Proportionate root-cause (the control genuinely only drives the trend queries):
+  relocate the range selector out of the page header and into the 'Charts Row' section header so it
+  is structurally scoped to the trends it controls, and label the KPI rows as month-to-date,
+  removing the false whole-page implication (Tier-2: the UI can no longer claim a scope it doesn't
+  apply). Fuller alternative (Tier-1, larger): make getDashboardSummary(range) parameterize the
+  windowed KPI SQL and recompute growth against the range's prior period — note growthRate/churn are
+  inherently period-relative so this is the correct long-term shape but L effort. Verification:
+  AnalyticsDashboardPage spec asserting the period control lives within the charts section and KPI
+  cards carry the month-to-date label.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+- **Effort:** S
+
+## ReportsPage — `/admin/analytics/reports` — verdict: **PARTIAL**
+
+**Chain:** Page -> reportsApi (services/api/reports.ts) -> POST/GET /api/reports/... -> nginx
+/api->/api/v1 rewrite -> ReportsController (guarded globally by PlatformAdminGuard) ->
+ReportsService. Execution chain is real: POST /reports/executions synchronously generates the
+report, persists an admin.report_executions row (entity schema 'admin',
+analytics-snapshot.entity.ts:282; table + all columns in migrations 1800200000000:204-238 and
+1800300000000:9-40), uploads the JSON/CSV/PDF artifact to MinIO via the @Global StorageModule
+(app.module.ts:194-206; reports.service.ts:1358-1416), and download streams it back with a sha256
+integrity check (reports.service.ts:1440-1477; controller 295-305 with filename sanitization).
+History (GET /reports/executions) is a real paginated repository query. However, several report
+BODIES are fabricated or ignore the requested date range, the preview modal can never show row data,
+and 'scheduled' report definitions have no scheduler.
+
+**Endpoints exercised:** `GET /api/reports/executions?page&limit`; `POST /api/reports/executions`;
+`GET /api/reports/executions/:id/download`
+
+**DB tables:** `admin.report_executions`, `admin.report_definitions`, `admin.analytics_snapshots`,
+`auth.tenants`, `auth.users`, `shared.audit_logs`,
+`billing.invoices (NOT queried by reports despite being the payments SSoT)`
+
+### APA-138 [HIGH] financial_payments report fabricates invoice records — status is a tautology that is always 'paid'; billing.invoices is never queried
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** generatePaymentsReport synthesizes invoices from active tenants: invented IDs
+  (INV-YYYY-MM-<tenantId8>), hardcoded plan prices, due date = 1st of month, and
+  `const status = amount === 0 ? 'paid' : 'paid'` — literally always 'paid'
+  (reports.service.ts:586-611), so totalPending/totalOverdue are structurally 0 and collectionRate
+  is always 100%. The real billing.invoices table exists and is queried by the same service's
+  AnalyticsService (analytics.service.ts:510-519), so real pending/overdue amounts are available but
+  ignored. The FE presents this as 'Odeme Raporu — Fatura ve odeme durumlari'
+  (ReportsPage.tsx:213-215) and exports it as CSV/PDF. Fabricated financial records delivered to a
+  platform operator.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:571-611`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:601 (status tautology)`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:510-519`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:213-215`
+- **Verification:** Re-verified at HEAD. generatePaymentsReport
+  (apps/admin-api-service/src/analytics/services/reports.service.ts:559-651) injects and queries
+  ONLY tenantRepository (auth.tenants, status=ACTIVE), then fabricates every invoice field: ID
+  `INV-${monthKey}-${tenantId8}` (line 591), amount from a hardcoded planPricing map (564-569),
+  dueDate = 1st of current month (594), and `const status = amount === 0 ? 'paid' : 'paid'` (601) —
+  a literal tautology, making the pending/overdue branches (616-622) dead code,
+  totalPending/totalOverdue structurally 0, and collectionRate 100 whenever any active tenant
+  exists. The corrective infrastructure already exists in the SAME module: InvoiceReadOnly
+  (@Entity('invoices', {schema:'billing', synchronize:false}) with snake_case column mapping and
+  DecimalTransformer, entities/external/invoice.entity.ts) is registered in analytics.module.ts
+  forFeature and is queried with real status taxonomy by AnalyticsService.getFinancialMetrics
+  (analytics.service.ts:510-519). The FE chain is pass-through: ReportsPage 'Odeme Raporu — Fatura
+  ve odeme durumlari' → reportsApi.executeReport POST /reports/executions → executeReport →
+  generateReport('financial_payments'), and the generic table/summary renderer plus CSV/PDF artifact
+  (createReportArtifact → MinIO, 7-day signed download) deliver the fabricated ledger to a
+  SUPER_ADMIN as if real. HIGH stands: fabricated financial records exported as durable artifacts.
+- **Root cause:** The break is the BE Service→DB link inside admin-api-service:
+  generatePaymentsReport never reached the billing SSoT. reports.service.ts was originally written
+  as a demo-data synthesizer over auth.tenants with a hardcoded planPricing table (the same map is
+  copy-pasted 4x in the file: tenant*overview MRR at 349-354, churn at 405-410, revenue at 464-469,
+  payments at 564-569). When the real billing read-model landed for this module (C-6:
+  InvoiceReadOnly pointed at schema 'billing'; CRITICAL-003/BUG-044: AnalyticsService switched to
+  one conditional aggregation over billing.invoices with the real lowercase status enum), only
+  AnalyticsService.getFinancialMetrics was migrated — generatePaymentsReport kept its placeholder,
+  including the `amount === 0 ? 'paid' : 'paid'` remnant of a never-finished trial/paid branch
+  (comment at line 600 still describes the intended two-way split). Nothing made the drift
+  detectable: no test binds financial*\* report output to billing.invoices, PaymentReportRow.status
+  is an untyped `string` (so the fabricated literal type-checks), and the method-level try/catch
+  converts even total DB absence into a 'completed' empty report. This is an instance of a systemic
+  class — 'financial figures synthesized from hardcoded plan prices instead of the billing SSoT' —
+  with three sibling instances in the same file.
+- **Fix design:** PATTERN-LEVEL (systemic class: planPricing-synthesized financials): make the
+  billing read-model the single code path for invoice data in the analytics module. Add a typed
+  ledger accessor to AnalyticsService (already the module's billing read-model owner and already
+  injecting Repository<InvoiceReadOnly>):
+  `getInvoiceLedger(startDate: Date, endDate: Date): Promise<InvoiceLedgerRow[]>` where
+  `InvoiceLedgerRow = { invoice: InvoiceReadOnly; tenantName: string }`, implemented as a
+  QueryBuilder over InvoiceReadOnly filtered by issue_date in [start,end], with tenant names
+  resolved via one tenantRepository.find({select:['id','name']}) map (no raw SQL, no per-row N+1).
+  This gives every current and future financial report exactly one way to obtain invoice rows (tier
+  2: correct behavior automatic) and eliminates any reason for report code to touch auth.tenants as
+  a money source. The three sibling planPricing instances (tenant_overview MRR, churn MRR/LTV,
+  revenue synthesis) are the same class and must be routed through subscription/invoice read-models
+  under their own finding IDs — do not silently leave the duplicated planPricing map as an available
+  temptation once payments is fixed. LOCAL APPLICATION (this finding): rewrite
+  generatePaymentsReport to consume getInvoiceLedger(request.startDate, request.endDate) (the
+  request is currently ignored as `_request`; the FE modal already sends the user-chosen range). Row
+  mapping is presentation-only: invoiceId = invoice.invoiceNumber (real), tenantName from ledger
+  row, amount = invoice.total, currency = invoice.currency, dueDate = invoice.dueDate ISO date,
+  status = invoice.status. Tier-1 typing: change PaymentReportRow.status from `string` to
+  `InvoiceStatus` (imported from entities/external/invoice.entity.ts) so a fabricated literal can no
+  longer type-check, and compute daysPastDue + summary buckets via an exhaustive switch over
+  InvoiceStatus with a `never` default (draft/pending/sent → pending bucket on amount_due; overdue →
+  overdue bucket on amount_due, daysPastDue = floor((now - dueDate)/day); paid → paid bucket on
+  total; partially_paid → pending bucket on amount_due with daysPastDue if past due; void/refunded →
+  excluded from collection-rate denominator) — adding a new enum member then becomes a compile
+  error, and the bucket semantics match AnalyticsService.getFinancialMetrics
+  (pending='pending','sent' on amount_due; overdue on amount_due; paid on total) so the payments
+  report and the financial KPIs cannot diverge. collectionRate = paidCount /
+  (paid+pending+overdue+partially_paid counts). Delete the planPricing map, the synthetic ID/dueDate
+  generation, and the tenant loop from this method entirely. Also delete the method-level try/catch
+  that returns an empty 'completed' report on DB error (reports.service.ts:638-650): a financial
+  report that cannot read the ledger must FAIL — let the error propagate to executeReport's existing
+  failure path (execution.status='failed', errorMessage set), which the FE already renders as a
+  Failed badge. No FE changes are required: ReportsPage/types are generic pass-through, and the fix
+  makes the Turkish card description ('Fatura ve odeme durumlari') true instead of changing it.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/reports-payments.spec.ts`
+- **Proof of fix:** New London-school spec
+  apps/admin-api-service/src/analytics/**tests**/reports-payments.spec.ts (mock
+  Repository<InvoiceReadOnly>/Repository<TenantReadOnly> via @platform/testing factories): (1) given
+  one invoice in each InvoiceStatus member, every emitted row carries the invoice's real
+  invoiceNumber, total, currency, dueDate and status — parameterize over
+  Object.values(InvoiceStatus) so a future enum member without a bucket fails the test (runtime
+  complement to the compile-time exhaustive switch, itself proven by `npm run type-check`); (2) with
+  a pending and an overdue invoice present, summary.totalPending and summary.totalOverdue equal the
+  amount_due sums, daysPastDue > 0 for the overdue row, and collectionRate < 100 — directly killing
+  the tautology; (3) a tenant with zero invoices in range produces zero rows (no fabrication from
+  auth.tenants: assert tenant repo used only for name resolution, invoice repo is the sole row
+  source); (4) the request startDate/endDate reach the ledger query predicate; (5) when the ledger
+  query rejects, generatePaymentsReport rethrows (no empty 'completed' report) and executeReport
+  persists status='failed'. Extend
+  apps/admin-api-service/src/analytics/**tests**/performance/reports-caching.spec.ts only if
+  payments is added to getCachedOrCompute. Gate: nx affected --target=test && nx affected
+  --target=lint green.
+- **Effort:** M
+
+### APA-139 [HIGH] financial_revenue report synthesizes revenue from hardcoded plan prices and current tenant status, ignoring billing data
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** generateRevenueReport builds daily revenue as monthlyPrice/30 per tenant using a
+  hardcoded price map (TRIAL:0, STARTER:99, PROFESSIONAL:299, ENTERPRISE:499 —
+  reports.service.ts:464-469) and applies each tenant's CURRENT status/plan retroactively to every
+  historical day (489-505), so history is rewritten whenever a tenant churns or upgrades.
+  renewals/upgrades/downgrades/refunds are hardcoded 0 (513-516). It never touches billing.invoices
+  or billing.subscriptions, so this report contradicts the dashboard's MRR which comes from
+  billing.subscriptions.pricing (analytics.service.ts:480-505). Silent wrong financial data in an
+  exportable report.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:464-517`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:480-519`
+- **Verification:** Prior verdict upheld by re-reading current code. generateRevenueReport
+  (apps/admin-api-service/src/analytics/services/reports.service.ts:456-557) synthesizes daily
+  revenue as hardcodedPrice/30 per tenant from auth.tenants only, applies CURRENT status/plan
+  retroactively to every historical day, and hardcodes renewals/upgrades/downgrades/refunds to 0 —
+  while the same module's AnalyticsService.getFinancialMetrics (analytics.service.ts:476-560)
+  computes MRR/revenue from billing.subscriptions.pricing and billing.invoices. Both
+  SubscriptionReadOnly and InvoiceReadOnly are already registered in AnalyticsModule.forFeature, so
+  the correct data source was available in-module and simply not used. Additionally the catch block
+  (545-556) converts any failure into an empty 'successful' report — the same
+  silent-wrong-financial-data class. Systemic: the identical hardcoded planPricing map appears 4x in
+  reports.service.ts (lines 349, 405, 464, 564) feeding tenant_overview, tenant_churn,
+  financial_revenue, and financial_payments.
+- **Root cause:** The BE→DB link broke: the report generator reads a non-temporal projection
+  (auth.tenants read-model: current status/plan only) and compensates with an in-code price table,
+  instead of the billing schema, which per CLAUDE.md D14 is the SSoT for subscription/monetary
+  state. It drifted because ReportsService predates the billing read-model integration:
+  AnalyticsModule later gained SubscriptionReadOnly/InvoiceReadOnly and getFinancialMetrics was
+  migrated to real billing data (see its 'Financial Metrics - REAL DATA' header and
+  CRITICAL-003/BUG-044 fix trail), but the four report generators were never migrated. The price
+  constant was copy-pasted four times inside one file with no shared source, and no test binds
+  report figures to billing data, so the dashboard/report contradiction was undetectable. The
+  retroactive-history bug is a structural consequence of the source choice: auth.tenants has no time
+  dimension, so the loop projects today's state backwards; the dated facts (invoice paid_at/period,
+  subscription start_date/cancelled_at, plan-change appliedAt) live only in billing.\*. The
+  hardcoded zeros for upgrades have one genuine upstream gap: billing.scheduled_plan_changes exists
+  but change-subscription-plan.handler.ts persists rows only for scheduled downgrades — immediate
+  upgrades (isUpgrade || input.immediate branch, line 145) apply with no history row, so the 'plan
+  change history' the stale comment asks for is 90% built and 10% unwritten.
+- **Fix design:** SYSTEMIC CLASS: 'financial figures synthesized from auth.tenants + hardcoded
+  plan-price map' — 4 instances in reports.service.ts. Fix at pattern level plus local application.
+
+PATTERN LEVEL (tier 1: remove the second price source; tier 3: make regression detectable):
+
+1. Single price-normalization SSoT: extract AnalyticsService.calculateMonthlyPrice into an exported
+   pure util monthlyPriceOf(sub: Pick<SubscriptionReadOnly,'pricing'|'billingCycle'>): number in a
+   new apps/admin-api-service/src/analytics/entities/external/subscription-pricing.util.ts
+   (colocated with the billing read-models). AnalyticsService delegates to it; ReportsService uses
+   it. Delete ALL FOUR planPricing literals in the same change — tenant_overview/churn/payments MRR
+   columns switch to joining billing.subscriptions via monthlyPriceOf. No hardcoded plan price can
+   exist afterwards.
+2. Static invariant tests/invariants/no-hardcoded-plan-pricing.spec.ts (same grep-style pattern as
+   existing tests/invariants/\*): fails on any literal plan-tier→price map outside
+   apps/billing-service/src/billing/services/plan-definition.service.ts.
+3. Extend the established C-6 read-model pattern with two new read-only entities (schema 'billing',
+   synchronize:false, snake_case mapping, DecimalTransformer where needed):
+   ScheduledPlanChangeReadOnly and PaymentReadOnly; register both in AnalyticsModule.forFeature.
+
+LOCAL APPLICATION (generateRevenueReport): replace the tenant loop with billing-fact SQL grouped by
+day over [startDate,endDate]: revenue = SUM(total) of billing.invoices status='paid' GROUP BY
+paid_at::date (cash basis — same semantics getFinancialMetrics uses for revenueThisMonth, so
+dashboard and report agree by construction); newSubscriptions = COUNT of billing.subscriptions GROUP
+BY start_date::date; renewals = paid invoices per day that are not the subscription's first period
+(EXISTS earlier invoice for same subscription_id); upgrades/downgrades = COUNT of
+billing.scheduled_plan_changes status='APPLIED' GROUP BY applied_at::date, classified by comparing
+currentPlanTier/newPlanTier with the same tier-order used by change-subscription-plan.handler
+(export that ordering from a shared location so classification cannot diverge from billing's
+isUpgrade logic); refunds = per-day SUM from billing.payments refunds jsonb (LATERAL
+jsonb_array_elements bucketed by refundedAt); netRevenue = revenue - refunds;
+summary.activePaidTenants from ACTIVE non-trial/free subscriptions, not tenants. Because every
+column now derives from immutably dated facts, churn/upgrades can no longer rewrite history. Also
+delete the catch-and-return-empty block (545-556) — a failed financial report must propagate as an
+HTTP error through the ResponseInterceptor envelope, never as an empty 'successful' report — and
+bump the Redis cache namespace (report: → report:v2:) so stale synthesized reports are not served
+for up to 4h post-deploy.
+
+UPSTREAM COMPLETENESS (root cause of the hardcoded upgrade zeros — fix the source, not the reader):
+in change-subscription-plan.handler.ts, immediate changes (isUpgrade || input.immediate || lateral)
+must also persist a ScheduledPlanChange row with status=APPLIED, effectiveDate=appliedAt=now, inside
+the same transaction that mutates the subscription. billing.scheduled_plan_changes thereby becomes
+the complete plan-change ledger (entity/table already have exactly the right shape and lifecycle;
+blue-green safe — inserts only, no schema change). Without this, the report would again silently
+report upgrades=0.
+
+FE: no change — RevenueReportRow keys are unchanged and admin-panel report rendering is generic; the
+fix is contract-preserving at the FE boundary.
+
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/subscription-pricing.util.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/scheduled-plan-change.entity.ts`
+  - `apps/admin-api-service/src/analytics/entities/external/payment.entity.ts`
+  - `apps/admin-api-service/src/analytics/analytics.module.ts`
+  - `apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts`
+  - `apps/billing-service/src/billing/__tests__/change-subscription-plan.handler.spec.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/reports-financial.spec.ts`
+  - `tests/invariants/no-hardcoded-plan-pricing.spec.ts`
+- **Proof of fix:** (1) New apps/admin-api-service/src/analytics/**tests**/reports-financial.spec.ts
+  (London-school, mocked repos/dataSource): seeds fixture subscriptions (mixed billing cycles incl.
+  quarterly/annual, non-default basePrice) + invoices (paid/refunded with paid_at across the
+  range) + APPLIED plan changes, and asserts (a) daily revenue rows equal paid-invoice sums per
+  paid_at day — NOT tenantCount\*price/30; (b) a tenant that churned yesterday still contributes to
+  prior days (history immutability); (c) upgrades/downgrades/renewals/refunds are nonzero when
+  fixtures contain them; (d) consistency invariant: sum of report revenue for the current month ===
+  getFinancialMetrics().revenueThisMonth on the same fixture — this is the test that makes
+  dashboard/report contradiction a build-time failure; (e) a repository error propagates as a thrown
+  exception, not an empty report. (2) New tests/invariants/no-hardcoded-plan-pricing.spec.ts: static
+  scan fails on any literal plan-tier→price map outside plan-definition.service.ts (catches all four
+  current maps and any future reintroduction). (3) Extended
+  apps/billing-service/src/billing/**tests**/change-subscription-plan.handler.spec.ts: immediate
+  upgrade persists an APPLIED ScheduledPlanChange row in the same transaction. Gate: nx affected
+  --target=test && nx affected --target=lint green.
+- **Effort:** L
+
+### APA-140 [MEDIUM] Date-range picker is a silent no-op for 5 of 7 report types
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** The Generate modal collects startDate/endDate for every type
+  (ReportsPage.tsx:612-639) and they are stored on the execution row, but the generators for
+  tenant_overview (reports.service.ts:302), tenant_churn (391), financial_payments (559),
+  usage_modules (657) and usage_features (687) all take `_request` and ignore the range entirely —
+  only financial_revenue and system_performance use it (461-462, 725-726). A user generating 'tenant
+  overview for last week' gets all-time data labeled with their chosen range. Worse, the cache key
+  includes the ignored dates (reports.service.ts:198-201), so identical all-time data is cached
+  per-range, masking the no-op.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:302`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:391`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:559`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:657-687`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:612-639`
+- **Verification:** Confirmed end-to-end per prior verdict; re-read all cited code. The FE
+  (ReportsPage.tsx:397-403, 612-639), API layer (executeReport in api/reports.ts), controller DTO
+  validation (reports.controller.ts:262-284), and execution persistence
+  (reports.service.ts:1283-1310) all faithfully carry startDate/endDate, but
+  generateTenantOverviewReport (302), generateChurnReport (391), generatePaymentsReport (559),
+  generateModuleUsageReport (657), and generateFeatureUsageReport (687) accept
+  `_request: ReportRequest` and never read the window. The cache key at line 201 includes the
+  ignored dates, so tenant_overview and tenant_churn (the two of the five that ARE cached) serve
+  identical all-time data under per-range keys, masking the no-op. Sibling instance: GET
+  /reports/churn-analysis `months` param (controller 394-409) computes a startDate that the churn
+  generator discards. Severity stays MEDIUM (prior verdict): data shown is real, not fabricated, but
+  it is mislabeled with a range the user chose — an integrity/trust defect in a SUPER_ADMIN
+  reporting surface, not a security or data-loss issue. Crucially, every one of the 5 broken types
+  has a viable range-scoped data source already in the codebase (daily snapshots for all 5
+  categories via createDailySnapshot at analytics.service.ts:921-955, tenant.updatedAt-derived
+  cancelDate, per-month synthetic invoices), so the honest fix is to make the contract true, not to
+  strip the UI.
+- **Root cause:** The broken link is inside the BE service layer, between the request contract and
+  the per-type generators. `ReportRequest`
+  (apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:196-203) declares
+  startDate/endDate REQUIRED for all 7 report types, and every upstream layer (FE modal, DTO
+  validation, execution row, cache key) honors that contract — but the contract terminates in a
+  hand-written switch (reports.service.ts:203-274) dispatching to generator methods whose signatures
+  allow the `_request` underscore idiom, which makes ignoring the window lint-clean (no-unused-vars
+  satisfied) and therefore invisible. It drifted because generators were built incrementally against
+  whatever data source was at hand: types with an obvious time series (financial_revenue synthesizes
+  per-day rows; system_performance queries snapshots) implemented the range, while types whose
+  source was "current DB state" (tenant list, live usage metrics, current-month synthetic invoices)
+  silently dropped it instead of either scoping via the snapshot table/timestamps or narrowing their
+  contract. No test ever exercised range sensitivity (the only analytics spec is
+  **tests**/performance/reports-caching.spec.ts), so the class "accepted-but-unread request
+  parameter" had no detection gate — the churn-analysis `months` param is a second instance of the
+  same class, and the range-bearing cache key actively masked the defect by making different ranges
+  return separately-cached identical data.
+- **Fix design:** SYSTEMIC CLASS: accepted-but-unread request parameter (also: triplicated
+  report-type literal lists in @IsIn decorators). Fix at the pattern level plus local application;
+  FE requires NO change — the modal already implements the contract, the fix makes the contract
+  true.
+
+PATTERN LEVEL (Tier 1 + Tier 3):
+
+1. Single source of truth for report types: export
+   `const REPORT_TYPES = ['tenant_overview', ...] as const` from analytics-snapshot.entity.ts and
+   derive `type ReportType = typeof REPORT_TYPES[number]`. Replace the three duplicated literal
+   arrays in @IsIn (reports.controller.ts:44, 73, 141) with `@IsIn(REPORT_TYPES)`.
+2. Replace the switch in generateReport with a typed generator registry:
+   `private readonly generators: Record<ReportType, { title: string; generate: (window: ReportWindow, filters?: Record<string, unknown>) => Promise<{ data: unknown[]; summary: Record<string, unknown> }> }>`,
+   where `ReportWindow = { readonly startDate: Date; readonly endDate: Date }` is non-optional and
+   normalized once in generateReport (defaults applied there, not per-generator).
+   `Record<ReportType, ...>` makes a missing generator a compile error when REPORT_TYPES grows; the
+   shared mandatory window parameter eliminates the `_request` escape-hatch idiom. Route ALL types
+   through getCachedOrCompute uniformly so the range-bearing cache key is correct by construction.
+3. Detection gate (the enforceable guarantee — types cannot force a value to be READ): new invariant
+   spec parameterized over REPORT_TYPES that seeds fixture data straddling a range boundary and, for
+   every report type, runs the generator with two disjoint windows asserting (a) rows dated outside
+   the window are excluded and (b) the two outputs differ where fixtures differ. Because it iterates
+   REPORT_TYPES, adding an 8th type without range semantics fails CI automatically.
+
+LOCAL APPLICATION (make each generator honor the window using data sources already present):
+
+- generateChurnReport: filter cancelled/suspended tenants by
+  `updatedAt BETWEEN window.startDate AND window.endDate` (cancelDate is already derived from
+  updatedAt at line 415). This simultaneously makes the churn-analysis `months` param (controller
+  394-409) functional with zero controller changes.
+- generateTenantOverviewReport: as-of-endDate snapshot + in-window activity: tenant set
+  `createdAt <= endDate`; audit-log storage estimate query (333-336) gains
+  `AND "createdAt" <= $endDate`; lastActivity = max audit timestamp within the window; summary
+  records the as-of date.
+- generatePaymentsReport: iterate the calendar months intersecting the window; for each month emit
+  one synthetic invoice (dueDate = 1st of that month, current logic at 590-594 generalized) per
+  tenant existing/active in that month; include only invoices with dueDate in the window.
+- generateModuleUsageReport / generateFeatureUsageReport: query
+  `admin.analytics_snapshots WHERE category = 'usage' AND "snapshotDate" BETWEEN $1 AND $2` and
+  aggregate (identical pattern to generatePerformanceReport at 733-741; usage snapshots are written
+  daily by createDailySnapshot, analytics.service.ts:932). If the window includes today,
+  additionally fold in live getUsageMetrics() and record
+  `summary.dataSource: 'snapshots' | 'snapshots+live'`; a purely historical window with no snapshots
+  returns empty rows with an explicit summary note — never silently serves current data labeled as
+  historical. No schema change: ReportExecution already persists startDate/endDate (entity 305-309);
+  no migration needed.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/reports-date-range.spec.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/analytics/**tests**/reports-date-range.spec.ts: parameterized
+  `describe.each(REPORT_TYPES)` — seed mocked repositories/dataSource with rows straddling a
+  boundary (tenants with updatedAt/createdAt in and out of range; usage and system snapshots in and
+  out of range; months in and out of range for invoices), invoke the generator registry with window
+  A = [T1,T2] and disjoint window B = [T3,T4], assert every emitted row's date field falls inside
+  the requested window and that outputs for A and B differ per fixtures; include a regression case
+  asserting GET /reports/churn-analysis with months=1 vs months=12 yields different row sets. Extend
+  apps/admin-api-service/src/analytics/**tests**/performance/reports-caching.spec.ts: two executions
+  of the same type with different ranges must produce different cached payloads (kills the
+  cache-masking), and all 7 types now pass through getCachedOrCompute. Gate:
+  `nx affected --target=test` green; the REPORT_TYPES-driven parameterization is the standing
+  invariant that any future report type must be range-sensitive or explicitly fail CI.
+- **Effort:** M
+
+### APA-141 [LOW] Scheduled reports have no scheduler — schedule and recipients are stored and never acted on
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified LOW)
+- **Symptom:** ReportDefinition carries schedule ('manual'|'daily'|'weekly'|'monthly') and
+  recipients[] (analytics-snapshot.entity.ts:245-252), accepted via
+  CreateDefinitionDto/UpdateDefinitionDto (reports.controller.ts:80-95, 114-124). The only cron in
+  the module is AnalyticsSnapshotScheduler for snapshots (analytics.module.ts:42;
+  analytics-snapshot.scheduler.ts:12-15); a repo-wide search finds no code that queries definitions
+  by schedule, executes them, or emails recipients. Any definition created as 'daily' silently never
+  runs and recipients never receive anything.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:245-252`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:80-95`
+  - `apps/admin-api-service/src/analytics/services/analytics-snapshot.scheduler.ts:12-15`
+  - `apps/admin-api-service/src/analytics/analytics.module.ts:41-43`
+- **Verification:** Prior adversarial verdict confirmed and re-verified against current code:
+  schedule ('manual'|'daily'|'weekly'|'monthly') and recipients[] are persisted
+  (analytics-snapshot.entity.ts:245-252; live migration
+  1800200000000-CreateAdminEntitySurfaceTables.ts:182-184), accepted via
+  CreateDefinitionDto/UpdateDefinitionDto (reports.controller.ts:80-95,114-124), stored verbatim
+  (reports.service.ts:1144-1192), and never read: the only @Cron in the module is
+  AnalyticsSnapshotScheduler (snapshots), lastRunAt/runCount advance only inside the manual POST
+  /reports/executions path (reports.service.ts:1338-1342), and no code in any service queries
+  definitions by schedule or dispatches to recipients. Severity stays LOW because the surface is
+  unreachable from the product: ReportsPage.tsx uses a local hard-coded reportDefinitions catalog
+  (lines 178, 365-366) and never calls the definitions API, and the FE ReportDefinition type
+  (services/types/reports.ts) drifted against an imagined contract (isActive/nextRunAt/columns) that
+  the BE would reject via forbidNonWhitelisted — so only direct API callers can create a 'daily'
+  definition, and none exist. It is a lying stored contract, not a user-facing breakage.
+- **Root cause:** The broken link is BE-persistence → executor, and it broke because the contract
+  was built ahead of its consumer with no gate to notice. schedule/recipients landed in entity +
+  DTO + migration as speculative surface for a scheduled-reporting feature whose executor (cron
+  sweep + delivery) never landed; honoring it today would even require extending the tenant-scoped
+  notification command contract (NotificationSendCommandBase requires tenantId; recipientRef kinds
+  cannot resolve raw platform-admin emails — notification-command.handler.ts:168-171).
+  Independently, the FE→BE link never formed: ReportsPage ships a hard-coded catalog instead of the
+  definitions API, and the FE ReportDefinition type was written against a different imagined backend
+  (isActive/nextRunAt/columns). With no consumer on either side ever forcing the contract to be
+  true, and no build-time invariant tying persisted behavioral config to a read site (ValidationPipe
+  whitelisting only polices unknown INBOUND fields, not accepted-but-unread STORED fields), the
+  write-only columns drifted silently. Instance of the systemic config-table-nobody-reads class.
+- **Fix design:** PRIMARY (tier 1 — make the lying contract impossible): remove the dead scheduling
+  surface so the API can no longer accept a promise nothing keeps. (a) Entity: delete the schedule
+  and recipients columns and the ReportSchedule type from ReportDefinition in
+  analytics-snapshot.entity.ts. (b) DTOs: delete schedule/recipients from CreateDefinitionDto and
+  UpdateDefinitionDto in reports.controller.ts — with platform forbidNonWhitelisted:true, any client
+  still sending them gets a 400, structurally preventing silent re-drift. (c) Service: drop
+  schedule/recipients from createDefinition/updateDefinition parameter types and the create() call
+  in reports.service.ts. (d) DB: NEW migration (never edit 1800200000000) dropping
+  admin.report_definitions."schedule" and "recipients", reversible down(); commit carries BREAKING
+  CHANGE footer per CLAUDE.md column-drop rule. (e) FE contract truth-up (same pass, per
+  fix-at-the-source discipline): rewrite ReportDefinition in
+  web/modules/admin-panel/src/services/types/reports.ts to mirror the real entity
+  (status:'active'|'inactive'|'draft', defaultFormat, defaultFilters, includeCharts, runCount,
+  lastRunAt, createdBy, createdByEmail, createdAt, updatedAt; delete
+  schedule/isActive/nextRunAt/columns) and align the Omit<> payload types in
+  services/api/reports.ts. PATTERN-LEVEL (tier 3 — the systemic config-table-nobody-reads gate): add
+  an architecture spec in admin-api-service that walks TypeORM metadata (getMetadataArgsStorage) for
+  every registered entity, matches column names against a behavioral-column registry pattern
+  (schedule|recipients|cron|nextRunAt|trigger-style names — registry declared in the spec as the
+  SSoT, same convention as SHARED_SCHEMA_TABLES in schema-invariants.spec.ts), and fails unless each
+  such column has at least one read site outside entities/, dto/, controllers/, and migrations/
+  (scanned source reference, including query-builder strings). A future PR reintroducing scheduled
+  reports then cannot merge the columns without the executor: it must land as a complete vertical
+  (UI exposure + DTO + scheduler sweep + a platform-scope extension of
+  NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL in libs/event-contracts/src/notification-commands.ts +
+  notification-service resolver) — that build-the-executor alternative was fully scoped during this
+  analysis and is the correct path ONLY if product asserts the requirement; it is feature work (>8h,
+  two services, contract extension), not remediation of this LOW finding, and the new gate forces
+  its completeness whenever attempted.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/migrations/1800300000000-DropReportDefinitionScheduleSurface.ts`
+  - `web/modules/admin-panel/src/services/types/reports.ts`
+  - `web/modules/admin-panel/src/services/api/reports.ts`
+  - `apps/admin-api-service/src/__tests__/architecture/persisted-config-consumer.architecture.spec.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/report-definition-contract.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/analytics/**tests**/report-definition-contract.spec.ts: (1) POST and
+  PUT /reports/definitions with schedule or recipients in the body return 400 (forbidNonWhitelisted
+  proves the boundary is closed, not just the DB); (2) TypeORM metadata for ReportDefinition
+  contains no schedule/recipients columns; (3) the new drop migration is reversible (up/down
+  round-trip against the test DB). New pattern gate
+  apps/admin-api-service/src/**tests**/architecture/persisted-config-consumer.architecture.spec.ts:
+  fails the build if any entity column matching the behavioral-column registry exists without a read
+  site outside entities/dto/controllers/migrations — seeded so that re-adding schedule/recipients
+  without an executor is red. FE proof: npm run type-check compiles after the ReportDefinition
+  rewrite, which is compile-time evidence no FE code consumed the removed fields (ReportsPage uses
+  its local catalog). Regression: existing schema-invariants.spec.ts and
+  tenant-schema-routing.architecture.spec.ts stay green; nx affected --target=test and --target=lint
+  green before commit; commit carries BREAKING CHANGE footer and Closes: line for this finding ID.
+- **Effort:** M
+
+### APA-142 [HIGH] usage_modules and usage_features reports contain placeholder zeros generated 'successfully'
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** Both reports derive from AnalyticsService.getUsageMetrics, which returns hardcoded
+  zeros for every module except dashboard DAU and zero for every featureAdoption entry
+  (analytics.service.ts:717-740). The report rows therefore show 0 sessions, 0 adoption, and a
+  hardcoded trend:'stable' (reports.service.ts:667-674, 697-703), yet the execution completes with
+  status 'ready' and is downloadable as CSV/PDF. The FE Quick Export 'Usage CSV' button
+  (ReportsPage.tsx:561-571) ships this fake content with no degraded-data indication.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:717-740`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:667-674`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:697-703`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:561-571`
+- **Verification:** Confirmed end-to-end against current code. Source: analytics.service.ts:698-741
+  returns hardcoded zeros for 6 of 7 modules and all featureAdoption keys, with only a server-side
+  logger.warn as signal. Reports: reports.service.ts:667-674 and 697-703 map those zeros 1:1 into
+  rows and add hardcoded trend:'stable'; because dashboard.activeUsers is real DAU, the report mixes
+  measured and fabricated values, making zeros read as measured. Execution: executeReport
+  (reports.service.ts:1256-1356) persists status 'completed' with MinIO artifact, sha256, rowCount,
+  and 7-day downloadUrl; FE maps 'completed'→'ready' (ReportsPage.tsx:51) with a Download button.
+  Reachable: Quick Export 'Usage CSV' (ReportsPage.tsx:561-571) →
+  handleQuickReport('usage_modules','csv') → POST /api/reports/execute (controller line 277; usage
+  types whitelisted in @IsIn at lines 44/141) behind the SUPER_ADMIN guard. No alternate real data
+  source exists (getModuleUsageChart/getFeatureAdoptionChart are the same placeholder class).
+  Aggravating facts the auditor missed: the FE report catalog is a hardcoded duplicate
+  (ReportsPage.tsx:178) of the BE catalog (reports.service.ts:1085-1092), and getUsageMetrics also
+  feeds the snapshot writer (analytics.service.ts:932), persisting fabricated zeros into
+  admin.analytics_snapshots as if measured. HIGH stands: fabricated business data delivered to
+  SUPER_ADMIN with cryptographic provenance; not CRITICAL because there is no
+  security/tenant-isolation/data-loss impact.
+- **Root cause:** The BE→data-source link is broken and the contract hides it: no usage-telemetry
+  source was ever built (the 'audit log analysis pipeline'), and the UsageMetrics type has no way to
+  represent 'unmeasured', so getUsageMetrics() fabricates a structurally complete all-zeros object
+  whose only honesty marker is a server-side logger.warn (tier-4 documentation, invisible to
+  consumers). The report layer maps fabricated values 1:1 into rows, adds its own fabrication
+  (trend:'stable'), and executeReport stamps the result 'completed' with artifact provenance
+  (sha256, rowCount, downloadUrl). Drift history: piecemeal fixes (LOW-001, C-3) removed Math.random
+  fabrication but preserved the placeholder-zero pattern; the degraded-mode contract added for the
+  dashboard (DashboardSummary.unavailable, analytics-snapshot.entity.ts:142) was never propagated to
+  the usage/report path; and the FE maintains its own hardcoded report catalog (ReportsPage.tsx:178)
+  duplicating the BE catalog (reports.service.ts:1085-1092), so no single point could gate
+  availability. This is an instance of the systemic 'placeholder-metrics-generated-successfully'
+  class (siblings: getModuleUsageChart, getFeatureAdoptionChart, SystemMetrics zero fields at
+  analytics.service.ts:653-659) compounded by the 'FE-catalog-duplicates-BE-catalog' class, and the
+  zeros additionally leak into admin.analytics_snapshots via the snapshot writer
+  (analytics.service.ts:932).
+- **Fix design:** Tier-1 fix: make fabricated metrics unrepresentable in the contract, then let the
+  compiler force every consumer to handle unavailability. (1) CONTRACT
+  (analytics-snapshot.entity.ts): introduce a discriminated availability union, e.g.
+  `type MetricSeries<T> = { available: true; value: T } | { available: false; reason: string }`, and
+  change `UsageMetrics` to
+  `{ avgDailyActiveUsers: number; moduleUsage: MetricSeries<Record<ModuleKey, ModuleUsageStats>>; featureAdoption: MetricSeries<Record<FeatureKey, number>> }`.
+  This generalizes the degraded-mode pattern the repo already has for `DashboardSummary.unavailable`
+  (entity line 142). (2) SOURCE (analytics.service.ts): `getUsageMetrics()` deletes the zero-object
+  literals (720-736) and returns
+  `{available:false, reason:'usage_telemetry_pipeline_not_implemented'}` for both groups; same
+  treatment for `getModuleUsageChart`/`getFeatureAdoptionChart` (748-774) — sibling instances of the
+  same class. The snapshot writer (line 932) must skip persisting unavailable series so
+  `admin.analytics_snapshots` stops being poisoned with fake zeros. (3) REPORTS
+  (reports.service.ts): `generateModuleUsageReport`/`generateFeatureUsageReport` throw
+  `UnprocessableEntityException(reason)` on the `available:false` branch (the compiler now forces
+  this choice); `executeReport`'s existing failure path (1345-1355) then persists status 'failed'
+  with the reason, so no 'completed'/'ready' execution or MinIO artifact of fabricated rows can ever
+  exist. Delete the hardcoded `trend:'stable'` (673, 702) — trend becomes derivable only from
+  measured snapshot history once the pipeline lands. `getReportTypes()` (1085-1092) gains
+  `available: boolean` + `unavailableReason?: string` computed from the same source checks. (4) FE
+  SINGLE SOURCE OF TRUTH (pattern-level fix for the duplicate-catalog class): delete the hardcoded
+  `reportDefinitions` array (ReportsPage.tsx:178) and fetch the catalog from
+  `reportsApi.getReportTypes()`; render both the report cards and the Quick Export grid from it,
+  disabling entries with `available:false` and showing `unavailableReason`. The 'Usage CSV' button
+  disappears/disables automatically, and the FE can never again offer a report the BE cannot
+  truthfully produce. Update FE types (services/types/analytics.ts) to mirror the availability union
+  so AnalyticsDashboardPage renders an explicit 'telemetry not yet available' state instead of zero
+  bars. LONG-TERM (tracked separately per CLAUDE.md discipline, owner + deadline + finding ID):
+  implement the real usage-telemetry pipeline (audit-log/event-derived sessions) that flips
+  `available:true`; the above makes the system honest and structurally prevents recurrence — it is
+  the root-cause fix for the integrity defect, not a workaround for the missing pipeline.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+  - `apps/admin-api-service/src/analytics/controllers/analytics.controller.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/performance/reports-caching.spec.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/reports-usage-availability.spec.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/services/api/reports.ts`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx`
+  - `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/analytics/**tests**/reports-usage-availability.spec.ts: (a)
+  executeReport for 'usage_modules' and 'usage_features' with the telemetry source unavailable
+  persists execution status 'failed' carrying the unavailability reason, never returns 'completed',
+  and never calls storageService.uploadFile (no artifact of fabricated rows can exist); (b)
+  getReportTypes() marks both usage entries available:false with unavailableReason; (c) every
+  ReportType union member appears exactly once in getReportTypes() output (catalog completeness
+  gate). Extend apps/admin-api-service/src/analytics/**tests**/performance/reports-caching.spec.ts
+  mocks to the new UsageMetrics availability-union shape (compile gate). New FE spec
+  web/modules/admin-panel/src/pages/**tests**/ReportsPage.spec.tsx: page renders its catalog from
+  mocked reportsApi.getReportTypes() and renders no enabled Generate/Quick-Export control for
+  available:false types (proves the hardcoded reportDefinitions array is gone). Structural
+  enforcement: the MetricSeries discriminated union makes moduleUsage/featureAdoption non-iterable
+  without checking `available`, so npm run type-check fails for any consumer (reports, dashboard,
+  snapshot writer, AnalyticsDashboardPage) that tries to render unmeasured data as numbers; nx
+  affected --target=test green including the new specs.
+- **Effort:** L
+
+### APA-143 [HIGH] system_performance report fabricates per-day metrics when no snapshots exist (45ms / 0.1% / 99.9% hardcoded)
+
+- **Status:** CONFIRMED+DESIGNED
+- **Symptom:** When admin.analytics_snapshots has no 'system' rows, generatePerformanceReport emits
+  one row per day with avgResponseTime:45, errorRate:0.1, uptime:99.9 hardcoded
+  (reports.service.ts:817-823); apiCalls is a shared.audit_logs row-count proxy (789-802). Even the
+  snapshot-backed path aggregates system snapshots whose source values are themselves hardcoded
+  zeros/100 (analytics.service.ts:649-660), so uptime/error/latency figures in this report never
+  reflect reality. The 'Performance CSV' quick export (ReportsPage.tsx:572-582) presents it as
+  measured data.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:817-823`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:789-802`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:649-660`
+- **Verification:** Confirmed by reading the code, not just the citations. Reachability: FE Quick
+  Export 'Performance CSV' (ReportsPage.tsx:572-582) calls
+  handleQuickReport('system*performance','csv') -> reportsApi.executeReport -> POST
+  /api/reports/executions (nginx /api/* -> /api/v1/\_) -> ReportsController.createExecution ->
+  ReportsService.executeReport -> generateReport -> generatePerformanceReport; four more live routes
+  reach the same generator, including POST /reports/quick/audit which mislabels it 'Quick Audit
+  Report'. Fabrication confirmed on BOTH branches: (1) no-snapshot fallback emits per-day rows with
+  hardcoded avgResponseTime:45, errorRate:0.1, uptime:99.9 (reports.service.ts:816-823), apiCalls =
+  shared.audit_logs daily row count (admin actions, not API traffic; 789-802), activeConnections =
+  the current instant's pg_stat_activity stamped onto every historical day; (2) the 'real' snapshot
+  path is fed by AnalyticsSnapshotScheduler (daily 1AM) -> createDailySnapshot
+  (analytics.service.ts:921-955) which persists getSystemMetrics() output hardcoding
+  avgResponseTimeMs:0, errorRate:0, uptimePercent:100, apiCallsToday:0, activeConnections:10
+  (analytics.service.ts:629, 649-660), and line 761's (m.uptimePercent || 99.9) converts even absent
+  fields into 99.9. Output is Redis-cached 4h, persisted as durable ReportExecution artifacts, and
+  exported as CSV/PDF to the SUPER_ADMIN as measured data — 99.9%/100% uptime would be reported
+  during a real outage. Aggravating fact the auditor missed: a REAL metrics pipeline already exists
+  in the same service (PerformanceMonitoringService,
+  admin.performance_metrics/performance_snapshots, per-minute cron, real response-time/error-rate
+  aggregation, real pg_stat metrics, signed health probes across 10 services) — analytics was never
+  rewired to it. HIGH stands: operator-facing data-integrity failure with durable exported
+  artifacts; not CRITICAL because there is no security/tenant-isolation impact.
+- **Root cause:** The DB->BE link broke twice in the same chain. AnalyticsService.getSystemMetrics()
+  was stubbed with literals ('requires infrastructure monitoring integration') before the real
+  performance pipeline landed, and was never rewired when PerformanceMonitoringService +
+  admin.performance_metrics/performance_snapshots (per-minute measured app/DB/infra metrics) arrived
+  in the same service — so the daily 'system' snapshots persist fabricated zeros/100. Then the
+  report layer compounded it: instead of representing absence honestly, generatePerformanceReport
+  papers over missing snapshots with plausible-looking constants (45ms/0.1%/99.9%) and proxies
+  (audit-log row counts as 'apiCalls'), because PerformanceReportRow's contract types every metric
+  as a non-nullable number — the type system structurally forces a number to exist for every day,
+  making fabrication the path of least resistance. Instance of the systemic class
+  'fabricated/placeholder metrics presented as measured data'.
+- **Fix design:** Systemic class: fabricated-placeholder-metrics-presented-as-measured. Fix at the
+  source (Tier 1/2), then gate (Tier 3). (A) Wire the real pipeline: AnalyticsModule imports
+  SystemManagementModule (PerformanceMonitoringService is already exported,
+  system-management.module.ts:66; no reverse import exists so no cycle).
+  AnalyticsService.getSystemMetrics() derives every field from measured sources:
+  avgResponseTimeMs/errorRate/apiCallsToday from getApplicationMetrics()/REQUEST_COUNT aggregation
+  over admin.performance_metrics; uptimePercent from the per-minute admin.performance_snapshots
+  (fraction of snapshots in the window with healthyContainers === containerCount); activeConnections
+  from getDatabaseMetrics().activeConnections — delete the hardcoded 10/0/100 literals. (B)
+  Honest-absence contract: change PerformanceReportRow (reports.service.ts) and SystemMetrics
+  (analytics-snapshot.entity.ts) so performance fields are number|null, and add summary.coverage =
+  daysWithData/totalDays. DELETE the entire no-snapshot fabrication branch
+  (reports.service.ts:807-827) — a day without data emits null metrics (CSV renders empty cell, PDF
+  renders n/a), never a constant. Remove the value-coalescing (`m.uptimePercent || 99.9`, `|| 0`) on
+  the snapshot-read path (lines 759-763): absent field means null, not an invented number;
+  saveSnapshot already controls the write shape. Drop the shared.audit_logs row-count-as-apiCalls
+  proxy (789-802) — apiCalls comes from REQUEST_COUNT metrics or is null. (C) Fix the mislabeled
+  generateQuickAuditReport (reports.service.ts:1528-1537), which runs system_performance under the
+  name 'Quick Audit Report' — same honesty class; point /reports/quick/audit at the real audit-log
+  report or rename the artifact. (D) FE contract: update
+  web/modules/admin-panel/src/services/types/reports.ts to the nullable row shape + coverage, and
+  render 'n/a'/no-data states in ReportsPage preview instead of numbers. The type change makes
+  silent fabrication structurally impossible: no code path can type-check while writing a numeric
+  literal into a day that has no backing measurement.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/analytics.module.ts`
+  - `web/modules/admin-panel/src/services/types/reports.ts`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx`
+  - `apps/admin-api-service/src/analytics/__tests__/performance-report-integrity.spec.ts`
+- **Proof of fix:** New spec
+  apps/admin-api-service/src/analytics/**tests**/performance-report-integrity.spec.ts: (1) with zero
+  performance metrics/snapshots seeded, every PerformanceReportRow metric field is null,
+  summary.coverage === 0, and no row/summary value equals the retired constants 45/0.1/99.9/100
+  (regression gate against reintroducing literals); (2) with seeded
+  admin.performance_metrics/performance_snapshots fixtures, report rows equal the seeded aggregates
+  exactly (avgResponseTime, errorRate, uptime derived from healthyContainers/containerCount,
+  apiCalls from REQUEST_COUNT sums); (3) getSystemMetrics() unit test proving each field varies with
+  repository-backed inputs (i.e. is not constant) and that createDailySnapshot persists the measured
+  shape. Extend apps/admin-api-service/src/**tests**/contract-validation.spec.ts to pin the nullable
+  PerformanceReportRow shape against web/modules/admin-panel/src/services/types/reports.ts so FE/BE
+  drift on the new number|null contract fails the build. Run via nx affected --target=test.
+- **Effort:** M
+
+### APA-144 [MEDIUM] Report 'View' preview can never show row data — data field is never populated
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** mapExecutionToReport maps only summary/rowCount/fileSizeBytes from the execution
+  (ReportsPage.tsx:56-66); GeneratedReport.data stays undefined because GET /reports/executions[:id]
+  returns the DB row without report content and the FE never fetches the artifact or calls the
+  /reports/generate preview endpoint. The preview modal's table branch
+  (Array.isArray(selectedReport.data), ReportsPage.tsx:710-737) therefore always renders 'No data
+  available', and the 'Showing first 10 records' logic (740-744) is dead code. Only Download works
+  for inspecting content.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:56-66`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:710-744`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:1245-1251`
+- **Verification:** Confirmed by tracing the full chain. FE: mapExecutionToReport
+  (web/modules/admin-panel/src/pages/ReportsPage.tsx:56-66) maps
+  id/type/format/title/generatedAt/status/summary/rowCount/fileSizeBytes only; the page-local
+  GeneratedReport.data?: unknown (line 44) is never assigned anywhere, and handleViewReport
+  (460-463) opens the modal without any fetch. Array.isArray(undefined) is false, so the table
+  branch (710) always renders 'No data available' and the 'Showing first 10 records' note (740-744)
+  is unreachable. BE: POST/GET /reports/executions[/:id] (reports.controller.ts:239-293) return the
+  ReportExecution entity, which has no data/rows column (analytics-snapshot.entity.ts:286-355) —
+  report content is uploaded to object storage by createReportArtifact
+  (reports.service.ts:1358-1417) and only retrievable as a binary attachment via
+  /reports/executions/:id/download. The canonical FE type ReportExecution
+  (services/types/reports.ts:31-51) correctly omits data; only the page's shadow type invented it.
+  POST /reports/generate does return rows, but its FE binding generateCustomReport is called by no
+  component. The View button is concretely reachable (status 'completed' maps to 'ready'; history
+  loads on mount). No ReportsPage test exists to catch the dead branch. Severity lowered from HIGH
+  to MEDIUM: the preview table is permanently dead and misleading ('No data available' beside a
+  visible row count), but summary tiles render, Download provides full content, and there is no
+  security or data-integrity impact — a functional/UX defect with a one-click workaround, not an
+  operational blocker.
+- **Root cause:** FE view-model drift against an artifact-based backend lifecycle. The backend
+  deliberately stores report content out-of-row (execution record = metadata + artifact keys; rows
+  live in MinIO), and the canonical FE contract type (services/types/reports.ts ReportExecution)
+  correctly mirrors that. The break is in the page: ReportsPage declared an independent shadow
+  interface GeneratedReport with an extra optional field data?: unknown that no mapper ever
+  populates — the optionality made the drift type-legal, TypeScript could not flag a field that is
+  declared-but-never-set, and no component test exercises the preview modal, so the dead branch
+  shipped. This is an instance of the systemic FE-type-drift class: page-local shadow types
+  redeclaring API shapes with silently-optional extras instead of deriving from the services/types
+  contract. Contributing backend gap: executeReport generates the full JSON row set in memory for
+  every execution (reports.service.ts:1303-1310 always calls generateReport with format 'json') but
+  discards it into the artifact without persisting any preview slice, leaving no cheap preview
+  source for the UI.
+- **Fix design:** Fix the contract at the source so preview data is automatic (Tier 2) and the
+  shadow-type drift is impossible (Tier 1), with test-time detection (Tier 3). (1) Backend — persist
+  a bounded preview at generation time: add a nullable jsonb column previewRows
+  (Record<string,unknown>[]) to the ReportExecution entity (schema 'admin', synchronize: false) plus
+  a new blue-green-safe migration adding the nullable column; in ReportsService.executeReport, after
+  generateReport returns, set execution.previewRows = Array.isArray(reportResult.data) ?
+  rows.slice(0, REPORT_PREVIEW_ROW_LIMIT) : undefined (exported const, 10 — matching the modal's
+  display cap) before the completed save. This works uniformly for json/csv/pdf executions (the rows
+  exist in memory at exactly this moment), needs no artifact re-parsing, no second endpoint, and
+  rowCount already carries the true total. Do NOT backfill old rows — csv/pdf artifacts cannot be
+  losslessly re-rowed; legacy executions render an honest 'Preview unavailable for this execution —
+  use Download' state instead of the misleading 'No data available'. (2) Contract — add
+  previewRows?: Array<Record<string, unknown>> to the canonical FE ReportExecution type
+  (services/types/reports.ts), keeping FE type = entity response shape. (3) FE page — eliminate the
+  drift class locally: replace the hand-rolled GeneratedReport interface with a type derived from
+  ApiReportExecution (Pick of the mapped fields + the narrowed status union + previewRows), so
+  declaring a field the API type does not carry becomes a compile error; mapExecutionToReport maps
+  previewRows; the modal table renders selectedReport.previewRows and the truncation note becomes
+  rowCount > previewRows.length ('Showing first {previewRows.length} of {rowCount} records'). Remove
+  the now-provably-dead generateCustomReport/getQuickReport bindings only if the audit's dead-code
+  sweep confirms no other consumer (separate finding class — do not bundle). Pattern-level statement
+  for the audit: page-local report/view models in admin-panel must be derived (Pick/mapped types)
+  from services/types contracts, never independently declared — this finding is the exemplar; the
+  systemic gate belongs with the audit's FE-type-drift remediation track.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/migrations/1801600000000-AddReportExecutionPreviewRows.ts`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `web/modules/admin-panel/src/services/types/reports.ts`
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx`
+  - `web/modules/admin-panel/src/pages/__tests__/ReportsPage.spec.tsx`
+  - `apps/admin-api-service/src/analytics/__tests__/reports-execution-preview.spec.ts`
+- **Proof of fix:** New FE component test
+  web/modules/admin-panel/src/pages/**tests**/ReportsPage.spec.tsx (sibling to existing
+  CreateTenantPage.spec.tsx): mock reportsApi.getReportExecutions to return a completed execution
+  with previewRows (12 rows sliced to 10 server-side is simulated as 10 rows + rowCount 12); click
+  View; assert the table renders the column headers and 10 data rows and the 'Showing first 10 of 12
+  records' note; second case with previewRows undefined asserts the honest 'Preview unavailable'
+  state (and that 'No data available' no longer appears for a report with rowCount > 0). New backend
+  spec apps/admin-api-service/src/analytics/**tests**/reports-execution-preview.spec.ts: for each
+  format json/csv/pdf, executeReport persists previewRows equal to the first
+  REPORT_PREVIEW_ROW_LIMIT rows of the generated data (and undefined for non-array data), while the
+  artifact upload still receives the full row set. Existing gates that must stay green:
+  e2e/tests/integration/schema-invariants.spec.ts (new column via migration in schema admin, entity
+  synchronize: false) and npm run type-check (the Pick-derived GeneratedReport makes any future
+  phantom field a compile error).
+- **Effort:** M
+
+### APA-145 [MEDIUM] Generator errors are swallowed into 'completed' executions with empty data
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** generateRevenueReport, generatePaymentsReport and generatePerformanceReport catch all
+  errors and return { data: [], summary: { ..., error: '...' } } (reports.service.ts:545-557,
+  638-650, 849-861). executeReport then marks the execution 'completed' with rowCount 0 (1322-1335),
+  so a DB failure surfaces to the operator as a Ready report with zero rows; the error string is
+  buried in the summary tiles.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:545-557`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:638-650`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:1322-1335`
+- **Root cause:** generateRevenueReport (545-557), generatePaymentsReport (638-650) and
+  generatePerformanceReport (849-861) each wrap their whole body in try/catch and, on any failure,
+  RETURN a success-shaped `{ data: [], summary: { …, error } }`. That defeats executeReport's own
+  try/catch (reports.service.ts:1345-1355) which is designed to mark the execution 'failed' —
+  instead executeReport sees a resolved value and marks status 'completed' with rowCount 0
+  (1322-1335). generateTenantOverviewReport/generateChurnReport do NOT swallow, so behaviour is
+  inconsistent. Operator sees a 'Ready' report with 0 rows; the real error is buried in a summary
+  tile. Instance of the systemic 'swallowed error rendered as success' class.
+- **Fix design:** Tier-1: delete the three internal try/catch blocks and let the error propagate,
+  exactly like the two non-swallowing generators already do. executeReport's existing catch then
+  sets status='failed' + errorMessage (persisted on ReportExecution.errorMessage) and re-throws, so
+  ReportsPage's mapExecutionStatus renders 'Failed' truthfully. No error-string-in-summary remains.
+  Verification: add
+  apps/admin-api-service/src/analytics/services/**tests**/reports.service.execute.spec.ts mocking a
+  DataSource.query rejection inside a revenue/payments/performance run and asserting executeReport
+  marks status 'failed' (not 'completed') with a populated errorMessage.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+- **Effort:** S
+
+### APA-146 [MEDIUM] ReportResult.downloadUrl from POST /reports/generate is a dead link
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** generateReport sets downloadUrl = `/api/reports/download/${result.id}` where id is
+  'rpt*<ts>*<hex>' (reports.service.ts:281, 291-293), but the only matching route is GET
+  /reports/download/:reportType which validates the param against the 7 report-type literals and
+  throws 400 for anything else (reports.controller.ts:497-513). Any client following the returned
+  URL gets 'Invalid report type: "rpt\_..."'. (ReportsPage itself uses the executions flow, so only
+  the /reports/generate contract is broken.)
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:281-293`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:497-513`
+- **Root cause:** generateReport synthesizes id `rpt_<ts>_<hex>` (reports.service.ts:281) and, for
+  csv/pdf, sets downloadUrl=`/api/reports/download/${id}` (291-293). The only matching route is GET
+  reports/download/:reportType (controller 497-513), whose param is a REPORT TYPE validated against
+  the 7 literals — an `rpt_…` value throws 400 'Invalid report type'. The synchronous generateReport
+  result is never persisted by id, so a by-id download route cannot exist; the URL is structurally
+  dead. The real, persisted download path is the executions flow (reports/executions/:id/download),
+  which ReportsPage already uses.
+- **Fix design:** Tier-1: stop representing a link that cannot resolve. Remove the downloadUrl
+  construction from generateReport and delete downloadUrl from the ReportResult interface
+  (analytics-snapshot.entity.ts:213) and the FE ReportExecution/result type where it mirrors this
+  path — the synchronous /reports/generate endpoint returns data+summary inline for preview, and all
+  file downloads go through the persisted executions artifact flow (getExecutionDownload, which sets
+  a valid downloadUrl at 1330). If a one-shot download off /generate is truly wanted, point it at
+  the valid type-based route `/api/reports/download/${type}?format=${format}` instead of the
+  ephemeral id. Verification: add a reports.controller e2e asserting the /generate response carries
+  no downloadUrl (or a 200-resolving one), plus a guard test that download/:reportType 400s only on
+  invalid types.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+- **Effort:** S
+
+### APA-147 [MEDIUM] Hardcoded plan-price table duplicated 4x in ReportsService, diverging from billing.subscriptions pricing SSoT
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** planPricing {STARTER:99, PROFESSIONAL:299, ENTERPRISE:499} is repeated in
+  tenant_overview (reports.service.ts:349-354), churn (405-410), revenue (464-469) and payments
+  (564-569) generators, while the dashboard's MRR uses actual
+  billing.subscriptions.pricing.basePrice with billing-cycle proration
+  (analytics.service.ts:565-580). Any real price change makes every report's MRR/LTV columns
+  silently wrong and inconsistent with the dashboard on the same screen.
+- **Evidence:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:349-354`
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts:464-469`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:565-580`
+- **Root cause:** The plan->price map {TRIAL:0,STARTER:99,PROFESSIONAL:299,ENTERPRISE:499} is
+  copy-pasted into four generators (reports.service.ts:349-354, 405-410, 464-469, 564-569) and
+  drives their mrr/lifetimeValue/revenue columns, while the dashboard's MRR is computed from the
+  real SSoT billing.subscriptions.pricing.basePrice with billing-cycle proration
+  (analytics.service.ts:494-503 + calculateMonthlyPrice 565-580). The two disagree on the same
+  screen and any actual price/plan change silently corrupts every report. Instance of the systemic
+  'hardcoded pricing duplicated instead of read from the billing SSoT' class.
+- **Fix design:** Tier-1/2: single source of truth. Extract the subscription->monthly-price
+  resolution into one reusable helper (e.g. AnalyticsService.getTenantMonthlyPriceMap():
+  Promise<Map<tenantId, number>> that reads billing.subscriptions and applies calculateMonthlyPrice
+  per billingCycle), and consume it from both AnalyticsService.getFinancialMetrics and all four
+  ReportsService generators; delete the four planPricing literals. Tenants without an active
+  subscription resolve to 0 (or trial). This makes reports and dashboard structurally consistent and
+  price changes propagate from one place. Verification: extend reports.service spec to assert a
+  subscription pricing change is reflected in tenant_overview/churn/revenue/payments rows, and a
+  guard test that grep-forbids inline plan-price literals in reports.service.ts.
+- **Files to change:**
+  - `apps/admin-api-service/src/analytics/services/reports.service.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+- **Effort:** M
+
+### APA-148 [LOW] Report history capped at first 20 executions with no pagination UI
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** loadReportHistory requests page:1 limit:20 (ReportsPage.tsx:376) and renders the list
+  with no pager, although the backend returns total/page/limit meta (reports.controller.ts:239-254).
+  Older executions become unreachable from the UI even though their download links are still valid
+  for 7 days.
+- **Evidence:**
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx:374-381`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:239-254`
+- **Root cause:** loadReportHistory hardcodes page:1 limit:20 (ReportsPage.tsx:376) and the
+  'Recently Generated Reports' card renders the list flat with no pager (519-534), even though
+  getExecutions returns {data,total,page,limit} (controller 239-254) and the FE PaginatedResult type
+  already carries total/page/limit. Any operator with >20 executions cannot reach older ones from
+  the UI although their by-id download links stay valid for 7 days.
+- **Fix design:** Tier-2: lift page into component state, pass it to
+  reportsApi.getReportExecutions({page,limit}), and render prev/next (or numbered) controls driven
+  by the returned total/limit, disabling next when page\*limit>=total. No backend change — the
+  pagination contract already exists end-to-end. Verification: ReportsPage.history.spec.tsx
+  asserting a second page request fires on Next and older executions become reachable.
+- **Files to change:**
+  - `web/modules/admin-panel/src/pages/ReportsPage.tsx`
+- **Effort:** S
+
+## Cross-cutting findings
+
+### APA-149 [MEDIUM] Hand-written FE analytics types drift from actual backend response shapes on ~10 endpoints — consumers render undefined
+
+- **Status:** CONFIRMED+DESIGNED (audited HIGH → verified MEDIUM)
+- **Symptom:** No codegen; field-by-field comparison shows: (1) FE getTenantMetrics expects
+  PaginatedResult<TenantMetrics> with per-tenant rows (types/analytics.ts:82-92) but GET
+  /analytics/tenants returns a single aggregate object (analytics.controller.ts:193-196, service
+  TenantMetrics shape); (2) FE getUserMetrics expects {totalUsers, activeUsers, newUsers,
+  churnedUsers} (api/analytics.ts:68-69) vs backend {total, active, inactive, newThisMonth, ...};
+  (3) FE getFinancialMetrics expects {mrr, arr, ltv, cac, churnRate} (api/analytics.ts:83-84) —
+  backend has no cac/churnRate; (4) FE getSystemAnalytics expects {cpuUsage, memoryUsage, diskUsage,
+  uptime} (api/analytics.ts:91-92) vs backend SystemMetrics {totalStorageBytes, ...}; (5) FE
+  getModuleUsageAnalytics, getFeatureAdoption, getFinancialByPlan, getUserHeatmap,
+  getSystemApiCallsTrend, getSystemErrorsTrend expect flat arrays (api/analytics.ts:73-96) but
+  backend returns ChartData {labels, datasets} or TimeSeriesData {label, data, color}
+  (analytics.controller.ts:277-388, entity ChartData 171-179); (6) FE getKpiComparisons expects
+  KpiComparison[] (types/analytics.ts:73-80) vs backend Record<string, ComparisonDto>
+  (analytics.service.ts:799-829); (7) FE getTenantChurn expects GrowthTrend[] vs backend
+  TimeSeriesData; (8) FE getAnalyticsSnapshots expects {id, date, metrics} vs entity {id,
+  snapshotType, category, snapshotDate, metrics, metadata, createdAt}. Every one of these misrenders
+  or crashes any consumer; only the endpoints actually used by AnalyticsDashboardPage (dashboard, 3
+  trend endpoints) happen to match.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/analytics.ts:28-100`
+  - `web/modules/admin-panel/src/services/types/analytics.ts:73-135`
+  - `apps/admin-api-service/src/analytics/controllers/analytics.controller.ts:193-196, 277-388`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts:799-829`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:171-179`
+- **Verification:** Verified field-by-field against current code: all 8 claimed drifts are real. (1)
+  GET /analytics/tenants (controller L193-196) returns the aggregate TenantMetrics {total, active,
+  inactive, trial, suspended, newThisMonth, churnedThisMonth, churnRate, growthRate, byPlan,
+  byRegion} (service L256-310) while FE declares PaginatedResult of per-tenant rows {tenantId,
+  tenantName, userCount, ...} — two unrelated types share the name TenantMetrics, and the FE's
+  page/sortBy/order params hit a controller with zero @Query params. (2) /analytics/users returns
+  UserMetrics {total, active, inactive, newThisMonth, ...} (L344-400) vs FE {totalUsers,
+  activeUsers, newUsers, churnedUsers} — zero overlap. (3) FinancialMetrics (L541-559) has no
+  cac/churnRate. (4) SystemMetrics (L649-660) has no cpuUsage/memoryUsage/diskUsage. (5)
+  usage/modules, usage/features, financial/by-plan, users/heatmap all return ChartData {labels,
+  datasets} (L419-467, L597-612, L746-774); system/api-calls and system/errors return TimeSeriesData
+  {label, data, color} (L666-687) — FE declares flat arrays for all six. (6) kpi-comparisons returns
+  Record<string, ComparisonDto> (L799-829) vs FE KpiComparison[] — .map on a Record throws. (7)
+  tenants/churn returns TimeSeriesData (L327-334) vs FE GrowthTrend[]. (8) /snapshots returns raw
+  AnalyticsSnapshot entities {id, snapshotType, category, snapshotDate, metrics, metadata,
+  createdAt} vs FE {id, date, metrics} — 'date' does not exist. The http-client envelope unwrap
+  (http-client.ts L341-351) passes controller returns through untransformed, so the FE generic is
+  the de-facto contract. REFUTATION RESULT (severity demotion): exhaustive grep of web/ shows the
+  only live consumers are AnalyticsDashboardPage.tsx (getDashboardSummary + 3 range-based trend
+  calls, all returning TimeSeriesResponse — verified matching) and BillingDashboardPage.tsx
+  (getRevenueAnalytics — verified matching field-for-field, service L1131-1200). No shipped page
+  hits any drifted endpoint today, so no user-visible failure is currently reachable; the drifted
+  functions are exported, type-checked false contracts that guarantee a runtime break for their
+  first caller (TypeScript actively lies, which is worse than untyped). Real defect, systemic
+  FE-type-drift class, but HIGH overstates present impact: MEDIUM.
+- **Root cause:** The FE→BE link broke at the type-declaration layer: the admin panel hand-writes
+  duplicate response types at every call site (web/modules/admin-panel/src/services/api/analytics.ts
+  inline generics + services/types/analytics.ts) with no mechanical link to the backend source of
+  truth (the plain interfaces in
+  apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts and service return
+  types). Nothing at build or test time compares the two, so each side evolved independently: the
+  backend consolidated to aggregate metrics objects, ChartData/TimeSeriesData chart shapes, and
+  Record-keyed KPI comparisons, while the FE types were authored aspirationally (per-tenant rows,
+  flat arrays, cac/cpuUsage fields that never existed server-side). The name collision (two
+  different TenantMetrics) hid the drift, and the backend's own 'Frontend API compatibility' comment
+  on the one manually-aligned endpoint group (revenue analytics) proves alignment was per-endpoint
+  manual effort — exactly the failure mode that produced drift on the other ten. This is an instance
+  of the systemic FE-type-drift class already gated elsewhere in the repo by runtime-contract
+  invariants (tests/invariants/admin-billing-runtime-contract.spec.ts) but with no gate for
+  admin-panel HTTP response shapes.
+- **Fix design:** Pattern-level fix (tier 1 — make drift structurally impossible) plus local
+  application. (A) Create a shared wire-contract lib `libs/admin-contracts` (path-aliased in
+  tsconfig.base.json like backend-common) holding the analytics response contracts as JSON-wire
+  types (dates as ISO strings): TenantMetrics, UserMetrics, FinancialMetrics, SystemMetrics,
+  UsageMetrics, DashboardSummary, TimeSeriesPoint, TimeSeriesData, TimeSeriesResponse, ChartData,
+  ComparisonDto + KpiComparisons = Record<string, ComparisonDto>, AnalyticsSnapshotDto {id,
+  snapshotType, category, snapshotDate, metrics, metadata?, createdAt}, RevenueAnalytics,
+  RevenueByPlanAnalytics, RevenueTrendAnalytics. Move the pure interfaces OUT of
+  analytics-snapshot.entity.ts into the lib (they carry no decorators; this also honors the
+  CLAUDE.md rule separating domain contracts from persistence entities) and have the entity,
+  service, and controller import them. Backend methods whose wire shape differs from internal
+  representation map explicitly at the boundary (getSnapshots: entity → AnalyticsSnapshotDto with
+  ISO-string dates; getDashboardSummary: generatedAt as ISO string). OpenAPI codegen was considered
+  and rejected: controllers type responses via ReturnType<Service[...]> with no @ApiResponse
+  decorators, so generated specs would be shapeless — decorating every endpoint is more work and
+  weaker than direct compiler enforcement in a single-TS monorepo. (B) Local application:
+  web/modules/admin-panel/src/services/types/analytics.ts deletes its drifted local declarations and
+  re-exports the contract lib; services/api/analytics.ts replaces the ten wrong generics with the
+  real shared types — getTenantMetrics → TenantMetrics aggregate (drop the pagination/sort params
+  the controller does not accept), getUserMetrics → UserMetrics, getFinancialMetrics →
+  FinancialMetrics, getSystemAnalytics → SystemMetrics,
+  getModuleUsageAnalytics/getFeatureAdoption/getFinancialByPlan/getUserHeatmap → ChartData,
+  getSystemApiCallsTrend/getSystemErrorsTrend → TimeSeriesData, getKpiComparisons → Record<string,
+  ComparisonDto>, getTenantChurn → TimeSeriesData, getAnalyticsSnapshots → AnalyticsSnapshotDto[].
+  Existing consumers (AnalyticsDashboardPage, BillingDashboardPage) already use matching endpoints
+  and need no changes; the shared types now compiler-pin both producer and consumer, so any future
+  backend shape change breaks `npm run type-check` in the FE. (C) Tier-3 gate against reintroduction
+  of the systemic class: new invariant spec asserting admin-panel api/type files and
+  admin-api-service analytics controller/service source analytics response types only from
+  @aquaculture/admin-contracts (grep-based, following the admin-billing-runtime-contract.spec.ts
+  pattern), plus a compile-time assignability spec in the service binding each controller method's
+  Awaited<ReturnType> to its shared wire type.
+- **Files to change:**
+  - `libs/admin-contracts/src/analytics.ts`
+  - `libs/admin-contracts/src/index.ts`
+  - `libs/admin-contracts/project.json`
+  - `tsconfig.base.json`
+  - `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts`
+  - `apps/admin-api-service/src/analytics/services/analytics.service.ts`
+  - `apps/admin-api-service/src/analytics/controllers/analytics.controller.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+  - `web/modules/admin-panel/src/services/api/analytics.ts`
+  - `web/modules/admin-panel/src/services/types/index.ts`
+  - `apps/admin-api-service/src/analytics/__tests__/analytics-contract.spec.ts`
+  - `tests/invariants/admin-panel-contract-ssot.spec.ts`
+- **Proof of fix:** New tests/invariants/admin-panel-contract-ssot.spec.ts (pattern: existing
+  admin-billing-runtime-contract.spec.ts) fails if any file under
+  web/modules/admin-panel/src/services/{api,types}/ declares a local analytics response shape
+  instead of importing @aquaculture/admin-contracts, or if the analytics controller/service stop
+  importing the shared names. New
+  apps/admin-api-service/src/analytics/**tests**/analytics-contract.spec.ts type-binds
+  Awaited<ReturnType<AnalyticsController['getTenantMetrics'|'getKpiComparisons'|'getSnapshots'|...]>>
+  to the shared wire types, so a producer-side shape change is a compile failure.
+  `npm run type-check` proves both sides compile against the single declaration set;
+  `nx affected --target=test` runs both specs plus existing
+  AnalyticsDashboardPage/BillingDashboardPage suites to confirm the matching endpoints still
+  type-check unchanged.
+- **Effort:** M
+
+### APA-150 [MEDIUM] FE ReportDefinition contract drift: createReportDefinition payload would be 400-rejected by forbidNonWhitelisted; FE reads fields backend never returns
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** FE ReportDefinition has isActive, columns, filters, nextRunAt
+  (types/reports.ts:16-29) while backend CreateDefinitionDto whitelists
+  name/description/type/defaultFormat/schedule/defaultFilters/recipients/includeCharts
+  (reports.controller.ts:65-95) under the platform-wide ValidationPipe {whitelist:true,
+  forbidNonWhitelisted:true} (libs/backend-common/src/bootstrap/create-service-app.ts:458-461).
+  reportsApi.createReportDefinition sends Omit<ReportDefinition,...> (api/reports.ts:21-22), so
+  isActive/columns/filters trigger a 400; and any list UI reading isActive/nextRunAt gets undefined
+  because the entity exposes status/schedule and has no nextRunAt
+  (analytics-snapshot.entity.ts:242-273). Currently latent (ReportsPage does not use definitions)
+  but breaks the saved-reports feature the API layer advertises.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/types/reports.ts:16-29`
+  - `web/modules/admin-panel/src/services/api/reports.ts:21-27`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts:65-95`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:458-461`
+- **Root cause:** Hand-written FE ReportDefinition (types/reports.ts:16-29) has drifted from the
+  backend contract on three axes: (a) forbidden fields — isActive, columns, filters, nextRunAt,
+  createdBy are not in CreateDefinitionDto's whitelist (controller 65-95) so, under the platform
+  ValidationPipe whitelist+forbidNonWhitelisted (create-service-app.ts:459-461), the
+  createReportDefinition payload Omit<ReportDefinition,'id'|'createdAt'|'lastRunAt'>
+  (api/reports.ts:21-22) 400s; (b) renamed fields — FE `filters` vs backend `defaultFilters`, FE
+  `isActive` vs entity `status` (analytics-snapshot.entity.ts:242-243); (c) missing/fabricated — FE
+  lacks defaultFormat/recipients/includeCharts and invents columns/nextRunAt that the entity never
+  returns (so any list UI reading them gets undefined). Latent only because ReportsPage doesn't yet
+  use definitions. Instance of the systemic 'hand-written admin FE type drifts from backend
+  entity/DTO' class.
+- **Fix design:** Tier-1/3 at the source. Local: align ReportDefinition to the entity+DTO — replace
+  isActive with status:'active'|'inactive'|'draft', filters with defaultFilters, add
+  defaultFormat/recipients/includeCharts/runCount/updatedAt, drop columns/nextRunAt; make
+  createReportDefinition's payload type match CreateDefinitionDto exactly
+  (name/description/type/defaultFormat/schedule/defaultFilters/recipients/includeCharts).
+  Pattern-level (make drift detectable): add a contract-parity invariant test that asserts the keys
+  the FE sends to /reports/definitions are a subset of CreateDefinitionDto's whitelisted properties
+  (import the DTO's class-validator metadata or a shared contract), so any future drift fails CI at
+  build time rather than 400ing at runtime. Verification:
+  tests/invariants/report-definition-contract.spec.ts (new) plus a type-level test that
+  createReportDefinition's arg is assignable to CreateDefinitionDto.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/types/reports.ts`
+  - `web/modules/admin-panel/src/services/api/reports.ts`
+  - `apps/admin-api-service/src/analytics/controllers/reports.controller.ts`
+- **Effort:** M
+
+### APA-151 [MEDIUM] Dead FE API functions throw synchronously ('Not implemented') — landmines for any future caller
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** analyticsApi.getApiUsageByEndpoint, getEngagementMetrics, getFeatureUsage and
+  getGeographicDistribution throw Error('Not implemented: no backend endpoint ...') synchronously
+  (web/modules/admin-panel/src/services/api/analytics.ts:44-61). Unlike a rejected promise, a
+  synchronous throw inside a non-async arrow escapes typical .catch() chains in callers that expect
+  a Promise. The corresponding FE types (UsageAnalytics apiCallsByEndpoint, EngagementMetrics —
+  types/analytics.ts:127-144) still advertise these capabilities.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/api/analytics.ts:44-61`
+  - `web/modules/admin-panel/src/services/types/analytics.ts:127-144`
+- **Root cause:**
+  getApiUsageByEndpoint/getEngagementMetrics/getFeatureUsage/getGeographicDistribution are non-async
+  arrows that `throw new Error('Not implemented…')` synchronously (api/analytics.ts:44-61). A sync
+  throw from a supposedly-Promise-returning API fn escapes any caller `.then().catch()` chain (the
+  throw happens before a promise exists), so a future caller's error handling silently fails to
+  catch. Grep confirms zero current callers, and the advertised capabilities live on in
+  UsageAnalytics.apiCallsByEndpoint and the unused EngagementMetrics type
+  (types/analytics.ts:129,137-144), so the API surface promises endpoints the backend does not have.
+  Instance of the systemic 'FE API/type advertises a non-existent backend endpoint' class.
+- **Fix design:** Tier-1: delete the four dead stub functions outright (removing the landmine — an
+  absent method is a compile error, a throwing method is a latent runtime trap), and delete the
+  now-orphaned EngagementMetrics interface and the apiCallsByEndpoint field on UsageAnalytics that
+  only these stubs backed (verified no consumers). If any capability is genuinely planned, it should
+  be (re)introduced only alongside its real backend route as a normal async apiFetch. Verification:
+  a lint/invariant test forbidding `throw new Error('Not implemented` inside services/api/\*,
+  ensuring no future dead-throwing stubs reappear.
+- **Files to change:**
+  - `web/modules/admin-panel/src/services/api/analytics.ts`
+  - `web/modules/admin-panel/src/services/types/analytics.ts`
+- **Effort:** S
+
+### APA-152 [LOW] X-CSRF-Token double-submit machinery is decorative for admin-api — no server-side check, cookie never set
+
+- **Status:** DESIGNED (brief)
+- **Symptom:** http-client attaches X-CSRF-Token from an XSRF-TOKEN cookie on mutations
+  (web/modules/admin-panel/src/services/http-client.ts:256-263), but a repo search of
+  apps/admin-api-service/src and libs/backend-common/src finds no CSRF validation middleware and
+  nothing that sets the XSRF-TOKEN cookie for this service (only a doc example mentioning the header
+  in create-service-app.ts:558). Auth is Bearer-header (not cookie) based via PlatformAdminGuard so
+  actual CSRF exposure is low, but the FE security comment ('server rejects on mismatch') describes
+  enforcement that does not exist; report mutations succeed with no CSRF token at all.
+- **Evidence:**
+  - `web/modules/admin-panel/src/services/http-client.ts:96-106, 256-263`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:558`
+  - `apps/admin-api-service/src/guards/platform-admin.guard.ts:90-106`
+- **Root cause:** The admin-panel http-client implements the OWASP double-submit-cookie CSRF pattern
+  on mutating methods (reads XSRF-TOKEN cookie, echoes it as X-CSRF-Token;
+  http-client.ts:96-106,256-263) and its comment asserts 'server rejects on mismatch'. But nothing
+  on the server side participates: admin-api main.ts registers no cookieParser/CSRF middleware,
+  create-service-app registers none by default (cookieParser is only a doc-example at :560), no code
+  path sets the XSRF-TOKEN cookie for this service, and the only backend 'csrf' references are
+  'csrf_attempt' security-event enum values. Admin-api's CORS additionalCorsHeaders doesn't even
+  list X-CSRF-Token. Net: mutations succeed with no CSRF token at all and the FE security comment
+  describes enforcement that does not exist. This is an instance of the systemic 'security-theater /
+  misleading-security-comment' class: a client contract half implemented with no server counterpart
+  and no test proving the loop closes. Real exposure is low because admin auth is Bearer-header
+  (JS-attached), not browser-auto-attached cookies, so cross-site forgery of an authenticated admin
+  mutation is not possible.
+- **Fix design:** Resolve the client/server contract mismatch at the source so the claim is either
+  true-and-automatic or removed — no defensive shim. Preferred (tier-2
+  make-correct-behavior-automatic, platform-wide since the FE already sends the header for every
+  service): add an opt-in double-submit CSRF middleware to create-service-app bootstrap — set a
+  non-httpOnly XSRF-TOKEN cookie (SameSite=Strict, Secure in prod) on safe (GET/HEAD/OPTIONS)
+  responses, and reject mutating methods (POST/PUT/PATCH/DELETE) whose X-CSRF-Token header is absent
+  or does not match the cookie. Enable it via bootstrapService options for browser-facing services
+  and add 'X-CSRF-Token' to admin-api's additionalCorsHeaders so the preflight allows it; the FE
+  machinery then becomes real end-to-end (a priming GET seeds the cookie before the first mutation).
+  Alternative if the platform ratifies Bearer-only as the intended CSRF posture: delete the
+  decorative getCsrfTokenFromCookie()/CSRF_PROTECTED_METHODS code and the false 'server rejects on
+  mismatch' comment so the client stops claiming a protection it doesn't have. Either way the
+  misleading comment must go. Lock the chosen behavior with an integration test.
+- **Files to change:**
+  - `libs/backend-common/src/bootstrap/create-service-app.ts`
+  - `apps/admin-api-service/src/main.ts`
+  - `web/modules/admin-panel/src/services/http-client.ts`
+  - `e2e/tests/integration/csrf-double-submit.spec.ts`
+- **Effort:** M
+
+### APA-153 [NOT_A_BUG] Routing, guard, envelope, schema and storage plumbing verified sound (positive assurance)
+
+- **Status:** REFUTED
+- **Symptom:** Full-chain checks that passed: (1) nginx rewrites /api/_ -> /api/v1/_
+  (infrastructure/nginx/droplet.conf:377-383) matching the bootstrap default globalPrefix 'api/v1'
+  (create-service-app.ts:610), so every FE path in this section resolves; (2) PlatformAdminGuard is
+  a global APP_GUARD enforcing RS256 JWT + SUPER_ADMIN on both controllers with no @Public escapes
+  in analytics/reports (app.module.ts:283-286, platform-admin.guard.ts:155-177); (3)
+  ResponseInterceptor envelope {success,data,meta} (shared/response.interceptor.ts:44-75) matches
+  the FE unwrap logic including the meta.page paginated branch (http-client.ts:341-351); (4) all
+  three admin entities declare schema 'admin' (analytics-snapshot.entity.ts:99, 223, 282) with full
+  column/index parity in migrations 1800200000000 (lines 159-238) and 1800300000000 (lines 9-40);
+  external read-models are schema-qualified to auth/billing with SSoT enums
+  (external/tenant.entity.ts:23, external/subscription.entity.ts:46); (5) StorageModule is @Global
+  and registered in AppModule so ReportsService's @Optional() MinioClientService resolves and report
+  artifacts genuinely persist to MinIO (libs/storage/src/storage.module.ts:17,
+  app.module.ts:194-206); (6) ScheduleModule.forRoot() is registered (app.module.ts:178) so the
+  daily snapshot cron actually runs.
+- **Evidence:**
+  - `infrastructure/nginx/droplet.conf:377-383`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:610`
+  - `apps/admin-api-service/src/app.module.ts:178, 194-206, 283-286`
+  - `apps/admin-api-service/src/shared/response.interceptor.ts:44-75`
+  - `apps/admin-api-service/src/migrations/1800200000000-CreateAdminEntitySurfaceTables.ts:159-238`
+- **Refutation (brief check):** Positive-assurance note, not a defect. Spot-verified and accurate:
+  response.interceptor.ts:44-75 emits the {success,data,meta} envelope with the paginated
+  (data+total => meta.page) branch matching the FE unwrap at http-client.ts:341-351; all three admin
+  entities declare @Entity(..., { schema: 'admin' }) (analytics-snapshot.entity.ts:99,223,282);
+  ScheduleModule.forRoot() (app.module.ts:178) and @Global StorageModule (app.module.ts:194) are
+  registered. Nothing to remediate.
+
+## Finding registry anchors
+
+Registry IDs (`docs/reviews/_registry/findings.jsonl`) tracking findings in this document:
+
+- **ADMIN-LOW-081** — APA-152: the decorative double-submit machinery the finding describes
+  (`getCsrfTokenFromCookie`, `CSRF_PROTECTED_METHODS`, an `X-CSRF-Token` header echoed from an
+  `XSRF-TOKEN` cookie, and a comment asserting "server rejects on mismatch") **is already gone** — a
+  repo-wide search returns zero references. What the finding did not establish is what replaced it,
+  and whether that works. It does. `credentials: 'include'` is required for exactly one thing: the
+  refresh token lives in an **httpOnly cookie**, so the silent-refresh mutation cannot carry it any
+  other way; everything else authenticates with a Bearer header the client attaches from storage,
+  which a cross-site page can neither read nor make the browser send. And the refresh cookie is
+  **`SameSite=Lax`** while the refresh call is a **POST** — which Lax does not send cross-site. The
+  protection is real; it simply is not a token. **The audit's preferred option was rejected on
+  evidence.** Adding real double-submit middleware to `create-service-app` would defend against an
+  attack this auth model already precludes, and would add a cookie-priming failure mode to every
+  mutation across every service. The finding's own _alternative_ — ratify the SameSite posture and
+  delete the decorative client code — is what the platform has in fact already done. The gap was
+  that nothing **stated** or **protected** it: three independent properties hold the defence up,
+  none announcing that it is load-bearing, and each changeable for a perfectly unrelated reason.
+  Someone enabling a cross-site embed flips `sameSite` to `'none'`; someone adds a GET refresh
+  route; someone widens CORS. Any one silently removes the platform's entire CSRF defence, with
+  nothing to fall back on. So the posture is now stated at the one place a reader asks "why does
+  this send cookies?", and `admin-csrf-posture.spec.ts` pins all three properties plus a regression
+  guard against re-adding a client half whose server half does not exist. Comments are stripped
+  before matching, so a docblock explaining a rule cannot satisfy it. 2 of 5 red-proved (flipping
+  `sameSite` to `'none'`; re-adding an `X-CSRF-Token` header); the other three assert conditions
+  that already hold and exist to keep holding them.
+- **ADMIN-MEDIUM-080** — APA-150: `createReportDefinition` typed its payload as
+  `Omit<ReportDefinition, 'id' | 'createdAt' | 'lastRunAt'>` — a **read model minus a few keys,
+  which is not a write contract**. It still carried `isActive`, `columns`, `filters` and
+  `nextRunAt`, none of them whitelisted by `CreateDefinitionDto`, and the platform pipe runs
+  `forbidNonWhitelisted: true`, so an unknown key is a **400** rather than a silent drop: the call
+  would have failed the moment anything invoked it. Latent only because `ReportsPage` ships a
+  hardcoded catalogue and never touches the definitions API. The type had drifted on three axes at
+  once, and the _optionality_ of the invented fields is what made all three type-legal:
+  **forbidden** (the four above), **renamed** (`filters` is `defaultFilters`; `isActive` is
+  `status`, which is three-valued — `draft` has no boolean), and **fabricated** (`columns` and
+  `nextRunAt` exist on no entity; there is no scheduler and so no next run, the schedule fields
+  having been retired in APA-141). `ReportDefinition` is now the entity's shape, and the two write
+  payloads are declared **in their own right** rather than derived — deriving a write type from a
+  read type is the reusable mistake, not just this instance of it. `ReportData` went too:
+  `{ columns, rows, summary, generatedAt }`, returned by no endpoint and read by nobody, its
+  `columns` descriptor the same invented-field class — and an unconsumed type is where the next such
+  invention gets copied from. Tier-3: `admin-panel-report-definition-contract.spec.ts` asserts
+  property-set **equality** in both directions (a field the client sends that the DTO rejects is a
+  400; a field the DTO accepts that the client cannot express is a capability the UI silently cannot
+  reach) plus a rule forbidding `Omit`/`Partial`/`Pick<ReportDefinition>` as a write payload. 4 of 4
+  red-proved. **The audit's fix design is stale on one point** — it lists `schedule` and
+  `recipients` among the whitelisted DTO fields, but APA-141 retired both, so the aligned contract
+  carries neither.
+- **ADMIN-MEDIUM-079** — APA-149: ten admin-panel `/analytics/*` generics declared shapes the
+  backend **has never returned**. `getKpiComparisons` was typed `KpiComparison[]` against a
+  `Record<string, ComparisonDto>`, so the natural `.map(...)` a consumer writes throws on the object
+  it actually receives; `getSystemAnalytics` invented `cpuUsage`/`memoryUsage`/`diskUsage`;
+  `getFinancialMetrics` invented `cac`/`churnRate`; six endpoints returning `ChartData` or
+  `TimeSeriesData` were typed as flat arrays of ad-hoc rows; `getTenantMetrics` sent pagination and
+  sort arguments to a route that **declares no `@Query` parameters**; and `TenantMetrics` named a
+  per-tenant row shape no endpoint has ever produced, **colliding with the aggregate the backend
+  really sends** and hiding the drift behind a familiar name. None was reachable from a shipped page
+  — the only reason nothing had crashed — but they were exported, type-checked FALSE contracts, and
+  a compiler that vouches for a lie is worse than no types at all. The cure is smaller than it
+  looks: `DashboardSummary` already carried the five metric shapes **correctly**, so the drift lived
+  entirely in the restatements. Those shapes are extracted and named, the summary composes them, and
+  every endpoint generic binds to one of them. `SystemMetrics` is renamed `AnalyticsSystemMetrics`
+  because `types/system.ts` already exports a different `SystemMetrics` (the `/system/metrics`
+  database/platform response) — two unrelated shapes under one name in one barrel is the _same_
+  collision that hid the `TenantMetrics` drift. **The audit's design was not followed:** it proposed
+  a shared `libs/admin-contracts` the frontend would import, which is architecturally unavailable
+  here — this module's tsconfig resolves only `@/*` and `@aquaculture/shared-ui`, and the
+  no-backend-lib rule is documented on `types/users.ts`, `types/billing.ts`, `types/tenant.ts` and
+  `api/messaging.ts`. So the contract is declared on both sides and PINNED, the same tier-3 pattern
+  as the audit-severity and data-request-status vocabulary gates. Tier-3:
+  `admin-panel-analytics-contract.spec.ts` compares **field names per shape** (the axis every one of
+  the ten defects lay on) and adds two structural rules that forbid the _form_ the defect took — an
+  inline `Array<{…}>` or object-literal `apiFetch` generic is a hand-authored guess by construction,
+  and is exactly how `cac`, `churnRate`, `cpuUsage` and `diskUsage` entered the contract in the
+  first place. 12 of 14 cases red-prove against the pre-fix declarations.
+- **ADMIN-MEDIUM-078** — APA-151: four `analyticsApi` functions were non-async arrows that
+  `throw new Error('Not implemented…')` for routes the backend does not have. That is strictly worse
+  than not existing: every sibling in the object returns a promise from `apiFetch`, so a caller
+  writes `fn().catch(…)` — and a **synchronous** throw happens before any promise exists, escaping
+  that chain entirely and taking the caller's error handling with it. They are deleted rather than
+  converted to rejections, because an absent method is a **compile error** at the first would-be
+  caller while a throwing one is a latent runtime trap. **The gate found three more the finding
+  never mentioned**, in `impersonation.ts`, and one of them was _live_: `getSessionActions` had a
+  real caller in `ImpersonationPage.handleViewActions`, whose `catch` set an **empty** action list —
+  so a SUPER_ADMIN opening the audit surface of an impersonation session saw "no actions" for a
+  session that may have done anything, with no way to tell that apart from a session that genuinely
+  did nothing. And the route was never missing: `actionsPerformed` is a jsonb column on the session
+  row, `SafeImpersonationSession` is that entity minus its two secret token columns, so
+  `GET /sessions/:id` has been returning the log **all along** — the modal was asking the wrong
+  question. The FE read model had even documented the omission ("the UI only consumes the numeric
+  `actionCount`") while the UI shipped a View Actions modal. `getSessionActions` now reads the field
+  off the session it already fetches, and an empty log is a measurement rather than a failure.
+  `updatePermission` is deleted with them: no PUT route exists and none should, because a permission
+  change is grant or revoke by design. Tier-3: `admin-panel-api-no-sync-throw.spec.ts` scans the
+  **whole** api layer rather than the four functions named in the finding — which is exactly why it
+  surfaced the impersonation instances — and strips comments first so an explanation of a past
+  removal cannot trip it.
+- **ADMIN-HIGH-077** — APA-139 (reader half): the revenue report **synthesised** its series. For
+  every day in the range it walked the live tenant list, took each tenant's CURRENT subscription
+  price, divided by 30 and summed. Two consequences followed structurally rather than by accident.
+  History was a projection of the present, so a tenant that churned or upgraded this morning
+  **rewrote every day of last year** — `auth.tenants` has no time dimension to project from. And the
+  four columns that need a dated event (`renewals`, `upgrades`, `downgrades`, `refunds`) were
+  hardcoded `0`, because no such event was recorded anywhere (the upstream half, ADMIN-HIGH-076). It
+  also contradicted the dashboard **on the same screen**, which had already been migrated to
+  `billing.invoices`. Every column now derives from a fact carrying its own immutable date:
+  `revenue` from paid invoices bucketed by `paid_at::date` on a cash basis — the same semantics
+  `getFinancialMetrics` uses for `revenueThisMonth`, so the two agree _by construction_ rather than
+  by coincidence; `newSubscriptions` by `start_date::date`; `renewals` as paid invoices that are not
+  the **first** for their subscription, identified by `MIN(issue_date)` so the classification
+  survives out-of-order payment; `upgrades`/`downgrades` from **APPLIED** ledger rows by
+  `applied_at::date` (PENDING is a scheduled downgrade that has not taken effect and CANCELLED was
+  superseded — counting either would report a change that never happened); and `refunds` from each
+  `payments.refunds[]` entry bucketed by its **own** `refundedAt`, because an invoice paid in March
+  and refunded in May reduces May, not March. Tiers are **parsed, not asserted**: a row carrying a
+  tier this build does not know — a rename, a rollback, a row written by a newer release mid-deploy
+  — is counted in _neither_ column, because "I cannot classify this" is the honest answer; a lateral
+  move likewise belongs in neither. Two new read-models earn their place for reasons the invoice
+  table cannot serve: a plan change is the only dated record of a tenant moving between tiers, and a
+  refund read from `billing.invoices` (which carries only the current status) would silently re-date
+  itself onto the original payment day. `activePaidTenants` now counts ACTIVE **paid subscriptions**
+  rather than tenants, since a tenant row says nothing about whether anyone is paying for it.
+  Tier-3: `revenue-report-grounding.spec.ts`, 7 cases, **6 red-proved** against the synthesizing
+  generator — the load-bearing one runs the same dated facts against an empty tenant book and a
+  three-tenant one and requires **byte-identical** output, which is the immutability property the
+  old implementation could not have had. The seventh passes on pre-fix HEAD only because `upgrades`
+  was hardcoded `0`, which is itself the defect.
+- **ADMIN-HIGH-076** — APA-139 (upstream half): `billing.scheduled_plan_changes` is named as the
+  plan-change ledger, and it recorded only **scheduled downgrades**. An immediate upgrade or a
+  lateral move mutated the subscription in place and left no dated row behind, so the table could
+  answer "what downgrades are pending" but never "how many upgrades happened in March". That is why
+  the analytics revenue report hardcoded `upgrades: 0` / `downgrades: 0` — and it is why no
+  reader-side fix could have been correct: **the fact had never been written**. Every
+  immediately-applied change now writes an `APPLIED` row on the SAME transactional manager as the
+  subscription mutation, so the ledger and the state it describes commit together or not at all;
+  inserts only, no schema change, blue-green safe. Two defects fell out of the same code. The FROM
+  side is now captured **before** mutation — all three branches overwrite
+  `planId`/`planTier`/`planName` in place, so reading them afterwards would have recorded the change
+  as starter → starter. And the classification moved off a module-local `Record<string, number>`
+  looked up with `TIER_ORDER[tier] || 0`: that map had no `free` entry, so `free` silently ranked 0
+  and every change to or from it was classified **by accident rather than by decision**; worse,
+  because the ordering was private to the writer, no reader could ever classify a stored row the way
+  the write did. `BILLING_PLAN_TIER_ORDER` now sits beside the enum in `libs/event-contracts` as an
+  exhaustive `Record<BillingPlanTier, number>`, so a new tier is a compile error until it is ranked
+  and a lookup cannot miss, and `classifyPlanChange` is the one function both the writer and every
+  analytics reader call. Tier-3: 3 cases — an immediate upgrade and a lateral move each record an
+  `APPLIED` row through the transactional manager, and a scheduled downgrade stays `PENDING` with no
+  `appliedAt`, because stamping it `APPLIED` would report a plan change that has not happened. The
+  first two red-proved by removing the write. **Landed separately from the report rewrite on
+  purpose:** this is the upstream root cause, and the revenue report's own migration onto billing
+  facts builds on it.
+- **ADMIN-MEDIUM-075** — APA-140: the Generate modal collected a start and end date for **every**
+  report type, the DTO validated them, the execution row persisted them and the cache key included
+  them — and then the generators took `_request` and never read the window. A user asking for
+  "tenant overview, last week" received all-time data **labelled with their chosen range**. The
+  `_request` underscore idiom satisfies `no-unused-vars`, so ignoring the range was lint-clean and
+  therefore invisible; and the range-bearing cache key actively masked it, serving separately-cached
+  _identical_ data per window so two runs never looked suspicious side by side. Landing APA-138 and
+  APA-142 first shrank the finding to its core: `financial_payments` became range-scoped when it
+  started reading `billing.invoices`, and both usage reports became unproducible, leaving
+  `tenant_overview` and `tenant_churn`. **`tenant_overview` is declared point-in-time.** Its rows
+  carry `users`, `storageUsed`, `mrr` and `lastActivity` — all _current_ values, with no per-tenant
+  history table anywhere — so "the tenant book as of March" is unproducible, and filtering the
+  roster by creation date would answer a different question than the one the report is named for.
+  Same ruling as the dashboard KPI stocks in APA-137, and the modal now says so instead of
+  collecting a window it cannot apply. **`tenant_churn` reports no data source.** Scoping it by a
+  window would have made the lie more precise, not less: every column rested on `tenant.updatedAt` —
+  an `@UpdateDateColumn` meaning "last touched", not "cancelled" — and `usageDays` and
+  `lifetimeValue` were both computed _from_ it, so the error propagated into the money columns; the
+  row population was wrong too, since `'CANCELLED'` is unreachable on `auth.tenants` and the filter
+  collapsed to the reversible SUSPENDED state. That closes **APA-135's export surface**, which its
+  own anchor left open as a keep-vs-remove call — APA-142 supplied a third option that did not exist
+  then: the report can be _offered_ and answer honestly. The `churn-analysis` route's `months`
+  parameter goes with it, having computed a `startDate` the generator discarded.
+  `REPORT_RANGE_SEMANTICS` is an exhaustive `Record<ReportType, …>` with two real consumers on day
+  one (the cache key and the persisted execution window), so it is not inert documentation, and
+  `admin-report-range-semantics-parity.spec.ts` binds the admin-panel copy to it. Tier-3:
+  `report-range-semantics.spec.ts` parameterises over `REPORT_TYPES`, so a new report type enrols
+  **automatically** — no allowlist, no per-type spec to forget — and asserts both directions: a
+  `'ranged'` report's output must **vary** across two windows, a `'point_in_time'` report's must be
+  **identical**. That second arm is what stops `'point_in_time'` becoming a rubber stamp for the
+  original defect. Red-proved by re-declaring `tenant_overview` as `'ranged'` (3 cases red) and by
+  flipping the frontend copy (parity gate red). **The gate immediately found two things the fix did
+  not target:** the usage reports would silently ignore the window the day a telemetry producer
+  lands — they short-circuit as unavailable today, so the gate arms itself and turns red exactly
+  when the plumbing must exist — and, in APA-142's own new code, an **unavailable body was being
+  cached for the full four-hour TTL**, so `system_performance` would keep answering "no data source"
+  until 04:59 after the 1AM snapshot cron wrote its row. Availability is a property of the world,
+  not of the report; one predicate now gates cache reads _and_ writes. **Judge panel:** three
+  independent designs were scored — this declared-SSoT approach won at 4, a generator registry and a
+  result-side scope stamp both scored 2 and were rejected for being written against a stale HEAD.
+  The winner's one addition beyond the first cut is folded in: silently discarding a supplied window
+  merely moves the defect from the generator to the API, so `assertWindowMatchesReportType` now
+  answers **400** on both client-facing POST routes — a window supplied for a point-in-time report
+  is rejected, and a missing one for a ranged report is rejected too, because defaulting silently to
+  "the last 30 days" is the same unstated scope. `ReportRequest.startDate`/`endDate` became optional
+  so a point-in-time request is expressible without one, and the `tenant-overview` GET route stopped
+  synthesising a one-month range the generator discarded.
+- **ADMIN-MEDIUM-074** — APA-144: the preview modal's table branch tested
+  `Array.isArray(selectedReport.data)`, but `data` was a **phantom field** — `ReportsPage` declared
+  its own shadow view model with an extra `data?: unknown` that the canonical
+  `services/types/reports.ts#ReportExecution` correctly omits, and no mapper ever assigned it.
+  Because the field was **optional** the drift was type-legal: TypeScript cannot flag a
+  declared-but-never-set optional, so `Array.isArray(undefined)` was always false, the modal always
+  answered "No data available" **beside a visible non-zero row count**, and the "Showing first 10
+  records" note was unreachable. Two root causes stacked. The frontend one is view-model drift, now
+  cured at tier 1: `GeneratedReport` is `Pick`ed off `ApiReportExecution`, so declaring a field the
+  API does not carry is a **compile error** — precisely what would have caught `data?: unknown` on
+  day one. The backend one is that `executeReport` generated the full JSON row set in memory and
+  discarded it into the object-storage artifact, persisting no preview slice; since a csv or pdf
+  artifact cannot be losslessly re-rowed, no read-back endpoint could have supplied one either, so
+  even a correct frontend had nothing to read. Cure at tier 2: the rows are in memory at exactly the
+  moment the execution is stamped (`generateReport` runs with format `'json'` regardless of the
+  requested export format), so a bounded `previewRows` slice costs nothing and works uniformly for
+  json, csv **and** pdf — no artifact re-parsing, no second endpoint, and `rowCount` keeps carrying
+  the true total. `REPORT_PREVIEW_ROW_LIMIT` is exported so the backend slice and the frontend's
+  "first N of M" note cannot drift apart, and the truncation note is now driven by the **true
+  total** rather than by the preview length, so it can never become unreachable again. Legacy rows
+  are deliberately **not** backfilled — a reconstructed preview would be worse than none — and
+  render an honest "preview unavailable, download the report"; a genuinely empty report says "This
+  report produced no rows." rather than borrowing the same message. Migration `1802500000000` adds
+  one nullable jsonb column, no backfill, no NOT NULL step. Tier-3:
+  `reports-execution-preview.spec.ts` asserts per format that the preview is a **slice** and the
+  artifact still carries every row (json parsed, csv line-counted; the pdf case asserts existence
+  only, because a real pdfkit binary has no row count short of parsing a PDF — the slice and
+  `rowCount` assertions already pin the arithmetic), and `ReportsPage.preview.spec.tsx` covers all
+  four modal states. Both red-proved: removing the population line turns all five backend cases red,
+  dropping the `previewRows` mapping turns two frontend cases red.
+- **ADMIN-HIGH-073** — APA-142: APA-133 closed the _fabrication_ half of this finding —
+  `getUsageMetrics()` stopped emitting a fully-keyed all-zeros map, and the report rows derive from
+  `measuredEntries`. What stayed open is the **provenance** half, and it is worse than the original:
+  with nothing measured the usage generators produced **zero rows**, and `executeReport` treated
+  zero rows exactly like a measured empty result. It uploaded a **zero-byte CSV** to object storage,
+  hashed it (the sha256 of the empty string), stamped `status='completed'`, `rowCount=0`, and a
+  **7-day download link** — which the admin panel maps to a green "Ready" badge with a Download
+  button. A SUPER*ADMIN could not tell "no module was used" from "no producer exists", and the run
+  carried cryptographic provenance either way. Root cause: the generator KNEW the answer and had no
+  vocabulary to say it. The private generators returned a bare `{data, summary}` whose type cannot
+  represent "unmeasured", so the information never reached `executeReport`; and
+  `ReportExecutionStatus` had no terminal state between `'completed'` (produced) and `'failed'`
+  (broke). Both halves of the cure are load-bearing. `ReportBody<TRow>` (tier 1) puts `data` on the
+  `measured: true` arm ONLY, so `formatReportData`/`createReportArtifact` are unreachable until the
+  caller narrows — a generator cannot hand back rows without asserting they were measured. The
+  `'unavailable'` status plus **one** central throw in `generateReport` (tier 2) makes all twelve
+  callers correct with no code of their own and, because the throw precedes `createReportArtifact`,
+  makes an artifact over unmeasured rows \_structurally unreachable* rather than merely guarded.
+  `executeReport` records and **returns** the unavailable execution rather than rethrowing: the
+  request is audit-worthy and the caller deserves the honest history entry, not a 422 with no
+  record. Availability is **derived** from APA-133's presence-means-measured encoding, never
+  hardcoded, so wiring the pipeline flips it with no code change. Three further defects went with
+  it: `generatePerformanceReport` now reports unavailable when `daysWithData === 0`, because a table
+  of all-null rows is exactly as unmeasured as no rows and would otherwise still have earned a
+  sha256 and a link; `UsageTrend` is typed as `null` **and nothing else** (a
+  `'up'|'down'|'stable'|null` union would re-permit the very constant being removed, and a future
+  edit could reinstate `trend: 'stable'` and still type-check); and `avgUsagePerUser` becomes
+  `number | null`. **The cache was a live rollout hazard the design missed:** `getJson<T>` casts
+  unchecked, so every key still warm at deploy — a four-hour TTL — would decode with
+  `measured === undefined` and report a perfectly healthy tenant/revenue/performance report as
+  having no data source. Rather than a version segment in the key (which relies on someone
+  remembering to bump it), `getCachedOrCompute` now _requires_ a type predicate, so a stale shape is
+  a MISS that recomputes and rewrites — self-healing across every future shape change. Migration
+  `1802400000000` adds one nullable TEXT column; `status` is `VARCHAR(20)` with no CHECK constraint,
+  so the new value needs no DDL and both releases run against the same schema. Tier-3:
+  `reports-unmeasured-artifact.spec.ts` (8 cases), red-proved **twice** — reverting the
+  `executeReport` branch flips 3 red, neutralising the central throw flips 5 including the
+  load-bearing `storage.uploadFile).not.toHaveBeenCalled()`. Three existing specs were reworked
+  rather than deleted: `usage-report-integrity.spec.ts` keeps APA-133's NaN guards by exercising
+  them against a **single measured row** (the smallest input that still reaches the degenerate
+  averaging branches, now that the empty set is rejected upstream);
+  `performance-report-integrity.spec.ts` moves its fabrication guards onto a **partially** measured
+  range, which is where a constant could still creep into the gap days, and adds the total-absence
+  rejection; `reports-caching.spec.ts` gains the stale-shape case. All three also drop their
+  hand-rolled provider lists for the shared harness.
+- **ADMIN-MEDIUM-072** — APA-146: `generateReport` minted an ephemeral, never-persisted id
+  `rpt_<ts>_<hex>` and, for csv/pdf, advertised `/api/reports/download/${id}`. The only route that
+  matches is `GET reports/download/:reportType`, whose path parameter is a report **TYPE** validated
+  against the seven literals — an `rpt_…` segment always answers `400 Invalid report type`. The link
+  was not merely broken but **structurally unresolvable**: the synchronous result is never stored,
+  so a by-id route could not have been built for it either. The seam is that `ReportResult` modelled
+  two lifecycles at once — an in-memory preview payload that returns `data`/`summary` inline and
+  needs no link, and a persisted artifact that legitimately has one (`ReportExecution.downloadUrl`,
+  set in `executeReport`). Decision: **remove, not repoint**. Aiming it at the type-based route
+  would be a _subtler_ lie than the 400 — that route re-generates a **different** report over a
+  default 30-day window rather than returning the one the caller just received. Fix: the field is
+  deleted from the interface, so the link cannot be reconstructed without also reintroducing the
+  contract change (tier 1, not a runtime guard). While in the same seam, the seven report-type
+  literals — previously written out **five times** (the union, three `@IsIn([…])` decorators and the
+  download route's local allow-list) — collapse into `REPORT_TYPES`, with `ReportType` now _derived_
+  from the array; that is what makes "this route is keyed by type, and an id is not a member of that
+  vocabulary" assertable at runtime rather than a comment. Tier-3:
+  `report-generate-contract.spec.ts` asserts the **whole** key set of the result for csv, pdf
+  **and** json — a re-added link is caught whatever it is named — red-proven by reinstating the
+  assignment (csv and pdf fail, json stays green, proving the fix was not narrowed to a format
+  check). Also lands `__tests__/support/reports-service-harness.ts`: `RedisService` and
+  `MinioClientService` are `@Optional()`, so a spec that omits storage makes `createReportArtifact`
+  throw and turns "no artifact was uploaded" into a **vacuous pass** — one harness fixes that hazard
+  for every current and future `ReportsService` spec instead of once per file.
+- **ADMIN-LOW-071** — APA-137: the 7d/30d/90d/1y selector sat in the **page header**, and its state
+  was a dependency of the loader that refetches `getDashboardSummary()` alongside the three trend
+  series. But the summary endpoint is range-unaware — it takes no arguments, and every windowed KPI
+  is hardcoded `date_trunc('month', NOW())` SQL. So changing the range spun the whole page and
+  returned **byte-identical KPIs**, which reads to an operator as "the range was applied and nothing
+  moved". The control was never fake — it genuinely drives three charts; its **placement** was the
+  lie, because placement asserts scope. Fix: the control now sits with the trends it re-fetches,
+  under a `Trends` heading and labelled `role="group" aria-label="Trend range"`, and the KPI block
+  states the window it actually reports ("as of now; rates are month to date"). Range-parameterising
+  the summary was considered and rejected as the **wrong call rather than a product question**:
+  Total Tenants, MRR, ARPU and uptime are point-in-time _stocks_ with no meaningful 7-day version,
+  and the growth/churn rates are already period-relative to the month. Tier-3:
+  `AnalyticsDashboardPage.range.spec.tsx`, 2 of 4 red-proven — the other two assert the range still
+  drives the trends and still maps 7d/90d/1y to day/week/month granularity, and pass both before and
+  after, which is exactly the point: the behaviour was right and only the placement lied.
+- **ADMIN-LOW-070** — APA-141: report definitions stored a `schedule` and a `recipients` list that
+  **nothing ever executed**. The only `@Cron` in the analytics module drives the daily snapshot; a
+  repo-wide search for reads of `definition.schedule` / `.recipients` returns the write sites and
+  type declarations only. A definition saved as `'daily'` never ran and its recipients never
+  received anything — a stored promise the platform could not keep. Decision: **REMOVE, not WIRE**.
+  Honouring it is a two-service vertical (a platform-scope extension of the notification command
+  contract, which today requires a `tenantId`) — feature work, not remediation of a LOW finding. And
+  the surface was unreachable anyway: `ReportsPage.tsx:178` ships a **hardcoded catalogue** and
+  never calls the definitions API, so no operator could have set a schedule through the product.
+  Fix: both DTOs, the service parameter types, the write site, the entity columns and the FE type
+  all drop the fields. With the platform-wide `forbidNonWhitelisted: true` pipe, the _absence_ of
+  the DTO property is the enforcement — submitting one is now a 400 rather than a silent write.
+  Migration `1802300000000` archives any row carrying a non-default schedule or a non-empty
+  recipient list into `admin.retired_report_schedules` and resets it; the archive exists because,
+  unlike a fabricated metric, these were **operator input** — wrong to act on, but genuinely
+  expressed — so `down()` restores them. Tier-3: `report-schedule-retired.spec.ts`, 3 of 4
+  red-proven; the fourth pins the _premise_ — that the module's one `@Cron` drives
+  `createDailySnapshot` and touches no report definition — so if a real scheduler ever appears the
+  fields must come back **with** it, not before it. The physical column drop is a breaking schema
+  diff needing an expand/contract pair and is tracked as **`PLAT-LOW-903`**: `@ExpandContract`
+  requires `phase: 'contract'` to name an already-deployed EXPAND predecessor, and a pure retirement
+  has none, so this migration resets the data non-destructively instead of dropping.
+- **ADMIN-LOW-069** — APA-148: the report-history card hardcoded `{ page: 1, limit: 20 }` and
+  **discarded the pagination metadata the response already carries**, rendering a flat list with no
+  pager — so the 21st execution onward was unreachable from the UI, even though its download link
+  stays valid for seven days. No backend change was needed: `getExecutions` already returns
+  `createStandardPaginatedResult`, the `ResponseInterceptor` lifts total/page/limit/totalPages into
+  `meta`, and the FE http-client flattens that into `PaginatedResult<T>`. The contract was complete
+  end to end and only the page never asked. Fix: page state drives the request, the pager renders
+  only when the total exceeds one page with Previous/Next disabled at the ends, and a newly
+  generated execution now **returns the view to page 1** — where the server orders it — and reloads,
+  rather than being spliced client-side into whatever page the user happened to be on, which
+  desynchronised the rows from the count. Tier-3: `ReportsPage.history.spec.tsx`, 4 cases over a
+  47-execution three-page fixture, 3 red-proven (the fourth — "no pager when everything fits" —
+  correctly passes both before and after). **Landed alone rather than with the rest of its triage
+  slice:** APA-140 (four report generators silently dropping the requested date range) was designed
+  as a `ReportRequest` discriminated union, and adversarial verification found **five BLOCKING
+  compile defects** in that design — an unnarrowed controller literal assignable to neither arm, two
+  shipped quick-report methods that would start throwing at runtime, a missed spec that
+  parameterises over the whole `ReportType` union, and two widening/undefined-arithmetic errors — so
+  it needs rework before it can land.
+- **ADMIN-MEDIUM-068** — APA-134 + APA-136 (one commit; the same card renders both defects).
+  **APA-134:** `KpiCard` took `change` (magnitude) and `trend` (arrow + colour) as two
+  **independent** props and rendered `Math.abs(change)`, so the direction shown and the number shown
+  could contradict each other _by construction_. Three cards hardcoded `trend="up"` regardless of
+  sign — a fall rendered as a **green up-arrow over an absolute value** — and the churn card passed
+  a literal `change={-0.5}` backed by no field anywhere in the contract. Two chart footers hardcoded
+  both the `+` sign and the green class, so −3.2% printed as a green `+-3.2%`. The cure is the prop
+  shape, not the five call sites: one `delta` input carrying `percent` **and** the metric's polarity
+  (`risingIsGood`), with glyph and colour derived from the value's own sign — so a bad-direction
+  metric like churn cannot inherit "up = green", and correcting today's call sites no longer leaves
+  the next card free to lie. Two related fabrications went with it: the Uptime card's
+  `trend="stable"` (an arrow implying a measured steady state for a metric APA-131 established is
+  unmeasured), and — on the backend — `calculateGrowthRate` returning `0` when **no baseline
+  snapshot exists**, which rendered as a confident "0.0% vs last month" for a platform that had
+  simply never taken one; it and `FinancialMetrics.revenueGrowthRate` are now `number | null`. The
+  label also reads "vs previous snapshot" rather than "vs last month", because the producer selects
+  the newest snapshot _at least_ a month old, which may be far older. **APA-136:** the page had **no
+  failure state** — `data | null` + `loading`, with every failure path substituting an all-zero
+  `getDefaultData()`. Because the four requests go through `Promise.allSettled`, a rejected summary
+  was not an exception but a settled value the code simply ignored, so an auth failure, a 500 or a
+  network outage rendered a complete, confident dashboard reading 0 tenants and $0 MRR —
+  indistinguishable from a healthy platform with no customers. Page state is now a closed union
+  (`loading | error | ready`), `getDefaultData()` is **deleted**, and the error branch renders
+  `role="alert"` with the real message and a working Retry. The surviving `catch` covers only a
+  _synchronous_ throw during request construction (which `Promise.allSettled` cannot catch and which
+  otherwise leaves the spinner forever) and routes it into the error state — it produces no numbers,
+  so it is not the swallow APA-145 removed. Secondary trend failures deliberately do **not** blank
+  the page: an empty series is a legitimate result. Tier-3: `AnalyticsDashboardPage.kpi.spec.tsx`, 5
+  of 6 red-proven. Deleting `getDefaultData` removed the merge that let specs mock a _partial_
+  summary, so a complete shared fixture replaces it — the intended consequence: the page now
+  requires the contract it declares instead of silently patching a partial response with zeros.
+- **ADMIN-HIGH-067** — APA-135: tenant churn was a **timestamp proxy, not a measurement**.
+  `getTenantMetrics()` counted
+  `status IN ('CANCELLED','SUSPENDED') AND "updatedAt" >= date_trunc('month', NOW())` and both
+  halves were wrong. `updatedAt` is an `@UpdateDateColumn` on `auth.tenants`
+  (`tenant.entity.ts:260`) — it means "last touched", so **any** unrelated write re-dated a
+  long-suspended tenant into the current month, and the billing plan projection issues exactly such
+  a write on every plan/trial change. And `'CANCELLED'` is **unreachable** on `auth.tenants`:
+  `LIFECYCLE_COMMANDS` never targets it, only accepts it as a transition SOURCE — so the filter
+  collapsed to SUSPENDED, a _reversible dunning state_, which is not churn. Every candidate
+  replacement signal was checked and rejected: `suspendedAt` measures the same reversible state;
+  `billing.subscriptions.cancelled_at` is set before the cancellation is effective, is NULLed on
+  reactivation, and covers a different population from the `churnRate` denominator; the
+  `TenantStatusChanged` outbox rows are deleted 7 days after publish and nothing ingests them;
+  `admin.audit_logs` is written after commit with failures swallowed and is skipped entirely by the
+  bulk paths; `admin.tenant_activities` has no archived/cancelled member. **Churn is genuinely not
+  measurable today**, so the honest report is `null` — the same ruling as APA-131/132/133.
+  `growthRate` goes null with it: it is `(new − churned) / total`, so computing it with churned = 0
+  would report gross growth as net. Two further fabrications fell out. `getMetricValue()` coerced
+  any non-numeric metric to `0`, which would have turned every persisted `null` into a confident
+  **flat-zero trend line** — reintroducing at the read side exactly what the producers stopped
+  committing; it now returns `number | null` and `TimeSeriesPoint.value` widened to match. And
+  `getKpiComparisons` served `errorRate: calculateComparison(0, 0)` /
+  `uptime: calculateComparison(100, 100)` — literals that outlived APA-131's ruling that neither is
+  measured, so the endpoint reported a confident "100% uptime, 0% errors, 0% change"; all three keys
+  are now _absent_, which is the only way a `Record<string, ComparisonDto>` can say "no comparison".
+  Migration `1802200000000` nulls the persisted proxy. FE: the card renders the placeholder and
+  states why, its hardcoded `change={-0.5}` is gone, and `trendOf()` derives the arrow direction
+  **from** the value so negative growth can no longer render as a green up-arrow. Tier-3:
+  `analytics-churn-grounding.spec.ts` (4 cases, incl. asserting the emitted SQL contains no
+  last-write timestamp) + a FE case, all red-proven. `ReportsService.generateChurnReport` carries
+  the identical root cause on the export surface and stays open — the honest outcome there is that
+  the report cannot be produced at all, which is a keep-vs-remove call on a user-facing card.
+- **ADMIN-HIGH-066** — APA-147: admin-api had **two** pricing sources. Three byte-identical
+  `{ TRIAL: 0, STARTER: 99, PROFESSIONAL: 299, ENTERPRISE: 499 }` tables were copy-pasted into
+  `ReportsService` and drove the `mrr` / `lifetimeValue` / `revenue` columns of the tenant-overview,
+  churn and revenue reports, while `getFinancialMetrics` derived the dashboard's MRR from the real
+  SSoT (`billing.subscriptions.pricing.basePrice`, normalised by cycle). The two did not disagree
+  because someone forgot to sync them — **two sources of one fact can only agree by coincidence**.
+  An in-code tier table cannot see a repricing, a negotiated custom plan, a $0 tier, or any cycle
+  but monthly. Fix (tier-1): one `monthlyPriceOf()` in
+  `analytics/entities/external/subscription-pricing.util.ts`, fed from the billing read-model, so a
+  hardcoded price has nowhere left to be read from; `AnalyticsService`'s private
+  `calculateMonthlyPrice` duplicate is deleted and both surfaces now call the same function. Its
+  `switch` ends in a `const unreachable: never` binding, so adding a `BillingCycle` is a **compile
+  error** rather than a silently mispriced report — the deleted copy fell through to
+  `default: basePrice`, pricing an unknown cycle as monthly. `resolveMonthlyPrices()` is the one
+  place a report turns a tenant into a figure; it filters to ACTIVE/TRIAL because
+  `billing.subscriptions` keeps churned history as **soft-deleted rows** and the read-model projects
+  no `is_deleted` column, and it breaks `startDate` ties on id so the result is deterministic.
+  Currency values are now rounded — a non-monthly cycle previously emitted a 16-significant-digit
+  float into a money column. Tier-3: `tests/invariants/no-hardcoded-plan-pricing.spec.ts` (9
+  hardcoded prices on pre-fix `HEAD`, 0 after) plus `reports-pricing-ssot.spec.ts`, whose five cases
+  use prices no tier table can hold — a PROFESSIONAL tenant repriced to 350, an ENTERPRISE tenant on
+  an ANNUAL cycle at 6000/yr (= 500/month, not 499), and a tenant with no subscription reporting 0.
+  The gate also pins the billing **seed catalogue** to its seeder: `DEFAULT_TIER_MULTIPLIERS` is
+  legitimately write-side (it INSERTs `module_pricing` rows, after which reads go to the DB), and
+  that assertion stops it quietly becoming a read-time price source. Deliberately scoped to the
+  pricing source alone — APA-139 (the revenue report projecting today's subscription state backwards
+  over history) stays open and now builds on this injection.
+- **ADMIN-HIGH-065** — APA-138: the payments report **never touched billing**. It synthesised one
+  invoice per ACTIVE tenant from an in-code `planPricing` table, numbered them
+  `INV-${month}-${tenantId8}`, dated them the 1st of the current month, and stamped
+  `const status = amount === 0 ? 'paid' : 'paid'` — a literal tautology whose two arms are
+  identical. Everything downstream followed from that: the pending and overdue branches were
+  **unreachable code**, `totalPending`/`totalOverdue` were structurally `0`, and `collectionRate`
+  was exactly **100%** whenever any active tenant existed. Real unpaid invoices were invisible on
+  the one report a SUPER_ADMIN opens to find them. The enabling defect was the type:
+  `PaymentReportRow.status` was a bare `string`, which is the only reason the tautology
+  type-checked; it is now the `InvoiceStatus` enum, so a hardcoded literal is a compile error. Fix:
+  read `billing.invoices` — the SSoT for monetary state (CLAUDE.md D14) — whose read-only projection
+  `InvoiceReadOnly` already lived in this module and was already registered in `AnalyticsModule`;
+  only the injection was missing. Three further improvements fall out of using real rows: money is
+  bucketed by what each invoice **actually owes** (a `PARTIALLY_PAID` invoice contributes its
+  settled part to collected and its remainder to outstanding — inexpressible in the old
+  paid/pending/overdue-by-full-amount split); `daysPastDue` accrues from each invoice's **own** due
+  date and is 0 for `PAID`/`VOID`/`REFUNDED`, instead of one report-wide age derived from the 1st of
+  the month; and `collectionRate` is `null` when nothing was billed, because `0` would read as "we
+  collected nothing" rather than "there was nothing to collect". A tenant whose name cannot be
+  resolved degrades the row to the tenant id — an unnamed invoice is still money owed, so it is
+  never dropped. Tier-3: `payments-report-integrity.spec.ts`, all 6 cases red-proven against pre-fix
+  `HEAD` over a paid/overdue/partially-paid/void spread. The in-code `planPricing` map still feeds
+  `tenant_overview`, `tenant_churn` and `financial_revenue` — that is the larger APA-139, which
+  additionally has to reconcile those reports against `getFinancialMetrics`' billing-derived MRR.
+- **ADMIN-HIGH-064** — APA-133: the Module Usage card and both usage reports were fabricated.
+  `getUsageMetrics()` emitted a fully-keyed map — 7 modules, 6 features, every value a literal `0` —
+  except `dashboard.activeUsers`, which carried the **platform-wide** daily-active count attributed
+  to a single module. Neither map has a producer: per-module usage needs the audit-log analysis
+  pipeline, which is not wired. Three enabling defects, all closed. (1) _The contract forced it_: a
+  bare `Record<string, …>` cannot express "not instrumented", so the only way to satisfy it was to
+  invent entries — the same mechanism as APA-131/APA-132. It is now
+  `Partial<Record<ModuleKey, ModuleUsageStats>>` with "presence means measured" stated on the type,
+  and `measuredEntries()` centralises the skip-the-holes rule beside it so a new consumer gets it
+  for free; `ModuleKey` additionally makes a misspelled module a compile error. (2) _The truth went
+  to the wrong channel_: the real state was shunted into `logger.warn` — which the wire contract
+  never carries — while the purpose-built degraded channel (`Promise.allSettled` → `unavailable[]`)
+  **structurally could not fire**, because the only `await` sat inside a swallowing `try/catch`.
+  That catch is gone; a source failure now rejects and the dashboard reports
+  `unavailable: ['usage']`. (3) _The charts hand-listed themselves_:
+  `getModuleUsageChart`/`getFeatureAdoptionChart` returned a literal label array with a matching
+  zero series — indistinguishable from a measured all-zero chart; both now derive labels **and**
+  series from the metric. Two silent consequences fixed alongside: both report summaries divided by
+  `data.length` (invisible at length 7/6, `NaN` the moment the map is honestly empty) and
+  `mostUsedModule` came from an **in-place** `data.sort()` that silently permuted the rows the
+  caller received. Data hygiene: migration `1802100000000` empties both maps on `category='usage'`
+  rows, because the daily cron persisted the fabrication into `admin.analytics_snapshots`
+  (idempotent, data-only; `down()` a deliberate no-op). Tier-3:
+  `analytics-usage-grounding.spec.ts` + `usage-report-integrity.spec.ts`, 8 of 9 red-proven against
+  pre-fix `HEAD` — the chart tests inject a _measured_ map and assert the output mirrors it, which
+  no hardcoded label array can satisfy. Wiring the pipeline later adds keys with **no** contract
+  change; reintroducing a literal is the regression. Fourth RC-8 link, after APA-143, APA-131 and
+  APA-132.
+- **ADMIN-HIGH-063** — APA-130: the tenant-growth, churn-rate, user-activity and revenue trend
+  endpoints all 500'd the moment `admin.analytics_snapshots` held a single row.
+  `AnalyticsSnapshot.snapshotDate` maps a PostgreSQL `date` column but declared the property as
+  `Date`; TypeORM's `PostgresDriver.prepareHydratedValue` normalizes a `date` through
+  `DateUtils.mixedDateToDateString()` into a **'YYYY-MM-DD' string** _before_ any transformer runs
+  (`node_modules/typeorm/driver/postgres/PostgresDriver.js:533`), so `s.snapshotDate.toISOString()`
+  and `snapshot.snapshotDate.getFullYear()` compiled cleanly and threw
+  `TypeError: … is not a function` in production. The suite was green because every test ran against
+  an empty snapshot table — the bug was invisible until the daily cron wrote its first row. Fix
+  (Tier-1, make it impossible): new `DateOnlyColumn()` + branded `IsoDateString` in
+  `@aquaculture/backend-common/database` — the property is now declared as the shape the driver
+  actually returns, so a Date-method call is a **compile** error; identical DDL, no migration.
+  Applied to `analytics-snapshot`, `custom-plan` (`validFrom`/`validTo`) and the read-only `invoice`
+  projection. Two silent siblings fell out of the same conversion: `CustomPlan.isValid()` compared a
+  `Date` to a string (`>=` → `NaN` → **false for every plan**, silently disabling custom pricing),
+  and `getSnapshots` passed raw `Date` objects as query-builder parameters — which bypass the column
+  transformer and get re-truncated in the _server's_ timezone, a different calendar day near
+  midnight. Tier-3: `analytics-date-hydration.spec.ts` feeds **driver-shaped** rows (strings, as pg
+  returns them) and all 5 cases fail on the pre-fix code with the exact production `TypeError`s;
+  `tests/invariants/date-column-hydration-ssot.spec.ts` fails the build on any _new_
+  `date`-as-`Date` column and on any stale baseline entry, so the class is frozen out platform-wide.
+  The same latent lie sits at 94 sites in farm-service/hr-service/billing-service — retyping them
+  cascades through each service's own DTOs, resolvers and fixtures, so it is tracked as
+  **`PLAT-HIGH-902`** (owner + deadline) with the shrink-only baseline keeping the debt counted
+  rather than forgotten.
+- **ADMIN-HIGH-062** — APA-132: the "Bolgesel Dagilim" card was pure fabrication —
+  `getTenantMetrics` built `byRegion = { TR: total, EU: 0, US: 0, APAC: 0 }`, assigning **every**
+  tenant to Turkey by a literal with three regions pinned to zero, and the panel rendered it as a
+  distribution with percentages. No region/country column exists anywhere on the tenant SSoT
+  (`auth.tenants`) and provisioning never captures one — the platform has never had this data. The
+  enabling defect was the contract: `byRegion` was **REQUIRED**, so the only way to satisfy the type
+  was to invent a constant — the type system _forced_ the fabrication. Fix (Tier-1, remove the
+  unsourceable field end-to-end): deleted from the backend contract, the producer,
+  `getDefaultTenantMetrics`, the shared FE type, the page's local interface/default, and the card is
+  gone — reading the field is now a compile error on both sides. Data hygiene: migration
+  `1802000000000` strips the key from `category='tenant'` rows in `admin.analytics_snapshots`,
+  because the daily cron persisted the constant into the durable trend record (idempotent,
+  data-only; `down()` is a deliberate no-op — restoring a fabricated value restores the defect).
+  Tier-3: `analytics-metrics-grounding.spec.ts` pins the exact contract key set (a re-added
+  unsourceable field fails — red-proven) and requires every metric to vary across two different
+  aggregate rows, which a hardcoded map cannot do. A real regional breakdown would need a
+  country/region column on `auth.tenants` — a product feature with an owner; reintroducing
+  `byRegion` without it is blocked by this gate. Third RC-8 fabrication closed in sequence after
+  APA-143 and APA-131.
+- **ADMIN-HIGH-061** — APA-131: the System Metrics card was fabricated **at the source**.
+  `SystemMetrics` typed every field as a bare `number`, so the type system could not express "not
+  instrumented" — and the only way for `getSystemMetrics` to satisfy it was to invent values:
+  `activeConnections = 10`, `totalStorageBytes = 1 TB "default"`, `uptimePercent = 100`, zeros for
+  the rest, and `usedStorageBytes = rows × 1KB` — a row-count guess sold as measured bytes. The
+  daily snapshot cron persisted the fabrication into `admin.analytics_snapshots` (poisoning trend
+  history) and the FE compounded it by overwriting `uptimePercent` client-side with the share of
+  healthy services — not uptime. Fix (Tier-1, make fabrication untypeable): fields are
+  `number | null` on both sides; the literals, the dead count queries and the client-side overwrite
+  (plus its now-consumerless `getServicesHealth` fetch) are deleted; `getDefaultSystemMetrics`
+  returns nulls rather than zeros (a zero claims a measured 0ms/0%); and a `formatMetric` helper
+  renders null as **"Not measured"** at every KPI card and tile — load-bearing, because TypeScript
+  does _not_ flag a null inside a template literal, so a nullable contract alone would have shipped
+  `null%`. Wiring a real source now fills these in with no contract change (the product-decision
+  remainder). Tier-3: `analytics-system-metrics.spec.ts` + `AnalyticsDashboardPage.spec.tsx`, both
+  red-proven. Deduplicating the page's local `SystemMetrics` interface is the separate finding
+  APA-132.
+- **ADMIN-HIGH-060** — APA-143: the `system_performance` report **invented** its numbers whenever
+  `admin.analytics_snapshots` held no `system` rows for the range — every per-day row carried
+  `avgResponseTime: 45` ("Default estimate in ms"), `errorRate: 0.1` and `uptime: 99.9` ("Default
+  uptime since we don't track downtime") — while `apiCalls` was proxied from `shared.audit_logs` row
+  counts and `activeConnections` was one _current_ `pg_stat_activity` reading stamped onto every
+  historical day; the snapshot path additionally coalesced a missing `uptimePercent` to 99.9. A
+  SUPER_ADMIN read a healthy-looking system that had never been measured — the RC-8
+  fabricated-metrics class, same as the already-fixed APA-240. Fix per that precedent: metrics are
+  `number | null` so absence is representable; the literals and both proxies are **deleted, not
+  substituted**; the `|| 99.9` coalescing is gone so measured data passes through untouched; the
+  summary aggregates over measured days only and reports `daysWithData` + `coverage` (averaging
+  nulls as zero would have re-created the lie one level up). Tier-3:
+  `performance-report-integrity.spec.ts` — all-null + coverage 0 + none of 45/0.1/99.9 anywhere,
+  measured values pass through (97.5/98 → avgUptime 97.75), and no `audit_logs` SQL is issued;
+  red-proven. **Scope:** the SOURCE-side fabrication in `AnalyticsService.getSystemMetrics` is the
+  separate finding APA-131 and is deliberately not claimed closed here.
+- **ADMIN-MEDIUM-058** — APA-145: `generateRevenueReport`, `generatePaymentsReport` and
+  `generatePerformanceReport` each wrapped their whole body in try/catch and, on ANY failure,
+  RESOLVED a success-shaped `{ data: [], summary: { …zeros, error } }`. Because it resolves, it
+  defeats `executeReport`'s own catch (which exists to set `status='failed'` + rethrow): the run was
+  recorded **completed** with `rowCount 0`, indistinguishable from a legitimately-empty report, and
+  the synchronous endpoints returned a fake-success 200. The sibling generators (tenant_overview,
+  tenant_churn) never swallowed — these three were the drift. Fix: deleted the three outer swallows
+  so failures propagate; bodies de-indented in place rather than running Prettier (the file is not
+  Prettier-clean, so a sweep would have buried the behavioural change). Tier-3:
+  `reports.service.execute.spec.ts` asserts revenue/payments reject on a store failure, plus a
+  source guard against reintroducing the success-shaped return; red-proven. **Explicitly not covered
+  here:** `system_performance`'s INNER best-effort catches still substitute fabricated constants
+  (45ms / 0.1% / 99.9%) — that is the distinct HIGH finding **APA-143**, taken up as the next slice,
+  not silently carried.

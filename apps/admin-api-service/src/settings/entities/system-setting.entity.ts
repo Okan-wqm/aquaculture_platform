@@ -86,13 +86,13 @@ export class EmailTemplate {
   @Column({ default: false })
   isSystem!: boolean; // System templates cannot be deleted
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string; // null = global template
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   @Column({ nullable: true })
@@ -104,48 +104,6 @@ export interface EmailTemplateVariable {
   description: string;
   required: boolean;
   defaultValue?: string;
-}
-
-/**
- * IP Access Rule entity for whitelist/blacklist
- */
-@Entity('ip_access_rules', { schema: 'admin' })
-@Index(['ipAddress'])
-@Index(['tenantId'])
-@Index(['ruleType'])
-export class IpAccessRule {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ nullable: true })
-  tenantId?: string; // null = global rule
-
-  @Column()
-  ipAddress!: string; // Can be CIDR notation: 192.168.1.0/24
-
-  @Column({ type: 'varchar', length: 20 })
-  ruleType!: 'whitelist' | 'blacklist';
-
-  @Column({ nullable: true })
-  description?: string;
-
-  @Column({ default: true })
-  isActive!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  expiresAt?: Date; // null = never expires
-
-  @Column({ type: 'int', default: 0 })
-  hitCount!: number;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  lastHitAt?: Date;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @Column({ nullable: true })
-  createdBy?: string;
 }
 
 // ============================================================================
@@ -243,14 +201,6 @@ export const DEFAULT_SYSTEM_SETTINGS: DefaultSystemSettings[] = [
     category: SettingCategory.SECURITY,
     description: 'Minimum password length',
     displayName: 'Password Min Length',
-  },
-  {
-    key: 'security.mfa_enabled',
-    value: 'true',
-    valueType: SettingValueType.BOOLEAN,
-    category: SettingCategory.SECURITY,
-    description: 'Enable MFA support platform-wide',
-    displayName: 'MFA Enabled',
   },
   {
     key: 'security.enforce_https',

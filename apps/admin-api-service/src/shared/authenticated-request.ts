@@ -1,4 +1,5 @@
 import { JwtUser } from '@aquaculture/backend-common/types';
+import { UnauthorizedException } from '@nestjs/common';
 import { Request } from 'express';
 
 /**
@@ -13,6 +14,8 @@ import { Request } from 'express';
  * controller reads `req.user.id`.
  */
 export interface AuthenticatedUser extends JwtUser {
+  /** JWT issue time (epoch seconds) — the freshness anchor DestructiveActionGuard reads (ADR-0011). */
+  iat?: number;
   /** admin-api-local alias for the JWT subject (`sub`). */
   id: string;
   /** display name (falls back to email). */
@@ -58,4 +61,35 @@ export function getAuthUserEmail(req: Request): string | undefined {
 export function getAuthUserName(req: Request): string | undefined {
   const user = (req as AuthenticatedRequest).user;
   return user?.name || user?.email;
+}
+
+/**
+ * The authenticated operator's id, or a 401 — for writes that ATTRIBUTE.
+ *
+ * The `getAuthUser*` readers above return `undefined` for an unauthenticated
+ * request, which is right for an optional read and wrong for an audit record:
+ * a caller that has to decide what to do with `undefined` will eventually
+ * decide to substitute something. It did — `createdBy: 'admin', // Would come
+ * from auth context` stamped a fictitious operator onto retention policies and
+ * security-incident timelines, so the audit trail attributed a real person's
+ * action to a name no account has (ADMIN-HIGH-097).
+ *
+ * These two return the identity or refuse, so the substituting branch has
+ * nowhere to live. Every route reaching them already sits behind the
+ * SUPER_ADMIN guard, so the throw is a contract assertion rather than an
+ * expected path.
+ */
+export function requireAuthUserId(req: Request): string {
+  const id = getAuthUserId(req);
+  if (!id) {
+    throw new UnauthorizedException(
+      'Request reached an attributed write without an authenticated user',
+    );
+  }
+  return id;
+}
+
+/** Display name for an attributed write, falling back to email and then to the id. */
+export function requireAuthUserName(req: Request): string {
+  return getAuthUserName(req) ?? requireAuthUserId(req);
 }

@@ -10,6 +10,7 @@ from typing import Any
 
 from ..file_lock import with_exclusive_lock
 from ..tool_registry import append_tools_governance, ensure_tools_dir
+from .default_schedules import ensure_default_schedules
 from .scheduler import tick
 from .server import GatewayConfig, build_server
 
@@ -54,13 +55,21 @@ def run_gateway_daemon(
             except Exception as exc:  # noqa: BLE001 — GovernanceError family; the lease is another host's
                 append_tools_governance(root, "gateway_daemon_refused", {"reason": "host_lease_blocked", "error": str(exc)[:200]})
                 return {"exits_clean": False, "exit_reason": "host_lease_blocked", "iterations": 0}
+            # The table exists by construction: seeded once per store, here,
+            # under the lease this daemon just took — never by an operator
+            # remembering `schedule add` (the live store ran two days empty).
+            # A seeded store reaches this line and writes nothing.
+            ensured = ensure_default_schedules(base_dir=root)
             server = None
             thread = None
             if serve_http:
                 server, _state = build_server(config=cfg, base_dir=root, workspace_root=workspace)
                 thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
                 thread.start()
-            append_tools_governance(root, "gateway_daemon_started", {"host": cfg.host, "port": cfg.port, "http": serve_http})
+            append_tools_governance(root, "gateway_daemon_started", {"host": cfg.host, "port": cfg.port, "http": serve_http,
+                                                                     "poll_interval_seconds": poll_interval_seconds,
+                                                                     "schedules_seeded": ensured["seeded"],
+                                                                     "schedules_drift": [row["name"] for row in ensured["drift"]]})
             reason = "max_iterations"
             try:
                 while True:
@@ -70,7 +79,11 @@ def run_gateway_daemon(
                     if stop.is_set():
                         reason = "interrupted"
                         break
-                    tick(base_dir=root, workspace_root=workspace, now=datetime.now(timezone.utc), runner=runner)
+                    # The beat declares its own cadence so the doctor's freshness
+                    # organ judges staleness against what THIS daemon promised,
+                    # not against a constant the unit file may have overridden.
+                    tick(base_dir=root, workspace_root=workspace, now=datetime.now(timezone.utc), runner=runner,
+                         poll_interval_seconds=poll_interval_seconds)
                     iterations += 1
                     try:
                         acquire_lease(base_dir=root, allow_same_host_refresh=True)

@@ -93,10 +93,13 @@ import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 import { ConversationTurn } from './cost/conversation-turn.entity';
 import { AiOutbox } from './outbox/ai-outbox.entity';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
 const complexityCache = new Map<string, number>();
+/** SEC-LOW-091: LRU-ish ceiling for the complexity cache (insert-order eviction). */
+const COMPLEXITY_CACHE_MAX_ENTRIES = 1000;
 
 type QueryComplexityOperationContext = {
   request: {
@@ -210,6 +213,12 @@ type QueryComplexityOperationContext = {
                     .update(opName)
                     .digest('hex');
 
+                  // SEC-LOW-091 (2026-08-23 scan №36): bounded cache — unique
+                  // query strings used to grow the Map indefinitely.
+                  if (complexityCache.size >= COMPLEXITY_CACHE_MAX_ENTRIES) {
+                    const oldest = complexityCache.keys().next().value;
+                    if (oldest !== undefined) complexityCache.delete(oldest);
+                  }
                   let complexity = complexityCache.get(cacheKey);
                   if (complexity === undefined) {
                     complexity = getComplexity({
@@ -291,6 +300,10 @@ type QueryComplexityOperationContext = {
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'ai-service' }),
     ConversationModule,
     AgentConfigModule,
     AuditModule,
@@ -389,22 +402,13 @@ export class AppModule implements NestModule {
 
     // SEC-HIGH-156: resolve req.user/req.tenantId from the gateway-signed
     // verified-user assertion (after Strip sets req.verifiedIdentity, before
-    // UserContext). EXCLUDED from /api/v2/ai/*: the AI chat REST surface arrives
-    // via the gateway's REST proxy (routes/v2/ai.routes.ts), which forwards only
-    // an allowlist of headers and does NOT sign a gateway service identity, so
-    // requiring the assertion there would 400 in production — that path still
-    // authenticates via the JWT guard + x-tenant-id. Both prefix forms excluded
-    // to fail safe.
+    // UserContext). ai-service serves no direct browser REST surface — the
+    // former /api/v2/ai proxy was retired for NATS request.ai.chat — so only
+    // the health probe is excluded (tests/invariants/nginx-route-resolution.spec.ts
+    // keeps nginx and the route table in agreement).
     consumer
       .apply(VerifiedUserAssertionMiddleware)
-      .exclude(
-        'health',
-        'health/{*path}',
-        'api/v2/ai',
-        'api/v2/ai/{*path}',
-        'api/v1/api/v2/ai',
-        'api/v1/api/v2/ai/{*path}',
-      )
+      .exclude('health', 'health/{*path}')
       .forRoutes('*');
 
     consumer

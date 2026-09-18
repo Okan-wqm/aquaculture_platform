@@ -1,9 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { NotificationDispatcherService } from './notification-dispatcher.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotificationLog, NotificationStatus } from '../entities/notification-log.entity';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 
 /**
  * Retry Scheduler Service
@@ -22,13 +26,14 @@ export class RetrySchedulerService {
     private readonly dispatcher: NotificationDispatcherService,
     @InjectRepository(NotificationLog)
     private readonly logRepository: Repository<NotificationLog>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
    * Every 5 minutes: find tenants with FAILED notifications due for retry and retry them.
    * Only processes records where next_retry_at is null or has elapsed.
    */
-  @Cron('*/5 * * * *', { name: 'notification-retry', timeZone: 'UTC' })
+  @ScheduledJob({ name: 'notification.retry-failed', cron: '*/5 * * * *', timeZone: 'UTC' })
   async retryFailedNotifications(): Promise<void> {
     const now = new Date();
 

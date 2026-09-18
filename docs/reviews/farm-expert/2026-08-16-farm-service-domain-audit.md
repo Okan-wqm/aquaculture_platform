@@ -177,6 +177,9 @@ would activate it — but not a live CRITICAL.
 **Title:** `skipCapacityCheck` on transferBatch is reachable by `MODULE_USER` with no role gate and
 produces no audit-log row
 
+**Registry id:** `FARM-HIGH-300` — allocated by `npm run findings:add` when this defect was
+fixed. The cycle-local numbering in this report is not a registry id; the ledger is authoritative.
+
 **Severity:** HIGH
 **Layer:** 2
 **State:** OPEN

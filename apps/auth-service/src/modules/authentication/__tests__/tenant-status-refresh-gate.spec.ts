@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { TenantStatus } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
@@ -35,6 +36,8 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -52,6 +55,8 @@ const mockCompare = jest.mocked<(d: string, e: string) => Promise<boolean>>(bcry
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const TENANT_ID = '33333333-3333-4333-8333-333333333333';
+
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)', () => {
   let service: AuthenticationService;
@@ -131,12 +136,20 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: { update: jest.fn() } },
         { provide: getRepositoryToken(Invitation), useValue: {} },
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn() } },
         { provide: getRepositoryToken(Tenant), useValue: { findOne: mockTenantFindOne } },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: { signAsync: jest.fn() } },
         { provide: ConfigService, useValue: mockConfigService },
@@ -145,6 +158,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: mockTokenService },
         {

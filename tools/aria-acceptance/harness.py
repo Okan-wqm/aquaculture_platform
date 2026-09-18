@@ -12,8 +12,10 @@ Three checks, all deterministic:
 * ``validate_drift_output`` — runs the LLM-free mechanical drift scan
   (``tools/aria-poc/poc.py``), then RE-VERIFIES every drift's evidence refs
   against the repo at HEAD via ``evidence_trust.classify_evidence_ref`` and
-  classifies each as true-positive / false-positive / unverifiable. This audits
-  the only ARIA output that runs today.
+  classifies each as true-positive / false-positive / unverifiable — or, when
+  the host's git could not answer the probe, as verification-unavailable,
+  which is the harness's gap and is reported apart from ARIA's score. This
+  audits the only ARIA output that runs today.
 * ``run_cycle_acceptance`` — drives a full ARIA kernel cycle in an isolated temp
   workspace + bound tools-dir (CURRENT_STATE's "clean trial") and asserts a
   battery of behavioural invariants on the cycle output.
@@ -25,6 +27,7 @@ Run directly: ``python3 tools/aria-acceptance/harness.py`` (exit 0 = accept).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -39,9 +42,23 @@ _KERNEL_PATH = _REPO_ROOT / "aria-kernel"
 if str(_KERNEL_PATH) not in sys.path:
     sys.path.insert(0, str(_KERNEL_PATH))
 
+from aria_kernel.evidence_probe import GitProbeSession  # noqa: E402
 from aria_kernel.evidence_trust import classify_evidence_ref  # noqa: E402
 
 _RESOLVABLE_GRADES = ("repo_verified", "worktree_candidate")
+# The grade that says the HARNESS could not ask, not that ARIA cited badly:
+# git did not answer the probe inside its bounds, the run's probe clock ran
+# out, or HEAD is unreachable from this checkout. A ref under this grade is
+# neither resolved nor fabricated — nothing about it was compared — so it
+# must never be billed to ARIA (fp_rate, `clean`) and must never pass.
+_UNAVAILABLE_GRADE = "verification_unavailable"
+
+# The three things one ref can come back as, closed so the two consumers
+# below (the per-drift verdict and the sub-threshold sweep) cannot read the
+# grades differently.
+REF_RESOLVED = "resolved"
+REF_UNRESOLVED = "unresolved"
+REF_UNAVAILABLE = "unavailable"
 
 
 # ── A1: validate ARIA's mechanical drift output ──────────────────────────────
@@ -60,19 +77,66 @@ def _run_poc(repo_root: Path, out_dir: Path) -> dict[str, Any]:
     return json.loads(artifact.read_text(encoding="utf-8"))
 
 
-def _ref_resolvable(ref: str | None, repo_root: Path) -> tuple[bool, str]:
+def _ref_resolution(
+    ref: str | None, repo_root: Path, session: GitProbeSession,
+) -> tuple[str, str]:
+    """(REF_* state, kernel trust grade) for one cited ref.
+
+    ``session`` is the probe clock and baseline cache of the WHOLE run: every
+    ref of every drift is graded through the same one, so HEAD is resolved
+    once and a git that has stopped answering costs the run one liveness
+    clock instead of refs x attempts x bound (`evidence_probe`).
+    """
     if not ref or not isinstance(ref, str):
-        return False, "no_ref"
-    grade = classify_evidence_ref(ref, workspace_root=repo_root, target_sha="HEAD").trust_grade
-    return grade in _RESOLVABLE_GRADES, grade
+        return REF_UNRESOLVED, "no_ref"
+    grade = classify_evidence_ref(
+        ref, workspace_root=repo_root, target_sha="HEAD", probe_session=session,
+    ).trust_grade
+    if grade in _RESOLVABLE_GRADES:
+        return REF_RESOLVED, grade
+    if grade == _UNAVAILABLE_GRADE:
+        return REF_UNAVAILABLE, grade
+    return REF_UNRESOLVED, grade
 
 
-def _classify_drift(d: dict[str, Any], repo_root: Path) -> tuple[str, str]:
-    """Deterministic verdict for one above-threshold drift ARIA emitted."""
-    ts_ok, ts_grade = _ref_resolvable((d.get("ts") or {}).get("ref"), repo_root)
-    sql_ok, sql_grade = _ref_resolvable((d.get("sql") or {}).get("ref"), repo_root)
-    if not (ts_ok and sql_ok):
+def _signal_refs(d: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Every evidence ref one emitted signal cites, whatever its shape.
+
+    Value-set drifts cite `ts`/`sql`; frontend-dropdown drifts cite `ui`/
+    `source`. The evidence-integrity contract ("ARIA must not cite stale or
+    fabricated evidence") is threshold- and shape-independent, so ref
+    collection must be too — scoping it to one shape is how three of the four
+    signals this repo emits went unexamined.
+    """
+    return [
+        (side, (d.get(side) or {}).get("ref"))
+        for side in ("ts", "sql", "ui", "source")
+        if isinstance(d.get(side), dict)
+    ]
+
+
+def _classify_drift(
+    d: dict[str, Any], repo_root: Path, session: GitProbeSession,
+) -> tuple[str, str]:
+    """Deterministic verdict for one above-threshold drift ARIA emitted.
+
+    Four verdicts, and only three of them are about ARIA. A ref the host
+    could not probe (`verification_unavailable`) makes the drift
+    ``verification_unavailable`` — the harness's gap, reported apart from
+    TP/FP and never in the fp_rate — UNLESS the drift's other ref positively
+    failed to resolve, because a fabricated ref is a fabricated ref no matter
+    what its neighbour did.
+    """
+    ts_state, ts_grade = _ref_resolution((d.get("ts") or {}).get("ref"), repo_root, session)
+    sql_state, sql_grade = _ref_resolution((d.get("sql") or {}).get("ref"), repo_root, session)
+    states = (ts_state, sql_state)
+    if REF_UNRESOLVED in states:
         return "unverifiable", f"evidence not resolvable (ts={ts_grade}, sql={sql_grade})"
+    if REF_UNAVAILABLE in states:
+        return (
+            "verification_unavailable",
+            f"harness could not verify the evidence (ts={ts_grade}, sql={sql_grade})",
+        )
     if not (d.get("missing_in_ts") or d.get("missing_in_sql")):
         return "false_positive", "value sets do not actually differ (likely name collision)"
     if d.get("existing_gate_refs"):
@@ -80,13 +144,50 @@ def _classify_drift(d: dict[str, Any], repo_root: Path) -> tuple[str, str]:
     return "true_positive", "refs verified, values differ, unprotected"
 
 
-def validate_drift_output(*, repo_root: Path | None = None) -> dict[str, Any]:
-    """Re-verify every above-threshold drift ARIA emitted against repo evidence.
+def validate_drift_output(
+    *,
+    repo_root: Path | None = None,
+    probe_session: GitProbeSession | None = None,
+) -> dict[str, Any]:
+    """Re-verify the drifts ARIA emitted against repo evidence.
 
     A drift is a TRUE positive only when both of its cited refs resolve in the
     repo AND the two value sets genuinely differ AND no existing gate already
     guards it. Anything whose evidence does not resolve is flagged — ARIA must
     not cite stale/fabricated evidence.
+
+    Two questions live here and they are NOT the same:
+
+      1. Did ARIA cite evidence that resolves?  (integrity)
+      2. Did ARIA emit anything to check at all? (sample size)
+
+    Collapsing them into one `passed` flag is why this check reported
+    ``[PASS] checked=0 TP=0 FP=0`` — with nothing examined, ``unverifiable``
+    is trivially 0 and the truth layer of the acceptance lane announced
+    success having verified nothing. A check that examined no sample is
+    INCONCLUSIVE, never a pass: `verdict` carries the three states and
+    `passed` stays True only for a real, non-empty, clean sample.
+
+    Integrity (1) runs over EVERY emitted signal — above threshold, filtered
+    below it, and frontend-dropdown drifts alike, since a fabricated ref is a
+    fabricated ref at any Jaccard score. The TP/FP precision split (2) stays
+    scoped to the above-threshold set, because that is the only set ARIA
+    actually asserts as a finding.
+
+    A third state sits beside those two and belongs to neither: the HOST
+    could not answer. Every ref is verified with a git probe, and a git that
+    does not answer inside its bounds grades `verification_unavailable`.
+    Until this change that grade was folded into `unverifiable`, counted into
+    ARIA's fp_rate and flipped `clean` — the CI lane billed a stalled runner
+    as ARIA citing unresolvable evidence. Such a drift is now its own verdict
+    (``verification_unavailable``), such a sub-threshold ref its own list
+    (``unavailable_refs``); neither enters fp_rate or `clean`, and a run in
+    which NOTHING could be verified is inconclusive, not a pass — the same
+    rule the empty sample follows, for the same reason (no measurement).
+
+    ``probe_session`` is the one git-probe session of this run (clock and
+    baseline cache); the default is the production session, a test with a
+    scripted git passes a shorter one.
     """
     repo_root = (repo_root or _REPO_ROOT).resolve()
     # poc.py makes artifact paths relative to the workspace root, so its out-dir
@@ -97,16 +198,22 @@ def validate_drift_output(*, repo_root: Path | None = None) -> dict[str, Any]:
         drifts = _run_poc(repo_root, out_dir)
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)
+    # The session's liveness clock starts when it is constructed, so the
+    # run's own session is minted AFTER the minute-long drift scan: the clock
+    # is for the probes, not for poc.py.
+    session = probe_session if probe_session is not None else GitProbeSession()
 
     above = list(drifts.get("drifts_above_threshold") or [])
     details: list[dict[str, Any]] = []
-    tp = fp = unverifiable = 0
+    tp = fp = unverifiable = verification_unavailable = 0
     for d in above:
-        verdict, reason = _classify_drift(d, repo_root)
+        verdict, reason = _classify_drift(d, repo_root, session)
         if verdict == "true_positive":
             tp += 1
         elif verdict == "false_positive":
             fp += 1
+        elif verdict == "verification_unavailable":
+            verification_unavailable += 1
         else:
             unverifiable += 1
         details.append({
@@ -116,15 +223,66 @@ def validate_drift_output(*, repo_root: Path | None = None) -> dict[str, Any]:
             "verdict": verdict, "reason": reason,
         })
 
+    # Integrity sweep over every emitted signal, not just the asserted ones.
+    other_signals = [
+        (bucket, sig)
+        for bucket in ("drifts_filtered_below_threshold", "frontend_dropdown_drifts")
+        for sig in (drifts.get(bucket) or [])
+    ]
+    unresolved_refs: list[dict[str, Any]] = []
+    unavailable_refs: list[dict[str, Any]] = []
+    sub_signals_unavailable = 0
+    for bucket, sig in other_signals:
+        signal_unavailable = False
+        for side, ref in _signal_refs(sig):
+            state, grade = _ref_resolution(ref, repo_root, session)
+            if state == REF_RESOLVED:
+                continue
+            entry = {
+                "bucket": bucket, "concept": sig.get("concept"),
+                "side": side, "ref": ref, "trust_grade": grade,
+            }
+            if state == REF_UNAVAILABLE:
+                unavailable_refs.append(entry)
+                signal_unavailable = True
+            else:
+                unresolved_refs.append(entry)
+        if signal_unavailable:
+            sub_signals_unavailable += 1
+
     checked = len(above)
-    fp_rate = round((fp + unverifiable) / checked, 3) if checked else 0.0
+    emitted = checked + len(other_signals)
+    # The precision rate is over the drifts that WERE measured; a drift the
+    # host could not probe is neither a hit nor a miss and leaves the sample.
+    measured_checked = checked - verification_unavailable
+    fp_rate = round((fp + unverifiable) / measured_checked, 3) if measured_checked else None
+    measured = measured_checked + (len(other_signals) - sub_signals_unavailable)
+    # A sample of zero is not a clean bill of health — it is no measurement;
+    # and a sample the host could not probe is the same absence of
+    # measurement wearing a different reason.
+    inconclusive_reason = (
+        "no_sample" if emitted == 0
+        else ("verification_unavailable" if measured == 0 else None)
+    )
+    inconclusive = inconclusive_reason is not None
+    clean = unverifiable == 0 and not unresolved_refs
+    verdict = "inconclusive" if inconclusive else ("pass" if clean else "fail")
     return {
         "check": "drift_output_validation",
-        "checked": checked, "true_positive": tp, "false_positive": fp,
-        "unverifiable": unverifiable, "fp_rate": fp_rate,
-        # Pass unless ARIA cited evidence that doesn't resolve (unverifiable),
-        # which is the one outcome that breaks the "evidence is truth" contract.
-        "passed": unverifiable == 0,
+        "checked": checked, "emitted": emitted, "measured": measured,
+        "true_positive": tp, "false_positive": fp, "unverifiable": unverifiable,
+        "verification_unavailable": verification_unavailable, "fp_rate": fp_rate,
+        "unexamined_signals": len(other_signals),
+        "unresolved_refs": unresolved_refs,
+        "unavailable_refs": unavailable_refs,
+        "verdict": verdict,
+        "inconclusive_reason": inconclusive_reason,
+        # `passed` drives the exit code, so an inconclusive run must not set it:
+        # ACCEPT is an affirmative claim that ARIA's output is trustworthy, and
+        # an empty sample supports no such claim. Fail-closed, and labelled
+        # INCONC in the report so "ARIA said nothing" stays distinguishable
+        # from "ARIA said something false".
+        "passed": verdict == "pass",
         "details": details,
     }
 
@@ -134,6 +292,34 @@ _EXPECTED_PHASE_KEYS = (
     "discovery", "memory", "belief_decay", "pressure",
     "consensus_escalation", "judge_calibration", "proactive_priorities", "reflection",
 )
+
+
+def _git_init_fixture(ws: Path) -> None:
+    """Make the acceptance workspace a real git repository.
+
+    ARIA observes REPOSITORIES: phases anchor their evidence to a HEAD SHA.
+    A bare directory is therefore not a smaller version of ARIA's habitat, it
+    is a habitat ARIA has no contract to run in — `experiment_night` failed
+    with `experiment_night_head_sha_unavailable` and took the whole cycle down
+    with it, so `run_cycle_acceptance` could never observe a 'completed' cycle
+    and the harness returned REJECT unconditionally, for a reason that said
+    nothing about ARIA.
+
+    Fixing the ASSERTION (accepting a failed cycle) would have green-pinned a
+    broken oracle; fixing the phase (skip when git is absent) would weaken a
+    real contract to suit a fake workspace. The fixture was the wrong one.
+    """
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "aria-acceptance", "GIT_AUTHOR_EMAIL": "aria@acceptance.local",
+        "GIT_COMMITTER_NAME": "aria-acceptance", "GIT_COMMITTER_EMAIL": "aria@acceptance.local",
+    }
+    for argv in (
+        ["git", "init", "--quiet", "--initial-branch=main"],
+        ["git", "add", "-A"],
+        ["git", "commit", "--quiet", "-m", "acceptance fixture baseline"],
+    ):
+        subprocess.run(argv, cwd=ws, env=env, check=True, capture_output=True, timeout=60)
 
 
 def run_cycle_acceptance() -> dict[str, Any]:
@@ -156,6 +342,7 @@ def run_cycle_acceptance() -> dict[str, Any]:
         (ws / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
         (ws / "package.json").write_text('{"name":"acceptance-fixture"}\n', encoding="utf-8")
         (ws / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
+        _git_init_fixture(ws)
         tools = ensure_tools_dir(Path(td) / "aria-tools")
 
         result = run_enterprise_cycle(workspace_root=ws, cycle_id="accept-1", base_dir=tools)
@@ -201,10 +388,16 @@ def run_cycle_acceptance() -> dict[str, Any]:
             )
 
         status = result.get("status")
+        # WHICH phase broke is the whole diagnosis. Reporting only
+        # `status=failed` cost a full manual descent into the kernel to learn
+        # that one phase wanted a git SHA — an operator cannot tell an ARIA
+        # defect from a harness/environment fault without this.
+        failed_phases = list(result.get("failed_phases") or [])
 
     return {
         "check": "cycle_acceptance",
         "cycle_status": status,
+        "failed_phases": failed_phases,
         "passed": not failures,
         "failures": failures,
     }
@@ -275,17 +468,54 @@ def run_all(*, repo_root: Path | None = None, skip_poc: bool = False) -> dict[st
 def _print_report(report: dict[str, Any]) -> None:
     print("=== ARIA Acceptance Harness ===")
     for r in report["checks"]:
-        mark = "PASS" if r["passed"] else "FAIL"
+        # INCONC is its own mark: "ARIA emitted nothing to verify" and "ARIA
+        # emitted something false" are different operator situations and must
+        # never print the same word.
+        verdict = r.get("verdict") or ("pass" if r["passed"] else "fail")
+        mark = {"pass": "PASS", "fail": "FAIL", "inconclusive": "INCONC"}[verdict]
         line = f"[{mark}] {r['check']}"
         if r["check"] == "drift_output_validation":
             line += (f" — checked={r['checked']} TP={r['true_positive']} "
-                     f"FP={r['false_positive']} unverifiable={r['unverifiable']}")
+                     f"FP={r['false_positive']} unverifiable={r['unverifiable']}"
+                     f" host_unavailable={r['verification_unavailable']}"
+                     f" (+{r['unexamined_signals']} sub-threshold signals swept for evidence)")
+            if r["inconclusive_reason"] == "no_sample":
+                line += " — NO SAMPLE: ARIA emitted no drift, so nothing was verified"
+            elif r["inconclusive_reason"] == "verification_unavailable":
+                # The host, not ARIA: git answered none of the harness's
+                # probes. Printing FAIL here would bill a stalled runner as
+                # ARIA citing unresolvable evidence.
+                line += " — NO MEASUREMENT: git did not answer the harness's probes; nothing was verified"
+            elif r["checked"] == 0:
+                # Integrity WAS measured (sub-threshold refs resolved); precision
+                # was not. Printing a bare PASS beside `checked=0 TP=0 FP=0`
+                # invites exactly the misreading this check exists to prevent.
+                line += " — evidence integrity verified; PRECISION UNMEASURED (no above-threshold drift)"
+            if r["unresolved_refs"]:
+                line += f" — {len(r['unresolved_refs'])} unresolvable ref(s) in sub-threshold signals"
+            if r["unavailable_refs"]:
+                line += (f" — {len(r['unavailable_refs'])} sub-threshold ref(s) the host could not "
+                         "probe (not billed to ARIA)")
         elif r["check"] == "cycle_acceptance":
             line += f" — status={r['cycle_status']}" + (f" failures={r['failures']}" if r["failures"] else "")
+            if r.get("failed_phases"):
+                line += f" failed_phases={r['failed_phases']}"
         elif r["check"] == "scenario_reactions":
             line += " — " + ", ".join(f"{c['scenario']}={'ok' if c['passed'] else 'FAIL'}" for c in r["scenarios"])
         print(line)
-    print(f"=== OVERALL: {'ACCEPT' if report['passed'] else 'REJECT'} ===")
+    if report["passed"]:
+        overall = "ACCEPT"
+    elif any(c.get("verdict") == "inconclusive" for c in report["checks"]) and not any(
+        c.get("verdict") == "fail" or (c.get("verdict") is None and not c["passed"])
+        for c in report["checks"]
+    ):
+        # Nothing failed; something could not be measured. Still not an ACCEPT
+        # — but calling it a plain REJECT would report a measurement gap as
+        # misconduct.
+        overall = "REJECT (INCONCLUSIVE — nothing failed, but a check had no sample)"
+    else:
+        overall = "REJECT"
+    print(f"=== OVERALL: {overall} ===")
 
 
 def main() -> int:

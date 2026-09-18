@@ -235,7 +235,7 @@ pub async fn verify_and_deploy(
         policy_version: bytecode.policy_version,
         enabled: true,
         deployed_at: Utc::now(),
-        bytecode,
+        bytecode: std::sync::Arc::new(bytecode),
     };
     registry.insert(entry.clone()).await?;
 
@@ -412,7 +412,7 @@ pub async fn compile_and_deploy_signed_source(
         policy_version: bytecode.policy_version,
         enabled: true,
         deployed_at: Utc::now(),
-        bytecode,
+        bytecode: std::sync::Arc::new(bytecode),
     };
     registry.insert(entry.clone()).await?;
 

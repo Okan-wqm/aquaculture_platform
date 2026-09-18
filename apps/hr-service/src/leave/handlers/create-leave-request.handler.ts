@@ -1,20 +1,18 @@
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
-import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
+import { CommandHandler, ICommandHandler, EventBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 
 import { Employee } from '../../hr/entities/employee.entity';
 import { CreateLeaveRequestCommand } from '../commands/create-leave-request.command';
+import { CalculateLeaveDaysQuery } from '../queries/calculate-leave-days.query';
 import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
 
-
 @CommandHandler(CreateLeaveRequestCommand)
-export class CreateLeaveRequestHandler
-  implements ICommandHandler<CreateLeaveRequestCommand>
-{
+export class CreateLeaveRequestHandler implements ICommandHandler<CreateLeaveRequestCommand> {
   private readonly logger = new Logger(CreateLeaveRequestHandler.name);
 
   constructor(
@@ -28,6 +26,7 @@ export class CreateLeaveRequestHandler
     private readonly employeeRepository: Repository<Employee>,
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
+    private readonly queryBus: QueryBus,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
@@ -39,7 +38,6 @@ export class CreateLeaveRequestHandler
       leaveTypeId,
       startDate,
       endDate,
-      totalDays,
       isHalfDayStart,
       isHalfDayEnd,
       halfDayPeriod,
@@ -75,9 +73,7 @@ export class CreateLeaveRequestHandler
     // Validate minimum notice days (can be done outside transaction)
     if (leaveType.minDaysNotice && leaveType.minDaysNotice > 0) {
       const today = new Date();
-      const daysDifference = Math.ceil(
-        (start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-      );
+      const daysDifference = Math.ceil((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       if (daysDifference < leaveType.minDaysNotice) {
         throw new BadRequestException(
           `Leave type ${leaveType.name} requires at least ${leaveType.minDaysNotice} days notice`,
@@ -111,6 +107,23 @@ export class CreateLeaveRequestHandler
         return replayed;
       }
 
+      // SEC-MEDIUM-076 (2026-08-23 scan №21): totalDays is SERVER-authoritative.
+      // The client-supplied value is ignored on every write path — a
+      // Jan-1-to-Jan-30 request with totalDays=0.5 used to deduct half a day.
+      // The same calendar SSoT the calculateLeaveDays query exposes
+      // (weekends + tenant holidays + half-day flags) decides the figure.
+      const calculated = await this.queryBus.execute(
+        new CalculateLeaveDaysQuery(
+          tenantId,
+          leaveTypeId,
+          command.startDate,
+          command.endDate,
+          isHalfDayStart || false,
+          isHalfDayEnd || false,
+        ),
+      );
+      const totalDays = calculated.totalDays;
+
       // Check for overlapping leave requests (within transaction)
       const overlappingRequest = await queryRunner.manager
         .createQueryBuilder(LeaveRequest, 'lr')
@@ -124,10 +137,7 @@ export class CreateLeaveRequestHandler
           ],
         })
         .andWhere('lr.isDeleted = false')
-        .andWhere(
-          '(lr.startDate <= :endDate AND lr.endDate >= :startDate)',
-          { startDate, endDate },
-        )
+        .andWhere('(lr.startDate <= :endDate AND lr.endDate >= :startDate)', { startDate, endDate })
         .setLock('pessimistic_read')
         .getOne();
 

@@ -14,6 +14,7 @@ import {
   BillingCycle,
   PlanTier,
 } from '../services/adminApi';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Subscription Management Page
@@ -139,7 +140,7 @@ const SubscriptionManagementPage: React.FC = () => {
     });
   };
 
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = expectedTotalPages(total, limit);
 
   if (error) {
     return (
@@ -161,11 +162,6 @@ const SubscriptionManagementPage: React.FC = () => {
           <p className="mt-1 text-sm text-gray-500">
             Manage tenant subscriptions, billing cycles, and plan changes
           </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => billingApi.processRenewals()}>
-            Process Renewals
-          </Button>
         </div>
       </div>
 

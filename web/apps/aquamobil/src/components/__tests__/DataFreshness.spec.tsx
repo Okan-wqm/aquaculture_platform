@@ -28,23 +28,21 @@ describe('DataFreshness (MOB-MEDIUM-008)', () => {
     render(<DataFreshness timestamp={new Date(NOW - 45_000).toISOString()} />);
 
     const stamp = screen.getByText('Just now');
-    // v4: the tiers wear semantic tokens (text-ok/text-warn/text-crit) instead
-    // of a green/amber/red ramp. The tier boundaries and meanings are unchanged.
-    expect(stamp.className).toContain('text-ok');
+    expect(stamp.className).toContain('text-green-600');
   });
 
   it('renders an aging stamp between 2 and 15 minutes', () => {
     render(<DataFreshness timestamp={new Date(NOW - 5 * 60_000).toISOString()} />);
 
     const stamp = screen.getByText('5m ago');
-    expect(stamp.className).toContain('text-warn');
+    expect(stamp.className).toContain('text-amber-600');
   });
 
   it('renders a stale stamp past 15 minutes — visually loud, not quietly grey', () => {
     render(<DataFreshness timestamp={new Date(NOW - 2 * 3_600_000).toISOString()} />);
 
     const stamp = screen.getByText('2h ago');
-    expect(stamp.className).toContain('text-crit');
+    expect(stamp.className).toContain('text-red-600');
   });
 
   it('renders an explicit "No data" state instead of pretending', () => {

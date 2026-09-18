@@ -27,6 +27,7 @@ import {
   CANCEL_HARVEST_PLAN_MUTATION,
   POSTPONE_HARVEST_PLAN_MUTATION,
 } from '../graphql/harvestPlan.operations';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // TYPES
@@ -182,15 +183,7 @@ export interface HarvestPlanStats {
   overdueCount: number;
 }
 
-interface PaginatedHarvestPlans {
-  items: HarvestPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+type PaginatedHarvestPlans = PaginationResultV1<HarvestPlan>;
 
 // ============================================================================
 // INPUT TYPES

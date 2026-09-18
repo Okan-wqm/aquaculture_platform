@@ -1,18 +1,16 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
 import { InjectDataSource } from '@nestjs/typeorm';
+import type { BillingCycle } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
-
-import { BillingCycle } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
 import {
   SubscriptionOverview,
   SubscriptionFilters,
-  CreateSubscriptionDto,
 } from './subscription-types';
 
 type DbNumeric = number | string | null | undefined;
@@ -194,84 +192,20 @@ export class SubscriptionCoreService {
   }
 
   /**
-   * Cancel subscription
-   */
-  cancelSubscription(
-    tenantId: string,
-    reason: string,
-    cancelledBy: string,
-    cancelImmediately = false,
-  ): never {
-    void tenantId;
-    void reason;
-    void cancelledBy;
-    void cancelImmediately;
-    throw new ConflictException(
-      'Subscription cancellation is billing-service-owned. Use BillingAdminCommandClientService.cancelSubscription.',
-    );
-  }
-
-  /**
-   * Reactivate a cancelled subscription
-   */
-  reactivateSubscription(
-    tenantId: string,
-    reactivatedBy: string,
-  ): never {
-    void tenantId;
-    void reactivatedBy;
-    throw new ConflictException(
-      'Subscription reactivation is billing-service-owned. Use BillingAdminCommandClientService.reactivateSubscription.',
-    );
-  }
-
-  /**
-   * Extend trial period
-   */
-  extendTrial(
-    tenantId: string,
-    additionalDays: number,
-    extendedBy: string,
-  ): never {
-    void tenantId;
-    void additionalDays;
-    void extendedBy;
-    throw new ConflictException(
-      'Trial extension is billing-service-owned. Use BillingAdminCommandClientService.extendSubscriptionTrial.',
-    );
-  }
-
-  /**
-   * Calculate next period end date based on billing cycle
+   * When the period that starts at `start` ends.
+   *
+   * This used to write the arithmetic itself, with a bare `setMonth`, and was
+   * the one of four copies that got it wrong: `setMonth(0 + 1)` on 31 January
+   * asks JS for 31 February, and JS answers by counting past the end of the
+   * month — so a subscription starting on the 31st would have had its period
+   * end on 3 March. billing-service's three copies all clamped; this one did
+   * not, and nothing compared them (BILLING-HIGH-008).
+   *
+   * `addBillingCycle` is now the only implementation, so the two services
+   * cannot compute different period ends for the same subscription.
    */
   calculateNextPeriodEnd(start: Date, cycle: BillingCycle): Date {
-    const end = new Date(start);
-    switch (cycle) {
-      case BillingCycle.MONTHLY:
-        end.setMonth(end.getMonth() + 1);
-        break;
-      case BillingCycle.QUARTERLY:
-        end.setMonth(end.getMonth() + 3);
-        break;
-      case BillingCycle.SEMI_ANNUAL:
-        end.setMonth(end.getMonth() + 6);
-        break;
-      case BillingCycle.ANNUAL:
-        end.setFullYear(end.getFullYear() + 1);
-        break;
-    }
-    return end;
-  }
-
-  /**
-   * Create a new subscription for a tenant
-   * This is called during tenant creation to set up billing
-   */
-  createSubscription(dto: CreateSubscriptionDto): never {
-    void dto;
-    throw new ConflictException(
-      'Subscription creation is billing-service-owned. Use the tenant provisioning billing command workflow.',
-    );
+    return addBillingCycle(start, cycle);
   }
 
   /**

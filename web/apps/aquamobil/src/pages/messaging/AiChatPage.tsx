@@ -35,7 +35,6 @@ import {
   Sparkles,
   Clock,
   WifiOff,
-  X,
 } from 'lucide-react';
 import {
   useState,
@@ -52,7 +51,6 @@ import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { useAiChat } from '@/hooks/useAiChat';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
@@ -62,7 +60,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import type { Message } from '@/types/messaging';
 import { runAsyncAction } from '@/utils/async-action';
-import { getDateLabel, isAiAuthoredMessage } from '@/utils/messaging-helpers';
+import { getDateLabel } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,15 +85,12 @@ function groupMessagesByDate(messages: Message[]): Array<{ date: string; message
 }
 
 /**
- * Check if a message is from the AI virtual user.
- *
- * FAZ 2 contract: server-authoritative signals ONLY — `isAiGenerated === true`
- * (the server stamp) or `senderId === AI_USER_ID` (the AI virtual user). The
- * display-name/metadata checks were user-forgeable and missed real AI replies
- * whose sender is not named 'AI Assistant'.
+ * Check if a message is from the AI virtual user. The bridge stamps
+ * `metadata.isAi` (ai-chat-bridge.service) and, since MSG-HIGH-080, the
+ * GraphQL read path carries metadata too — history and live agree.
  */
 function isAiMessage(msg: Message): boolean {
-  return isAiAuthoredMessage(msg);
+  return msg.metadata?.isAi === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,45 +108,40 @@ const PERSONA_ICONS: Record<AiPersonaIcon, typeof Bot> = {
   wrench: Wrench,
 };
 
-/**
- * Map the persona's colour name onto the v4 decorative hues.
- *
- * WHY these five: the token layer offers exactly five hues NOT already spoken
- * for by an alarm meaning (coral is excluded — it means "something is wrong"
- * everywhere else), and each resolves per theme, which the fixed light/dark
- * Tailwind ramp pairs they replace could not. The colour NAMES stay the server's
- * vocabulary because they are part of the persona contract; only what they
- * resolve to changes. NewChatPage's persona cards use the same mapping, so a
- * persona keeps its hue from the picker into the chat.
- */
+/** Map persona color to Tailwind classes for header styling. */
 const PERSONA_HEADER_COLORS: Record<
   string,
   { border: string; avatar: string; icon: string; label: string }
 > = {
   purple: {
-    border: 'border-type-transfer',
-    avatar: 'bg-type-transfer-dim',
-    icon: 'text-type-transfer',
-    label: 'text-type-transfer',
+    border: 'border-purple-500',
+    avatar: 'bg-purple-50 dark:bg-purple-900/30',
+    icon: 'text-purple-600 dark:text-purple-400',
+    label: 'text-purple-500 dark:text-purple-400',
   },
-  cyan: { border: 'border-acc', avatar: 'bg-acc-dim', icon: 'text-acc', label: 'text-acc' },
+  cyan: {
+    border: 'border-cyan-500',
+    avatar: 'bg-cyan-50 dark:bg-cyan-900/30',
+    icon: 'text-cyan-600 dark:text-cyan-400',
+    label: 'text-cyan-500 dark:text-cyan-400',
+  },
   blue: {
-    border: 'border-type-water',
-    avatar: 'bg-type-water-dim',
-    icon: 'text-type-water',
-    label: 'text-type-water',
+    border: 'border-blue-500',
+    avatar: 'bg-blue-50 dark:bg-blue-900/30',
+    icon: 'text-blue-600 dark:text-blue-400',
+    label: 'text-blue-500 dark:text-blue-400',
   },
   green: {
-    border: 'border-type-harvest',
-    avatar: 'bg-type-harvest-dim',
-    icon: 'text-type-harvest',
-    label: 'text-type-harvest',
+    border: 'border-green-500',
+    avatar: 'bg-green-50 dark:bg-green-900/30',
+    icon: 'text-green-600 dark:text-green-400',
+    label: 'text-green-500 dark:text-green-400',
   },
   orange: {
-    border: 'border-type-cull',
-    avatar: 'bg-type-cull-dim',
-    icon: 'text-type-cull',
-    label: 'text-type-cull',
+    border: 'border-orange-500',
+    avatar: 'bg-orange-50 dark:bg-orange-900/30',
+    icon: 'text-orange-600 dark:text-orange-400',
+    label: 'text-orange-500 dark:text-orange-400',
   },
 };
 
@@ -192,20 +182,18 @@ function AiChannelHeader({
   const IconComponent = PERSONA_ICONS[meta.icon];
 
   return (
-    // NOT the shared AppHeader: this header carries the persona avatar, its hue
-    // and a capabilities disclosure, none of which AppHeader models.
-    <div className="bg-surface-1 border-b-2 flex-shrink-0 z-10" style={{ borderColor: 'inherit' }}>
+    <div
+      className="bg-white dark:bg-gray-900 border-b-2 flex-shrink-0 z-10"
+      style={{ borderColor: 'inherit' }}
+    >
       <div className={clsx('border-b-2', colors.border)}>
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
-          {/* IconButton supplies the 44px floor and the accessible name these
-              icon-only controls were missing. */}
-          <IconButton
+          <button
             onClick={onBack}
-            className="-ml-1 hover:bg-surface-2"
-            aria-label="Back to messages"
+            className="p-2 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
           >
-            <ArrowLeft size={22} className="text-ink-2" />
-          </IconButton>
+            <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
+          </button>
 
           <div
             className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
@@ -228,15 +216,13 @@ function AiChannelHeader({
               )}
             >
               <IconComponent size={20} className={colors.icon} />
-              {/* `ok` is the confirm token; the ring takes the surface the
-                  avatar sits on rather than a fixed white. */}
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-ok rounded-full border-2 border-surface-1" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white dark:border-gray-900" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-title font-bold text-ink-1 truncate">{channelName}</h1>
-              {/* text-meta is 12px, the sunlight floor — it replaces an 11px
-                  arbitrary size, so it LOWERS the tiny-text ratchet. */}
-              <p className={clsx('text-meta flex items-center gap-1', colors.label)}>
+              <h1 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                {channelName}
+              </h1>
+              <p className={clsx('text-[11px] flex items-center gap-1', colors.label)}>
                 <Sparkles size={10} />
                 {meta.name}
               </p>
@@ -244,30 +230,27 @@ function AiChannelHeader({
           </div>
 
           {/* Capabilities info button */}
-          <IconButton
+          <button
             onClick={() => setShowCapabilities((prev) => !prev)}
-            className="hover:bg-surface-2"
+            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
             title="View capabilities"
-            aria-label="View capabilities"
-            aria-expanded={showCapabilities}
           >
-            <Info size={20} className="text-ink-2" />
-          </IconButton>
+            <Info size={20} className="text-gray-500 dark:text-gray-400" />
+          </button>
 
-          <IconButton
+          <button
             onClick={onSettings}
-            className="hover:bg-surface-2"
-            aria-label="Channel settings"
+            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
           >
-            <Settings size={20} className="text-ink-2" />
-          </IconButton>
+            <Settings size={20} className="text-gray-500 dark:text-gray-400" />
+          </button>
         </div>
       </div>
 
       {/* Capabilities tooltip panel */}
       {showCapabilities && (
-        <div className="px-4 py-2 bg-surface-2 border-b border-line">
-          <p className="text-meta font-semibold text-ink-3 uppercase tracking-wider mb-1">
+        <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
             Capabilities
           </p>
           <div className="flex flex-wrap gap-1">
@@ -275,7 +258,7 @@ function AiChannelHeader({
               <span
                 key={cap}
                 className={clsx(
-                  'text-meta px-2 py-0.5 rounded-full font-medium',
+                  'text-[10px] px-2 py-0.5 rounded-full font-medium',
                   colors.avatar,
                   colors.icon,
                 )}
@@ -301,22 +284,17 @@ function AiContextBanner(): JSX.Element | null {
   if (dismissed) return null;
 
   return (
-    // The accent, not a violet of its own: there is no AI token, and this is an
-    // informational note rather than a warning — amber and coral stay unspent.
-    <div className="mx-3 mt-2 flex items-center gap-2 bg-acc-dim rounded-2xl px-3 py-2 border border-acc">
-      <Info size={14} className="text-acc flex-shrink-0" />
-      <span className="text-meta text-ink-2 flex-1">
+    <div className="mx-3 mt-2 flex items-center gap-2 bg-purple-50 dark:bg-purple-900/20 rounded-xl px-3 py-2 border border-purple-100 dark:border-purple-800">
+      <Info size={14} className="text-purple-500 flex-shrink-0" />
+      <span className="text-xs text-purple-700 dark:text-purple-300 flex-1">
         AI has access to your farm data to provide personalized insights.
       </span>
-      {/* Was an unlabelled AlertCircle — an alarm glyph on a dismiss control,
-          with no accessible name and a 26px target. */}
-      <IconButton
+      <button
         onClick={() => setDismissed(true)}
-        className="hover:bg-surface-2"
-        aria-label="Dismiss"
+        className="text-purple-400 hover:text-purple-600 p-1"
       >
-        <X size={14} className="text-ink-3" />
-      </IconButton>
+        <AlertCircle size={12} />
+      </button>
     </div>
   );
 }
@@ -510,9 +488,8 @@ export function AiChatPage(): JSX.Element {
     : null;
 
   return (
-    // The page ground comes from <body>, so no background is set here.
     <div
-      className="flex flex-col h-screen"
+      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
       style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
     >
       {/* AI-specific header — persona-aware */}
@@ -535,22 +512,15 @@ export function AiChatPage(): JSX.Element {
         <AiContextBanner />
 
         {loading ? (
-          <div className="px-4 py-6">
-            <Skeleton variant="row" count={4} />
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" />
           </div>
         ) : errorMsg ? (
-          // tone="error" announces itself and takes the alarm tile, so a failed
-          // history fetch never reads as a conversation that has not started.
-          <EmptyState
-            tone="error"
-            icon={<AlertCircle size={22} />}
-            title="Could not load messages"
-            description={errorMsg}
-          />
+          <div className="text-center py-12 px-4">
+            <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
+            <p className="text-sm text-gray-500">{errorMsg}</p>
+          </div>
         ) : messages.length === 0 ? (
-          // Kept bespoke rather than swapped for <EmptyState>: the kit's tile is
-          // a fixed neutral, and here the persona's hue is the identity of the
-          // assistant the worker is about to talk to.
           <div className="flex flex-col items-center justify-center py-16 px-4">
             {(() => {
               const EmptyIcon = PERSONA_ICONS[personaMeta.icon];
@@ -566,10 +536,10 @@ export function AiChatPage(): JSX.Element {
                   >
                     <EmptyIcon size={28} className={emptyColors.icon} />
                   </div>
-                  <p className="text-title font-medium text-ink-1 text-center">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 text-center">
                     {personaMeta.name}
                   </p>
-                  <p className="text-body text-ink-3 text-center mt-1 max-w-xs">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1 max-w-xs">
                     {channel?.aiPersona
                       ? `Specialized in: ${personaMeta.capabilities.join(', ')}`
                       : 'Ask questions about your farm data, water quality, or request actions.'}
@@ -600,7 +570,7 @@ export function AiChatPage(): JSX.Element {
                       key={msg.id}
                       messageId={msg.id}
                       isOwn={isOwn}
-                      senderName={aiMsg ? personaMeta.name : undefined}
+                      senderName={aiMsg ? 'AI Assistant' : undefined}
                       senderColorIndex={aiMsg ? 7 : 0}
                       text={msg.content ?? undefined}
                       timestamp={msg.createdAt}
@@ -636,11 +606,9 @@ export function AiChatPage(): JSX.Element {
          * banner instead of the AI thinking indicator. This is honest UX:
          * the AI cannot think about a message it has not yet received. */}
         {isMessageQueued && !isOnline && (
-          // Amber is the watch token: the message has not failed, it has not
-          // been delivered yet — that is a watch condition, not an alarm.
-          <div className="mx-3 my-2 flex items-center gap-2 bg-warn-dim rounded-2xl px-3 py-2 border border-warn">
-            <Clock size={14} className="text-warn flex-shrink-0" />
-            <span className="text-meta text-warn flex-1">
+          <div className="mx-3 my-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2 border border-amber-100 dark:border-amber-800">
+            <Clock size={14} className="text-amber-500 flex-shrink-0" />
+            <span className="text-xs text-amber-700 dark:text-amber-300 flex-1">
               Message queued -- AI will respond when you are back online.
             </span>
           </div>
@@ -651,18 +619,14 @@ export function AiChatPage(): JSX.Element {
       </div>
 
       {/* Input bar */}
-      {/* The composer docks against the bottom edge, so it takes the raised
-          content surface with a hairline above it — same as MessageInput's bar. */}
-      <div className="bg-surface-1 border-t border-line flex-shrink-0 pb-safe">
+      <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex-shrink-0 pb-safe">
         {/* WHY: Offline banner above the input tells the user that AI requires
          * connectivity. Messages can still be queued, but the AI won't respond
          * until the message actually reaches the server. */}
         {!isOnline && (
-          <div className="flex items-center gap-2 px-4 py-1.5 bg-warn-dim border-b border-warn">
-            <WifiOff size={12} className="text-warn flex-shrink-0" />
-            {/* text-meta is 12px, the sunlight floor — it replaces an 11px
-                arbitrary size, so it LOWERS the tiny-text ratchet. */}
-            <span className="text-meta text-warn">
+          <div className="flex items-center gap-2 px-4 py-1.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800">
+            <WifiOff size={12} className="text-amber-500 flex-shrink-0" />
+            <span className="text-[11px] text-amber-600 dark:text-amber-400">
               Offline -- messages will be queued and AI will respond when connected
             </span>
           </div>
@@ -675,41 +639,34 @@ export function AiChatPage(): JSX.Element {
             onKeyDown={handleKeyDown}
             placeholder="Ask AI anything..."
             rows={1}
-            // The well is a recessed surface inside the bar, matching the
-            // composer's field on the human chat screen.
-            className="flex-1 bg-surface-2 border border-line rounded-2xl px-4 py-2.5 text-body text-ink-1 placeholder-ink-3 outline-none focus:ring-2 focus:ring-acc focus:border-acc resize-none max-h-[120px] leading-5"
+            className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none resize-none max-h-[120px] leading-5"
           />
 
-          {/* WHY: When offline, the send button uses the watch token with a clock
-           * icon to indicate "Queue" semantics, matching the MessageInput pattern.
-           * WHY the on-accent ink on the WARN fill too: `--on-acc` is the ink the
-           * theme puts on a saturated fill, and warn tracks the accent's lightness
-           * in every theme. There is no `--on-warn`, and a hardcoded white would
-           * fail contrast on the night amber. */}
-          <IconButton
-            size="lg"
+          {/* WHY: When offline, the send button uses amber styling with a clock
+           * icon to indicate "Queue" semantics, matching the MessageInput pattern. */}
+          <button
             onClick={() => {
               runAsyncAction(handleSend, 'ai-chat-send');
             }}
             disabled={!inputText.trim() || isSending || isAiThinking}
             className={clsx(
-              'transition-all',
+              'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',
               inputText.trim() && !isAiThinking
                 ? isOnline
-                  ? 'bg-acc text-acc-on shadow-acc active:scale-95'
-                  : 'bg-warn text-acc-on active:scale-95'
-                : 'bg-surface-2 text-ink-3',
+                  ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30 active:scale-95'
+                  : 'bg-amber-500 text-white shadow-md shadow-amber-500/30 active:scale-95'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500',
             )}
             aria-label={isOnline ? 'Send to AI' : 'Queue message for later'}
           >
             {isSending ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-acc-on border-t-transparent" />
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
             ) : isOnline ? (
               <Send size={20} />
             ) : (
               <Clock size={20} />
             )}
-          </IconButton>
+          </button>
         </div>
       </div>
     </div>

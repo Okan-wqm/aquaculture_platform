@@ -39,6 +39,7 @@ jest.mock('@aquaculture/backend-common', () => ({
   },
 }));
 
+import { stub } from '@aquaculture/testing';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
@@ -51,6 +52,8 @@ import {
 import { ChannelService } from '../../services/channel.service';
 import { PresenceService } from '../../../presence/presence.service';
 import { ChannelResolver } from '../channel.resolver';
+import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import type { CreateChannelInput } from '../../dto/create-channel.input';
 import {
   createMockChannel,
   createMockChannelMember,
@@ -120,7 +123,7 @@ describe('ChannelResolver', () => {
       total: 2,
     });
 
-    const result = await resolver.myChannels(tenantId, mockUser() as never);
+    const result = await resolver.myChannels(tenantId, stub<CurrentUserPayload>(mockUser()));
 
     expect(mockQueryBusExecute).toHaveBeenCalledTimes(1);
     expect(result.items).toHaveLength(2);
@@ -134,7 +137,11 @@ describe('ChannelResolver', () => {
     mockQueryBusExecute.mockResolvedValue(channel);
 
     const channelId = fakeUuid('ch');
-    const result = await resolver.channel(tenantId, mockUser() as never, channelId);
+    const result = await resolver.channel(
+      tenantId,
+      stub<CurrentUserPayload>(mockUser()),
+      channelId,
+    );
 
     expect(mockQueryBusExecute).toHaveBeenCalledTimes(1);
     expect(result.name).toBe('Team');
@@ -153,7 +160,11 @@ describe('ChannelResolver', () => {
       memberIds: [fakeUuid('usr')],
     };
 
-    const result = await resolver.createChannel(tenantId, mockUser() as never, input as never);
+    const result = await resolver.createChannel(
+      tenantId,
+      stub<CurrentUserPayload>(mockUser()),
+      stub<CreateChannelInput>(input),
+    );
 
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
     expect(result.name).toBe('New Channel');
@@ -169,7 +180,11 @@ describe('ChannelResolver', () => {
     // Member with NO tenant grant → group creation denied (Faz 7c). The FE hides
     // the button; the backend enforces independently.
     await expect(
-      resolver.createChannel(tenantId, mockUser([]) as never, input as never),
+      resolver.createChannel(
+        tenantId,
+        stub<CurrentUserPayload>(mockUser([])),
+        stub<CreateChannelInput>(input),
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(mockCommandBusExecute).not.toHaveBeenCalled();
   });
@@ -183,7 +198,11 @@ describe('ChannelResolver', () => {
       memberIds: [fakeUuid('usr')],
     };
 
-    await resolver.createChannel(tenantId, mockUser([]) as never, input as never);
+    await resolver.createChannel(
+      tenantId,
+      stub<CurrentUserPayload>(mockUser([])),
+      stub<CreateChannelInput>(input),
+    );
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
   });
 
@@ -199,7 +218,11 @@ describe('ChannelResolver', () => {
 
     // Holds the tier but not the farm specialty → denied.
     await expect(
-      resolver.createChannel(tenantId, mockUser(['ai_personas:expert']) as never, input as never),
+      resolver.createChannel(
+        tenantId,
+        stub<CurrentUserPayload>(mockUser(['ai_personas:expert'])),
+        stub<CreateChannelInput>(input),
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(mockCommandBusExecute).not.toHaveBeenCalled();
   });
@@ -209,13 +232,17 @@ describe('ChannelResolver', () => {
 
     await resolver.createChannel(
       tenantId,
-      mockUser(['ai_personas:expert', 'ai_specialties:farm']) as never,
-      { type: ChannelType.AI, memberIds: [], aiPersona: 'expert-farm-production-v1' } as never,
+      stub<CurrentUserPayload>(mockUser(['ai_personas:expert', 'ai_specialties:farm'])),
+      stub<CreateChannelInput>({
+        type: ChannelType.AI,
+        memberIds: [],
+        aiPersona: 'expert-farm-production-v1',
+      }),
     );
     await resolver.createChannel(
       tenantId,
-      mockUser([]) as never,
-      { type: ChannelType.AI, memberIds: [] } as never,
+      stub<CurrentUserPayload>(mockUser([])),
+      stub<CreateChannelInput>({ type: ChannelType.AI, memberIds: [] }),
     );
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(2);
   });
@@ -232,7 +259,7 @@ describe('ChannelResolver', () => {
 
     const result = await resolver.addChannelMember(
       tenantId,
-      mockUser() as never,
+      stub<CurrentUserPayload>(mockUser()),
       channelId,
       targetUserId,
       ChannelMemberRole.MEMBER,
@@ -258,7 +285,7 @@ describe('ChannelResolver', () => {
 
     const result = await resolver.updateNotificationPreference(
       tenantId,
-      mockUser() as never,
+      stub<CurrentUserPayload>(mockUser()),
       channelId,
       NotificationPreference.MENTIONS,
     );

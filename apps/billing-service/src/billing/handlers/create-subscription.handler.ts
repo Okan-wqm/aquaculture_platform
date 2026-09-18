@@ -5,7 +5,8 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { toEventIso, createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
-import { StripeApiService } from '@aquaculture/backend-common/billing';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
+import { StripeSubscriptionProvisionerService } from '../services/stripe-subscription-provisioner.service';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
@@ -23,7 +24,7 @@ export class CreateSubscriptionHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly stripeApi: StripeApiService,
+    private readonly stripeProvisioner: StripeSubscriptionProvisionerService,
     @InjectRepository(Plan) private readonly planRepository: Repository<Plan>,
     @Optional() private readonly redisService?: RedisService,
   ) {}
@@ -80,32 +81,17 @@ export class CreateSubscriptionHandler
       where: { tier: input.planTier, isActive: true },
       order: { sortOrder: 'ASC' },
     });
-    const stripePriceId = plan?.stripePriceIds?.[input.billingCycle] ?? null;
-
-    let stripeCustomerId: string | undefined = input.stripeCustomerId ?? undefined;
-    let stripeSubscriptionId: string | undefined;
-    if (stripePriceId) {
-      if (!stripeCustomerId) {
-        const customer = await this.stripeApi.createCustomer({
-          tenantId,
-          idempotencyKey: `cust-create:${tenantId}`,
-        });
-        stripeCustomerId = customer.id;
-      }
-      const stripeSub = await this.stripeApi.createSubscription({
+    // One mint, shared with operator provisioning. Keeping a second copy here
+    // is how the idempotency-key shapes and the no-price rule would drift apart
+    // (BILLING-CRITICAL-010 / the BILLING-CRITICAL-007 defect class).
+    const { stripeCustomerId, stripeSubscriptionId } =
+      await this.stripeProvisioner.ensureStripeObjects({
         tenantId,
-        customerId: stripeCustomerId,
-        priceId: stripePriceId,
-        idempotencyKey: `sub-create:${tenantId}:${input.planTier}:${input.billingCycle}`,
+        tier: input.planTier,
+        billingCycle: input.billingCycle,
+        stripePriceIds: plan?.stripePriceIds,
+        existingCustomerId: input.stripeCustomerId ?? undefined,
       });
-      stripeSubscriptionId = stripeSub.id;
-      stripeCustomerId = stripeSub.customer || stripeCustomerId;
-    } else {
-      this.logger.warn(
-        `Plan ${input.planTier}/${input.billingCycle} has no Stripe price configured; ` +
-          `creating a local-only subscription for tenant ${tenantId} (no Stripe charge).`,
-      );
-    }
 
     // Create a query runner for transaction management
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
@@ -137,7 +123,7 @@ export class CreateSubscriptionHandler
         await subscriptionRepo.save(existingSubscription);
       }
 
-      const periodEnd = this.calculatePeriodEnd(startDate, input.billingCycle);
+      const periodEnd = addBillingCycle(startDate, input.billingCycle);
 
       // Handle trial period
       let status = SubscriptionStatus.ACTIVE;
@@ -249,33 +235,4 @@ export class CreateSubscriptionHandler
     }
   }
 
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:    return 1;
-      case BillingCycle.QUARTERLY:  return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:     return 12;
-    }
-  }
-
-  /**
-   * Add months to a date, clamping the day to the last valid day of the target month.
-   * Avoids the JS Date.setMonth() overflow bug (e.g. Jan 31 + 1 month → Mar 3).
-   */
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-
-    // Last day of the target month
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(date.getDate(), lastDay);
-
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, clampedDay);
-    return result;
-  }
 }

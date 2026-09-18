@@ -83,8 +83,7 @@ export class GetFeedingProtocolV2Handler
 @Injectable()
 @QueryHandler(ListProtocolAssignmentsQuery)
 export class ListProtocolAssignmentsHandler
-  implements
-    IQueryHandler<ListProtocolAssignmentsQuery, PaginatedQueryResult<ProtocolAssignment>>
+  implements IQueryHandler<ListProtocolAssignmentsQuery, PaginatedQueryResult<ProtocolAssignment>>
 {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 

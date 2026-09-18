@@ -13,6 +13,7 @@
  * (ADR-028 lib-creation rubric).
  */
 import { clsx } from 'clsx';
+import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import {
@@ -21,17 +22,15 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
-  useId,
   useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { Button, Card, CardDivider, DataState, EmptyState, IconButton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
-import type { OperationPayload, OperationType } from '@/types';
-import { toLoadable } from '@/utils/loadable';
+import type { OperationType, QueuedPayload } from '@/types';
 
 /* ---------------------------------------------------------------- */
 /*  Theme                                                            */
@@ -40,18 +39,11 @@ import { toLoadable } from '@/utils/loadable';
 /**
  * Theme tokens shared between entry header, confirm header, summary card,
  * review/submit buttons, and the stepper/reason-grid helpers. Each page
- * supplies one literal object.
- *
- * v4: every field is a plain class bag carrying BOTH the fill and the ink for
- * the surface it names. The shell deliberately adds no ink of its own — it used
- * to hardcode `text-white` on the header and the CTA, which meant a page that
- * had moved to the semantic tokens had to fight it with `!text-acc-on`. The
- * consumer's theme now owns the pairing, so fill and ink cannot disagree.
- * Pages still on the pre-v4 gradients keep working: their class strings simply
- * carry a gradient where a converted page carries `bg-acc text-acc-on`.
+ * supplies one literal object; no "dark mode flag" handling here because
+ * Tailwind dark: classes are baked into the class strings themselves.
  */
 export interface RecordEntityTheme {
-  /** Header bar classes (fill + ink) for the entry + confirm pages. */
+  /** Gradient class applied to entry + confirm page header bar. */
   headerGradient: string;
   /** Icon tint for the tank/batch info card + stepper arrows + reason-grid selection. */
   accentText: string;
@@ -65,34 +57,13 @@ export interface RecordEntityTheme {
   surfaceSoftBg: string;
   /** Border color for stepper buttons + reason grid. */
   surfaceBorder: string;
-  /** Review/submit CTA button classes (fill + ink) + its shadow. */
+  /** Review/submit CTA button gradient + shadow. */
   ctaGradient: string;
   ctaShadow: string;
   /** Class applied to the selected reason/grade border + glow. */
   selectionBorder: string;
   selectionGlow: string;
 }
-
-/* ---------------------------------------------------------------- */
-/*  Field surface                                                    */
-/* ---------------------------------------------------------------- */
-
-/**
- * The caption above a control, and the control itself.
- *
- * WHY two exported constants rather than a class string written per field:
- * these replace Konsta's <List>/<ListInput>, which used to own the look of
- * every input in the record family (cull, mortality, harvest, lice, escape,
- * welfare). Konsta also injected its own `ios-`/`md-` colour classes and its
- * own dark-mode handling, which is precisely why these pages could not adopt
- * the v4 tokens. Dropping it without a shared string would scatter the same
- * nine-class incantation across six pages and let it drift a little in each —
- * the pre-v4 mistake <Card> exists to end. One import now owns the field
- * surface, its 44px gloved-use floor and its focus ring.
- */
-export const FIELD_LABEL_CLASS = 'block text-body font-semibold text-ink-1 mb-2';
-export const FIELD_CONTROL_CLASS =
-  'w-full min-h-touch px-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc';
 
 /* ---------------------------------------------------------------- */
 /*  Shared form-error shape                                          */
@@ -118,7 +89,7 @@ export interface BaseFormErrors {
  * `quantity`, and `general` on it.
  */
 export interface RecordEntityPageProps<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
 > {
   /** Theme tokens (see {@link RecordEntityTheme}). */
@@ -135,7 +106,7 @@ export interface RecordEntityPageProps<
   summaryHeading: string;
 
   /** Offline-queue operation type the submit will enqueue. */
-  operationName: OperationType;
+  operationName: K;
 
   /** Word used in the "Stock fish into a tank before recording X" prompt. */
   tankEmptyActionWord: string;
@@ -158,8 +129,8 @@ export interface RecordEntityPageProps<
    */
   validate: () => boolean;
 
-  /** Builds the typed payload dispatched to the offline queue. */
-  buildPayload: () => TPayload;
+  /** Builds the payload dispatched to the offline queue — the generated input for `operationName`, envelope stripped. */
+  buildPayload: () => QueuedPayload<K>;
 
   /** Disables the Review CTA (cheap prereq check before full validate). */
   canReview: boolean;
@@ -193,9 +164,9 @@ export interface RecordEntityPageProps<
 type FormStep = 'entry' | 'confirm';
 
 export function RecordEntityPage<
-  TPayload extends OperationPayload,
+  K extends OperationType,
   TErrors extends BaseFormErrors = BaseFormErrors,
->(props: RecordEntityPageProps<TPayload, TErrors>): JSX.Element {
+>(props: RecordEntityPageProps<K, TErrors>): JSX.Element {
   const {
     theme,
     entryTitle,
@@ -221,13 +192,7 @@ export function RecordEntityPage<
 
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
-  const tanksQuery = useTanks();
-  const tanks = tanksQuery.data;
-  // The tank selector picks WHICH batch the entry is written against, so a
-  // failed unit fetch rendering an empty picker says "you have no stocked
-  // tanks" when the truth is "we could not read them" — the defect this app
-  // has now been bitten by six times. Loadable keeps the two apart.
-  const tanksView = toLoadable(tanksQuery);
+  const { data: tanks } = useTanks();
   const { addToQueue, isOnline } = useOfflineQueue();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -285,9 +250,7 @@ export function RecordEntityPage<
      entry was created. */
   if (showSuccess) {
     return (
-      // No page tint: the ground is the <body>'s, so the notice below is the
-      // only thing carrying colour and it can be read in every theme.
-      <div className="flex flex-col items-center justify-center min-h-screen">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
@@ -299,31 +262,28 @@ export function RecordEntityPage<
 
   if (step === 'confirm') {
     return (
-      <div className="min-h-screen">
-        <div className={theme.headerGradient}>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <div className={clsx('text-white', theme.headerGradient)}>
           <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            {/* The back arrow was a 38px icon-only <button> with no accessible
-                name. IconButton bakes in the 44px floor and forces the label. */}
-            <IconButton
-              aria-label="Back"
+            <button
               onClick={() => setStep('entry')}
-              className="-ml-2 rounded-xl hover:bg-surface-2"
+              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
             >
               <ArrowLeft size={22} />
-            </IconButton>
+            </button>
             <div className="flex items-center gap-2.5">
               <Icon size={22} />
-              <h1 className="text-head font-bold">{confirmTitle}</h1>
+              <h1 className="text-lg font-bold">{confirmTitle}</h1>
             </div>
           </div>
         </div>
 
         <div className="px-4 mt-5">
-          <Card className="overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
               <h3
                 className={clsx(
-                  'text-body font-bold uppercase tracking-wider',
+                  'text-sm font-bold uppercase tracking-wider',
                   theme.summaryHeaderText,
                 )}
               >
@@ -331,26 +291,26 @@ export function RecordEntityPage<
               </h3>
             </div>
             <div className="p-4 space-y-4">{confirmSummary}</div>
-          </Card>
+          </div>
         </div>
 
         {errors.general && <ErrorBanner message={errors.general} />}
 
         <div className="px-4 mt-6 space-y-3 pb-28">
-          {/* Fill AND ink come from the theme — see RecordEntityTheme. The
-              button primitive supplies the density-aware height and the floor. */}
-          <Button
-            size="save"
-            block
+          <button
             onClick={() => {
               void handleSubmit();
             }}
             disabled={isSubmitting}
-            className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
+            className={clsx(
+              'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
+              theme.ctaGradient,
+              theme.ctaShadow,
+            )}
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
                 {submittingLabel}
               </>
             ) : (
@@ -359,16 +319,14 @@ export function RecordEntityPage<
                 {submitLabel}
               </>
             )}
-          </Button>
-          <Button
-            variant="ghost"
-            block
+          </button>
+          <button
             onClick={() => setStep('entry')}
             disabled={isSubmitting}
-            className="border border-line"
+            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
           >
             Go Back & Edit
-          </Button>
+          </button>
           {!isOnline && <OfflineNotice />}
         </div>
       </div>
@@ -376,31 +334,26 @@ export function RecordEntityPage<
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className={theme.headerGradient}>
+      <div className={clsx('text-white', theme.headerGradient)}>
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          {/* Same story as the confirm header: named, and above the floor. */}
-          <IconButton
-            aria-label="Back"
+          <button
             onClick={() => navigate(-1)}
-            className="-ml-2 rounded-xl hover:bg-surface-2"
+            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
           >
             <ArrowLeft size={22} />
-          </IconButton>
+          </button>
           <div className="flex items-center gap-2.5">
             <Icon size={22} />
-            <h1 className="text-head font-bold">{entryTitle}</h1>
+            <h1 className="text-lg font-bold">{entryTitle}</h1>
           </div>
         </div>
       </div>
 
-      {/* Tank/Batch info card. NOT a <ListRow>: the row primitive picks its icon
-          tile from a fixed tone set, and this tile's hue is the consuming page's
-          identity (theme.iconBubbleBg + theme.accentText), which no RowTone
-          reproduces. Forcing it would flatten six pages to one colour. */}
+      {/* Tank/Batch info card */}
       {selectedTank && metrics && (
-        <Card className="mx-4 mt-4 p-4">
+        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
           <div className="flex items-center gap-3">
             <div
               className={clsx(
@@ -411,13 +364,13 @@ export function RecordEntityPage<
               <Icon className={theme.accentText} size={22} />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-ink-1">{selectedTank.name}</h3>
-              <p className="text-body text-ink-3">
+              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
+              <p className="text-sm text-gray-500">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
           </div>
-        </Card>
+        </div>
       )}
 
       {errors.general && <ErrorBanner message={errors.general} />}
@@ -428,72 +381,44 @@ export function RecordEntityPage<
           with their real id so the user understands the tank exists but is
           not selectable. */}
       {!tankId && (
-        <div className="px-4 mt-5">
-          <DataState
-            value={tanksView}
-            label="your units"
-            skeleton="row"
-            skeletonCount={1}
-            empty={
-              <EmptyState
-                title="No units"
-                description="No units are assigned to this tenant yet, so there is nothing to record against."
-              />
-            }
-          >
-            {(units) => (
-              <>
-                {/* WHY a wrapping <label> where Konsta had a <BlockTitle> above
-                    a <ListInput>: the block title was a heading with no
-                    association to the control under it, so the combobox was
-                    announced unlabelled. Wrapping IS the association, and it
-                    cannot come apart the way a heading and a control two
-                    elements away can. */}
-                <label className="block">
-                  <span className={FIELD_LABEL_CLASS}>Select Tank</span>
-                  <select
-                    value={selectedTankId}
-                    onChange={handleTankChange}
-                    aria-invalid={errors.tank ? true : undefined}
-                    aria-describedby={errors.tank ? 'record-entity-tank-error' : undefined}
-                    className={FIELD_CONTROL_CLASS}
-                  >
-                    <option value="">-- Select Tank --</option>
-                    {units
-                      .filter((t) => t.batchMetrics)
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                        </option>
-                      ))}
-                    {units
-                      .filter((t) => !t.batchMetrics)
-                      .map((t) => (
-                        <option key={t.id} value={t.id} disabled>
-                          {t.name} (No active batch)
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                {errors.tank && (
-                  <p id="record-entity-tank-error" className="text-crit text-body mt-2">
-                    {errors.tank}
-                  </p>
-                )}
-                {units.length > 0 && units.every((t) => !t.batchMetrics) && (
-                  <Card className="mt-3 p-3 border-warn">
-                    <p className="text-warn text-body font-medium">
-                      All tanks currently have no active batches.
-                    </p>
-                    <p className="text-ink-2 text-meta mt-1">
-                      Stock fish into a tank before recording {tankEmptyActionWord}.
-                    </p>
-                  </Card>
-                )}
-              </>
-            )}
-          </DataState>
-        </div>
+        <>
+          <BlockTitle>Select Tank</BlockTitle>
+          <List strongIos insetIos>
+            <ListInput
+              type="select"
+              value={selectedTankId}
+              onChange={handleTankChange}
+              error={errors.tank}
+            >
+              <option value="">-- Select Tank --</option>
+              {tanks
+                ?.filter((t) => t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                  </option>
+                ))}
+              {tanks
+                ?.filter((t) => !t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id} disabled>
+                    {t.name} (No active batch)
+                  </option>
+                ))}
+            </ListInput>
+          </List>
+          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
+          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
+            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
+              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+                All tanks currently have no active batches.
+              </p>
+              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+                Stock fish into a tank before recording {tankEmptyActionWord}.
+              </p>
+            </div>
+          )}
+        </>
       )}
 
       {/* Page-specific body (stepper/reason/notes/harvest fields) */}
@@ -501,18 +426,20 @@ export function RecordEntityPage<
 
       {/* Review CTA */}
       <div className="px-4 pt-5 pb-28">
-        <Button
-          size="save"
-          block
+        <button
           onClick={handleReview}
           disabled={!canReview}
-          className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
+          className={clsx(
+            'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
+            theme.ctaGradient,
+            theme.ctaShadow,
+          )}
         >
           <Icon size={20} />
           {reviewLabel}
-        </Button>
+        </button>
         {!isOnline && (
-          <p className="text-center text-warn text-body mt-3 font-medium">
+          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
             Offline -- will sync when connected
           </p>
         )}
@@ -527,16 +454,16 @@ export function RecordEntityPage<
 
 function ErrorBanner({ message }: { message: string }): JSX.Element {
   return (
-    <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
-      <AlertCircle size={18} className="text-crit flex-shrink-0" />
-      <span className="text-crit text-body">{message}</span>
-    </Card>
+    <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
+      <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+      <span className="text-red-600 dark:text-red-300 text-sm">{message}</span>
+    </div>
   );
 }
 
 function OfflineNotice(): JSX.Element {
   return (
-    <p className="text-center text-warn text-body font-medium">
+    <p className="text-center text-amber-500 text-sm font-medium">
       Offline -- will sync when connected
     </p>
   );
@@ -548,19 +475,6 @@ function OfflineNotice(): JSX.Element {
  * checkmark or the queued badge — the operator already recorded this entry, so
  * the honest message is "Already recorded", not a second confirmation.
  */
-function AlreadyRecordedNotice(): JSX.Element {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="w-20 h-20 bg-warn-dim rounded-full flex items-center justify-center">
-        <AlertCircle size={48} className="text-warn" />
-      </div>
-      <h2 className="text-head font-bold text-warn">Already recorded</h2>
-      <p className="text-body text-ink-2">
-        This entry was already submitted moments ago -- no duplicate was created.
-      </p>
-    </div>
-  );
-}
 
 /**
  * Shared +/- stepper used by cull + mortality. WHY: 56px hit target exceeds
@@ -578,35 +492,30 @@ export function QuantityStepper(props: {
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
-      <Card className="p-5">
+      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
         <div className="flex items-center justify-center gap-5">
-          {/* The two arrows were icon-only buttons with no accessible name —
-              a screen reader announced "button, button" either side of a
-              number. The label the section already carries names them. */}
           <button
             type="button"
-            aria-label={`Decrease ${label}`}
             onClick={() => onChange(clamp(value - 1))}
             disabled={value <= 1}
             className={clsx(
-              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
           >
             <Minus size={22} className={theme.accentText} />
           </button>
-          <div className="text-hero font-mono font-bold text-ink-1 min-w-[90px] text-center tabular-nums">
+          <div className="text-5xl font-bold text-gray-900 dark:text-white min-w-[90px] text-center tabular-nums">
             {value}
           </div>
           <button
             type="button"
-            aria-label={`Increase ${label}`}
             onClick={() => onChange(clamp(value + 1))}
             disabled={value >= max}
             className={clsx(
-              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
@@ -614,11 +523,11 @@ export function QuantityStepper(props: {
             <Plus size={22} className={theme.accentText} />
           </button>
         </div>
-        <p className="text-center text-meta text-ink-3 mt-3 font-medium">
+        <p className="text-center text-xs text-gray-400 mt-3 font-medium">
           Max: {max.toLocaleString()} fish in tank
         </p>
-        {error && <p className="text-crit text-body text-center mt-2">{error}</p>}
-      </Card>
+        {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
+      </div>
     </div>
   );
 }
@@ -636,18 +545,16 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
           return (
             <button
               key={r.value}
-              type="button"
-              aria-pressed={selected}
               onClick={() => onChange(r.value)}
               className={clsx(
-                'flex flex-col items-center p-3 min-h-touch rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-surface-1',
+                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
                 selected
                   ? clsx(
                       theme.selectionBorder,
@@ -655,15 +562,11 @@ export function ReasonGrid<TValue extends string>(props: {
                       theme.selectionGlow,
                       'scale-[1.02]',
                     )
-                  : 'border-line',
+                  : 'border-gray-100 dark:border-gray-800',
               )}
             >
               <span className="text-xl mb-1">{r.emoji}</span>
-              {/* Was a 10px label — unreadable at arm's length in sunlight, and
-                  one of the last entries on the sub-12px ratchet. */}
-              <span className="text-meta font-semibold text-ink-2 text-center leading-tight">
-                {r.label}
-              </span>
+              <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
             </button>
           );
         })}
@@ -673,15 +576,11 @@ export function ReasonGrid<TValue extends string>(props: {
 }
 
 /**
- * Numeric field (decimal-capable) — used by the regulatory field-capture pages
- * (FARM-HIGH-214): lice-stage averages are decimals (e.g. 0.15 adult females
- * per fish), which the integer QuantityStepper cannot express. Empty input
- * surfaces as null so "not entered" is distinguishable from 0 (a real,
- * meaningful lice count).
- *
- * v4: a native input on the token surface. The `error` text is now rendered
- * here — Konsta's <ListInput error> used to draw it, so dropping Konsta without
- * this would have silently swallowed every validation message on these fields.
+ * Numeric field (decimal-capable) — konsta-styled, used by the regulatory
+ * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
+ * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
+ * cannot express. Empty input surfaces as null so "not entered" is
+ * distinguishable from 0 (a real, meaningful lice count).
  */
 export function NumberField(props: {
   label: string;
@@ -693,49 +592,32 @@ export function NumberField(props: {
   error?: string;
 }): JSX.Element {
   const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
-  // Several of these stack on one page (three lice stages), so the error's id
-  // has to be per-instance or aria-describedby would point at a sibling's text.
-  const errorId = useId();
   return (
-    <div className="px-4 mt-3">
-      <label className="block">
-        <span className={FIELD_LABEL_CLASS}>{label}</span>
-        <input
-          type="number"
-          inputMode="decimal"
-          step={step}
-          min={min}
-          placeholder={placeholder}
-          value={value ?? ''}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          className={FIELD_CONTROL_CLASS}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            const raw = e.target.value;
-            if (raw === '') {
-              onChange(null);
-              return;
-            }
-            const parsed = Number(raw);
-            onChange(Number.isFinite(parsed) ? parsed : null);
-          }}
-        />
-      </label>
-      {error && (
-        <p id={errorId} className="text-crit text-body mt-2">
-          {error}
-        </p>
-      )}
-    </div>
+    <List strongIos insetIos>
+      <ListInput
+        label={label}
+        type="number"
+        inputMode="decimal"
+        step={step}
+        min={min}
+        placeholder={placeholder}
+        value={value ?? ''}
+        error={error}
+        onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          const raw = e.target.value;
+          if (raw === '') {
+            onChange(null);
+            return;
+          }
+          const parsed = Number(raw);
+          onChange(Number.isFinite(parsed) ? parsed : null);
+        }}
+      />
+    </List>
   );
 }
 
-/**
- * Notes textarea — used by cull + mortality + the regulatory pages.
- *
- * The Konsta block title that sat above it was a heading pointing at nothing;
- * it is now the textarea's own caption, so the control is named.
- */
+/** Notes textarea — konsta-styled, used by cull + mortality. */
 export function NotesInput(props: {
   value: string;
   onChange: (next: string) => void;
@@ -743,17 +625,18 @@ export function NotesInput(props: {
 }): JSX.Element {
   const { value, onChange, placeholder = 'Additional observations...' } = props;
   return (
-    <div className="px-4 mt-5">
-      <label className="block">
-        <span className={FIELD_LABEL_CLASS}>Notes (Optional)</span>
-        <textarea
+    <>
+      <BlockTitle>Notes (Optional)</BlockTitle>
+      <List strongIos insetIos>
+        <ListInput
+          type="textarea"
           placeholder={placeholder}
           value={value}
-          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-          className={clsx(FIELD_CONTROL_CLASS, 'h-24 resize-none')}
+          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
+          inputClassName="!h-24"
         />
-      </label>
-    </div>
+      </List>
+    </>
   );
 }
 
@@ -766,25 +649,24 @@ export function SummaryRow(props: {
   value: ReactNode;
   valueClass?: string;
 }): JSX.Element {
-  const { label, value, valueClass = 'font-semibold text-ink-1' } = props;
+  const { label, value, valueClass = 'font-semibold text-gray-900 dark:text-white' } = props;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-body text-ink-2">{label}</span>
+      <span className="text-sm text-gray-500">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>
   );
 }
 
-/** The divider between summary rows — the card's own hairline, nothing else. */
 export function SummaryDivider(): JSX.Element {
-  return <CardDivider />;
+  return <div className="h-px bg-gray-100 dark:bg-gray-800" />;
 }
 
 export function SummaryNotesBlock({ notes }: { notes: string }): JSX.Element {
   return (
     <div>
-      <span className="text-body text-ink-2">Notes</span>
-      <p className="text-body text-ink-1 mt-1">{notes}</p>
+      <span className="text-sm text-gray-500">Notes</span>
+      <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
     </div>
   );
 }

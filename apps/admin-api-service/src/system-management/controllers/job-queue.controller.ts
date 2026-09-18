@@ -1,4 +1,16 @@
 import {
+  CreateJobDto,
+  CreateQueueDto,
+  PurgeCompletedJobsDto,
+  RecurringJobDto,
+  RetryFailedJobsDto,
+  ScheduleJobDto,
+  UpdateJobProgressDto,
+  UpdateQueueDto,
+} from './dto/job-queue.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -16,274 +28,6 @@ import { IsString, IsOptional, IsNumber, IsObject, IsArray, MaxLength, Min, Max 
 
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
 import { JobQueueService, JobDefinition } from '../services/job-queue.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateQueueDto {
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsNumber()
-  concurrency?: number;
-
-  @IsOptional()
-  @IsNumber()
-  maxJobsPerSecond?: number;
-
-  @IsOptional()
-  @IsNumber()
-  defaultMaxRetries?: number;
-
-  @IsOptional()
-  @IsNumber()
-  defaultTimeoutMs?: number;
-
-  @IsOptional()
-  @IsObject()
-  retryPolicy?: JobRetryPolicy;
-}
-
-class CreateJobDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  queueName!: string;
-
-  @IsOptional()
-  @IsString()
-  jobType?: JobType;
-
-  @IsOptional()
-  @IsNumber()
-  priority?: number;
-
-  @IsOptional()
-  @IsObject()
-  payload?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  scheduledAt?: string;
-
-  @IsOptional()
-  @IsString()
-  cronExpression?: string;
-
-  @IsOptional()
-  @IsNumber()
-  timeoutMs?: number;
-
-  @IsOptional()
-  @IsNumber()
-  maxAttempts?: number;
-
-  @IsOptional()
-  @IsObject()
-  retryPolicy?: JobRetryPolicy;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsArray()
-  dependencies?: string[];
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
-
-class UpdateQueueDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  description?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  concurrency?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  maxJobsPerSecond?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  defaultMaxRetries?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1000)
-  defaultTimeoutMs?: number;
-
-  @IsOptional()
-  @IsObject()
-  retryPolicy?: JobRetryPolicy;
-}
-
-class ScheduleJobDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  queueName!: string;
-
-  @IsOptional()
-  @IsString()
-  jobType?: JobType;
-
-  @IsOptional()
-  @IsNumber()
-  priority?: number;
-
-  @IsOptional()
-  @IsObject()
-  payload?: Record<string, unknown>;
-
-  @IsString()
-  scheduledAt!: string;
-
-  @IsOptional()
-  @IsNumber()
-  timeoutMs?: number;
-
-  @IsOptional()
-  @IsNumber()
-  maxAttempts?: number;
-
-  @IsOptional()
-  @IsObject()
-  retryPolicy?: JobRetryPolicy;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsArray()
-  dependencies?: string[];
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
-
-class RecurringJobDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  queueName!: string;
-
-  @IsOptional()
-  @IsString()
-  jobType?: JobType;
-
-  @IsOptional()
-  @IsNumber()
-  priority?: number;
-
-  @IsOptional()
-  @IsObject()
-  payload?: Record<string, unknown>;
-
-  @IsString()
-  cronExpression!: string;
-
-  @IsOptional()
-  @IsNumber()
-  timeoutMs?: number;
-
-  @IsOptional()
-  @IsNumber()
-  maxAttempts?: number;
-
-  @IsOptional()
-  @IsObject()
-  retryPolicy?: JobRetryPolicy;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsArray()
-  dependencies?: string[];
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
-
-class RetryFailedJobsDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  queueName?: string;
-}
-
-class PurgeCompletedJobsDto {
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  @Max(365)
-  olderThanDays?: number;
-}
-
-class UpdateJobProgressDto {
-  @IsNumber()
-  current!: number;
-
-  @IsNumber()
-  total!: number;
-
-  @IsNumber()
-  percentage!: number;
-
-  @IsOptional()
-  @IsString()
-  message?: string;
-
-  @IsOptional()
-  checkpoint?: unknown;
-}
 
 // ============================================================================
 // Controller
@@ -307,6 +51,8 @@ export class JobQueueController {
   // Queue Management
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Queue', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('queues')
   async createQueue(@Body() dto: CreateQueueDto) {
     return this.jobQueueService.createQueue(dto);
@@ -322,16 +68,22 @@ export class JobQueueController {
     return this.jobQueueService.getQueue(name);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('queues/:name')
   async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'PAUSE' })
+  @RequiresCapability('security-ops')
   @Post('queues/:name/pause')
   async pauseQueue(@Param('name') name: string) {
     return this.jobQueueService.pauseQueue(name);
   }
 
+  @AuditedOperation({ resource: 'Queue', action: 'RESUME' })
+  @RequiresCapability('security-ops')
   @Post('queues/:name/resume')
   async resumeQueue(@Param('name') name: string) {
     return this.jobQueueService.resumeQueue(name);
@@ -346,6 +98,8 @@ export class JobQueueController {
   // Job Management
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Job', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   async createJob(@Body() dto: CreateJobDto) {
     const definition: JobDefinition = {
@@ -355,20 +109,26 @@ export class JobQueueController {
     return this.jobQueueService.createJob(definition);
   }
 
+  @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_JOB' })
+  @RequiresCapability('security-ops')
   @Post('schedule')
   async scheduleJob(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: ScheduleJobDto,
   ) {
-    const { scheduledAt: scheduledAtStr, ...rest } = dto;
+    const { scheduledAt: scheduledAtStr, ...rest } = { ...dto, tenantId };
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
   }
 
+  @AuditedOperation({ resource: 'JobQueue', action: 'SCHEDULE_RECURRING_JOB' })
+  @RequiresCapability('security-ops')
   @Post('recurring')
   async scheduleRecurringJob(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: RecurringJobDto,
   ) {
-    const { cronExpression, ...rest } = dto;
+    const { cronExpression, ...rest } = { ...dto, tenantId };
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleRecurringJob(definition, cronExpression);
   }
@@ -378,7 +138,7 @@ export class JobQueueController {
     @Query('queueName') queueName?: string,
     @Query('status') status?: JobStatus,
     @Query('jobType') jobType?: JobType,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('tags') tags?: string,
     @Query('search') search?: string,
     @Query('page') page?: number,
@@ -401,26 +161,36 @@ export class JobQueueController {
     return this.jobQueueService.getJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'CANCEL' })
+  @RequiresCapability('security-ops')
   @Post(':id/cancel')
   async cancelJob(@Param('id') id: string) {
     return this.jobQueueService.cancelJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'RETRY' })
+  @RequiresCapability('security-ops')
   @Post(':id/retry')
   async retryJob(@Param('id') id: string) {
     return this.jobQueueService.retryJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'PAUSE' })
+  @RequiresCapability('security-ops')
   @Post(':id/pause')
   async pauseJob(@Param('id') id: string) {
     return this.jobQueueService.pauseJob(id);
   }
 
+  @AuditedOperation({ resource: 'Job', action: 'RESUME' })
+  @RequiresCapability('security-ops')
   @Post(':id/resume')
   async resumeJob(@Param('id') id: string) {
     return this.jobQueueService.resumeJob(id);
   }
 
+  @AuditedOperation({ resource: 'JobProgress', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id/progress')
   async updateJobProgress(
     @Param('id') id: string,
@@ -449,12 +219,17 @@ export class JobQueueController {
   // Bulk Operations
   // ============================================================================
 
+  @AuditedOperation({ resource: 'FailedJobs', action: 'RETRY' })
+  @RequiresCapability('security-ops')
   @Post('retry-failed')
   async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
     return { retriedCount: count };
   }
 
+  @AuditedOperation({ resource: 'CompletedJobs', action: 'PURGE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Post('purge-completed')
   async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);

@@ -1,0 +1,73 @@
+{
+  "_runtime_artifact_payload": {
+    "parsed_output": {},
+    "raw_findings": [
+      {
+        "evidence": [
+          {
+            "path": "apps/farm-service/src/app.module.ts"
+          }
+        ],
+        "id": "finding-1",
+        "message": "runtime artifact test",
+        "path": "apps/farm-service/src/app.module.ts",
+        "rule": "runtime-test",
+        "severity": "high"
+      }
+    ],
+    "raw_observations": [],
+    "stderr": "",
+    "stdout": "Exact cold artifact detail: native fixture payload, not a thin summary."
+  },
+  "cost_units": 1,
+  "cycle_id": "cyc-20200101T000000Z-legacy",
+  "duration_ms": 25,
+  "emitted_findings": [],
+  "emitted_observations": [],
+  "evidence_validation": {
+    "evidence_sources": [
+      "apps/farm-service/src/app.module.ts"
+    ]
+  },
+  "input_hash": "sha256:input",
+  "operator_feedback_refs": [],
+  "output_hash": "sha256:output",
+  "raw_findings": [
+    {
+      "evidence": [
+        {
+          "path": "apps/farm-service/src/app.module.ts"
+        }
+      ],
+      "id": "finding-1",
+      "message": "runtime artifact test",
+      "path": "apps/farm-service/src/app.module.ts",
+      "rule": "runtime-test",
+      "severity": "high"
+    }
+  ],
+  "read_paths": [
+    "apps/farm-service/src/app.module.ts"
+  ],
+  "run_id": "run-native-legacy-retention",
+  "runner": {
+    "raw_findings_count": 1,
+    "raw_findings_sample": [
+      {
+        "evidence": [
+          {
+            "path": "apps/farm-service/src/app.module.ts"
+          }
+        ],
+        "id": "finding-1",
+        "message": "runtime artifact test",
+        "path": "apps/farm-service/src/app.module.ts",
+        "rule": "runtime-test",
+        "severity": "high"
+      }
+    ]
+  },
+  "schema_version": 1,
+  "status": "ok",
+  "tool_id": "runtime-adapter"
+}

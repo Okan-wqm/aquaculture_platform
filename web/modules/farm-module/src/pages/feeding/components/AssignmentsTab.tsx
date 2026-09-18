@@ -89,7 +89,7 @@ function isSpeciesMismatchError(message: string): boolean {
 // ============================================================================
 
 interface AssignModalProps {
-  protocols: FeedingProtocolV2[];
+  protocols: readonly FeedingProtocolV2[];
   onClose: () => void;
 }
 

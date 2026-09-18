@@ -19,20 +19,38 @@ tools chained together with fragile quoting.
 # Usage
 
   ./scripts/nats/generate-nats-conf.py
+  ./scripts/nats/generate-nats-conf.py --check
 
 By default: reads infrastructure/nats/services.yaml, replaces the block
 between `# BEGIN GENERATED` / `# END GENERATED` sentinels in
 infrastructure/docker/nats/nats.conf, and writes the exact same identity
 roster to infrastructure/helm/aquaculture/files/nats-service-identities.yaml.
 
+With `--check`: reads and compares only. Nothing on disk is written; a stale
+artifact is named on stderr and reported through exit code 3.
+
+# Why --check exists
+
+The drift gate used to run the generator and then ask git whether anything
+changed. That repairs the checkout before it judges it: the generator's write
+lands first, so every later step in the same job reads the REPAIRED artifact
+while the commit under test still carries the stale one. The gate also could
+not tell "you edited services.yaml and forgot to regenerate" from "your YAML
+is malformed" — both surfaced as a dirty tree or a non-zero exit with no
+distinguishing code. `--check` answers the freshness question without touching
+the tree, and drift has an exit code of its own.
+
 Idempotent: re-running on an already-generated nats.conf produces identical
 output (deterministic ordering + no timestamp injection).
 
 # Exit codes
 
-  0  success, file updated (or no changes needed)
-  1  services.yaml missing or invalid
-  2  nats.conf missing, or sentinels not found
+  0   success, file updated (or no changes needed); with --check, both
+      artifacts already match services.yaml
+  1   services.yaml missing or invalid
+  2   nats.conf missing, or sentinels not found
+  3   --check only: a generated artifact does not match services.yaml
+  64  usage error (unrecognized argument)
 
 # Related
 
@@ -271,6 +289,12 @@ def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
 
 
 def main() -> int:
+    args = sys.argv[1:]
+    if args not in ([], ["--check"]):
+        sys.stderr.write("usage: generate-nats-conf.py [--check]\n")
+        return 64
+    check_only = args == ["--check"]
+
     services = load_services()
     block = render_generated_block(services)
     new_contents, nats_modified = splice_into_nats_conf(block)
@@ -285,6 +309,27 @@ def main() -> int:
             "no change — NATS authorization and Helm identities already match SSoT\n"
         )
         return 0
+
+    if check_only:
+        # Name the artifacts that actually drifted. "Something is stale" sends
+        # the reader to diff two generated files by hand; this points at the
+        # one that moved.
+        stale = [
+            path.relative_to(REPO_ROOT)
+            for path, modified in (
+                (NATS_CONF, nats_modified),
+                (HELM_IDENTITIES, helm_modified),
+            )
+            if modified
+        ]
+        sys.stderr.write(
+            "error: generated artifacts do not match "
+            "infrastructure/nats/services.yaml; regenerate and commit them\n"
+        )
+        for path in stale:
+            sys.stderr.write(f"  stale: {path}\n")
+        sys.stderr.write("  run: python3 scripts/nats/generate-nats-conf.py\n")
+        return 3
 
     if nats_modified:
         NATS_CONF.write_text(new_contents)

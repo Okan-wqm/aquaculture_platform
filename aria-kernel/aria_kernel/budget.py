@@ -19,6 +19,10 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 # mirror the public Anthropic price list at the time of writing; the row
 # keeps model + token counts so any rate revision is re-derivable.
 MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    # Published Standard API rates, 2026-09-11:
+    # https://developers.openai.com/api/docs/models/gpt-6-astra
+    # Notional comparison only for managed subscription admission.
+    "gpt-6-astra": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
     # ORPHAN-HIGH-473 — claude-opus-5 priced at the 4.8 tier, per operator.
@@ -140,11 +144,46 @@ def price_tokens(*, model: str, input_tokens: int, output_tokens: int) -> TokenP
 
     for known, (in_rate, out_rate) in MODEL_PRICING_USD_PER_MTOK.items():
         if normalized == known or normalized.startswith(f"{known}-"):
+            if known == "gpt-6-astra" and input_tokens > 272_000:
+                # Published full-request long-context factors, not a blend.
+                in_rate, out_rate = in_rate * 2, out_rate * 1.5
             return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_EXACT, known)
     for family, (in_rate, out_rate) in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
         if normalized == family or normalized.startswith(f"{family}-"):
             return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_FAMILY, family)
     return TokenPrice(0.0, PRICING_SOURCE_UNKNOWN, None)
+
+
+# ARIA-AUDIT-021 — the notional ceiling ONE dispatch reserves before the
+# external call: 400k input / 64k output tokens. The pair lives here, next to
+# the rates it is multiplied by, so the reservation and the ledger price the
+# same model from the same tables.
+SPAWN_RESERVATION_CEILING_TOKENS: tuple[int, int] = (400_000, 64_000)
+
+
+def price_spawn_reservation(*, model: str) -> TokenPrice:
+    """The USD ceiling the executor reserves for one dispatch on ``model``.
+
+    WHY this exists: the executor's spawn gate used to price the profile's
+    raw CLI alias (``opus``, ``fable``) against the exact-id and family
+    tables directly. Neither table is keyed by alias, so every Anthropic
+    profile resolved to "no price" and the gate's unknown-cost-is-deny rule
+    refused the dispatch — 82 requests minted on 2026-09-04, zero results,
+    no CLI ever invoked. The ledger side never had that defect because it
+    prices through ``alias_pricing_prefix``; this function makes the gate
+    take the same road, so the two cannot disagree about what an alias costs.
+
+    WHAT: alias -> family prefix (``ALIAS_PRICING_PREFIX``; an id that is
+    not an alias passes through unchanged) -> ``price_tokens`` at the
+    reservation ceiling. ``source`` is ``unknown`` only when even the family
+    is unpriced, which is the one case the gate still denies.
+    """
+    input_tokens, output_tokens = SPAWN_RESERVATION_CEILING_TOKENS
+    return price_tokens(
+        model=alias_pricing_prefix((model or "").strip().lower()),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
 
 
 def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
@@ -503,6 +542,75 @@ def reserve_cycle_budget(
     return str(persisted["ledger_hash"])
 
 
+def _reserve_native_runtime_attempt(
+    *, repo_root: Path, base_dir: Path, request_id: str, request_ledger_hash: str,
+    claim_id: str, claim_ledger_hash: str, session_id: str, attempt_id: str,
+    agent_id: str, lease_token: str,
+    provider: str, runtime: str, model: str, requested_effort: str,
+    auth_method: str, expected_policy_digest: str, settings_hash: str,
+    pricing: dict[str, Any], admission: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Bind a managed attempt before dispatch, using the shared monetary policy.
+
+    This is a native attempt reservation on the existing governance surface,
+    not a fabricated dollar debit or a successful result. Existing metered
+    cycle reservation remains separate and unchanged.
+
+    ``admission`` is the fleet decision this route came out of — every
+    candidate's observation and the eligible order — recorded on the row so
+    the reason a route was NOT chosen survives when another one was. Trial
+    seven (2026-09-11) ran on Codex while the preferred Anthropic route sat
+    first in fleet order, and the ledger could not say why: the
+    observations were written only when nothing was eligible.
+    """
+    from . import agent_invocations as invocations
+    from .genesis_policy import _runtime_monetary_admission
+    from .ledger import state_transaction
+    from .runtime_profile import enforce_profile_for_write
+    from .tool_registry import append_tools_governance
+    from .workspace import governance_event
+
+    root = ensure_tools_dir(base_dir)
+    monetary = _runtime_monetary_admission(
+        repo_root, provider=provider, runtime=runtime, auth_method=auth_method,
+        expected_policy_digest=expected_policy_digest,
+    )
+    if not monetary.subscription_applies:
+        raise GovernanceError(monetary.reason)
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    details = {
+        "schema_version": 1, "attempt_id": attempt_id,
+        "request_id": request_id, "request_ledger_hash": request_ledger_hash,
+        "claim_id": claim_id, "claim_ledger_hash": claim_ledger_hash,
+        "agent_id": agent_id,
+        "session_id": session_id, "provider": provider, "runtime": runtime,
+        "model": model, "requested_effort": requested_effort, "observed_effort": None,
+        "auth_method": auth_method, "monetary_admission": monetary.mode,
+        "policy_id": monetary.policy_id, "policy_digest": monetary.policy_digest,
+        "policy_sources": {"default_sha256": monetary.default_sha256,
+                           "override_sha256": monetary.override_sha256},
+        "settings_hash": settings_hash, "pricing": pricing,
+        **({"admission": admission} if admission is not None else {}),
+    }
+    event = governance_event(kind="runtime_attempt_started", details=details)
+    requests_path = root / "agent-invocations/requests.jsonl"
+    claims_path = root / "agent-invocations/claims.jsonl"
+    results_path = root / "agent-invocations/results.jsonl"
+    with state_transaction([requests_path, claims_path, results_path, root / "governance.jsonl"]) as transaction:
+        requests = transaction.load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests")
+        claims = transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        results = transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+        invocations._validate_claim_dispatch_authority(
+            requests=requests, claims=claims, results=results,
+            request_id=request_id, request_ledger_hash=request_ledger_hash,
+            claim_id=claim_id, claim_ledger_hash=claim_ledger_hash,
+            agent_id=agent_id, lease_token=lease_token, now=invocations._utc_now_dt(),
+        )
+        return append_tools_governance(
+            root, "runtime_attempt_started", details, transaction=transaction, prepared_event=event,
+        )
+
+
 def _find_reservation(base_dir: str | Path, reservation_token: str) -> dict[str, Any] | None:
     for row in _per_run_load(base_dir):
         if row.get("kind") == "cycle_reservation" and row.get("ledger_hash") == reservation_token:
@@ -538,12 +646,28 @@ def reconcile_envelope_cost(
     return _per_run_append(base_dir, row)
 
 
-def check_remaining_budget(
+def remaining_reservation_budget(
     *,
     reservation_token: str,
     base_dir: str | Path,
 ) -> float:
-    """Reserved - reconciled, for THIS reservation."""
+    """Reserved - reconciled, for THIS reservation.
+
+    RENAMED from ``check_remaining_budget`` on 2026-09-09 (ORPHAN-HIGH-573).
+    This is an accessor, not a safety control: it computes an amount and refuses
+    nothing. The enforcement on this surface is ``_per_run_remaining`` +
+    ``reserve_cycle_budget``, which raise, and ``cost_budget.assert_within_budget``,
+    which is live from ``tools/aria-poc/ci_executor.py``.
+
+    The old name began with ``check_``, one of the eight prefixes
+    ``control_reachability.CONTROL_VERBS`` treats as a safety control, so the
+    gate demanded a production caller for a function whose only legitimate
+    consumer is a test observing reserve/reconcile arithmetic. The waiver that
+    resulted described it as a duplicate of ``assert_within_budget``, which
+    reading the two makes plain it is not — one returns a float, the other
+    raises. Renaming fixes the classification at the source instead of carrying
+    a waiver that says something untrue about the code.
+    """
     reservation = _find_reservation(base_dir, reservation_token)
     if reservation is None:
         raise BudgetReservationMissing(
@@ -578,14 +702,23 @@ from datetime import datetime, timezone  # safe-redundant; already imported
 
 
 # Plan ARIA-V10.4 — closed enum of agent roles for cost attribution.
-# Mirrors the V8 + V9 role surface (primary plan + challenger plan +
-# cross_review from V8; implementation from V9). Closed-set membership
-# pinned by I-V10-COST-03 invariant.
+#
+# The set is DERIVED from the invocation-role SSoT (agent_surface), not
+# restated: a request the kernel can mint and an executor can run is a
+# request whose spend must be attributable. Until 2026-09-11 this was a
+# hand-copied seven-name subset, so a native run on any other real role
+# (evidence_judgment, adversarial_judgment, completeness_critique, ...)
+# completed at the vendor, then failed here with "agent_role MUST be in
+# COST_INVOCATION_ROLES" — tokens spent, result discarded, request left in
+# a state the operator had to read the governance ledger to explain. The
+# two legacy labels stay for the rows that already carry them (V8
+# judgment_bridge, V6 specialist review). Closed-set membership is still
+# pinned by I-V10-COST-03; the set is closed by construction, not by hand.
+from .agent_surface import INVOCATION_ROLES as _INVOCATION_ROLES
+
 COST_INVOCATION_ROLES: frozenset[str] = frozenset({
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "implementation",
+    *_INVOCATION_ROLES,
+    "verification",    # Canonical native verification, retained without relabeling.
     "judgment",        # V8 judgment_bridge role
     "specialist",      # V6 specialist review role
 })

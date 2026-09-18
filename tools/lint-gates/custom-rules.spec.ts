@@ -26,12 +26,15 @@ import { describe, it } from 'node:test';
 import { RuleTester } from 'eslint';
 
 import { rules } from '../eslint-rules';
+import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
 import noBareGraphqlQueryString from '../eslint-rules/rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from '../eslint-rules/rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
 import noDirectEventPublish from '../eslint-rules/rules/no-direct-event-publish';
 import noHighCardinalityMetricLabel from '../eslint-rules/rules/no-high-cardinality-metric-label';
 import noUnpinnedSsrfFetch from '../eslint-rules/rules/no-unpinned-ssrf-fetch';
+import noUnsandboxedHtmlFrame from '../eslint-rules/rules/no-unsandboxed-html-frame';
+import noUnverifiedTenantParam from '../eslint-rules/rules/no-unverified-tenant-param';
 import requireEntitySchema from '../eslint-rules/rules/require-entity-schema';
 
 // Bind RuleTester's static hooks to node:test so the cases run under the
@@ -66,11 +69,12 @@ const ruleTesterConfig: TesterConfig =
           parser: require_('@typescript-eslint/parser') as object,
           ecmaVersion: 2022,
           sourceType: 'module',
+          parserOptions: { ecmaFeatures: { jsx: true } },
         },
       }
     : ({
         parser: require_.resolve('@typescript-eslint/parser'),
-        parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+        parserOptions: { ecmaVersion: 2022, sourceType: 'module', ecmaFeatures: { jsx: true } },
       } as TesterConfig);
 const ruleTester = new RuleTester(ruleTesterConfig);
 
@@ -87,6 +91,9 @@ const testedRuleNames = [
   'no-claude-sdk-raw-call',
   'no-bare-graphql-query-string',
   'no-unpinned-ssrf-fetch',
+  'no-unsandboxed-html-frame',
+  'no-actor-in-input-dto',
+  'no-unverified-tenant-param',
 ] as const;
 
 void it('has a RuleTester suite for every exported rule', () => {
@@ -151,9 +158,7 @@ ruleTester.run('no-claude-sdk-raw-call', asRule(noClaudeSdkRawCall), {
 
 ruleTester.run('no-bare-graphql-query-string', asRule(noBareGraphqlQueryString), {
   valid: [{ code: 'const q = useGqlOperation();' }],
-  invalid: [
-    { code: 'const q = gql`query { me { id } }`;', errors: [{ messageId: 'bareGqlTag' }] },
-  ],
+  invalid: [{ code: 'const q = gql`query { me { id } }`;', errors: [{ messageId: 'bareGqlTag' }] }],
 });
 
 ruleTester.run('no-unpinned-ssrf-fetch', asRule(noUnpinnedSsrfFetch), {
@@ -180,6 +185,162 @@ ruleTester.run('no-unpinned-ssrf-fetch', asRule(noUnpinnedSsrfFetch), {
     {
       code: 'const options = ssrfValidator.getSafeFetchOptions();',
       errors: [{ messageId: 'removedGetSafeFetchOptions' }],
+    },
+  ],
+});
+
+ruleTester.run('no-unsandboxed-html-frame', asRule(noUnsandboxedHtmlFrame), {
+  valid: [
+    {
+      code: 'const a = <iframe src="https://example.test" sandbox="" title="t" />;',
+      filename: 'web/modules/sensor-module/src/components/Viewer.tsx',
+    },
+    {
+      code: 'const a = <iframe src={url} sandbox={sandboxValue} title="t" />;',
+      filename: 'web/modules/sensor-module/src/components/Renderer.tsx',
+    },
+    {
+      // The shared component is the ONE place inline HTML may be framed.
+      code: 'const a = <iframe srcDoc={html} sandbox="" title={title} />;',
+      filename: 'web/shared-ui/src/components/SandboxedHtmlPreview/SandboxedHtmlPreview.tsx',
+    },
+    {
+      code: 'const a = <SandboxedHtmlPreview html={html} title="Email Preview" />;',
+      filename: 'web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx',
+    },
+  ],
+  invalid: [
+    {
+      code: 'const a = <iframe srcDoc={previewHtml} className="w-full" title="Email Preview" />;',
+      filename: 'web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx',
+      errors: [
+        { messageId: 'frameWithoutSandbox' },
+        { messageId: 'srcDocOutsideSandboxedPreview' },
+      ],
+    },
+    {
+      code: 'const a = <iframe src="https://example.test" title="t" />;',
+      filename: 'web/modules/dashboard/src/pages/Embed.tsx',
+      errors: [{ messageId: 'frameWithoutSandbox' }],
+    },
+    {
+      code: 'const a = <iframe srcDoc={html} sandbox="" title="t" />;',
+      filename: 'web/modules/tenant-admin/src/pages/Announcements.tsx',
+      errors: [{ messageId: 'srcDocOutsideSandboxedPreview' }],
+    },
+  ],
+});
+
+ruleTester.run('no-actor-in-input-dto', asRule(noActorInInputDto), {
+  valid: [
+    {
+      // Filtering BY actor on a read is allowed.
+      code: 'class AuditQueryDto { @IsOptional() @IsString() performedBy?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/audit-trail.controller.ts',
+    },
+    {
+      // An entity column is not a request body.
+      code: "class TenantActivity { @Column({ type: 'varchar' }) performedBy!: string; }",
+      filename: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts',
+    },
+    {
+      // A plain response shape carries no validator, so it is not an input DTO.
+      code: 'class TenantDetailDto { createdBy?: string; }',
+      filename: 'apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts',
+    },
+    {
+      code: 'class SuspendTenantDto { @IsString() @MaxLength(500) reason!: string; }',
+      filename: 'apps/admin-api-service/src/tenant/dto/suspend-tenant.dto.ts',
+    },
+  ],
+  invalid: [
+    {
+      code: "class TerminateUserSessionsDto { @IsIn(['logout']) reason!: string; @IsOptional() @IsString() terminatedBy?: string; }",
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+      errors: [{ messageId: 'actorFromClient', data: { name: 'terminatedBy' } }],
+    },
+    {
+      code: 'class LogActivityDto { @IsString() action!: string; @IsOptional() @IsString() performedBy?: string; @IsOptional() @IsString() performedByEmail?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+      errors: [
+        { messageId: 'actorFromClient', data: { name: 'performedBy' } },
+        { messageId: 'actorFromClient', data: { name: 'performedByEmail' } },
+      ],
+    },
+    {
+      code: 'class CreateTicketDto { @IsString() title!: string; @IsString() createdByName!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+      errors: [{ messageId: 'actorFromClient', data: { name: 'createdByName' } }],
+    },
+  ],
+});
+
+ruleTester.run('no-unverified-tenant-param', asRule(noUnverifiedTenantParam), {
+  valid: [
+    {
+      code: "class C { list(@TenantParam('param') tenantId: string) {} }",
+      filename: 'apps/admin-api-service/src/billing/billing.controller.ts',
+    },
+    {
+      code: "class C { search(@TenantParam('query', { optional: true }) tenantId?: string) {} }",
+      filename: 'apps/admin-api-service/src/audit/audit.controller.ts',
+    },
+    {
+      // Other route params are not tenant identities.
+      code: "class C { get(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string) {} }",
+      filename: 'apps/admin-api-service/src/users/users.controller.ts',
+    },
+    {
+      // Filtering BY tenant on a read is allowed.
+      code: 'class AuditQueryDto { @IsOptional() @IsUUID() tenantId?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/audit-trail.controller.ts',
+    },
+    {
+      code: 'class QueryActivitiesDto { @IsOptional() @IsString() tenantId?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+    },
+    {
+      // The whitelisted carrier key: typed undefined, unreadable as a tenant id.
+      code: 'class CreateTicketDto { @TenantIdCarrier() readonly tenantId?: undefined; @IsString() subject!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+    },
+    {
+      // An entity column is not a request body.
+      code: "class SupportTicket { @Column({ type: 'uuid' }) tenantId!: string; }",
+      filename: 'apps/admin-api-service/src/support/entities/support.entity.ts',
+    },
+  ],
+  invalid: [
+    {
+      code: "class C { get(@Param('tenantId', ParseUUIDPipe) tenantId: string) {} }",
+      filename: 'apps/admin-api-service/src/billing/billing.controller.ts',
+      errors: [
+        {
+          messageId: 'rawTenantParam',
+          data: { decorator: 'Param', key: 'tenantId', source: 'param' },
+        },
+      ],
+    },
+    {
+      code: "class C { list(@Query('tenantId') tenantId?: string) {} }",
+      filename: 'apps/admin-api-service/src/audit/audit.controller.ts',
+      errors: [
+        {
+          messageId: 'rawTenantParam',
+          data: { decorator: 'Query', key: 'tenantId', source: 'query' },
+        },
+      ],
+    },
+    {
+      code: 'class CreateSchemaDto { @IsNotEmpty() @IsUUID() tenantId!: string; }',
+      filename: 'apps/admin-api-service/src/database-management/controllers/schema.controller.ts',
+      errors: [{ messageId: 'tenantInInputDto', data: { name: 'tenantId' } }],
+    },
+    {
+      // A carrier that is readable (typed string) is still an unverified identity.
+      code: 'class CreateTicketDto { @TenantIdCarrier() tenantId?: string; @IsString() subject!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+      errors: [{ messageId: 'tenantInInputDto', data: { name: 'tenantId' } }],
     },
   ],
 });

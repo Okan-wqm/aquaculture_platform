@@ -26,6 +26,7 @@ def run_reflection(
     proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
     judge_replay_result: dict[str, Any] | None = None,
+    memory_learning_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
     # Three optional kwargs let the autonomy orchestrator inject its
@@ -178,8 +179,10 @@ def run_reflection(
             for item in top_pressures
         ],
     }
+    if memory_learning_result is not None:
+        reflection["memory_learning"] = memory_learning_result
     append_declared_jsonl(root / "reflections.jsonl", reflection, expected_surface="reflections")
-    _write_daily_report(root, reflection)
+    _write_daily_report(root, reflection, repo_root=_report_repo_root(root, repo_root))
     # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
     # bounded scheduler queue so the §F.1 autonomy orchestrator can
     # drain them at the start of the following cycle. Pre-§F.2 the
@@ -239,6 +242,29 @@ def _resolve_repo_root(tools_root: Path) -> Path | None:
         return None
     candidate = Path(bound)
     return candidate if candidate.exists() else None
+
+
+def _report_repo_root(tools_root: Path, repo_root_override: str | Path | None) -> Path | None:
+    """The checkout the reflection reads committed surfaces from — the
+    findings/debts summary and the report's `## Deadlines` section resolve
+    it through this one function: the caller's override when it exists,
+    else the store's bound identity."""
+    if repo_root_override is not None:
+        candidate = Path(repo_root_override)
+        return candidate if candidate.exists() else None
+    return _resolve_repo_root(tools_root)
+
+
+def _render_deadlines_section(tools_root: Path, repo_root: Path | None) -> list[str]:
+    """ARIA-MEDIUM-128 — the deadlines the kernel enforces, announced in the
+    daily report from the same reader the doctor's `deadlines` organ uses.
+    Without a checkout the two committed sources (waivers, registry) cannot
+    be read; the reader names them undecided and the section says so
+    rather than rendering a clean list over an unread source."""
+    from .deadlines import read_deadlines, render_deadlines_markdown
+
+    readout = read_deadlines(tools_dir=tools_root, workspace_root=repo_root)
+    return render_deadlines_markdown(readout)
 
 
 def _gate_activity_summary(tools_root: Path, *, window_hours: int = 24) -> dict[str, Any]:
@@ -474,11 +500,7 @@ def _committed_findings_and_debts(
     """
     empty_findings = {"total": 0, "open": 0, "recent": []}
     empty_debts = {"total": 0, "open": 0, "overdue": 0, "recent": []}
-    if repo_root_override is not None:
-        candidate = Path(repo_root_override)
-        repo_root = candidate if candidate.exists() else None
-    else:
-        repo_root = _resolve_repo_root(tools_root)
+    repo_root = _report_repo_root(tools_root, repo_root_override)
     if repo_root is None:
         return {"findings": empty_findings, "debts": empty_debts}
 
@@ -1399,7 +1421,20 @@ def _render_own_pr_ci_section(root: Path) -> list[str]:
     return lines
 
 
-def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
+def _render_memory_learning_section(reflection: dict[str, Any]) -> list[str]:
+    memory = reflection.get("memory_learning")
+    if not isinstance(memory, dict):
+        return []
+    # Render only the bounded projection supplied by the existing producer.
+    # Batch completion is not evidence that each observation was recorded.
+    return [
+        "## Memory Learning", "",
+        "Initial observations and completion receipts are separate; receipt counts are not new writes or measured gain.",
+        "", "```json", json.dumps(memory, indent=2, sort_keys=True), "```", "",
+    ]
+
+
+def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Path | None = None) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1443,6 +1478,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             or ["- (no operator-triage queue items)"]
         ),
         "",
+        *_render_deadlines_section(root, repo_root),
         "## Coverage",
         "",
         f"- Git tracked: {file_counts.get('git_tracked', 0)}",
@@ -1509,6 +1545,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         # supplied verdicts. Direct CLI path emits null sub-objects so
         # the sections appear empty / are skipped entirely.
         *_render_convergence_section(reflection),
+        *_render_memory_learning_section(reflection),
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
         *_render_calibration_recommendation_section(reflection),

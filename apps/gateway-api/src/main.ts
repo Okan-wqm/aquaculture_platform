@@ -11,6 +11,9 @@ import { registerRedisIoAdapter } from './websocket/adapters/redis-io.adapter';
 
 bootstrapService(AppModule, {
   serviceName: 'gateway-api',
+  // ADR-0006: nginx upstream (infrastructure/nginx/droplet.conf). The factory
+  // requires TRUST_PROXY in production and mounts the access log on every request.
+  serviceVisibility: 'public',
   portEnvVar: 'GATEWAY_PORT',
   enableTelemetry: true,
   hasGraphQL: true,
@@ -18,7 +21,16 @@ bootstrapService(AppModule, {
   // deliberately owns /api/marine, so exclude that explicit path from the
   // shared /api/v1 prefix instead of exposing the accidental
   // /api/v1/api/marine route.
-  prefixExclusions: ['health', 'health/(.*)', 'metrics', ...GATEWAY_MARINE_PREFIX_EXCLUSIONS],
+  // /api/csp-report is the CSP violation collector nginx forwards verbatim;
+  // CspReportController owns the explicit path (`@Controller('api')` +
+  // `@Post('csp-report')`), so it is excluded from the prefix like marine.
+  prefixExclusions: [
+    'health',
+    'health/(.*)',
+    'metrics',
+    'api/csp-report',
+    ...GATEWAY_MARINE_PREFIX_EXCLUSIONS,
+  ],
 
   // SECURITY: In production, v2 service-identity keyring signing is required for
   // authenticating inter-service requests. Without it, gateway subgraph requests
@@ -57,7 +69,7 @@ bootstrapService(AppModule, {
     ieNoOpen: true,
   },
 
-  additionalCorsHeaders: ['X-Requested-With', 'X-CSRF-Token'],
+  additionalCorsHeaders: ['X-Requested-With'],
 
   // BUG-05: HEAD /graphql returns 200 for mobile connectivity probes.
   // P-M6: Register the Redis-backed Socket.IO adapter so ALL Socket.IO

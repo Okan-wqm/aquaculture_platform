@@ -67,23 +67,39 @@ function run(cmd: string, args: readonly string[]): string {
   return execFileSync(cmd, [...args], { encoding: 'utf8' });
 }
 
+/**
+ * Every test-family target whose suites may boot a container. `test` alone was
+ * not enough: `farm-service` keeps its Testcontainers suites under a separate
+ * `test:integration` target, and it only got prewarmed because it happens to
+ * ALSO declare `test`. A project that declared just the integration target
+ * would silently miss the pull and pay a multi-GB download inside a Jest
+ * beforeAll — the exact failure mode INFRA-HIGH-011 fixed for db-migrate.
+ */
+const CONTAINER_BOOTING_TARGETS = ['test', 'test:integration'] as const;
+
 function affectedTestProjects(base: string, head: string): Set<string> {
-  // --json explicitly: without it nx emits newline-separated names on a
-  // TTY but a single-line JSON array when piped — sniffing the shape
-  // would be fragile across nx versions.
-  const out = run('npx', [
-    'nx',
-    'show',
-    'projects',
-    '--affected',
-    '--base',
-    base,
-    '--head',
-    head,
-    '--with-target=test',
-    '--json',
-  ]);
-  return new Set(JSON.parse(out) as string[]);
+  const projects = new Set<string>();
+  for (const target of CONTAINER_BOOTING_TARGETS) {
+    // --json explicitly: without it nx emits newline-separated names on a
+    // TTY but a single-line JSON array when piped — sniffing the shape
+    // would be fragile across nx versions.
+    const out = run('npx', [
+      'nx',
+      'show',
+      'projects',
+      '--affected',
+      '--base',
+      base,
+      '--head',
+      head,
+      `--with-target=${target}`,
+      '--json',
+    ]);
+    for (const project of JSON.parse(out) as string[]) {
+      projects.add(project);
+    }
+  }
+  return projects;
 }
 
 /** Reverse transitive closure: every project that depends on `root`. */

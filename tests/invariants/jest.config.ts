@@ -107,9 +107,8 @@ const LAYER_3_SPECS: string[] = [
   '<rootDir>/feeding-v1-retired-symbols.spec.ts',
   '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
   '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
-  '<rootDir>/strip-internal-headers-mounted.spec.ts',
+  '<rootDir>/public-service-edge-hardening.spec.ts',
   '<rootDir>/verified-user-assertion-mounted.spec.ts',
-  '<rootDir>/access-log-middleware-mounted.spec.ts',
   '<rootDir>/tenant-execution-context-registered.spec.ts',
   '<rootDir>/tenant-schema-cache-module-registered.spec.ts',
   '<rootDir>/no-default-tenant-storage-key.spec.ts',
@@ -242,6 +241,9 @@ const commonProjectOptions = {
   // resolves the source the same way tsconfig.base paths do at build time.
   moduleNameMapper: {
     '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
+    // outbox aliases the platform routing segment from the event contract
+    // (SEC-HIGH-159), so the specs that load outbox need the contract resolved.
+    '^@platform/event-contracts$': '<rootDir>/../../libs/event-contracts/src/index.ts',
   },
   transform: baseTransform,
 };

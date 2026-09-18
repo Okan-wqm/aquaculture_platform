@@ -57,7 +57,21 @@ export function ChannelEditorModal({
   onClose,
   onSave,
 }: ChannelEditorModalProps) {
-  const isNew = !channel?.id && !channel?.channelKey?.startsWith('channel_') === false;
+  // SENSOR-HIGH-063: a channel is new exactly when it has no persisted id. The
+  // previous expression was `!channel?.id && !channel?.channelKey?.startsWith('channel_') === false`,
+  // where `!` binds tighter than `===`, so it reduced to "no id AND the key starts
+  // with channel_" — true only for an auto-discovered placeholder. Opening the
+  // dialog from the Add button passes no channel at all, so it evaluated FALSE and
+  // the create dialog titled itself "Edit Data Channel" over a "Save Changes"
+  // button. Both callers that mean "new" (Add, and a discovered channel awaiting
+  // its first save) are exactly the ones without an id.
+  const isNew = !channel?.id;
+
+  // A saved channel's key and data type are fixed: the contract's
+  // UpdateDataChannelInput carries neither, because both decide how already-stored
+  // readings were parsed. Disabling them keeps the form from offering an edit the
+  // save path would silently drop.
+  const isPersisted = !isNew;
 
   // Form state
   const [formData, setFormData] = useState<DataChannelConfig>({
@@ -196,12 +210,14 @@ export function ChannelEditorModal({
                     type="text"
                     value={formData.channelKey}
                     onChange={(e) => handleChange('channelKey', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
                     placeholder="e.g., temperature, ph_level"
-                    disabled={!!channel?.id}
+                    disabled={isPersisted}
                   />
                   <p className="mt-1 text-xs text-gray-500">
-                    Internal identifier. Lowercase letters, numbers, and underscores only.
+                    {isPersisted
+                      ? 'Fixed after creation — stored readings are keyed by it.'
+                      : 'Internal identifier. Lowercase letters, numbers, and underscores only.'}
                   </p>
                 </div>
 
@@ -233,19 +249,29 @@ export function ChannelEditorModal({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label
+                      htmlFor="channel-editor-data-type"
+                      className="block text-sm font-medium text-gray-700 mb-1"
+                    >
                       Data Type
                     </label>
                     <select
+                      id="channel-editor-data-type"
                       value={formData.dataType}
                       onChange={(e) => handleChange('dataType', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      disabled={isPersisted}
                     >
                       <option value={ChannelDataType.NUMBER}>Number</option>
                       <option value={ChannelDataType.BOOLEAN}>Boolean</option>
                       <option value={ChannelDataType.STRING}>String</option>
                       <option value={ChannelDataType.ENUM}>Enum</option>
                     </select>
+                    {isPersisted && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        Fixed after creation — stored readings were parsed as this type.
+                      </p>
+                    )}
                   </div>
 
                   <div>

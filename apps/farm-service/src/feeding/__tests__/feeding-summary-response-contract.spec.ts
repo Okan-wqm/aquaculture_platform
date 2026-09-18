@@ -1,5 +1,10 @@
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import { collaborator } from '@aquaculture/testing';
+import { DataSource } from 'typeorm';
+
 import { FeedingResolver } from '../resolvers/feeding.resolver';
 import { FeedingSummaryResult } from '../queries/get-feeding-summary.query';
+import { GrowthSimulatorService } from '../services/growth-simulator.service';
 
 /**
  * Feeding-summary read-back contract (ORPHAN-MEDIUM-270). The resolver returned
@@ -34,8 +39,16 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
   };
 
   function resolverReturning(value: FeedingSummaryResult): FeedingResolver {
-    const queryBus = { execute: jest.fn().mockResolvedValue(value) };
-    return new FeedingResolver({} as never, queryBus as never, {} as never, {} as never, {} as never);
+    // Ctor: (commandBus, queryBus, growthSimulator, dataSource). Only the query
+    // bus is exercised on this path; the rest are EMPTY TYPED doubles, so a
+    // resolver that starts reaching for one fails by name here instead of
+    // silently working against an object that models nothing.
+    return new FeedingResolver(
+      collaborator<CommandBus>({}, 'CommandBus'),
+      collaborator<QueryBus>({ execute: jest.fn().mockResolvedValue(value) }, 'QueryBus'),
+      collaborator<GrowthSimulatorService>({}, 'GrowthSimulatorService'),
+      collaborator<DataSource>({}, 'DataSource'),
+    );
   }
 
   it('maps the handler Result onto a fully-populated FeedingSummaryResponse', async () => {

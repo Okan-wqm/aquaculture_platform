@@ -12,13 +12,16 @@ import { TankAllocation, AllocationType } from '../../entities/tank-allocation.e
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import {
+  createMockDataSource,
+  createMockRepository,
+  stub,
+  collaborator,
+  stubMember,
+} from '@aquaculture/testing';
+import type { TankBatchService } from '../../services/tank-batch.service';
+import type { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
-
-/** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 describe('CreateBatchHandler', () => {
   let handler: CreateBatchHandler;
@@ -32,7 +35,7 @@ describe('CreateBatchHandler', () => {
     generateCode: jest.fn(),
   } as unknown as jest.Mocked<CodeGeneratorService>;
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
-  const mockFinanceSettings = mock<FinanceSettingsService>({
+  const mockFinanceSettings = stub<FinanceSettingsService>({
     getDefaultCurrency: jest.fn().mockResolvedValue('NOK'),
   });
 
@@ -71,8 +74,31 @@ describe('CreateBatchHandler', () => {
         projectedDensityKgM3: 1,
         utilizationPercent: 10,
         isOverCapacity: false,
+        // The handler forwards this to applyBatchDelta as volumeM3; a missing
+        // value would silently zero the density the service derives.
+        tankVolumeM3: 50,
       }),
     };
+    // Initial stocking routes tank composition through the single writer
+    // (FARM-HIGH-139), so the spec supplies it rather than letting the handler
+    // hand-mutate a row. The double returns the shape the handler reads back:
+    // the derived totals it copies onto the container row.
+    const applyBatchDelta = jest.fn().mockResolvedValue({
+      totalQuantity: 1000,
+      totalBiomassKg: 50,
+    });
+    const mockTankBatchService = collaborator<TankBatchService>(
+      { applyBatchDelta: stubMember<TankBatchService['applyBatchDelta']>(applyBatchDelta) },
+      'TankBatchService',
+    );
+    const refreshContainers = jest.fn().mockResolvedValue(undefined);
+    const mockFarmStockProjection = collaborator<FarmStockProjectionService>(
+      {
+        refreshContainers:
+          stubMember<FarmStockProjectionService['refreshContainers']>(refreshContainers),
+      },
+      'FarmStockProjectionService',
+    );
     mockManager.save.mockImplementation((_entityClass: unknown, data: unknown) =>
       Promise.resolve({ id: 'batch-new-123', ...(data as object) }),
     );
@@ -87,6 +113,8 @@ describe('CreateBatchHandler', () => {
       mockOutboxPublisher as any,
       mockTankCapacityService as any,
       mockFinanceSettings,
+      mockTankBatchService,
+      mockFarmStockProjection,
     );
   });
 

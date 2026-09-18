@@ -280,9 +280,10 @@ impl CommandHandler {
 
         // Verify closure — same shape as cmd_deploy_bytecode_program.
         let verify_closure = |msg: &[u8], sig_bytes: &[u8; 64]| {
-            use ed25519_dalek::Verifier;
+            // verify_strict: reject non-canonical/malleable signatures on the
+            // program-integrity boundary (crate-wide SSoT).
             let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
-            pubkey.verify(msg, &sig).is_ok()
+            pubkey.verify_strict(msg, &sig).is_ok()
         };
 
         match compile_and_deploy_signed_source(

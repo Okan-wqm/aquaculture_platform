@@ -10,6 +10,13 @@ import { ScheduledPlanChange } from '../entities/scheduled-plan-change.entity';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 
 describe('ChangeSubscriptionPlanHandler', () => {
+  // SEC-MEDIUM-089: assertion handle onto the scheduled-change repo mock
+  // biome-ignore lint: reassigned inside beforeEach
+  let mockScheduledChangeRepoForAssertions: {
+    update: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let handler: ChangeSubscriptionPlanHandler;
   let mockDataSource: Partial<DataSource>;
   let mockSubscriptionRepo: Partial<Repository<Subscription>>;
@@ -114,6 +121,9 @@ describe('ChangeSubscriptionPlanHandler', () => {
       create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockImplementation((c) => Promise.resolve({ ...c, id: 'spc-001' })),
     };
+    // Expose the same mock for cross-test assertions without re-fetching
+    // it through the transaction manager.
+    mockScheduledChangeRepoForAssertions = mockScheduledChangeRepo;
 
     mockManager = {
       getRepository: jest.fn().mockImplementation((entity) => {
@@ -171,6 +181,30 @@ describe('ChangeSubscriptionPlanHandler', () => {
     expect(result.limits.maxFarms).toBe(10);
     expect(result.pricing.basePrice).toBe(149);
     expect(result.updatedBy).toBe(userId);
+  });
+
+
+  // SEC-MEDIUM-089 (2026-08-23 scan №34): the pro-rata credit must be DURABLE.
+  it('immediate change journals an APPLIED saga row carrying the pro-rata credit', async () => {
+    const subscription = createMockSubscription();
+    const plan = createMockPlan();
+    (mockSubscriptionRepo.findOne as jest.Mock).mockResolvedValue(subscription);
+    (mockPlanRepo.findOne as jest.Mock).mockResolvedValue(plan);
+
+    await handler.execute(
+      new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
+    );
+
+    // The scheduled-change repository mock the transaction manager hands
+    // back — assert on it directly rather than re-fetching it.
+    const saved = mockScheduledChangeRepoForAssertions.save.mock.calls
+      .map((call) => call[0])
+      .find((row) => (row as { status?: string })?.status === 'APPLIED');
+    expect(saved).toBeDefined();
+    const saga = saved as { proRataCredit: number; isUpgrade: boolean; expectedSubscriptionVersion: number };
+    expect(saga.proRataCredit).toBeGreaterThan(0);
+    expect(saga.isUpgrade).toBe(true);
+    expect(saga.expectedSubscriptionVersion).toBe(subscription.version);
   });
 
   it('syncs the Stripe subscription price on an immediate change (SSOT-C-12)', async () => {

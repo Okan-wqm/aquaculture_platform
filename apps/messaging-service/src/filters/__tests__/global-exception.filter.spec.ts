@@ -28,7 +28,7 @@ import { GlobalExceptionFilter } from '../global-exception.filter';
 const CORRELATION_ID = 'corr-test-123';
 
 /**
- * Class-based ArgumentsHost stand-in (repo gate bans `as unknown as` and the
+ * Class-based ArgumentsHost stand-in (repo gate bans the unknown double cast and the
  * interface's generic signatures reject plain object literals). Implements the
  * real interface member-for-member; the constructor fixes the context type and
  * the argument array. GqlArgumentsHost.create() reads getArgByIndex(2) as the
@@ -192,7 +192,10 @@ describe('GlobalExceptionFilter — REST contexts keep the platform envelope', (
   it('sanitizes the REST envelope message in production (MSGFIX-FAZ0 M-1)', () => {
     const json = jest.fn();
     const status = jest.fn().mockReturnThis();
-    const host = new FakeArgumentsHost('http', [{ url: '/health', method: 'GET', headers: {} }, { status, json }]);
+    const host = new FakeArgumentsHost('http', [
+      { url: '/health', method: 'GET', headers: {} },
+      { status, json },
+    ]);
     const previous = process.env['NODE_ENV'];
     try {
       process.env['NODE_ENV'] = 'production';
@@ -201,10 +204,7 @@ describe('GlobalExceptionFilter — REST contexts keep the platform envelope', (
       const filter = new GlobalExceptionFilter();
       // A raw Error leaking connection/SQL details must never reach the JSON
       // envelope ('database' trips the sanitizer's sensitive-pattern list).
-      filter.catch(
-        new Error('database connect ECONNREFUSED 10.0.0.4:5432 users table'),
-        host,
-      );
+      filter.catch(new Error('database connect ECONNREFUSED 10.0.0.4:5432 users table'), host);
       const payload = String(json.mock.calls[0]?.[0]?.['message']);
       expect(payload).toBe('An error occurred while processing your request');
       expect(payload).not.toContain('ECONNREFUSED');

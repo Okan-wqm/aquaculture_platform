@@ -6,7 +6,6 @@ import {
   TenantActivity,
   ActivityType,
   TenantNote,
-  TenantBillingInfo,
 } from '../entities/tenant-activity.entity';
 
 export interface CreateActivityDto {
@@ -17,7 +16,8 @@ export interface CreateActivityDto {
   metadata?: Record<string, unknown>;
   previousValue?: Record<string, unknown>;
   newValue?: Record<string, unknown>;
-  performedBy?: string;
+  /** ADR-0008: an activity row without an actor is not evidence. */
+  performedBy: string;
   performedByEmail?: string;
 }
 
@@ -39,8 +39,6 @@ export class TenantActivityService {
     private readonly activityRepository: Repository<TenantActivity>,
     @InjectRepository(TenantNote)
     private readonly noteRepository: Repository<TenantNote>,
-    @InjectRepository(TenantBillingInfo)
-    private readonly billingRepository: Repository<TenantBillingInfo>,
   ) {}
 
   // ============================================================================
@@ -180,29 +178,6 @@ export class TenantActivityService {
       }
     }
     await this.noteRepository.delete(noteId);
-  }
-
-  // ============================================================================
-  // Billing Methods
-  // ============================================================================
-
-  async getBillingInfo(tenantId: string): Promise<TenantBillingInfo | null> {
-    return this.billingRepository.findOne({ where: { tenantId } });
-  }
-
-  async createOrUpdateBillingInfo(
-    tenantId: string,
-    data: Partial<TenantBillingInfo>,
-  ): Promise<TenantBillingInfo> {
-    let billing = await this.billingRepository.findOne({ where: { tenantId } });
-
-    if (billing) {
-      Object.assign(billing, data);
-    } else {
-      billing = this.billingRepository.create({ tenantId, ...data });
-    }
-
-    return this.billingRepository.save(billing);
   }
 
   // ============================================================================

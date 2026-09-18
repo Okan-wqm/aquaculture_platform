@@ -27,9 +27,7 @@ const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 const SubscriptionManagementPage = lazy(() => import('./pages/SubscriptionManagementPage'));
 const PlanManagementPage = lazy(() => import('./pages/PlanManagementPage'));
 const DiscountCodePage = lazy(() => import('./pages/DiscountCodePage'));
-const TenantConfigurationPage = lazy(() => import('./pages/TenantConfigurationPage'));
 const EmailTemplatesPage = lazy(() => import('./pages/EmailTemplatesPage'));
-const IpAccessRulesPage = lazy(() => import('./pages/IpAccessRulesPage'));
 const AnalyticsDashboardPage = lazy(() => import('./pages/AnalyticsDashboardPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const DatabaseManagementPage = lazy(() => import('./pages/DatabaseManagementPage'));
@@ -47,15 +45,12 @@ const CustomPlansListPage = lazy(() => import('./pages/CustomPlansListPage'));
 const CustomPlanBuilderPage = lazy(() => import('./pages/CustomPlanBuilderPage'));
 const PaymentsPage = lazy(() => import('./pages/PaymentsPage'));
 const UsageDashboardPage = lazy(() => import('./pages/UsageDashboardPage'));
-const ProvisioningSettingsPage = lazy(() => import('./pages/ProvisioningSettingsPage'));
 
 // Messaging monitoring pages
-const MessagingMonitoringPage = lazy(() => import('./pages/messaging/MessagingMonitoringPage'));
 const MessagingTenantsPage = lazy(() => import('./pages/messaging/MessagingTenantsPage'));
 const MessagingAuditPage = lazy(() => import('./pages/messaging/MessagingAuditPage'));
 const MessagingCompliancePage = lazy(() => import('./pages/messaging/MessagingCompliancePage'));
 const MessagingRetentionPage = lazy(() => import('./pages/messaging/MessagingRetentionPage'));
-const MessagingAiDashboardPage = lazy(() => import('./pages/messaging/MessagingAiDashboardPage'));
 const MessagingAiPersonasPage = lazy(() => import('./pages/messaging/MessagingAiPersonasPage'));
 
 // Security pages
@@ -70,8 +65,6 @@ const MaintenancePage = lazy(() => import('./pages/system/MaintenancePage'));
 const PerformanceDashboardPage = lazy(() => import('./pages/system/PerformanceDashboardPage'));
 const ErrorTrackingPage = lazy(() => import('./pages/system/ErrorTrackingPage'));
 const JobQueuePage = lazy(() => import('./pages/system/JobQueuePage'));
-const ImpersonationPage = lazy(() => import('./pages/system/ImpersonationPage'));
-const DebugToolsPage = lazy(() => import('./pages/system/DebugToolsPage'));
 
 // ============================================================================
 // Suspense Fallback
@@ -111,7 +104,6 @@ const AdminPanelModule: React.FC = () => {
         <Route path="tenants" element={<TenantManagementPage />} />
         <Route path="tenants/new" element={<CreateTenantPage />} />
         <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
-        <Route path="tenants/:tenantId/configuration" element={<TenantConfigurationPage />} />
 
         {/* Users & Roles — static route must precede dynamic segment */}
         <Route path="users" element={<UserManagementPage />} />
@@ -138,12 +130,10 @@ const AdminPanelModule: React.FC = () => {
         <Route path="billing/custom-plan-builder" element={<Navigate to="/admin/billing/custom-plans/new" replace />} />
 
         {/* Messaging Monitoring (SUPER_ADMIN) */}
-        <Route path="messaging/monitoring" element={<MessagingMonitoringPage />} />
         <Route path="messaging/tenants" element={<MessagingTenantsPage />} />
         <Route path="messaging/audit" element={<MessagingAuditPage />} />
         <Route path="messaging/compliance" element={<MessagingCompliancePage />} />
         <Route path="messaging/retention" element={<MessagingRetentionPage />} />
-        <Route path="messaging/ai-dashboard" element={<MessagingAiDashboardPage />} />
         <Route path="messaging/ai-personas" element={<MessagingAiPersonasPage />} />
 
         {/* Support */}
@@ -164,8 +154,6 @@ const AdminPanelModule: React.FC = () => {
         <Route path="system/performance" element={<PerformanceDashboardPage />} />
         <Route path="system/errors" element={<ErrorTrackingPage />} />
         <Route path="system/jobs" element={<JobQueuePage />} />
-        <Route path="system/impersonation" element={<ImpersonationPage />} />
-        <Route path="system/debug" element={<DebugToolsPage />} />
 
         {/* Database */}
         <Route path="database" element={<DatabaseManagementPage />} />
@@ -177,8 +165,6 @@ const AdminPanelModule: React.FC = () => {
         {/* Settings */}
         <Route path="settings" element={<SystemSettingsPage />} />
         <Route path="settings/email" element={<EmailTemplatesPage />} />
-        <Route path="settings/integrations" element={<IpAccessRulesPage />} />
-        <Route path="settings/provisioning" element={<ProvisioningSettingsPage />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/admin" replace />} />

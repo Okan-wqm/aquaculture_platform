@@ -28,11 +28,16 @@ import {
   type BillingAdminSubscriptionCommandResult,
   type BillingAdminVoidInvoiceCommand,
 } from '@platform/event-contracts';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
+import Decimal from 'decimal.js';
 import { DataSource, EntityManager } from 'typeorm';
 
+import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
+import { ExtendSubscriptionTrialCommand } from '../commands/extend-subscription-trial.command';
+import { ReactivateSubscriptionCommand } from '../commands/reactivate-subscription.command';
 import { RecordPaymentCommand } from '../commands/record-payment.command';
 import { RefundPaymentCommand } from '../commands/refund-payment.command';
 import { VoidInvoiceCommand } from '../commands/void-invoice.command';
@@ -49,6 +54,7 @@ import {
   Subscription,
   SubscriptionStatus,
 } from '../entities/subscription.entity';
+import { StripeSubscriptionProvisionerService } from '../services/stripe-subscription-provisioner.service';
 
 interface TenantLookupRow {
   tenantId: string;
@@ -109,6 +115,7 @@ export class BillingAdminNatsHandler {
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
     private readonly bypassRls: BypassRlsService,
+    private readonly stripeProvisioner: StripeSubscriptionProvisionerService,
   ) {}
 
   /**
@@ -180,6 +187,33 @@ export class BillingAdminNatsHandler {
         // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
         // after a subscription row is written (the silent-rollback class removed).
         this.assertProvisioningModuleItems(command);
+
+        // The plan and the tenant's Stripe objects are resolved BEFORE the
+        // transaction opens, for two reasons that both point the same way: a
+        // pool connection is never held across a network call (SSOT-C-12), and
+        // a SERIALIZABLE transaction that waits on Stripe holds a
+        // serialization slot for the length of an HTTP round trip.
+        //
+        // Safe against this handler's own short-circuits because the mint is
+        // idempotent on (tenant, tier, cycle): a receipt replay re-resolves the
+        // same Stripe objects rather than minting a second pair, and a command
+        // naming a plan the tenant does not end up on is REJECTED by
+        // assertActiveSubscriptionReplayMatches below rather than silently
+        // returning — so no orphan Stripe subscription is created.
+        //
+        // A Stripe failure now fails the command instead of quietly producing a
+        // tenant nothing can charge (BILLING-CRITICAL-010). That is the
+        // fail-closed rule every billable mutation already follows, and the
+        // command is retryable: its receipt is keyed on the payload hash.
+        const plan = await this.resolveProvisioningPlan(this.dataSource.manager, command);
+        const stripeObjects = await this.stripeProvisioner.ensureStripeObjects({
+          tenantId: command.tenantId,
+          tier: plan.tier,
+          billingCycle: plan.billingCycle,
+          stripePriceIds: plan.stripePriceIds,
+          name: command.tenantName,
+        });
+
         return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
           const receipt = await this.prepareBillingReceipt(
             manager,
@@ -191,7 +225,6 @@ export class BillingAdminNatsHandler {
             return this.replayProvisioningResult(manager, command, receipt);
           }
 
-          const plan = await this.resolveProvisioningPlan(manager, command);
           const existing = await this.findActiveSubscription(manager, command.tenantId, true);
           if (existing) {
             await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
@@ -213,6 +246,7 @@ export class BillingAdminNatsHandler {
             command,
             plan,
             moduleItemsMonthlyTotal,
+            stripeObjects,
           );
           const moduleItemCount = await this.reconcileSubscriptionModuleItems(
             manager,
@@ -359,6 +393,16 @@ export class BillingAdminNatsHandler {
     });
   }
 
+  /**
+   * ADR-0014: the three subscription lifecycle commands below dispatch the
+   * CQRS handlers instead of running raw `UPDATE billing.subscriptions`.
+   *
+   * The raw statements told Stripe nothing, wrote no outbox event, projected
+   * nothing onto `auth.tenants` and validated no state transition — and each
+   * one's `WHERE tenant_id = $n AND is_deleted = false` named no subscription
+   * id, so a tenant with more than one row had all of them written. The
+   * handlers they replaced already existed, unused.
+   */
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.CANCEL_SUBSCRIPTION)
   async cancelSubscription(
     @Payload() command: BillingAdminCancelSubscriptionCommand,
@@ -366,30 +410,16 @@ export class BillingAdminNatsHandler {
     return this.runAsTrustedAdminBypass('cancel-subscription', async () => {
       try {
         const subscription = await this.getSubscription(command.tenantId);
-        const effectiveDate = command.cancelImmediately
-          ? new Date()
-          : new Date(subscription.currentPeriodEnd);
-
-        await this.dataSource.query(
-          `
-          UPDATE billing.subscriptions SET
-            status = $1,
-            cancelled_at = NOW(),
-            cancellation_reason = $2,
-            auto_renew = false,
-            end_date = $3,
-            "updatedAt" = NOW(),
-            updated_by = $4
-          WHERE tenant_id = $5 AND is_deleted = false
-          `,
-          [
-            command.cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
-            command.reason,
-            effectiveDate,
-            command.actorId,
+        const cancelled = await this.commandBus.execute<CancelSubscriptionCommand, Subscription>(
+          new CancelSubscriptionCommand(
             command.tenantId,
-          ],
+            subscription.id,
+            command.reason,
+            command.actorId,
+            command.cancelImmediately ?? false,
+          ),
         );
+        const effectiveDate = cancelled.endDate ?? new Date();
 
         return {
           success: true,
@@ -411,23 +441,10 @@ export class BillingAdminNatsHandler {
     return this.runAsTrustedAdminBypass('reactivate-subscription', async () => {
       try {
         const subscription = await this.getSubscription(command.tenantId);
-        if (subscription.status !== SubscriptionStatus.CANCELLED) {
-          throw new BadRequestException('Can only reactivate cancelled subscriptions');
-        }
-
-        await this.dataSource.query(
-          `
-          UPDATE billing.subscriptions SET
-            status = 'active',
-            cancelled_at = NULL,
-            cancellation_reason = NULL,
-            auto_renew = true,
-            end_date = NULL,
-            "updatedAt" = NOW(),
-            updated_by = $1
-          WHERE tenant_id = $2 AND is_deleted = false
-          `,
-          [command.actorId, command.tenantId],
+        // The status guard lives in the handler now, under the row lock — here
+        // it raced any concurrent write between the read and the UPDATE.
+        await this.commandBus.execute<ReactivateSubscriptionCommand, Subscription>(
+          new ReactivateSubscriptionCommand(command.tenantId, subscription.id, command.actorId),
         );
 
         return { success: true, message: 'Subscription reactivated successfully' };
@@ -444,29 +461,19 @@ export class BillingAdminNatsHandler {
     return this.runAsTrustedAdminBypass('extend-subscription-trial', async () => {
       try {
         const subscription = await this.getSubscription(command.tenantId);
-        if (subscription.status !== SubscriptionStatus.TRIAL) {
-          throw new BadRequestException('Can only extend trial period for trial subscriptions');
-        }
-
-        const currentTrialEnd = subscription.trialEndDate
-          ? new Date(subscription.trialEndDate)
-          : new Date();
-        const newTrialEnd = new Date(currentTrialEnd);
-        newTrialEnd.setDate(newTrialEnd.getDate() + command.additionalDays);
-
-        await this.dataSource.query(
-          `
-          UPDATE billing.subscriptions SET
-            trial_end_date = $1,
-            current_period_end = $1,
-            "updatedAt" = NOW(),
-            updated_by = $2
-          WHERE tenant_id = $3 AND is_deleted = false
-          `,
-          [newTrialEnd, command.actorId, command.tenantId],
+        const extended = await this.commandBus.execute<
+          ExtendSubscriptionTrialCommand,
+          Subscription
+        >(
+          new ExtendSubscriptionTrialCommand(
+            command.tenantId,
+            subscription.id,
+            command.additionalDays,
+            command.actorId,
+          ),
         );
 
-        return { success: true, newTrialEnd: newTrialEnd.toISOString() };
+        return { success: true, newTrialEnd: extended.trialEndDate?.toISOString() };
       } catch (err) {
         return this.toSubscriptionError('extendSubscriptionTrial', err);
       }
@@ -633,6 +640,7 @@ export class BillingAdminNatsHandler {
     command: BillingTenantProvisioningCommand,
     plan: Plan,
     moduleItemsMonthlyTotal: number,
+    stripeObjects: { stripeCustomerId?: string; stripeSubscriptionId?: string },
   ): Promise<{ id: string; status: SubscriptionStatus }> {
     if (command.trialDays && command.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
@@ -646,7 +654,7 @@ export class BillingAdminNatsHandler {
     const isFree = plan.tier === PlanTier.FREE;
 
     const startDate = new Date();
-    const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
+    const currentPeriodEnd = addBillingCycle(startDate, plan.billingCycle);
     const trialEndDate =
       !isFree && command.trialDays && command.trialDays > 0
         ? this.addDays(startDate, command.trialDays)
@@ -680,6 +688,12 @@ export class BillingAdminNatsHandler {
          current_period_end,
          trial_end_date,
          auto_renew,
+         -- BILLING-CRITICAL-010: these two were omitted from this column list
+         -- entirely, so every operator-provisioned tenant carried NULLs that
+         -- nothing else ever filled. The only other writer is the GraphQL
+         -- path, which this flow does not use.
+         stripe_customer_id,
+         stripe_subscription_id,
          created_by,
          updated_by,
          version,
@@ -688,7 +702,7 @@ export class BillingAdminNatsHandler {
          "updatedAt"
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $9, $10, $11,
-         true, $12, $12, 1, false, NOW(), NOW()
+         true, $12, $13, $14, $14, 1, false, NOW(), NOW()
        )
        RETURNING id, status`,
       [
@@ -703,6 +717,8 @@ export class BillingAdminNatsHandler {
         startDate,
         currentPeriodEnd,
         trialEndDate,
+        stripeObjects.stripeCustomerId ?? null,
+        stripeObjects.stripeSubscriptionId ?? null,
         command.actorId,
       ],
     );
@@ -771,32 +787,6 @@ export class BillingAdminNatsHandler {
     return value as BillingCycle;
   }
 
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:
-        return 1;
-      case BillingCycle.QUARTERLY:
-        return 3;
-      case BillingCycle.SEMI_ANNUAL:
-        return 6;
-      case BillingCycle.ANNUAL:
-        return 12;
-    }
-  }
-
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
-    return result;
-  }
-
   private addDays(date: Date, days: number): Date {
     const result = new Date(date);
     result.setDate(result.getDate() + days);
@@ -848,9 +838,11 @@ export class BillingAdminNatsHandler {
       // clamped to 0 — billing is the SSoT and must not depend on the caller
       // having zeroed the item (Billing Revival Faz B).
       const lineItems = isFree ? [] : (item.lineItems ?? []);
-      const subtotal = isFree ? 0 : item.subtotal;
-      const discountAmount = isFree ? 0 : item.discountAmount;
-      const total = isFree ? 0 : item.total;
+      // Exact decimal strings straight into `numeric` columns: Postgres parses
+      // them losslessly, so nothing here widens a price through a double.
+      const subtotal = isFree ? '0' : item.subtotal;
+      const discountAmount = isFree ? '0' : item.discountAmount;
+      const total = isFree ? '0' : item.total;
       await manager.query(
         `INSERT INTO billing.subscription_module_items (
            subscription_id,
@@ -928,11 +920,25 @@ export class BillingAdminNatsHandler {
     }
   }
 
+  /**
+   * Sum the priced items exactly, then widen ONCE.
+   *
+   * The sum lands in `billing.subscriptions.pricing.basePrice`, which is still
+   * a `number` inside a jsonb column — the last money-in-jsonb site on the
+   * subscription, governed by `.claude/allowlists/money-in-jsonb.yaml` until
+   * BILLING-CRITICAL-003 normalises it. Summing in `Decimal` first means the
+   * single rounding happens at that boundary instead of accumulating across
+   * every module line.
+   */
   private sumModuleItemsTotal(
     moduleItems: BillingTenantProvisioningCommand['moduleItems'],
   ): number {
     if (!moduleItems || moduleItems.length === 0) return 0;
-    return moduleItems.reduce((sum, item) => sum + Number(item.total ?? 0), 0);
+    const exact = moduleItems.reduce(
+      (sum, item) => sum.plus(new Decimal(item.total ?? '0')),
+      new Decimal(0),
+    );
+    return exact.toNumber();
   }
 
   private async countSubscriptionModuleItems(

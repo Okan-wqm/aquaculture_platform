@@ -3,13 +3,7 @@
  */
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
 export enum MovementType {
   IN = 'in',
@@ -32,7 +26,10 @@ registerEnumType(MovementType, {
 // Composite index for TraceLot queries: enables efficient lot traceability
 // without full table scan, required by EU 178/2002 Article 18 audits.
 @Index(['tenantId', 'lotNumber'])
-@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
+@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], {
+  unique: true,
+  where: '"idempotency_key" IS NOT NULL',
+})
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -97,6 +94,23 @@ export class StockMovement {
    */
   @Column({ type: 'date', nullable: true, name: 'expiry_date' })
   expiryDate?: Date;
+
+  /**
+   * Arrival date of the lot involved in this movement — the other half of the
+   * lot identity `expiry_date` above preserves (FARM-MEDIUM-254).
+   *
+   * FEFO orders by `(expiryDate NULLS LAST, receivedDate NULLS LAST, lotNumber)`.
+   * When a depleted lot's inventory row is deleted, the arrival date goes with
+   * it, so a later return that re-creates the row had nothing to restore and the
+   * row was reborn dated NOW — sorting the oldest physical feed in the silo LAST.
+   * Recording it here means the ledger can hand back the exact position it took.
+   *
+   * NULL means genuinely unknown (a movement predating this column, or a lot the
+   * backfill could not resolve). Restorers must treat NULL as "no provenance"
+   * rather than inventing one.
+   */
+  @Column({ type: 'date', nullable: true, name: 'received_date' })
+  receivedDate?: Date;
 
   /**
    * Client-generated idempotency key to prevent duplicate movements from

@@ -46,6 +46,14 @@ registerEnumType(TenantStatus, {
 @Entity('tenants', { schema: 'auth' })
 @Check(`"status" IN ('PENDING', 'PROVISIONING', 'PROVISIONING_FAILED', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED', 'CANCELLED', 'ARCHIVED', 'PURGED')`)
 @Check(`"plan" IN ('free', 'trial', 'starter', 'professional', 'enterprise')`)
+// ADR-046: the idle-session bound is a property of the STORE, not only of the
+// mutation DTO — no repair script or second writer can persist a timeout the
+// refresh-TTL clamp would turn into a near-instant logout (< 5 min) or a
+// non-idle window (> 24 h). Mirrors the CHECK added by
+// 1819000000000-AddTenantAuthSecurityPolicy.
+@Check(
+  `"session_timeout_minutes" IS NULL OR ("session_timeout_minutes" >= 5 AND "session_timeout_minutes" <= 1440)`,
+)
 @Index('IDX_tenants_slug', ['slug'], { unique: true })
 @Index('IDX_tenants_status', ['status'])
 // DBR-MEDIUM-001 cure: enterprise custom-domain rows MUST be unique
@@ -247,6 +255,41 @@ export class Tenant {
   @Field(() => String, { nullable: true })
   @Column({ type: 'uuid', nullable: true })
   createdBy?: string | null;
+
+  // ============================================
+  // Tenant auth-security policy (ADR-046)
+  //
+  // NOT @Field-decorated (like `version` below): these columns never enter the
+  // public GraphQL Tenant ObjectType. The TENANT_ADMIN-guarded policy surface
+  // (tenantSecurityPolicy / updateTenantSecurityPolicy) is the only read path,
+  // so exposure is a deliberate resolver decision, not an entity default.
+  // NULL means "no tenant policy set" — platform defaults apply.
+  //
+  // Localization (timezone / locale) is deliberately ABSENT here: it is a
+  // different authority, written through the tenant command-receipt path into
+  // `settings.localization` and fanned out on `TenantUpdated`. A second
+  // timezone column on this row would be split-brain.
+  // ============================================
+
+  /**
+   * ADR-046: when true, every user of this tenant MUST have a second factor
+   * enrolled (TOTP or a registered WebAuthn credential) to receive tokens at
+   * login. Enforced by AuthenticationService.resolveMfaEnrollmentGate — not
+   * advisory. NULL/false = not enforced.
+   */
+  @Column({ type: 'boolean', nullable: true, name: 'enforce_mfa' })
+  enforceMfa?: boolean | null;
+
+  /**
+   * ADR-046: idle-session timeout in minutes (5..1440, enforced by the
+   * mutation DTO AND the table CHECK above). Clamps the refresh-token TTL at
+   * issuance AND at rotation (MIN(configured TTL incl. rememberMe, this) —
+   * tenant policy wins), giving sliding idle-timeout semantics. The clamp is
+   * resolved inside TokenService.generateTokens, so no mint path can omit it.
+   * NULL = configured platform TTL applies.
+   */
+  @Column({ type: 'int', nullable: true, name: 'session_timeout_minutes' })
+  sessionTimeoutMinutes?: number | null;
 
   // ============================================
   // Timestamps

@@ -184,6 +184,13 @@ export class ChangeSubscriptionPlanHandler
           effectiveDate: subscription.currentPeriodEnd,
           reason: input.reason,
           scheduledBy: userId,
+          // SEC-MEDIUM-089 (2026-08-23 scan №34): the operation journal row
+          // — the pro-rata credit is DURABLE from creation, not a log line.
+          expectedSubscriptionVersion: subscription.version,
+          currentPlanName: subscription.planName,
+          targetStripePriceId: newPlan.stripePriceIds?.[subscription.billingCycle] ?? null,
+          proRataCredit: proRataCredit.toDecimal().toNumber(),
+          isUpgrade: false,
         });
         await scheduledChangeRepo.save(scheduledChange);
 
@@ -227,6 +234,36 @@ export class ChangeSubscriptionPlanHandler
       }
 
       const savedSubscription = await subscriptionRepo.save(subscription);
+
+      // SEC-MEDIUM-089 (2026-08-23 scan №34): immediate changes journal the
+      // SAME operation row, terminal-state APPLIED — the credit (and the
+      // Stripe idempotency trail) outlives the request that produced it.
+      if (appliedImmediately) {
+        const scheduledChangeRepo = tenantManagerRepo(manager, ScheduledPlanChange, tenantId);
+        await scheduledChangeRepo.save(
+          scheduledChangeRepo.create({
+            tenantId,
+            subscriptionId: savedSubscription.id,
+            currentPlanId: subscription.planId ?? '',
+            currentPlanTier: previousPlanTier,
+            newPlanId: newPlan.id,
+            newPlanTier: newPlan.tier,
+            newPlanName: newPlan.name,
+            newLimits: { ...newPlan.limits },
+            newPricing: { ...newPlan.pricing },
+            status: ScheduledChangeStatus.APPLIED,
+            effectiveDate: now,
+            appliedAt: now,
+            reason: input.reason,
+            scheduledBy: userId,
+            expectedSubscriptionVersion: subscription.version,
+            currentPlanName: subscription.planName,
+            targetStripePriceId: newPlan.stripePriceIds?.[subscription.billingCycle] ?? null,
+            proRataCredit: proRataCredit.toDecimal().toNumber(),
+            isUpgrade,
+          }),
+        );
+      }
 
       // Invalidate subscription cache
       if (this.redisService) {

@@ -21,70 +21,124 @@
  * must exist in SOME package.json in the repository. A name that exists nowhere
  * cannot be correct under any working directory, and that is exactly the class of
  * defect this was written after.
+ *
+ * NX TARGETS ARE THE SAME SEAM (2026-09-04, INFRA-HIGH-152). A workflow step
+ * that fans out over an Nx target (`affected-target-policy.sh --target X`,
+ * `nx affected -t X`, `nx run-many --target=X`, `nx run <project>:<target>`)
+ * references a declaration that lives in some project.json or package.json —
+ * or in none. `ci-affected.yml` carried `--target test:invariant` and
+ * `-t type-check` for months; no project declared either, Nx resolved each to
+ * an empty set, and the steps were green without running anything. The target
+ * references below are resolved through the project graph itself
+ * (helpers/nx.ts), because a static scan would re-implement Nx's inference.
  */
 
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
-const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
-
-/** `npm run <name>`, with npm's own flags allowed in between. */
-const NPM_RUN = /npm(?:\s+(?:--\S+|-\w+)(?:[=\s]\S+)?)*\s+run\s+([A-Za-z0-9:_.-]+)/g;
-
-/** Script names npm itself defines; not expected in any manifest. */
-const NPM_BUILTIN_SCRIPT_ARGS = new Set(['scripts', 'env']);
-
-function trackedPackageManifests(): string[] {
-  const out = execFileSync('git', ['ls-files', '*package.json'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return out.split(/\r?\n/).filter((rel) => rel.trim() && !rel.includes('node_modules/'));
-}
-
-function declaredScriptNames(): Set<string> {
-  const names = new Set<string>();
+import { nxProjectDetail, nxProjects, nxProjectsWithTarget } from './helpers/nx';
+import {
+  NX_RUN,
+  NX_TARGET_FLAG,
+  REPO_ROOT,
+  declaredScriptNames,
+  trackedPackageManifests,
+  workflowScriptReferences,
+  workflowTargetReferences,
+} from './helpers/workflows';
+/**
+ * Targets that the named package scripts fan out over — `test:all` names
+ * `test`, `test:integration:all` names `test:integration`. Scripts are looked
+ * up in every tracked manifest, with the same deliberate weakness as
+ * `declaredScriptNames()`: no working-directory resolution.
+ */
+function targetsNamedByScripts(scriptNames: ReadonlySet<string>): Set<string> {
+  const targets = new Set<string>();
   for (const rel of trackedPackageManifests()) {
     const abs = join(REPO_ROOT, rel);
     if (!existsSync(abs)) continue;
-    let parsed: { scripts?: Record<string, unknown> };
+    let parsed: { scripts?: Record<string, string> };
     try {
       parsed = JSON.parse(readFileSync(abs, 'utf8')) as typeof parsed;
     } catch {
-      continue; // A malformed manifest is a different invariant's problem.
+      continue;
     }
-    for (const name of Object.keys(parsed.scripts ?? {})) names.add(name);
-  }
-  return names;
-}
-
-interface Reference {
-  readonly workflow: string;
-  readonly line: number;
-  readonly script: string;
-}
-
-function workflowScriptReferences(): Reference[] {
-  const refs: Reference[] = [];
-  for (const file of readdirSync(WORKFLOW_DIR).sort()) {
-    if (!/\.ya?ml$/.test(file)) continue;
-    const lines = readFileSync(join(WORKFLOW_DIR, file), 'utf8').split('\n');
-    lines.forEach((line, index) => {
-      // A comment describing a command is not an invocation. `npm run` appears
-      // in explanatory comments in at least two workflows here.
-      if (/^\s*#/.test(line)) return;
-      for (const match of line.matchAll(NPM_RUN)) {
-        const script = match[1];
-        if (!script || NPM_BUILTIN_SCRIPT_ARGS.has(script)) continue;
-        refs.push({ workflow: file, line: index + 1, script });
+    for (const [name, command] of Object.entries(parsed.scripts ?? {})) {
+      if (!scriptNames.has(name)) continue;
+      for (const match of command.matchAll(NX_TARGET_FLAG)) {
+        if (match[1]) targets.add(match[1]);
       }
-    });
+      for (const match of command.matchAll(NX_RUN)) {
+        if (match[2]) targets.add(match[2]);
+      }
+    }
   }
-  return refs;
+  return targets;
 }
+
+/**
+ * The inverse of the phantom-target check: a test lane a project DECLARES in
+ * its project.json must be INVOKED by something. `test:integration` sat on
+ * farm-service and auth-service for months with no workflow naming it
+ * (INFRA-MEDIUM-158). Scope is the `test` family whose declaration is an
+ * explicit executor; a target that exists only because a package.json script
+ * was inferred (`test:watch`, a focused `test:water-chemistry`) is a developer
+ * entry point, not a lane declaration, and stays out.
+ */
+function declaredTestLanes(): string[] {
+  const lanes = new Set<string>();
+  for (const name of nxProjects()) {
+    for (const [target, definition] of Object.entries(nxProjectDetail(name).targets)) {
+      if (!/^test(?::|$)/.test(target)) continue;
+      if (target !== 'test' && definition.executor === 'nx:run-script') continue;
+      lanes.add(target);
+    }
+  }
+  return [...lanes].sort();
+}
+
+describe('workflow Nx target references', () => {
+  it('finds Nx target fan-outs to check, so a silent regex break is visible', () => {
+    expect(workflowTargetReferences().length).toBeGreaterThan(5);
+  });
+
+  it('resolves every referenced Nx target to at least one declaring project', () => {
+    const phantom = workflowTargetReferences().filter(
+      (ref) => nxProjectsWithTarget(ref.target).length === 0,
+    );
+
+    expect(phantom.map((r) => `${r.workflow}:${r.line} -> target ${r.target}`)).toEqual([]);
+  });
+
+  it('resolves every `nx run <project>:<target>` to a project that declares that target', () => {
+    const workspace = new Set(nxProjects());
+    const broken = workflowTargetReferences().filter((ref) => {
+      if (ref.project === undefined) return false;
+      if (!workspace.has(ref.project)) return true;
+      return !nxProjectsWithTarget(ref.target).includes(ref.project);
+    });
+
+    expect(
+      broken.map((r) => `${r.workflow}:${r.line} -> nx run ${r.project ?? ''}:${r.target}`),
+    ).toEqual([]);
+  });
+});
+
+describe('declared test lanes are invoked', () => {
+  it('finds explicit test lanes to check, so a silent scan break is visible', () => {
+    expect(declaredTestLanes()).toEqual(expect.arrayContaining(['test', 'test:integration']));
+  });
+
+  it('every explicitly declared test lane is named by a workflow or by a script a workflow runs', () => {
+    const invoked = new Set(workflowTargetReferences().map((ref) => ref.target));
+    const scripts = new Set(workflowScriptReferences().map((ref) => ref.script));
+    for (const target of targetsNamedByScripts(scripts)) invoked.add(target);
+
+    const silent = declaredTestLanes().filter((lane) => !invoked.has(lane));
+
+    expect(silent).toEqual([]);
+  });
+});
 
 describe('workflow npm script references', () => {
   it('finds npm run invocations to check, so a silent regex break is visible', () => {

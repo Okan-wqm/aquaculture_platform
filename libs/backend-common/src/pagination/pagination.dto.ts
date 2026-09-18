@@ -13,9 +13,13 @@
  *
  * @module Pagination
  */
-import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
-import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
+import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
+import {
+  createStandardPaginatedResult as createAuthoritativePaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
+import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 
 // ============================================================================
 // ENUMS
@@ -181,16 +185,14 @@ export class StandardPaginationInput {
 
 /**
  * Interface for standard paginated results (page-based).
+ *
+ * This is the versioned authority type itself, not a structural copy of it:
+ * `@platform/pagination-contracts` owns the shape so a field cannot be added
+ * on one tier and missed on another. `items` is `readonly` because the
+ * authority freezes the array it mints — a consumer that needs to reorder or
+ * map must build its own array before minting a result.
  */
-export interface IStandardPaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type IStandardPaginatedResult<T> = PaginationResultV1<T>;
 
 /**
  * Creates a typed paginated response class for GraphQL (standard page-based).
@@ -202,51 +204,50 @@ export interface IStandardPaginatedResult<T> {
  * ```
  */
 export function StandardPaginatedResponse<T>(classRef: Type<T>): Type<IStandardPaginatedResult<T>> {
+  // Not TS-`abstract`: an abstract constructor type is not assignable to
+  // Nest's `Type<T>`, and the old code papered over that with a cast. The
+  // GraphQL-level "do not register me as a type" flag is `isAbstract` on the
+  // decorator, which is independent of the TypeScript modifier.
   @ObjectType({ isAbstract: true })
-  abstract class StandardPaginatedResponseClass implements IStandardPaginatedResult<T> {
+  class StandardPaginatedResponseClass implements IStandardPaginatedResult<T> {
     @Field(() => [classRef], { description: 'Array of items' })
-    items!: T[];
+    readonly items!: readonly T[];
 
     @Field(() => Int, { description: 'Total count of items matching the query' })
-    total!: number;
+    readonly total!: number;
 
     @Field(() => Int, { description: 'Current page number' })
-    page!: number;
+    readonly page!: number;
 
     @Field(() => Int, { description: 'Items per page' })
-    limit!: number;
+    readonly limit!: number;
 
     @Field(() => Int, { description: 'Total number of pages' })
-    totalPages!: number;
+    readonly totalPages!: number;
 
     @Field(() => Boolean, { description: 'Whether there is a next page' })
-    hasNextPage!: boolean;
+    readonly hasNextPage!: boolean;
 
     @Field(() => Boolean, { description: 'Whether there is a previous page' })
-    hasPreviousPage!: boolean;
+    readonly hasPreviousPage!: boolean;
   }
-  return StandardPaginatedResponseClass as Type<IStandardPaginatedResult<T>>;
+  return StandardPaginatedResponseClass;
 }
 
 /**
  * Helper: create a standard paginated result from raw data.
+ *
+ * Delegates to the versioned authority — the page arithmetic exists in exactly
+ * one place platform-wide, so an empty page is page 1 of 1 everywhere and a
+ * result that reaches a transport boundary is provably factory-issued.
  */
 export function createStandardPaginatedResult<T>(
-  items: T[],
+  items: readonly T[],
   total: number,
   page: number,
   limit: number,
 ): IStandardPaginatedResult<T> {
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  return {
-    items,
-    total,
-    page,
-    limit,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPreviousPage: page > 1,
-  };
+  return createAuthoritativePaginatedResult(items, total, page, limit);
 }
 
 /**
@@ -254,26 +255,15 @@ export function createStandardPaginatedResult<T>(
  * Uses structural typing to avoid a hard dependency on @platform/cqrs.
  */
 export function fromCqrsPaginated<T>(result: {
-  data: T[];
+  data: readonly T[];
   pagination: {
     page: number;
     limit: number;
     total: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
   };
 }): IStandardPaginatedResult<T> {
   const p = result.pagination;
-  return {
-    items: result.data,
-    total: p.total,
-    page: p.page,
-    limit: p.limit,
-    totalPages: p.totalPages,
-    hasNextPage: p.hasNextPage,
-    hasPreviousPage: p.hasPreviousPage,
-  };
+  return createAuthoritativePaginatedResult(result.data, p.total, p.page, p.limit);
 }
 
 /**

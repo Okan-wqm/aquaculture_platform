@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+
 import {
   CircuitBreakerService,
   CircuitOpenError,
   DEFAULT_BREAKER_OPTIONS,
   type CircuitBreakerOptions,
 } from '../resilience/circuit-breaker';
+
 import {
   IAuditRecorder,
   IStripeApiClient,
@@ -18,6 +20,7 @@ import {
   StripeRefund,
   StripeSubscription,
 } from './stripe-api.types';
+import { STRIPE_TENANT_METADATA_KEY } from './stripe-metadata';
 
 /**
  * Canonical Stripe API surface. Single client every billing handler
@@ -105,7 +108,7 @@ export class StripeApiService {
           // Bind the internal tenant id so an inbound webhook can be associated
           // back (re-resolved authoritatively per SECREV-CRITICAL-001, never
           // trusted blindly).
-          metadata: { ...args.metadata, internalTenantId: args.tenantId },
+          metadata: { ...args.metadata, [STRIPE_TENANT_METADATA_KEY]: args.tenantId },
           idempotencyKey: args.idempotencyKey,
         }),
     });
@@ -131,7 +134,7 @@ export class StripeApiService {
           // webhook can be associated back, but is NOT trusted as the
           // authoritative tenant source — webhook handlers re-resolve
           // via the customer-lookup table per SECREV-CRITICAL-001 cure.
-          metadata: { ...args.metadata, internalTenantId: args.tenantId },
+          metadata: { ...args.metadata, [STRIPE_TENANT_METADATA_KEY]: args.tenantId },
           idempotencyKey: args.idempotencyKey,
         }),
     });
@@ -142,18 +145,29 @@ export class StripeApiService {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
+    /** `false` un-schedules a pending cancellation (reactivation, ADR-0014). */
+    cancelAtPeriodEnd?: boolean;
+    /** Moves the trial's end date (trial extension, ADR-0014). */
+    trialEnd?: Date;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     return this.executeMutation({
       tenantId: args.tenantId,
       action: 'stripe.subscription.update',
       resourceId: args.subscriptionId,
-      metadata: { subscriptionId: args.subscriptionId, priceId: args.priceId ?? null },
+      metadata: {
+        subscriptionId: args.subscriptionId,
+        priceId: args.priceId ?? null,
+        cancelAtPeriodEnd: args.cancelAtPeriodEnd ?? null,
+        trialEnd: args.trialEnd?.toISOString() ?? null,
+      },
       fn: () =>
         this.client.updateSubscription({
           subscriptionId: args.subscriptionId,
           priceId: args.priceId,
           metadata: args.metadata,
+          cancelAtPeriodEnd: args.cancelAtPeriodEnd,
+          trialEnd: args.trialEnd,
           idempotencyKey: args.idempotencyKey,
         }),
     });

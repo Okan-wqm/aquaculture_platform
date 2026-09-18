@@ -25,8 +25,14 @@ export * from './session-manager';
 // Timing Safe Utilities (Timing Attack Protection)
 export * from './timing-safe';
 
+// ADR-0011: the platform-admin MFA switch every enforcement point reads.
+export * from './platform-admin-mfa-policy';
+
 // IP Validation (X-Forwarded-For, Proxy Support)
 export * from './ip-validation';
+
+// Safe Regex (ReDoS prevention for user-supplied patterns)
+export * from './safe-regex';
 
 // Validators (Input Validation, IDOR Protection)
 export * from './validators';

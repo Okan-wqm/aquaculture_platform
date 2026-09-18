@@ -238,6 +238,8 @@ networks:
 
 volumes:
   postgres_data:
+  redis_auth_data:
+    name: aqua_redis_auth_data
   redis_data:
   nats_data:
   minio_data:
@@ -542,6 +544,41 @@ services:
       timeout: 5s
       retries: 5
 
+  # SEC-HIGH-108 (2026-08-23 scan №53): dedicated noeviction Redis for the
+  # authorization namespace (jti blacklist, user epoch, rate-limit counters).
+  # On the shared allkeys-lru instance, memory pressure could EVICT a jti
+  # revocation marker — resurrecting a revoked access token. Revocation state
+  # is small (bounded by active-token count × TTL) and must never be evicted:
+  # noeviction makes Redis reject writes under pressure instead of silently
+  # dropping a security decision.
+  redis-auth:
+    logging: *default-logging
+    image: redis:7-alpine
+    container_name: aqua-redis-auth
+    restart: unless-stopped
+    command: >-
+      redis-server
+      --requirepass ${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}
+      --maxmemory 64mb
+      --maxmemory-policy noeviction
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+    volumes:
+      - redis_auth_data:/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.15'
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_AUTH_PASSWORD} redis-cli ping']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   nats:
     logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
@@ -565,14 +602,27 @@ services:
       - nats_data:/data
       - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
       - ./infrastructure/docker/nats/nats-tls-enabled.conf:/etc/nats/nats-tls.conf:ro
-      - ./certs/nats:/etc/nats/certs:ro
+      # INFRA-CRITICAL-101. The broker used to bind ./certs/nats wholesale, and
+      # that directory holds clients/ — every service's private key. With the
+      # certificate CN as the NATS identity (ADR-015), a broker container that
+      # can read farm_service-key.pem can also SPEAK as farm_service, so the
+      # component enforcing the identity boundary held the material to forge
+      # every identity behind it. nats-tls-enabled.conf names exactly three
+      # files; those three are mounted, and nothing else is reachable.
+      - ./certs/nats/nats-cert.pem:/etc/nats/certs/nats-cert.pem:ro
+      - ./certs/nats/nats-key.pem:/etc/nats/certs/nats-key.pem:ro
+      - ./certs/nats/ca-cert.pem:/etc/nats/certs/ca-cert.pem:ro
     networks:
       - aqua-internal
     deploy:
       resources:
         limits:
-          memory: 192M
-          cpus: '0.25'
+          # 100-tenant readiness Task 0 (SENSOR-HIGH-090): the 192M/0.25 floor
+          # starved a file-store JetStream node on the MQTT hot path. The
+          # deploy gate (droplet-capacity.sh broker_capacity_error_lines)
+          # enforces this floor — raise both together.
+          memory: 512M
+          cpus: '1.0'
     healthcheck:
       # SEC-H01: Use HTTP monitoring endpoint (enabled in nats.conf http_port: 8222)
       test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:8222/healthz']
@@ -662,6 +712,8 @@ services:
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -781,7 +833,9 @@ services:
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # DEPLOY-HIGH-016: the origin every invitation / password-reset link in
+      # e-mail points at. auth-service mints those links; without this it fell
+      # back to http://localhost:8080 and shipped dead links to real users.
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -800,6 +854,8 @@ services:
       # DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION — see resolveDatabaseLogging).
       DATABASE_LOGGING: ${DATABASE_LOGGING:-false}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
       JWT_PRIVATE_KEY_PATH: /etc/ssl/jwt/private.pem
@@ -820,8 +876,17 @@ services:
       PASSWORD_PEPPER: '${PASSWORD_PEPPER:?PASSWORD_PEPPER is required in production — generate with openssl rand -base64 48 and store in .env on droplet}'
       # MFA encryption key is production-required; auth-service fails closed without it.
       MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required in production — generate with openssl rand -hex 32}'
+      # ADR-0011: platform-admin MFA switch. 'detective' records un-enrolled
+      # SUPER_ADMIN accounts and stale MFA claims on irreversible operations
+      # without refusing them; an ISO-8601 date-time enforces both from that
+      # instant. Required in production — auth-service refuses to boot without it.
+      SUPER_ADMIN_MFA_ENFORCED_AT: 'detective'
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
+      # DEPLOY-HIGH-016: origin of every e-mailed invitation / password-reset link.
+      # Required — auth-service refuses to boot in production without a valid
+      # https origin (apps/auth-service/src/config/frontend-url.ts).
+      FRONTEND_URL: '${FRONTEND_URL:?FRONTEND_URL is required in production — the https origin of the web shell, e.g. https://app.suderra.com}'
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
@@ -866,7 +931,6 @@ services:
       NODE_ENV: production
       FARM_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -946,8 +1010,14 @@ services:
       SERVICE_NAME: sensor-service
       NODE_ENV: production
       SENSOR_SERVICE_PORT: 3000
+      # SEC-MEDIUM-070 (2026-08-23 scan №15): same proxy-trust fix as
+      # admin-api — otherwise the provisioning/installer rate limits share
+      # one global bucket keyed on the nginx container IP.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # TRUST_PROXY is already set above for this service (SEC-MEDIUM-070);
+      # ADR-0006's edge bundle reads the same key, so one declaration serves both.
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -967,6 +1037,8 @@ services:
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
+      # SENSOR-CRITICAL-086: stable persistent-session identity for delayed PUBACK
+      MQTT_CLIENT_ID: aqua-sensor-service
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       MQTT_BROKER_HOST: app.suderra.com
@@ -1021,6 +1093,55 @@ services:
       retries: 3
       start_period: 90s
 
+  # ==========================================================================
+  # sensor-ingestion — Rust sidecar (ADR-025). Task 3 (100-tenant
+  # readiness plan) restored the REAL pipeline: drain → topic parse →
+  # cache/lookup → payload validate → batch → per-tenant COPY + upsert
+  # with the transactional outbox, dispatcher publishing to the
+  # telemetry root under an awaited PubAck. Deployed PILOT-GATED: the
+  # per-tenant [ingest_backend] policy still defaults to `node`, so
+  # ZERO tenants route here until an operator flips one via the
+  # admin-api policy surface (ADR-027 strangler fig).
+  # ==========================================================================
+  sensor-ingestion:
+    logging: *default-logging
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:?TAG required}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: '65532:65532'
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+      # ADR-015: identity surface — the invariant reads these; the
+      # sidecar's TOML points its nats/postgres cert paths at the SAME
+      # mounted files.
+      NATS_URL: tls://nats:4222
+      NATS_TLS_CA: /etc/ssl/nats-ca.pem
+      NATS_TLS_CERT: /etc/ssl/nats-clients/sensor-ingestion-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats-clients/sensor-ingestion-key.pem
+      NATS_TLS_ENABLED: 'true'
+    volumes:
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+      - *nats-ca-mount
+      - ./certs/nats/clients/sensor-ingestion-cert.pem:/etc/ssl/nats-clients/sensor-ingestion-cert.pem:ro
+      - ./certs/nats/clients/sensor-ingestion-key.pem:/etc/ssl/nats-clients/sensor-ingestion-key.pem:ro
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # PLAN.md § Faz 2 container budget.
+          memory: ${SENSOR_INGESTION_MEMORY:-256M}
+          cpus: '${SENSOR_INGESTION_CPUS:-0.35}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+
   admin-api-service:
     logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:?TAG required}
@@ -1030,6 +1151,11 @@ services:
       SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
+      # SEC-MEDIUM-069 (2026-08-23 scan №14): nginx is the trusted proxy hop —
+      # without trust-proxy, every request's req.ip is the nginx container IP
+      # and the shared PASSWORD_RESET throttle (3/h, byIp) keys ONE global
+      # bucket: 3 requests lock password reset platform-wide.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
@@ -1061,7 +1187,6 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
-      FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -1069,6 +1194,20 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       THROTTLE_DEFAULT_TTL: 60
+      # INFRA-HIGH-166: production posture, stated as decisions rather than
+      # omissions. admin-api refuses to boot in production unless every one of
+      # these is present with exactly this value (src/config/production-posture.ts);
+      # tests/invariants/admin-api-production-posture.spec.ts pins the literals here.
+      # TRUST_PROXY is already set above for this service: nginx terminates TLS
+      # and proxies /api/ straight to it, so the client address is the
+      # X-Forwarded-For hop and without it every per-IP throttle bucket is the
+      # bridge address (AUTH-010). The posture check requires it to be set and
+      # non-empty, which the existing value satisfies.
+      ENABLE_DB_EXPLORER_WRITES: 'false'
+      ENABLE_RAW_SQL_EXPLORER: 'false'
+      # ADR-0009: a tenant schema drop records the WAL-G recovery point (this
+      # epoch + pg_current_wal_lsn()) the PITR workflow restores from.
+      WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1111,7 +1250,6 @@ services:
       NODE_ENV: production
       ALERT_ENGINE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1168,6 +1306,9 @@ services:
       BILLING_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # ADR-0006: nginx upstream — Express must trust the nginx hop so req.ip is the
+      # client, not the bridge address; the factory refuses to boot without it.
+      TRUST_PROXY: 'true'
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1259,7 +1400,6 @@ services:
       NODE_ENV: production
       HR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1315,7 +1455,6 @@ services:
       NODE_ENV: production
       HYDROPONICS_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1371,7 +1510,6 @@ services:
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1501,7 +1639,6 @@ services:
       PORT: 3000
       CONFIG_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1654,8 +1791,6 @@ services:
       # SEC-NEW02: MinIO credentials must be provided — no default fallback for object storage access
       MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
-      TRUST_PROXY: 'true'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
       - *nats-messaging-cert-mount
@@ -1731,8 +1866,6 @@ services:
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       # BYOK: AES-256-GCM decrypt of the per-tenant AI credentials at rest.
       AI_TENANT_SECRET_ENCRYPTION_KEY: ${AI_TENANT_SECRET_ENCRYPTION_KEY:?AI_TENANT_SECRET_ENCRYPTION_KEY required}
-      TRUST_PROXY: 'true'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
       - *nats-ai-cert-mount
@@ -2044,6 +2177,9 @@ services:
         limits:
           memory: 128M
 
+  # NATS server/JetStream metrics for the DROPLET Prometheus (100-tenant
+  # readiness Task 0, SENSOR-HIGH-091). Server-level collector only —
+  # per-consumer ack-pending arrives with the Task 2 stream work (nats-surveyor).
   nats-exporter:
     logging: *default-logging
     image: nats-io/prometheus-nats-exporter:0.20.2
@@ -2054,7 +2190,8 @@ services:
     # Prometheus nats-exporter job went blind and a 16h NATS outage went
     # unnoticed). '-jsz=all' is the correct JetStream filter for this version
     # and renames jetstream_* metrics to nats_server_jetstream_* via -prefix,
-    # which is the naming the alert rules and Grafana dashboards expect.
+    # which is the naming the alert rules and Grafana dashboards expect. The
+    # NATS monitoring endpoint is plain HTTP on the internal docker network only.
     command: ['-varz', '-jsz=all', '-prefix', 'nats', 'http://nats:8222']
     networks:
       - aqua-internal

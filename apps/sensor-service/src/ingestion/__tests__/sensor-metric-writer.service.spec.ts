@@ -20,9 +20,21 @@ const TENANT_B = '44444444-4444-4444-8444-444444444444';
 const SCHEMA_A = 'tenant_3333333333334333';
 const SCHEMA_B = 'tenant_4444444444444444';
 
+// The writer only uses the single-argument transaction overload; narrowing
+// the mock's type here avoids faking TypeORM's full overload pair.
+type TransactionalDataSource = Partial<Omit<DataSource, 'transaction'>> & {
+  transaction<T>(fn: (manager: EntityManager) => Promise<T>): Promise<T>;
+};
+
 function createService(): { service: SensorMetricWriterService; query: jest.Mock } {
   const query = jest.fn().mockResolvedValue(undefined);
-  const dataSource: Partial<DataSource> = { query };
+  // Single-connection fake: the transaction callback sees the SAME query mock,
+  // so SQL/param assertions cover the SET LOCAL + INSERT sequence.
+  const transaction = async <T>(fn: (manager: EntityManager) => Promise<T>): Promise<T> => {
+    const manager: Partial<EntityManager> = { query };
+    return fn(manager as EntityManager);
+  };
+  const dataSource: TransactionalDataSource = { query, transaction };
   const service = new SensorMetricWriterService(dataSource as DataSource);
   return { service, query };
 }
@@ -92,8 +104,8 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
     it("writes into the row's OWN tenant schema via the service connection", async () => {
       const { service, query } = createService();
       await service.writeImmediate([createMetric()]);
-      expect(query).toHaveBeenCalledTimes(1);
-      const [sql, params] = query.mock.calls[0]!;
+      expect(query).toHaveBeenCalledTimes(2); // SET LOCAL timeouts + INSERT
+      const [sql, params] = query.mock.calls[1]!;
       expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
       expect(params).toHaveLength(19);
     });
@@ -106,12 +118,14 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
         createMetric({ tenantId: TENANT_B }),
       ]);
 
-      expect(query).toHaveBeenCalledTimes(2);
+      expect(query).toHaveBeenCalledTimes(4); // (SET LOCAL + INSERT) × 2 tenants
       const targets = query.mock.calls.map(([sql]) => String(sql));
       expect(targets.some((s) => s.includes(`"${SCHEMA_A}".sensor_metrics`))).toBe(true);
       expect(targets.some((s) => s.includes(`"${SCHEMA_B}".sensor_metrics`))).toBe(true);
-      // Neither tenant's rows may be written into the other's schema.
+      // Neither tenant's rows may be written into the other's schema. The SET
+      // LOCAL timeout statement carries no params and no schema target.
       for (const [sql, params] of query.mock.calls) {
+        if (!params) continue;
         const schema = String(sql).includes(SCHEMA_A) ? TENANT_A : TENANT_B;
         expect(params[3]).toBe(schema);
       }
@@ -182,8 +196,8 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       service.enqueue(createMetric({ time: new Date('2026-03-14T12:00:01.000Z') }));
       expect(query).not.toHaveBeenCalled(); // buffered, not yet flushed
       await service.flush();
-      expect(query).toHaveBeenCalledTimes(1);
-      const [, params] = query.mock.calls[0]!;
+      expect(query).toHaveBeenCalledTimes(2); // SET LOCAL timeouts + INSERT
+      const [, params] = query.mock.calls[1]!;
       expect(params).toHaveLength(38); // 2 rows × 19, same tenant → one INSERT
     });
 
@@ -191,6 +205,91 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       const { service, query } = createService();
       await service.flush();
       expect(query).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('enqueue → Promise<WriteOutcome> (ack-after-commit contract)', () => {
+    it('resolves only after the row batch commits, with the tenant outcome', async () => {
+      const { service } = createService();
+      const outcome = service.enqueue(createMetric());
+      let settled = false;
+      outcome.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false); // not committed yet — no early ack
+
+      await service.flush();
+      await expect(outcome).resolves.toEqual({
+        tenantId: TENANT_A,
+        committedRows: 1,
+      });
+    });
+
+    it('rejects only the failing tenant waiters after one bounded retry', async () => {
+      const { service, query } = createService();
+      query.mockImplementation((sql: string) =>
+        String(sql).includes(SCHEMA_A)
+          ? Promise.reject(new Error('disk full'))
+          : Promise.resolve(undefined),
+      );
+
+      const a = service.enqueue(createMetric({ tenantId: TENANT_A }));
+      const b = service.enqueue(createMetric({ tenantId: TENANT_B }));
+
+      await expect(service.flush()).rejects.toThrow(/disk full/);
+      await expect(a).rejects.toThrow(/disk full/);
+      await expect(b).resolves.toEqual({ tenantId: TENANT_B, committedRows: 1 });
+
+      // Bounded retry: exactly two attempts for the failing tenant, then the
+      // waiter rejects — source redelivery owns later attempts.
+      const aAttempts = query.mock.calls
+        .map(([sql]) => String(sql))
+        .filter((s) => s.includes(SCHEMA_A)).length;
+      expect(aAttempts).toBe(2);
+    });
+
+    it('recovers within the single bounded retry', async () => {
+      const { service, query } = createService();
+      let attempts = 0;
+      query.mockImplementation((sql: string) => {
+        if (String(sql).includes(SCHEMA_A)) {
+          attempts += 1;
+          if (attempts === 1) return Promise.reject(new Error('transient deadlock'));
+        }
+        return Promise.resolve(undefined);
+      });
+
+      const a = service.enqueue(createMetric());
+      await service.flush();
+      await expect(a).resolves.toEqual({ tenantId: TENANT_A, committedRows: 1 });
+    });
+
+    it('settles an invalid row immediately as a zero-row discard (poison skip)', async () => {
+      const { service, query } = createService();
+      const outcome = service.enqueue(createMetric({ sensorId: 'not-a-uuid' }));
+      await expect(outcome).resolves.toEqual({
+        tenantId: TENANT_A,
+        committedRows: 0,
+      });
+      await service.flush();
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('a stale redelivery cannot overwrite a newer corrected value (upsert guard)', () => {
+      const { service } = createService();
+      const sql = service.buildInsertSql(SCHEMA_A, 1);
+      expect(sql).toContain('WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time)');
+      expect(sql).toContain('>= COALESCE(sensor_metrics.source_timestamp, sensor_metrics.time)');
+    });
+
+    it('bounds each tenant batch with statement/lock timeouts', async () => {
+      const { service, query } = createService();
+      await service.writeImmediate([createMetric()]);
+      const setLocal = String(query.mock.calls[0][0]);
+      expect(setLocal).toContain('SET LOCAL');
+      expect(setLocal).toContain("statement_timeout = '5s'");
+      expect(setLocal).toContain("lock_timeout = '1s'");
     });
   });
 });

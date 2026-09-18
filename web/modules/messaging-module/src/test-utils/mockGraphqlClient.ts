@@ -15,7 +15,7 @@ export interface GraphqlRoute {
   result:
     | Record<string, unknown>
     | ((variables: Record<string, unknown> | undefined) => Record<string, unknown>)
-    /** Deferred-resolution variant: return a promise you settle from the test. */
+    /** Settle-later variant: return a promise you settle from the test. */
     | ((variables: Record<string, unknown> | undefined) => Promise<Record<string, unknown>>);
 }
 
@@ -25,14 +25,12 @@ export interface GraphqlRoute {
  * data that renders as an empty page.
  */
 export function routeGraphql(routes: GraphqlRoute[]): void {
-  requestMock.mockImplementation(
-    async (query: string, variables?: Record<string, unknown>) => {
-      for (const route of routes) {
-        if (query.includes(route.match)) {
-          return typeof route.result === 'function' ? route.result(variables) : route.result;
-        }
+  requestMock.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+    for (const route of routes) {
+      if (query.includes(route.match)) {
+        return typeof route.result === 'function' ? route.result(variables) : route.result;
       }
-      throw new Error(`Unrouted GraphQL operation: ${query.trim().slice(0, 140)}`);
-    },
-  );
+    }
+    throw new Error(`Unrouted GraphQL operation: ${query.trim().slice(0, 140)}`);
+  });
 }

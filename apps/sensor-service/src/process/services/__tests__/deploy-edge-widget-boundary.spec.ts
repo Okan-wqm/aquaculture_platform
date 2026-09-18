@@ -1,13 +1,11 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
-import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * CONTRACT-H-002 — the publish-boundary widget transform.
@@ -61,12 +59,9 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
     };
     publish = jest.fn().mockResolvedValue(undefined);
 
-    const module: TestingModule = await Test.createTestingModule({
+    ({ service } = await createScadaPackageHarness({
+      scadaPackageRepository: repo,
       providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
         {
           provide: MqttClientService,
           useValue: { isConnectedToBroker: () => true, publish },
@@ -82,8 +77,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
           },
         },
       ],
-    }).compile();
-    service = module.get(ScadaPackageService);
+    }));
   });
 
   it('REJECTS a package with control-semantics widgets, naming every violator, before the broker', async () => {

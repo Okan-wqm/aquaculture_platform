@@ -109,7 +109,6 @@ interface VfdChangeSetListProps {
   onLoadMore: () => void;
   onApprove: (id: string) => Promise<unknown>;
   onReject: (id: string, reason: string) => Promise<unknown>;
-  onApply: (id: string) => Promise<unknown>;
   onRollback: (id: string, reason: string) => Promise<unknown>;
   onCancel: (id: string) => Promise<unknown>;
   onSubmitForApproval: (id: string) => Promise<unknown>;
@@ -127,7 +126,6 @@ export function VfdChangeSetList({
   onLoadMore,
   onApprove,
   onReject,
-  onApply,
   onRollback,
   onCancel,
   onSubmitForApproval,
@@ -170,7 +168,6 @@ export function VfdChangeSetList({
           onClose={() => setSelectedChangeSetId(null)}
           onApprove={onApprove}
           onReject={onReject}
-          onApply={onApply}
           onRollback={onRollback}
           onCancel={onCancel}
           onSubmitForApproval={onSubmitForApproval}
@@ -278,7 +275,7 @@ export function VfdChangeSetList({
                     >
                       View Details
                     </button>
-                    {renderActions(cs, { onApprove, onReject, onApply, onRollback, onCancel, onSubmitForApproval })}
+                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval })}
                   </div>
                 </div>
 
@@ -364,7 +361,6 @@ function formatDate(iso: string): string {
 interface ActionCallbacks {
   onApprove: (id: string) => Promise<unknown>;
   onReject: (id: string, reason: string) => Promise<unknown>;
-  onApply: (id: string) => Promise<unknown>;
   onRollback: (id: string, reason: string) => Promise<unknown>;
   onCancel: (id: string) => Promise<unknown>;
   onSubmitForApproval: (id: string) => Promise<unknown>;
@@ -421,18 +417,23 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
 
   if (cs.status === VfdChangeSetStatus.APPROVED) {
     buttons.push(
-      <button
-        key="apply"
-        type="button"
-        onClick={() => {
-          if (window.confirm('Apply this change set to the VFD device?')) {
-            cbs.onApply(cs.id);
-          }
-        }}
-        className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+      // SENSOR-CRITICAL-003 follow-up: there is no `applyVfdChangeSet` mutation and
+      // never was. Approval IS the trigger — VfdChangeSetSchedulerService applies an
+      // approved set on `vfd.changeset.approved`, with a 30s sweep as the
+      // crash-durable backstop. The button here re-sent `approveVfdChangeSet`, which
+      // the service rejects on anything but PENDING_APPROVAL, so every click errored
+      // while the set was already on its way to the drive. Saying what will happen is
+      // the honest replacement for a control that could only fail.
+      <span
+        key="auto-apply"
+        data-testid={`changeset-auto-apply-${cs.id}`}
+        className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
       >
-        <Play className="h-3 w-3" /> Apply
-      </button>,
+        <Play className="h-3 w-3" />
+        {cs.scheduledAt
+          ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
+          : 'Applying automatically'}
+      </span>,
       <button
         key="cancel-approved"
         type="button"

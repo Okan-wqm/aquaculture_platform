@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In, QueryFailedError } from 'typeorm';
+import { numberOrUndefined } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { DeviceIoConfig, IoType, IoDataType } from '../../edge-device/entities/device-io-config.entity';
@@ -22,16 +23,6 @@ import {
   TagStatus,
   TagHierarchy,
 } from '../entities/unified-tag.entity';
-
-/**
- * Convert an optional numeric column to `number | undefined`, PRESERVING zero.
- * A truthiness guard (`v ? Number(v) : undefined`) silently drops legitimate
- * zero-valued engineering ranges and alarm limits (e.g. a 0-100% level sensor's
- * engMin=0, or a low-low alarm at 0), which the edge then never enforces.
- */
-function numberOrUndefined(value: number | null | undefined): number | undefined {
-  return value != null ? Number(value) : undefined;
-}
 
 @Injectable()
 export class UnifiedTagService {

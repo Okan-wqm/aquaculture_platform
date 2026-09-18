@@ -15,7 +15,7 @@ export interface TableProps<T extends object = Record<string, unknown>> {
   /** Tablo kolonları */
   columns: TableColumn<T>[];
   /** Tablo verileri */
-  data: T[];
+  data: readonly T[];
   /** Satır anahtarı alanı (rowKey ile aynı) */
   keyExtractor?: (row: T) => string;
   /** Satır anahtarı alanı */
@@ -38,6 +38,16 @@ export interface TableProps<T extends object = Record<string, unknown>> {
     pageSize: number;
     total: number;
     onChange: (page: number, pageSize: number) => void;
+  };
+  /**
+   * Sayfalama etiketleri — mevcut Türkçe varsayılanlar korunur; İngilizce
+   * yüzeyler (admin panelleri) açık değer geçer (ADMIN-MEDIUM-018).
+   */
+  paginationLabels?: {
+    previous?: string;
+    next?: string;
+    /** '{start} - {end} / {total} {unit}' satırındaki birim sözcüğü. */
+    recordUnit?: string;
   };
   /** Sıralama bilgileri */
   sorting?: {
@@ -164,6 +174,11 @@ interface PaginationProps {
   pageSize: number;
   total: number;
   onChange: (page: number, pageSize: number) => void;
+  labels?: {
+    previous?: string;
+    next?: string;
+    recordUnit?: string;
+  };
 }
 
 const Pagination: React.FC<PaginationProps> = ({
@@ -171,6 +186,7 @@ const Pagination: React.FC<PaginationProps> = ({
   pageSize,
   total,
   onChange,
+  labels,
 }) => {
   const totalPages = Math.ceil(total / pageSize);
   const startItem = (current - 1) * pageSize + 1;
@@ -202,7 +218,7 @@ const Pagination: React.FC<PaginationProps> = ({
         <span className="font-medium">{endItem}</span>
         {' / '}
         <span className="font-medium">{total}</span>
-        {' kayıt'}
+        {` ${labels?.recordUnit ?? 'kayıt'}`}
       </div>
       <nav className="flex items-center space-x-1">
         <button
@@ -210,7 +226,7 @@ const Pagination: React.FC<PaginationProps> = ({
           disabled={current === 1}
           className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
         >
-          Önceki
+          {labels?.previous ?? 'Önceki'}
         </button>
         {pages.map((page, index) =>
           page === 'ellipsis' ? (
@@ -236,7 +252,7 @@ const Pagination: React.FC<PaginationProps> = ({
           disabled={current === totalPages}
           className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
         >
-          Sonraki
+          {labels?.next ?? 'Sonraki'}
         </button>
       </nav>
     </div>
@@ -288,6 +304,7 @@ export function Table<T extends object = Record<string, unknown>>({
   onSelectionChange,
   onRowClick,
   pagination,
+  paginationLabels,
   sorting,
   striped = false,
   compact = false,
@@ -475,6 +492,7 @@ export function Table<T extends object = Record<string, unknown>>({
           pageSize={pagination.pageSize}
           total={pagination.total}
           onChange={pagination.onChange}
+          labels={paginationLabels}
         />
       )}
     </div>

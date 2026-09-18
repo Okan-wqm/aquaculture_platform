@@ -200,6 +200,13 @@ Walk filesystem (excluding `agent-workspace/**`), reconcile with `git ls-files`,
 **Invariant:** every file has a fate every cycle. No file silently ignored.
 
 ### Engine 2 — Memory
+The implemented invocation-history consumer uses existing request/claim/result ledgers, not a
+new memory tier. At mint, `agent_invocations.py` captures related native rejected submissions and
+explicit source availability in the sealed request. Version 4 presents these as historical
+episodes, separately from hypotheses, recorded beliefs/conventions and operator anti-patterns.
+They do not establish a measured repair outcome. Full v1-v3 prompt bytes remain reproducible;
+the executable contract and ordinary test owners are in `CONTRACTS.md` §12.7.
+
 Three tiers: working (RAM), session (SQLite), long-term (versioned files + SQLite).
 
 ```

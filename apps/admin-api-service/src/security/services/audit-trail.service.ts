@@ -1,28 +1,27 @@
 /**
  * Audit Trail Service
  *
- * Comprehensive audit trail management with filtering, export,
- * retention policies, and real-time alerts.
+ * Comprehensive audit trail management with filtering, export, retention
+ * statistics and real-time alerts. Retention itself is the platform's single
+ * registry-driven enforcer (ADR-0012); this service never disposes rows.
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, Between, In } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
+import { safeRegex } from '@aquaculture/backend-common/security';
 
-import {
-  ActivityLog,
-  ActivityCategory,
-  ActivitySeverity,
-  RetentionPolicyEntity,
-  ComplianceType,
-} from '../entities/security.entity';
+import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   ACTIVITY_LOG_SORT_FIELDS,
   AUDIT_TRAIL_SORT_COLUMNS,
   ActivityLogSortField,
 } from '../sorting/activity-log-sort';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -82,12 +81,10 @@ export interface AuditSummary {
 
 export interface RetentionStats {
   totalLogs: number;
-  activeLogs: number;
-  archivedLogs: number;
   oldestLog: Date | null;
   newestLog: Date | null;
   storageEstimateMB: number;
-  byCategory: Record<string, { active: number; archived: number }>;
+  byCategory: Record<string, number>;
 }
 
 // ============================================================================
@@ -102,8 +99,6 @@ export class AuditTrailService {
   constructor(
     @InjectRepository(ActivityLog)
     private readonly activityRepository: Repository<ActivityLog>,
-    @InjectRepository(RetentionPolicyEntity)
-    private readonly retentionRepository: Repository<RetentionPolicyEntity>,
   ) {
     this.initializeDefaultAlertRules();
   }
@@ -205,15 +200,9 @@ export class AuditTrailService {
     endDate?: Date;
     searchQuery?: string;
     tags?: string[];
-    includeArchived?: boolean;
     sortBy?: string;
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<ActivityLog>> {
     const {
       page = 1,
       limit = 50,
@@ -231,7 +220,6 @@ export class AuditTrailService {
       endDate,
       searchQuery,
       tags,
-      includeArchived = false,
       sortBy = 'createdAt',
       sortOrder = 'DESC',
     } = options;
@@ -260,10 +248,13 @@ export class AuditTrailService {
     // Action filter (pattern matching)
     if (actions && actions.length > 0) {
       const actionConditions = actions.map((a, i) => `log.action LIKE :action${i}`);
-      const actionParams = actions.reduce((acc, a, i) => {
-        acc[`action${i}`] = `%${a}%`;
-        return acc;
-      }, {} as Record<string, string>);
+      const actionParams = actions.reduce(
+        (acc, a, i) => {
+          acc[`action${i}`] = `%${a}%`;
+          return acc;
+        },
+        {} as Record<string, string>,
+      );
       qb.andWhere(`(${actionConditions.join(' OR ')})`, actionParams);
     }
 
@@ -277,15 +268,12 @@ export class AuditTrailService {
 
     // Tag filter
     if (tags && tags.length > 0) {
-      qb.andWhere('log.tags && ARRAY[:...tags]::varchar[]', { tags });
-    }
-
-    // Archive filter
-    if (!includeArchived) {
-      qb.andWhere('log.isArchived = :isArchived', { isArchived: false });
+      qb.andWhere('log.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
     // Sorting and pagination
+    // SEC-HIGH №1 (2026-08-23 scan): orderBy interpolates verbatim — the column
+    // comes from the AUDIT_TRAIL_SORT_COLUMNS map keyed by the validated field.
     const normalizedSortField = safeSortField(
       sortBy,
       ACTIVITY_LOG_SORT_FIELDS,
@@ -297,7 +285,7 @@ export class AuditTrailService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ActivityLog>(data, total, page, limit);
   }
 
   /**
@@ -315,115 +303,115 @@ export class AuditTrailService {
         ? { tenantId, createdAt: Between(startDate, endDate) }
         : { createdAt: Between(startDate, endDate) };
 
-    // Total events
-    const totalEvents = await this.activityRepository.count({
-      where: baseWhere,
-    });
+      // Total events
+      const totalEvents = await this.activityRepository.count({
+        where: baseWhere,
+      });
 
-    // Unique users
-    const uniqueUsersResult = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('COUNT(DISTINCT log.userId)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .getRawOne();
-    const uniqueUsers = parseInt(uniqueUsersResult?.count || '0', 10);
+      // Unique users
+      const uniqueUsersResult = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('COUNT(DISTINCT log.userId)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .getRawOne();
+      const uniqueUsers = parseInt(uniqueUsersResult?.count || '0', 10);
 
-    // Unique IPs
-    const uniqueIPsResult = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('COUNT(DISTINCT log.ipAddress)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .getRawOne();
-    const uniqueIPs = parseInt(uniqueIPsResult?.count || '0', 10);
+      // Unique IPs
+      const uniqueIPsResult = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('COUNT(DISTINCT log.ipAddress)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .getRawOne();
+      const uniqueIPs = parseInt(uniqueIPsResult?.count || '0', 10);
 
-    // By category
-    const categoryStats = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.category', 'category')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.category')
-      .getRawMany();
+      // By category
+      const categoryStats = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.category', 'category')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.category')
+        .getRawMany();
 
-    const byCategory: Record<string, number> = {};
-    categoryStats.forEach((s) => {
-      byCategory[s.category] = parseInt(s.count, 10);
-    });
+      const byCategory: Record<string, number> = {};
+      categoryStats.forEach((s) => {
+        byCategory[s.category] = parseInt(s.count, 10);
+      });
 
-    // By severity
-    const severityStats = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.severity', 'severity')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.severity')
-      .getRawMany();
+      // By severity
+      const severityStats = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.severity', 'severity')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.severity')
+        .getRawMany();
 
-    const bySeverity: Record<string, number> = {};
-    severityStats.forEach((s) => {
-      bySeverity[s.severity] = parseInt(s.count, 10);
-    });
+      const bySeverity: Record<string, number> = {};
+      severityStats.forEach((s) => {
+        bySeverity[s.severity] = parseInt(s.count, 10);
+      });
 
-    // Critical and failed events
-    const criticalEvents = await this.activityRepository.count({
-      where: { ...baseWhere, severity: 'critical' as ActivitySeverity },
-    });
+      // Critical and failed events
+      const criticalEvents = await this.activityRepository.count({
+        where: { ...baseWhere, severity: 'critical' as ActivitySeverity },
+      });
 
-    const failedEvents = await this.activityRepository.count({
-      where: { ...baseWhere, success: false },
-    });
+      const failedEvents = await this.activityRepository.count({
+        where: { ...baseWhere, success: false },
+      });
 
-    // Top actions
-    const topActions = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.action', 'action')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.action')
-      .orderBy('count', 'DESC')
-      .limit(10)
-      .getRawMany();
+      // Top actions
+      const topActions = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.action', 'action')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.action')
+        .orderBy('count', 'DESC')
+        .limit(10)
+        .getRawMany();
 
-    // Top entity types
-    const topEntities = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.entityType', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .andWhere('log.entityType IS NOT NULL')
-      .groupBy('log.entityType')
-      .orderBy('count', 'DESC')
-      .limit(10)
-      .getRawMany();
+      // Top entity types
+      const topEntities = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.entityType', 'type')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .andWhere('log.entityType IS NOT NULL')
+        .groupBy('log.entityType')
+        .orderBy('count', 'DESC')
+        .limit(10)
+        .getRawMany();
 
-    // Detect anomalies
-    const anomalies = await this.detectAnomalies(tenantId, startDate, endDate);
+      // Detect anomalies
+      const anomalies = await this.detectAnomalies(tenantId, startDate, endDate);
 
-    return {
-      period: { start: startDate, end: endDate },
-      totalEvents,
-      uniqueUsers,
-      uniqueIPs,
-      byCategory,
-      bySeverity,
-      criticalEvents,
-      failedEvents,
-      topActions: topActions.map((a) => ({
-        action: a.action,
-        count: parseInt(a.count, 10),
-      })),
-      topEntities: topEntities.map((e) => ({
-        type: e.type,
-        count: parseInt(e.count, 10),
-      })),
-      anomalies,
-    };
+      return {
+        period: { start: startDate, end: endDate },
+        totalEvents,
+        uniqueUsers,
+        uniqueIPs,
+        byCategory,
+        bySeverity,
+        criticalEvents,
+        failedEvents,
+        topActions: topActions.map((a) => ({
+          action: a.action,
+          count: parseInt(a.count, 10),
+        })),
+        topEntities: topEntities.map((e) => ({
+          type: e.type,
+          count: parseInt(e.count, 10),
+        })),
+        anomalies,
+      };
     } catch (error) {
       // Return empty summary on error to prevent 500
       this.logger.error('Error fetching audit summary:', error);
@@ -527,7 +515,16 @@ export class AuditTrailService {
     filename: string;
     mimeType: string;
   }> {
-    const { format, tenantId, userId, category, startDate, endDate, includeMetadata, includeChanges } = options;
+    const {
+      format,
+      tenantId,
+      userId,
+      category,
+      startDate,
+      endDate,
+      includeMetadata,
+      includeChanges,
+    } = options;
 
     const where: Record<string, unknown> = {
       createdAt: Between(startDate, endDate),
@@ -657,98 +654,14 @@ export class AuditTrailService {
   }
 
   // ============================================================================
-  // Retention Policies
+  // Retention Statistics (disposal itself is the kernel RetentionEnforcementService)
   // ============================================================================
-
-  /**
-   * Get all retention policies
-   */
-  async getRetentionPolicies(): Promise<RetentionPolicyEntity[]> {
-    return this.retentionRepository.find({
-      order: { category: 'ASC' },
-    });
-  }
-
-  /**
-   * Get retention policy by ID
-   */
-  async getRetentionPolicy(id: string): Promise<RetentionPolicyEntity> {
-    const policy = await this.retentionRepository.findOne({ where: { id } });
-    if (!policy) {
-      throw new NotFoundException(`Retention policy not found: ${id}`);
-    }
-    return policy;
-  }
-
-  /**
-   * Create retention policy
-   */
-  async createRetentionPolicy(data: {
-    name: string;
-    category: ActivityCategory;
-    description?: string;
-    retentionDays: number;
-    archiveAfterDays?: number;
-    deleteAfterArchiveDays?: number;
-    isGlobal?: boolean;
-    specificTenants?: string[];
-    complianceFrameworks?: ComplianceType[];
-    createdBy: string;
-  }): Promise<RetentionPolicyEntity> {
-    const policy = this.retentionRepository.create({
-      name: data.name,
-      category: data.category,
-      description: data.description || null,
-      retentionDays: data.retentionDays,
-      archiveAfterDays: data.archiveAfterDays || null,
-      deleteAfterArchiveDays: data.deleteAfterArchiveDays || null,
-      isGlobal: data.isGlobal ?? true,
-      specificTenants: data.specificTenants || null,
-      complianceFrameworks: data.complianceFrameworks || null,
-      isActive: true,
-      createdBy: data.createdBy,
-    });
-
-    return this.retentionRepository.save(policy);
-  }
-
-  /**
-   * Update retention policy
-   */
-  async updateRetentionPolicy(
-    id: string,
-    data: Partial<{
-      name: string;
-      description: string;
-      retentionDays: number;
-      archiveAfterDays: number;
-      deleteAfterArchiveDays: number;
-      isGlobal: boolean;
-      specificTenants: string[];
-      complianceFrameworks: ComplianceType[];
-      isActive: boolean;
-    }>,
-    updatedBy: string,
-  ): Promise<RetentionPolicyEntity> {
-    const policy = await this.getRetentionPolicy(id);
-    Object.assign(policy, data, { updatedBy });
-    return this.retentionRepository.save(policy);
-  }
-
-  /**
-   * Delete retention policy
-   */
-  async deleteRetentionPolicy(id: string): Promise<void> {
-    await this.retentionRepository.delete({ id });
-  }
 
   /**
    * Get retention statistics
    */
   async getRetentionStats(): Promise<RetentionStats> {
     const totalLogs = await this.activityRepository.count();
-    const archivedLogs = await this.activityRepository.count({ where: { isArchived: true } });
-    const activeLogs = totalLogs - archivedLogs;
 
     const oldestLog = await this.activityRepository.findOne({
       order: { createdAt: 'ASC' },
@@ -768,108 +681,22 @@ export class AuditTrailService {
     const categoryStats = await this.activityRepository
       .createQueryBuilder('log')
       .select('log.category', 'category')
-      .addSelect('log.isArchived', 'isArchived')
       .addSelect('COUNT(*)', 'count')
       .groupBy('log.category')
-      .addGroupBy('log.isArchived')
       .getRawMany();
 
-    const byCategory: Record<string, { active: number; archived: number }> = {};
+    const byCategory: Record<string, number> = {};
     categoryStats.forEach((s) => {
-      const cat = s.category as string;
-      if (!byCategory[cat]) {
-        byCategory[cat] = { active: 0, archived: 0 };
-      }
-      const catEntry = byCategory[cat];
-      if (catEntry) {
-        if (s.isArchived === true || s.isArchived === 'true') {
-          catEntry.archived = parseInt(s.count, 10);
-        } else {
-          catEntry.active = parseInt(s.count, 10);
-        }
-      }
+      byCategory[s.category as string] = parseInt(s.count, 10);
     });
 
     return {
       totalLogs,
-      activeLogs,
-      archivedLogs,
       oldestLog: oldestLog?.createdAt || null,
       newestLog: newestLog?.createdAt || null,
       storageEstimateMB: Math.round(storageEstimateMB * 100) / 100,
       byCategory,
     };
-  }
-
-  /**
-   * Apply retention policies
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async applyRetentionPolicies(): Promise<void> {
-    this.logger.log('Applying retention policies...');
-
-    const policies = await this.retentionRepository.find({
-      where: { isActive: true },
-    });
-
-    for (const policy of policies) {
-      await this.applyRetentionPolicy(policy);
-    }
-
-    this.logger.log('Retention policies applied successfully');
-  }
-
-  /**
-   * Apply a single retention policy
-   */
-  private async applyRetentionPolicy(policy: RetentionPolicyEntity): Promise<void> {
-    const now = new Date();
-
-    // Archive logs
-    if (policy.archiveAfterDays) {
-      const archiveDate = new Date(now);
-      archiveDate.setDate(archiveDate.getDate() - policy.archiveAfterDays);
-
-      const qb = this.activityRepository
-        .createQueryBuilder()
-        .update(ActivityLog)
-        .set({ isArchived: true, archivedAt: now })
-        .where('category = :category', { category: policy.category })
-        .andWhere('createdAt < :archiveDate', { archiveDate })
-        .andWhere('isArchived = :isArchived', { isArchived: false });
-
-      if (!policy.isGlobal && policy.specificTenants?.length) {
-        qb.andWhere('tenantId IN (:...tenants)', { tenants: policy.specificTenants });
-      }
-
-      const result = await qb.execute();
-      if (result.affected && result.affected > 0) {
-        this.logger.log(`Archived ${result.affected} logs for policy: ${policy.name}`);
-      }
-    }
-
-    // Delete archived logs
-    if (policy.deleteAfterArchiveDays) {
-      const deleteDate = new Date(now);
-      deleteDate.setDate(deleteDate.getDate() - policy.deleteAfterArchiveDays);
-
-      const qb = this.activityRepository
-        .createQueryBuilder()
-        .delete()
-        .from(ActivityLog)
-        .where('category = :category', { category: policy.category })
-        .andWhere('isArchived = :isArchived', { isArchived: true })
-        .andWhere('archivedAt < :deleteDate', { deleteDate });
-
-      if (!policy.isGlobal && policy.specificTenants?.length) {
-        qb.andWhere('tenantId IN (:...tenants)', { tenants: policy.specificTenants });
-      }
-
-      const result = await qb.execute();
-      if (result.affected && result.affected > 0) {
-        this.logger.log(`Deleted ${result.affected} archived logs for policy: ${policy.name}`);
-      }
-    }
   }
 
   // ============================================================================
@@ -975,9 +802,12 @@ export class AuditTrailService {
     if (conditions.failureOnly && activity.success) return false;
 
     if (conditions.ipPatterns?.length) {
-      const matches = conditions.ipPatterns.some((p) =>
-        new RegExp(p).test(activity.ipAddress),
-      );
+      // An activity with no recorded address matches no address pattern. It
+      // used to match the string "unknown" against the operator's regex, which
+      // could pass by accident (`.*`, `unk`) and is meaningless when it does.
+      if (!activity.ipAddress) return false;
+      const address = activity.ipAddress;
+      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(address));
       if (!matches) return false;
     }
 

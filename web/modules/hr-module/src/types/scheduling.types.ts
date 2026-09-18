@@ -1,3 +1,5 @@
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+
 /**
  * Scheduling Types for Workforce Planning
  */
@@ -74,15 +76,7 @@ export interface WeeklyPlanEntry {
   notes?: string;
 }
 
-export interface WeeklyPlanConnection {
-  items: WeeklyPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type WeeklyPlanConnection = PaginationResultV1<WeeklyPlan>;
 
 export interface DayEntry {
   dayOfWeek: WeekDay;

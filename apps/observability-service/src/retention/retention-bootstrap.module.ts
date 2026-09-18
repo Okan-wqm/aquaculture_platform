@@ -1,5 +1,13 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import { RetentionEnforcementService, registerRetentionPolicy } from '@aquaculture/backend-common/database';
+import {
+  RetentionEnforcementService,
+  registerRetentionPolicy,
+} from '@aquaculture/backend-common/database';
+
+import { EmergencyOverrideEntity } from '../database/entities/emergency-override.entity';
+import { MigrationBackfillProgressEntity } from '../database/entities/migration-backfill-progress.entity';
+import { MigrationEventEntity } from '../database/entities/migration-event.entity';
+import { SchemaObjectHistoryEntity } from '../database/entities/schema-object-history.entity';
 
 /**
  * RetentionBootstrapModule — single module, many policies.
@@ -49,25 +57,22 @@ export class RetentionBootstrapModule implements OnModuleInit {
     registerRetentionPolicy({
       id: 'migration_events.13mo',
       ownerTag: 'soc2-cc4.1',
-      schema: 'observability',
-      tableName: 'migration_events',
-      timestampColumn: 'occurred_at',
+      entity: MigrationEventEntity,
+      timestampProperty: 'occurredAt',
       retentionDays: 395, // 13 months (12mo SOC2 + 1mo buffer)
     });
     registerRetentionPolicy({
       id: 'schema_object_history.7y',
       ownerTag: 'soc2-cc8.1',
-      schema: 'observability',
-      tableName: 'schema_object_history',
-      timestampColumn: 'observed_at',
+      entity: SchemaObjectHistoryEntity,
+      timestampProperty: 'observedAt',
       retentionDays: 2556, // 7 years
     });
     registerRetentionPolicy({
       id: 'emergency_overrides.7y',
       ownerTag: 'soc2-cc6.1',
-      schema: 'observability',
-      tableName: 'emergency_overrides',
-      timestampColumn: 'created_at',
+      entity: EmergencyOverrideEntity,
+      timestampProperty: 'createdAt',
       retentionDays: 2556, // 7 years
       // Legal-hold semantics: retain indefinitely any row that is
       // STILL ACTIVE (not yet revoked AND not yet expired). Those
@@ -78,9 +83,8 @@ export class RetentionBootstrapModule implements OnModuleInit {
     registerRetentionPolicy({
       id: 'migration_backfill_progress.7y',
       ownerTag: 'soc2-cc8.1',
-      schema: 'observability',
-      tableName: 'migration_backfill_progress',
-      timestampColumn: 'applied_at',
+      entity: MigrationBackfillProgressEntity,
+      timestampProperty: 'appliedAt',
       retentionDays: 2556, // 7 years
       // Contract-phase @ExpandContract migrations read this table
       // at runtime to resolve dependsOn (R6 gate). 7 years is long

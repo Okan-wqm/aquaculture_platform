@@ -13,6 +13,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 export interface Column<T> {
   key: string;
@@ -24,7 +25,7 @@ export interface Column<T> {
 }
 
 interface DataTableProps<T> {
-  data: T[];
+  data: readonly T[];
   columns: Column<T>[];
   keyExtractor: (row: T) => string;
   isLoading?: boolean;
@@ -68,7 +69,7 @@ export function DataTable<T>({
   rowClassName,
   className,
 }: DataTableProps<T>) {
-  const totalPages = total ? Math.ceil(total / pageSize) : 1;
+  const totalPages = expectedTotalPages(total ?? 0, pageSize);
   const showPagination = total !== undefined && total > pageSize;
 
   const allSelected = useMemo(() => {

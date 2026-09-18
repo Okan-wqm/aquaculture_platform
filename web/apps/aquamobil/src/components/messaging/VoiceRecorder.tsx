@@ -17,7 +17,6 @@ import { clsx } from 'clsx';
 import { Mic, Square, X } from 'lucide-react';
 import { useCallback, useMemo, type ReactElement } from 'react';
 
-import { IconButton } from '@/components/ui';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 
 // ---------------------------------------------------------------------------
@@ -86,9 +85,7 @@ function WaveformBars({ isAnimating }: { isAnimating: boolean }): ReactElement {
           key={bar.key}
           className={clsx(
             'w-[3px] rounded-full transition-all',
-            // Coral is the live-recording signal here, matching the record dot
-            // and the timer — the one thing that says "this is capturing now".
-            isAnimating ? 'bg-crit animate-pulse' : 'bg-line-strong',
+            isAnimating ? 'bg-red-500 animate-pulse' : 'bg-gray-300 dark:bg-gray-600',
           )}
           style={{
             height: isAnimating ? `${bar.maxHeight}px` : `${bar.minHeight}px`,
@@ -162,17 +159,19 @@ export function VoiceRecorder({
 
   // Browser does not support MediaRecorder
   if (!isSupported) {
-    // An unsupported browser is a WATCH, not an alarm: nothing broke, one input
-    // mode is simply unavailable. Amber, not coral.
     return (
-      <div className="flex items-center gap-3 px-4 py-3 bg-warn-dim rounded-lg">
-        <Mic size={20} className="text-warn shrink-0" />
-        <p className="text-meta text-warn">
+      <div className="flex items-center gap-3 px-4 py-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+        <Mic size={20} className="text-yellow-600 dark:text-yellow-400 shrink-0" />
+        <p className="text-xs text-yellow-700 dark:text-yellow-300">
           Voice recording is not supported in this browser. Please use Chrome, Firefox, or Safari.
         </p>
-        <IconButton onClick={onCancel} className="hover:bg-warn-dim" aria-label="Close">
-          <X size={18} className="text-warn" />
-        </IconButton>
+        <button
+          onClick={onCancel}
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-yellow-100 dark:hover:bg-yellow-800 touch-feedback"
+          aria-label="Close"
+        >
+          <X size={18} className="text-yellow-600" />
+        </button>
       </div>
     );
   }
@@ -180,19 +179,23 @@ export function VoiceRecorder({
   return (
     <div className="flex items-center gap-2 px-3 py-2">
       {/* Cancel button */}
-      <IconButton
-        size="lg"
+      <button
         onClick={handleCancel}
-        className="hover:bg-surface-2 transition-colors"
+        className={clsx(
+          'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full touch-feedback transition-colors',
+          'hover:bg-gray-100 dark:hover:bg-gray-800',
+        )}
         aria-label="Cancel recording"
       >
-        <X size={22} className="text-ink-2" />
-      </IconButton>
+        <X size={22} className="text-gray-500 dark:text-gray-400" />
+      </button>
 
       {/* Waveform + timer */}
       <div className="flex-1 flex items-center gap-2 min-w-0">
         {/* Recording indicator dot */}
-        {isRecording && <div className="w-2.5 h-2.5 rounded-full bg-crit animate-pulse shrink-0" />}
+        {isRecording && (
+          <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+        )}
 
         {/* Waveform visualization */}
         <div className="flex-1 overflow-hidden">
@@ -202,10 +205,12 @@ export function VoiceRecorder({
         {/* Timer */}
         <span
           className={clsx(
-            // The near-limit state now differs by WEIGHT only, because coral is
-            // already the recording colour — a second red would say nothing.
-            'text-body font-mono tabular-nums shrink-0 min-w-[48px] text-center',
-            isRecording ? (isNearLimit ? 'text-crit font-bold' : 'text-crit') : 'text-ink-2',
+            'text-sm font-mono tabular-nums shrink-0 min-w-[48px] text-center',
+            isRecording
+              ? isNearLimit
+                ? 'text-red-500 font-bold'
+                : 'text-red-600 dark:text-red-400'
+              : 'text-gray-500 dark:text-gray-400',
           )}
         >
           {formatTimer(elapsedSeconds)}
@@ -213,31 +218,33 @@ export function VoiceRecorder({
       </div>
 
       {/* Record / Stop button */}
-      <IconButton
-        size="lg"
+      <button
         onClick={() => {
           void handleToggleRecord();
         }}
         disabled={disabled}
         className={clsx(
-          'transition-all',
-          isRecording ? 'bg-crit shadow-token' : 'bg-acc shadow-acc',
+          'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
+          isRecording
+            ? 'bg-red-600 hover:bg-red-700 shadow-lg'
+            : 'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean',
+          disabled && 'opacity-50 cursor-not-allowed',
         )}
         aria-label={isRecording ? 'Stop recording' : 'Start recording'}
       >
         {isRecording ? (
-          // White on crit matches the kit's `danger` Button — coral is dark
-          // enough to carry white ink in all three themes.
-          <Square size={20} className="text-white" fill="currentColor" />
+          <Square size={20} className="text-white" fill="white" />
         ) : (
-          <Mic size={20} className="text-acc-on" />
+          <Mic size={20} className="text-white" />
         )}
-      </IconButton>
+      </button>
 
       {/* Error message */}
       {error && (
         <div className="absolute bottom-full left-0 right-0 px-4 pb-2">
-          <p className="text-meta text-crit bg-crit-dim px-3 py-1.5 rounded-lg">{error}</p>
+          <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg">
+            {error}
+          </p>
         </div>
       )}
     </div>

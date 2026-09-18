@@ -43,7 +43,11 @@ function makeMessage(id: string, createdAt: string, channelId = CHANNEL_A): Mess
  * (items[0] = p<n>-49 = newest, items[49] = p<n>-0 = oldest), cursor = the
  * opaque next-older pointer, hasMore as configured. Higher suffix = newer.
  */
-function serverPage(prefix: string, hasMore: boolean, cursor: string | null): {
+function serverPage(
+  prefix: string,
+  hasMore: boolean,
+  cursor: string | null,
+): {
   items: Message[];
   hasMore: boolean;
   cursor: string | null;
@@ -85,7 +89,7 @@ describe('useChannelMessages (infinite query)', () => {
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    const [query, variables] = requestMock.mock.calls[0] as unknown as [
+    const [query, variables] = requestMock.mock.calls[0] as [
       string,
       { channelId: string; filter: { limit: number; cursor?: string } },
     ];
@@ -150,19 +154,21 @@ describe('useChannelMessages (infinite query)', () => {
   it('channel switch renders NOTHING of the previous thread (no placeholderData — bleed gate)', async () => {
     let switchToB = false;
     let bResolved = false;
-    const bDeferred: { resolve: ((value: unknown) => void) | null } = { resolve: null };
+    const bSettlable: { resolve: ((value: unknown) => void) | null } = { resolve: null };
     routeGraphql([
       {
         match: 'query ChannelMessages',
-        result: () => {
+        // async: every branch resolves to a record, including the one the
+        // test settles later (the route table's settle-later variant).
+        result: async (): Promise<Record<string, unknown>> => {
           if (!switchToB) return { messages: serverPage('a', false, null) };
           if (!bResolved) {
-            return new Promise((resolve) => {
-              bDeferred.resolve = (value) => {
+            return new Promise<Record<string, unknown>>((resolve) => {
+              bSettlable.resolve = (value) => {
                 bResolved = true;
-                resolve(value);
+                resolve(value as Record<string, unknown>);
               };
-            }) as unknown as Record<string, unknown>;
+            });
           }
           return { messages: serverPage('b', false, null) };
         },
@@ -188,7 +194,7 @@ describe('useChannelMessages (infinite query)', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(true));
     expect(flattenChannelMessages(result.current.data)).toEqual([]);
 
-    bDeferred.resolve?.({ messages: serverPage('b', false, null) });
+    bSettlable.resolve?.({ messages: serverPage('b', false, null) });
     await waitFor(() =>
       expect(flattenChannelMessages(result.current.data).some((m) => m.id === 'b-49')).toBe(true),
     );
@@ -225,10 +231,14 @@ describe('useChannelMessages (infinite query)', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(
-      queryClient.getQueryData(createTenantQueryKey(TEST_TENANT_ID, 'messaging', 'messages', CHANNEL_A)),
+      queryClient.getQueryData(
+        createTenantQueryKey(TEST_TENANT_ID, 'messaging', 'messages', CHANNEL_A),
+      ),
     ).toBeDefined();
     expect(
-      queryClient.getQueryData(createTenantQueryKey(TEST_TENANT_ID, 'messaging', 'messages', CHANNEL_B)),
+      queryClient.getQueryData(
+        createTenantQueryKey(TEST_TENANT_ID, 'messaging', 'messages', CHANNEL_B),
+      ),
     ).toBeUndefined();
   });
 });

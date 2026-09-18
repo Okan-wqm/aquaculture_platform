@@ -1,3 +1,4 @@
+import { type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
 import { BadRequestException } from '@nestjs/common';
 import {
   TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
@@ -19,6 +20,14 @@ import {
   TenantErasureProofHandler,
 } from '../handlers/tenant-erasure.handler';
 import { Tenant } from '../entities/tenant.entity';
+
+/** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
+const passThroughScheduledJobs: ScheduledJobExecutor = {
+  run: async (_job, body) => {
+    await body();
+    return 'ran';
+  },
+};
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -70,7 +79,7 @@ function createLegalHoldService(): TenantErasureLegalHoldService {
 
 function createAuditLogService(): TenantErasureAuditLogger {
   return {
-    log: jest.fn().mockResolvedValue(undefined),
+    record: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -167,6 +176,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       createOutboxPublisher(),
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
 
     await handler.onModuleInit();
@@ -193,6 +203,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       createOutboxPublisher(),
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
     const forged: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
@@ -209,8 +220,13 @@ describe('TenantErasureProofHandler', () => {
       proofHash: 'sha256:forged',
     };
 
-    await expect(handler.handle(forged)).rejects.toThrow(
-      'is bound to farm-service, payload claims sensor-service',
+    // PLAT-HIGH-902: a forged proof can never be recorded — it is terminated
+    // (dead-lettered with its reason), not redelivered until the budget is spent.
+    await expect(handler.handle(forged)).resolves.toEqual(
+      expect.objectContaining({
+        kind: 'terminate',
+        reason: expect.stringContaining('is bound to farm-service, payload claims sensor-service'),
+      }),
     );
     expect(transaction).not.toHaveBeenCalled();
   });
@@ -276,7 +292,13 @@ describe('TenantErasureProofHandler', () => {
     const eventBus: TenantErasureEventSubscriber = {
       subscribeWildcard: jest.fn().mockResolvedValue(undefined),
     };
-    const handler = new TenantErasureProofHandler(eventBus, dataSource, outbox, legalHold);
+    const handler = new TenantErasureProofHandler(
+      eventBus,
+      dataSource,
+      outbox,
+      legalHold,
+      passThroughScheduledJobs,
+    );
 
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
@@ -359,7 +381,13 @@ describe('TenantErasureProofHandler', () => {
     const eventBus: TenantErasureEventSubscriber = {
       subscribeWildcard: jest.fn().mockResolvedValue(undefined),
     };
-    const handler = new TenantErasureProofHandler(eventBus, dataSource, outbox, legalHold);
+    const handler = new TenantErasureProofHandler(
+      eventBus,
+      dataSource,
+      outbox,
+      legalHold,
+      passThroughScheduledJobs,
+    );
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
       eventType: 'FarmServiceTenantDataErased',
@@ -426,6 +454,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       outbox,
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
@@ -477,6 +506,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       outbox,
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
@@ -531,6 +561,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       createOutboxPublisher(),
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],
@@ -584,6 +615,7 @@ describe('TenantErasureProofHandler', () => {
       dataSource,
       outbox,
       createLegalHoldService(),
+      passThroughScheduledJobs,
     );
     const proof: TenantDataErasedEvent = {
       eventId: '44444444-4444-4444-8444-444444444444' as TenantDataErasedEvent['eventId'],

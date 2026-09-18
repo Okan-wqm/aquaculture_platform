@@ -1,0 +1,61 @@
+# sensor-ingestion config — copy to `config.toml` and edit per deploy.
+# WHY this file is .example only:
+#   The real config.toml carries deploy-specific cert paths and the DB
+#   password. Per ADR-014/015 + ADR-025, secrets never get baked into
+#   images and never get checked into git. The .example documents the
+#   full surface; the secrets-rotation job + bind-mount provide the
+#   real file at runtime.
+
+[observability]
+# Emitted as `service.name` resource attribute on every OTLP span.
+service_name = "sensor-ingestion"
+service_version = "0.1.0"
+
+[runtime]
+# Plan numbers (`docs/plans/sensor-rust-migration/PLAN.md` § Faz 2 —
+# Tokio Runtime Tuning). 0.35 vCPU container budget → 2 workers; more
+# is pure context-switch overhead.
+worker_threads = 2
+max_blocking_threads = 8
+thread_stack_kb = 256
+
+[mqtt]
+# WHY mqtts:// — broker MUST present a cert signed by the platform CA.
+# All three cert paths below are REQUIRED when scheme is mqtts:// (the
+# subscriber's start path validates them at boot, never at first
+# publish; see apps/sensor-ingestion/src/mqtt.rs).
+broker_url = "mqtts://mosquitto:8883"
+client_id = "sensor-ingestion-1"
+topic_filters = ["sensors/#", "tenants/+/devices/+/io_data"]
+qos = 1
+server_ca_cert_pem = "/etc/sensor-ingestion/certs/mqtt-ca.pem"
+client_cert_pem = "/etc/sensor-ingestion/certs/mqtt-client.crt"
+client_key_pem = "/etc/sensor-ingestion/certs/mqtt-client.key"
+
+[nats]
+# ADR-014/015: cert-CN-only auth. server_url MUST be tls:// — the
+# nats-client crate refuses any other scheme at construction time.
+server_url = "tls://nats:4222"
+server_ca_cert_pem = "/etc/ssl/nats-ca.pem"
+client_cert_pem = "/etc/ssl/nats-clients/sensor-ingestion-cert.pem"
+client_key_pem = "/etc/ssl/nats-clients/sensor-ingestion-key.pem"
+connect_timeout = 15
+
+[postgres]
+# rustls TLS bridge with platform CA pinned (no system roots) — see
+# apps/sensor-ingestion/src/persistence.rs::PostgresSink::connect.
+host = "postgres"
+port = 5432
+db_name = "aquaculture"
+user = "sensor_ingestion"
+password = "REPLACE_FROM_SECRETS"
+ca_cert_pem = "/etc/sensor-ingestion/certs/postgres-ca.pem"
+# Plan § Faz 2: 4 connections matches the COPY worker pool count.
+pool_size = 4
+
+[ingest_backend]
+# ADR-027 strangler fig. Default = node so every existing tenant stays
+# on the proven NestJS path; opt-in by adding tenant UUIDs to
+# tenant_overrides with the value "rust".
+default_backend = "node"
+tenant_overrides = {}

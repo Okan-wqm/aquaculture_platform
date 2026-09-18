@@ -1,5 +1,6 @@
 // Schema Manager
 export * from './schema-manager.service';
+export * from './recovery-point';
 
 // SQL identifier validator — single canonical helper for identifier
 // interpolation (DDL paths use it instead of inlining a private regex).
@@ -18,6 +19,9 @@ export {
   querySingleStringColumn,
 } from './query-result-normalizer';
 export type { NormalizedQueryResult, StringColumnRow } from './query-result-normalizer';
+
+// Bounded, ctid-addressed age-based disposal (ADMIN-HIGH-013).
+export * from './batched-delete';
 
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';

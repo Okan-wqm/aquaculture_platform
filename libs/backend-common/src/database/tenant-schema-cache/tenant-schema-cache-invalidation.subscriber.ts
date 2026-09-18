@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import { InvalidEventTenantScopeError, requireTenantScope } from '@platform/event-contracts';
 import type { TenantProvisionedEvent } from '@platform/event-contracts';
 
-import { getTenantSchemaName, isValidUUID } from '../tenant-schema.utils';
+import { getTenantSchemaName } from '../tenant-schema.utils';
 
 import { TenantSchemaCacheService } from './tenant-schema-cache.service';
 
@@ -56,15 +57,24 @@ export class TenantSchemaCacheInvalidationSubscriber
 
   // Non-async (returns a resolved Promise) because the work is synchronous —
   // backend-common lints @typescript-eslint/require-await as an error, and there
-  // is nothing to await. The IEventHandler contract only requires Promise<void>.
-  handle(event: TenantProvisionedEvent): Promise<void> {
-    const tenantId = event.tenantId;
-    if (!tenantId || !isValidUUID(tenantId)) {
-      return Promise.resolve();
+  // is nothing to await. The IEventHandler contract only requires a resolved
+  // HandlerOutcome.
+  handle(event: TenantProvisionedEvent): Promise<HandlerOutcome> {
+    // SEC-HIGH-057 / PLAT-MEDIUM-905: tenancy is parsed through the contract,
+    // not a hand-rolled UUID guard. TenantProvisioned is tenant-bound by
+    // construction; a malformed or platform scope is terminated.
+    let tenantId: string;
+    try {
+      tenantId = requireTenantScope(event).tenantId;
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        return Promise.resolve(HandlerOutcome.terminate(error.message, error));
+      }
+      throw error;
     }
     // schemaName is a tenant_<hash> derived value; do not log it (PII discipline).
     this.schemaCache.invalidate(getTenantSchemaName(tenantId));
     this.logger.log('Invalidated tenant schema-existence cache after TenantProvisioned');
-    return Promise.resolve();
+    return Promise.resolve(HandlerOutcome.ack());
   }
 }

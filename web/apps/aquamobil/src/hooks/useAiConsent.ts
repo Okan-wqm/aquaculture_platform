@@ -17,12 +17,19 @@
  * @returns isLoading — true during initial fetch or mutation
  */
 
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { useCallback } from 'react';
 
 import { useAuth } from './useAuth';
 
+import type {
+  GetAiConsentStatusQuery,
+  GetAiConsentStatusQueryVariables,
+  ToggleAiConsentMutation,
+  ToggleAiConsentMutationVariables,
+} from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -42,8 +49,6 @@ interface UseAiConsentReturn {
   isAiEnabled: boolean;
   /** Whether the current user has consented to AI analysis. */
   hasConsented: boolean;
-  /** ORPHAN-HIGH-595: an unreadable consent state is not "not consented". */
-  isError: boolean;
   /** Toggle the user's AI consent. */
   toggleConsent: () => Promise<void>;
   /** True during initial fetch or mutation. */
@@ -63,7 +68,10 @@ interface UseAiConsentReturn {
 // the FE's `isAiEnabled`/`hasConsented` vocabulary is mapped at the boundary.
 // ---------------------------------------------------------------------------
 
-const GET_AI_SETTINGS = gql`
+const GET_AI_SETTINGS: TypedDocumentNode<
+  GetAiConsentStatusQuery,
+  GetAiConsentStatusQueryVariables
+> = gql`
   query GetAiConsentStatus {
     aiSettings {
       tenantAiEnabled
@@ -72,7 +80,10 @@ const GET_AI_SETTINGS = gql`
   }
 `;
 
-const UPDATE_USER_AI_CONSENT = gql`
+const UPDATE_USER_AI_CONSENT: TypedDocumentNode<
+  ToggleAiConsentMutation,
+  ToggleAiConsentMutationVariables
+> = gql`
   mutation ToggleAiConsent($consent: Boolean!) {
     updateUserAiConsent(consent: $consent)
   }
@@ -85,9 +96,7 @@ const UPDATE_USER_AI_CONSENT = gql`
 /** Fetch AI consent status from the messaging-service GraphQL API. */
 async function fetchAiConsentStatus(): Promise<AiConsentStatus> {
   try {
-    const result = await graphqlRequest<{
-      aiSettings: { tenantAiEnabled: boolean; userAiConsent: boolean };
-    }>(GET_AI_SETTINGS);
+    const result = await graphqlRequest(GET_AI_SETTINGS);
     return {
       isAiEnabled: result.aiSettings.tenantAiEnabled,
       hasConsented: result.aiSettings.userAiConsent,
@@ -103,9 +112,7 @@ async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: bool
     // `updateUserAiConsent` returns Boolean (success flag), not the new
     // consent value. On success the requested `consented` is the new state;
     // we surface it so the cache update + optimistic UI stay consistent.
-    await graphqlRequest<{ updateUserAiConsent: boolean }>(UPDATE_USER_AI_CONSENT, {
-      consent: consented,
-    });
+    await graphqlRequest(UPDATE_USER_AI_CONSENT, { consent: consented });
     return { hasConsented: consented };
   } catch {
     return { hasConsented: !consented };
@@ -149,8 +156,5 @@ export function useAiConsent(): UseAiConsentReturn {
     hasConsented: query.data?.hasConsented ?? false,
     toggleConsent,
     isLoading: query.isLoading || mutation.isPending,
-    // ORPHAN-HIGH-595: an unreadable consent state is not the same as
-    // "not consented" — the caller decides, fail-closed, knowing which it is.
-    isError: query.isError,
   };
 }

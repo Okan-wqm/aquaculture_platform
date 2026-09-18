@@ -1,6 +1,12 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
-import { Roles, Role, Tenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import {
+  Roles,
+  Role,
+  Tenant,
+  CurrentUser,
+  CurrentUserPayload,
+} from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { GraphQLJSON } from 'graphql-scalars';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -61,7 +67,8 @@ export class VfdProgrammingResolver {
   @Query(() => [VfdChangeSet], { name: 'vfdChangeSets' })
   async getChangeSets(
     @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
-    @Args('status', { type: () => VfdChangeSetStatus, nullable: true }) status: VfdChangeSetStatus | null,
+    @Args('status', { type: () => VfdChangeSetStatus, nullable: true })
+    status: VfdChangeSetStatus | null,
     @Args('limit', { type: () => Int, defaultValue: 20 }) limit: number,
     @Args('offset', { type: () => Int, defaultValue: 0 }) offset: number,
     @Tenant() tenantId: string,
@@ -152,9 +159,7 @@ export class VfdProgrammingResolver {
   // ─── PENDING APPROVAL COUNT ───────────────────────────────────────
 
   @Query(() => Int, { name: 'vfdPendingApprovalCount' })
-  async getPendingApprovalCount(
-    @Tenant() tenantId: string,
-  ): Promise<number> {
+  async getPendingApprovalCount(@Tenant() tenantId: string): Promise<number> {
     return this.changeSetService.getPendingApprovalCount(tenantId);
   }
 
@@ -212,12 +217,7 @@ export class VfdProgrammingResolver {
     @CurrentUser('sub') userId: string,
     @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
-    return this.changeSetService.rejectChangeSet(
-      input.changeSetId,
-      userId,
-      input.reason,
-      tenantId,
-    );
+    return this.changeSetService.rejectChangeSet(input.changeSetId, userId, input.reason, tenantId);
   }
 
   /**
@@ -248,6 +248,30 @@ export class VfdProgrammingResolver {
     @Tenant() tenantId: string,
   ): Promise<VfdChangeSet> {
     return this.changeSetService.rollbackChangeSet(
+      input.changeSetId,
+      input.reason,
+      userId,
+      tenantId,
+    );
+  }
+
+  /**
+   * SEC-LOW-084 (2026-08-23 scan №29): explicit emergency rollback.
+   *
+   * Overrides maker-checker (the caller IS the checker of the auto-approved
+   * inverse change set) and is therefore held to the HIGHER bar of the two
+   * roles the normal rollback accepts — TENANT_ADMIN only, audited as
+   * EMERGENCY_OVERRIDE. The free-text reason can never trigger this by
+   * itself.
+   */
+  @Mutation(() => VfdChangeSet, { name: 'emergencyRollbackVfdChangeSet' })
+  @Roles(Role.TENANT_ADMIN)
+  async emergencyRollbackChangeSet(
+    @Args('input') input: RollbackChangeSetInput,
+    @CurrentUser('sub') userId: string,
+    @Tenant() tenantId: string,
+  ): Promise<VfdChangeSet> {
+    return this.changeSetService.emergencyRollbackChangeSet(
       input.changeSetId,
       input.reason,
       userId,

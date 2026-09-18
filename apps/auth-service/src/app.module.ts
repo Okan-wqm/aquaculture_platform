@@ -70,6 +70,11 @@ import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { AuthOutboxModule } from './outbox/auth-outbox.module';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
 
@@ -98,6 +103,10 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     // actually fire at runtime. Without ScheduleModule, every @Cron in
     // this service tree is silent dead code.
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // the module that owns /metrics (the heartbeat's home).
+    ScheduledJobModule.forRoot({ serviceName: 'auth-service' }),
 
     // Database connection — auth-service owns the 'auth' schema. Uses the
     // platform TypeORM factory so pool size, SSL, fail-fast, env-var
@@ -159,6 +168,14 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
            * that causes exponential resource consumption on the server.
            */
           validationRules: [depthLimit(10)],
+          /**
+           * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+           * hardening preset — production error masking (raw TypeORM/driver text must
+           * never reach clients through the gateway's message passthrough) and the
+           * complexity cap for direct-access defense-in-depth.
+           */
+          formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+          plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: auth developer UI must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery

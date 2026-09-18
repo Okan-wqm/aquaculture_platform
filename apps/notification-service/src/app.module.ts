@@ -1,6 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -51,10 +52,17 @@ const NotificationMigrationRunnerService = createSchemaVersionGate('notification
 const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import { NotificationLog } from './notification/entities/notification-log.entity';
 import { NotificationModule } from './notification/notification.module';
+import { NotificationLogDeadLetterSink } from './notification/services/notification-log-dead-letter.sink';
 import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 @Module({
   imports: [
@@ -132,6 +140,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
          */
         validationRules: [depthLimit(10)],
         /**
+         * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+         * hardening preset — production error masking (raw TypeORM/driver text must
+         * never reach clients through the gateway's message passthrough) and the
+         * complexity cap for direct-access defense-in-depth.
+         */
+        formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+        plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
+        /**
          * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
          * WHY: notification subgraph developer UI must not rely on deprecated Apollo Playground behavior.
          */
@@ -186,6 +202,17 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
+      // PLAT-HIGH-902: every message the bus terminates in this service lands
+      // as a NotificationLog DEAD_LETTER row (the admin panel / health count
+      // already read those rows). Bound here, inside the global bus module,
+      // so the sink needs no feature-module import that would cycle through
+      // 'EVENT_BUS'.
+      deadLetterSink: {
+        imports: [TypeOrmModule.forFeature([NotificationLog])],
+        inject: [getRepositoryToken(NotificationLog)],
+        useFactory: (repository: Repository<NotificationLog>) =>
+          new NotificationLogDeadLetterSink(repository),
+      },
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
@@ -200,6 +227,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // the module that owns /metrics (the heartbeat's home).
+    ScheduledJobModule.forRoot({ serviceName: 'notification-service' }),
 
     // Feature modules
     NotificationModule,

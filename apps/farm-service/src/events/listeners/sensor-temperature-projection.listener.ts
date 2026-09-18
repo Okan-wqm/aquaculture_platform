@@ -19,7 +19,7 @@
  */
 import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { BaseEvent, SensorReadingEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -50,7 +50,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       );
       return;
     }
-    // subscribeWildcard builds `events.*.SensorReading`, matching the sensor
+    // subscribeWildcard builds `telemetry.*.SensorReading` (Task 2 route registry), matching the sensor
     // subgraph's per-tenant `events.{tenantId}.SensorReading` for every tenant.
     await this.eventBus.subscribeWildcard('SensorReading', this);
     this.logger.log('Subscribed to SensorReading for sensor-temperature projection (cross-tenant)');
@@ -60,19 +60,19 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
     return 'SensorReading';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'SensorReading has missing/invalid tenantId — skipping to prevent ' +
           'cross-tenant read-model corruption.',
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     const reading = event as SensorReadingEvent;
     // Only temperature-bearing readings feed this projection.
     if (reading.readingTemperature == null || !isValidUUID(reading.sensorId)) {
-      return;
+      return HandlerOutcome.ack();
     }
     // Plausibility clamp (GSEC-MEDIUM-002): the projection feeds the feed-rate
     // calculation, so a miscalibrated/poisoned sensor must not be able to store
@@ -88,11 +88,11 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
         `SensorReading temperature ${String(temperature)} outside plausible bounds ` +
           `(${WATER_TEMPERATURE_MIN_C}..${WATER_TEMPERATURE_MAX_C} °C) — reading dropped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
     const measuredAt = new Date(event.timestamp);
     if (Number.isNaN(measuredAt.getTime())) {
-      return;
+      return HandlerOutcome.ack();
     }
     // Future-timestamp guard (GSEC-MEDIUM-002): the newest-wins upsert compares
     // measuredAt, so a single far-future timestamp would pin a wrong temperature
@@ -101,7 +101,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       this.logger.warn(
         `SensorReading timestamp ${event.timestamp} is in the future — reading dropped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     // Day bucket is computed in UTC here so the daily rollup is independent of
@@ -110,46 +110,60 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
 
     try {
       await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
-        // Newest-wins: only advance the row when this reading is strictly newer,
-        // so redelivery / out-of-order events cannot regress the latest value.
+        // Newest-wins BY EVENT IDENTITY (Task 1.5): the eventId (deterministic
+        // since Task 1.4) is the watermark. A redelivered event is a no-op,
+        // while a DIFFERENT reading at the same millisecond still advances
+        // the row — the time-only comparison silently dropped those.
         await queryRunner.manager.query(
           `INSERT INTO "sensor_temperature_latest"
-             ("tenantId", "sensorId", "temperatureC", "measuredAt")
-           VALUES ($1, $2, $3, $4)
+             ("tenantId", "sensorId", "temperatureC", "measuredAt", "lastEventId")
+           VALUES ($1, $2, $3, $4, $5::uuid)
            ON CONFLICT ("tenantId", "sensorId") DO UPDATE
              SET "temperatureC" = EXCLUDED."temperatureC",
-                 "measuredAt" = EXCLUDED."measuredAt"
-           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"`,
-          [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt],
+                 "measuredAt" = EXCLUDED."measuredAt",
+                 "lastEventId" = EXCLUDED."lastEventId"
+           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"
+              OR ("sensor_temperature_latest"."measuredAt" = EXCLUDED."measuredAt"
+                  AND "sensor_temperature_latest"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId")`,
+          [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt, event.eventId],
         );
 
-        // Daily rollup accumulation (RPT-005). The `lastMeasuredAt` watermark
-        // makes accumulation idempotent under at-least-once redelivery /
-        // out-of-order events: the row only advances on a strictly newer
-        // reading, so the same reading can never be counted twice.
+        // Daily rollup accumulation (RPT-005). Idempotent by EVENT IDENTITY:
+        // the same eventId never counts twice, and a distinct reading at the
+        // same millisecond is no longer lost to a strict time comparison.
         await queryRunner.manager.query(
           `INSERT INTO "sensor_temperature_daily"
-             ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt")
-           VALUES ($1, $2, $3, $4, $4, $4, 1, $5)
+             ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt", "lastEventId")
+           VALUES ($1, $2, $3, $4, $4, $4, 1, $5, $6::uuid)
            ON CONFLICT ("tenantId", "sensorId", "day") DO UPDATE
              SET "sumC" = "sensor_temperature_daily"."sumC" + EXCLUDED."sumC",
                  "minC" = LEAST("sensor_temperature_daily"."minC", EXCLUDED."minC"),
                  "maxC" = GREATEST("sensor_temperature_daily"."maxC", EXCLUDED."maxC"),
                  "sampleCount" = "sensor_temperature_daily"."sampleCount" + 1,
                  "lastMeasuredAt" = EXCLUDED."lastMeasuredAt",
+                 "lastEventId" = EXCLUDED."lastEventId",
                  "updatedAt" = now()
-           WHERE "sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"`,
-          [event.tenantId, reading.sensorId, day, reading.readingTemperature, measuredAt],
+           WHERE "sensor_temperature_daily"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId"`,
+          [
+            event.tenantId,
+            reading.sensorId,
+            day,
+            reading.readingTemperature,
+            measuredAt,
+            event.eventId,
+          ],
         );
       });
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `SensorReading projection failed for tenant ${event.tenantId.substring(0, 8)}...: ` +
           `${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Rethrow so the projection converges via NATS redelivery (idempotent upsert).
-      throw error;
+      // Retry so the projection converges via NATS redelivery (idempotent
+      // upsert), dead-lettered once the delivery budget is spent.
+      return HandlerOutcome.retry('SensorReading: temperature projection failed', error);
     }
   }
 }

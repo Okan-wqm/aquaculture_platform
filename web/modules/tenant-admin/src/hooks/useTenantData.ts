@@ -5,6 +5,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { UseQueryResult } from '@tanstack/react-query';
 import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
 import {
   getMyTenant,
@@ -25,6 +26,10 @@ import {
   updateTenantUser as updateTenantUserApi,
   deleteTenantUser as deleteTenantUserApi,
   deactivateTenantUser as deactivateTenantUserApi,
+  activateTenantUser as activateTenantUserApi,
+  unlockTenantUser as unlockTenantUserApi,
+  bulkAssignUserRole as bulkAssignUserRoleApi,
+  getUserEffectivePermissions,
   getNotificationPreferences,
   updateNotificationPreferences as updateNotificationPrefsApi,
   getMobileUsersSettings,
@@ -52,6 +57,8 @@ import type {
   TableSchemaInfo,
   TableDataResult,
   GetTableDataInput,
+  BulkAssignRoleResult,
+  UserEffectivePermissions,
   MessageThread,
   Message,
   Announcement,
@@ -97,6 +104,8 @@ export const tenantKeys = {
   moduleUsageStats: () => createTenantQueryKey(getTenantId(), 'moduleUsageStats'),
   users: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'users', filters),
+  userEffectivePermissions: (userId: string) =>
+    createTenantQueryKey(getTenantId(), 'userEffectivePermissions', userId),
   database: () => createTenantQueryKey(getTenantId(), 'database'),
   tableSchema: (schemaName: string, tableName: string) =>
     createTenantQueryKey(getTenantId(), 'tableSchema', schemaName, tableName),
@@ -620,6 +629,63 @@ export function useDeactivateTenantUser() {
   });
 }
 
+/**
+ * Re-enable a deactivated user (ADMIN-HIGH-012) — the return leg of
+ * useDeactivateTenantUser, which shipped without one.
+ */
+export function useActivateTenantUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => activateTenantUserApi(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
+    },
+  });
+}
+
+/**
+ * Clear a user's failed-login lockout (ADMIN-HIGH-012 / ORPHAN-MEDIUM-320).
+ */
+export function useUnlockTenantUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => unlockTenantUserApi(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
+    },
+  });
+}
+
+/**
+ * Assign one role to many users (ADMIN-MEDIUM-016). Resolves with the partial
+ * outcome; the caller reports it and decides whether to keep the selection.
+ */
+export function useBulkAssignUserRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { userIds: string[]; roleId: string }): Promise<BulkAssignRoleResult> =>
+      bulkAssignUserRoleApi(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
+    },
+  });
+}
+
+/**
+ * A user's resolved (role + per-user override) permissions (ADMIN-MEDIUM-016).
+ * Disabled until a user is selected, so opening the modal is what fetches.
+ */
+export function useUserEffectivePermissions(
+  userId: string | null,
+): UseQueryResult<UserEffectivePermissions, Error> {
+  return useQuery<UserEffectivePermissions>({
+    queryKey: tenantKeys.userEffectivePermissions(userId ?? ''),
+    queryFn: () => getUserEffectivePermissions(userId ?? ''),
+    enabled: userId !== null,
+    staleTime: 60 * 1000,
+  });
+}
+
 // ============================================================================
 // Module Hooks (additional)
 // ============================================================================
@@ -825,6 +891,7 @@ export function useUpdateMobileUserSettings() {
 // ============================================================================
 
 export type { Tenant, TenantStats, TenantModule, User, TenantDatabaseInfo, TableSchemaInfo, TableDataResult, GetTableDataInput };
+export type { BulkAssignRoleResult, UserEffectivePermissions };
 export type { MessageThread, Message, Announcement };
 export type { ApiSupportTicket, ApiTicketComment, ApiTicketCategory };
 export type { EdgeDeviceListItem, DeviceStats, EdgeDevicesFilters, EdgeDevicesResponse, DeviceEvent };

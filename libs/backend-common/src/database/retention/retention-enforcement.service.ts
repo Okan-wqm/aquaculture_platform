@@ -20,25 +20,27 @@
  *      retention audit trail for ALL tables.
  *
  *   4. DELETE uses parameterised age threshold ($1 = cutoff ISO) +
- *      parameterised legal-hold params ($2..). Table + column
- *      identifiers are inlined from the validated policy fields.
+ *      parameterised legal-hold params ($2..) + parameterised equality
+ *      filters. Table + column identifiers are inlined from the policy,
+ *      which resolved them from the entity's decorator metadata.
  *
  * # Why explicit identifier inlining instead of binding
  *
  * PG bind parameters cannot be used for identifiers (table names,
- * column names). The policy validates identifiers against
- * SAFE_IDENT_RE at REGISTRATION time — before any runtime query
- * can see them — so inlining is safe in the enforcer.
+ * column names). The registry derives every identifier from TypeORM
+ * entity metadata and validates it against SAFE_IDENT_RE at
+ * REGISTRATION time — before any runtime query can see it — so
+ * inlining is safe in the enforcer (ADR-0012).
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import {
-  listRetentionPolicies,
-  type RetentionPolicy,
-} from './retention-policy';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '../../scheduling';
+import { deleteInBatches } from '../batched-delete';
+
+import { listRetentionPolicies, type RetentionPolicy } from './retention-policy';
 
 export interface RetentionEnforcementReport {
   readonly policyId: string;
@@ -57,9 +59,18 @@ export class RetentionEnforcementService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  /**
+   * The scheduled entry point. `enforceAll` keeps its reports for the callers
+   * that ask for them; a tick has nobody to hand them to.
+   */
+  @ScheduledJob({ name: 'retention.enforce-all', cron: CronExpression.EVERY_DAY_AT_3AM })
+  async enforceAllTick(): Promise<void> {
+    await this.enforceAll();
+  }
+
   async enforceAll(): Promise<readonly RetentionEnforcementReport[]> {
     return this.enforceAllOnce();
   }
@@ -69,9 +80,7 @@ export class RetentionEnforcementService {
    * NOW override so specs can time-travel without waiting for
    * actual wall-clock cron ticks.
    */
-  async enforceAllOnce(
-    now: Date = new Date(),
-  ): Promise<readonly RetentionEnforcementReport[]> {
+  async enforceAllOnce(now: Date = new Date()): Promise<readonly RetentionEnforcementReport[]> {
     const policies = listRetentionPolicies();
     if (policies.length === 0) {
       this.logger.debug('No retention policies registered; noop.');
@@ -98,9 +107,7 @@ export class RetentionEnforcementService {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `retention [${p.id}] FAILED: ${msg}. Subsequent policies continue.`,
-        );
+        this.logger.error(`retention [${p.id}] FAILED: ${msg}. Subsequent policies continue.`);
         reports.push({
           policyId: p.id,
           ownerTag: p.ownerTag,
@@ -127,23 +134,33 @@ export class RetentionEnforcementService {
     const quotedTable = `"${p.tableName}"`;
     const quotedCol = `"${p.timestampColumn}"`;
     const baseWhere = `${quotedCol} < $1`;
-    const legalHold = p.legalHoldClause
-      ? ` AND NOT (${p.legalHoldClause})`
-      : '';
-    // RETURNING 1 — same pattern as backfillColumn. TypeORM's
-    // PostgresQueryRunner.query returns the result rows array;
-    // rows.length is the portable row-count observation.
-    const sql =
-      `DELETE FROM ${quotedSchema}.${quotedTable} ` +
-      `WHERE ${baseWhere}${legalHold} ` +
-      `RETURNING 1`;
+    const legalHold = p.legalHoldClause ? ` AND NOT (${p.legalHoldClause})` : '';
     const params: unknown[] = [cutoff.toISOString()];
     if (p.legalHoldParams && p.legalHoldParams.length > 0) {
       for (const v of p.legalHoldParams) params.push(v);
     }
-    const result = await this.dataSource.query(sql, params);
-    if (Array.isArray(result)) return result.length;
-    return 0;
+    // Equality filters narrow the disposal set (e.g. only completed jobs).
+    // Column names come from entity metadata at registration; values are
+    // bound, never inlined.
+    let filterSql = '';
+    for (const filter of p.filters) {
+      params.push(filter.value);
+      filterSql += ` AND "${filter.column}" = $${params.length}`;
+    }
+    // Bounded batches addressed by ctid (ADMIN-HIGH-013): a year of rows is
+    // never one statement, one lock set and one WAL burst. RETURNING 1 rows
+    // are the portable row-count observation.
+    const { deleted, capped } = await deleteInBatches(this.dataSource, {
+      qualifiedTable: `${quotedSchema}.${quotedTable}`,
+      where: `${baseWhere}${legalHold}${filterSql}`,
+      params,
+    });
+    if (capped) {
+      this.logger.warn(
+        `retention [${p.id}] stopped at the per-run batch cap with rows still past cutoff; the next run continues`,
+      );
+    }
+    return deleted;
   }
 
   private cutoffFor(p: RetentionPolicy, now: Date): Date {

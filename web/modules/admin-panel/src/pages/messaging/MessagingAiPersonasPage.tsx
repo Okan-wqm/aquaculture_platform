@@ -6,11 +6,12 @@
  * the actual backend state including LIFE-SAFETY fields (actuationPolicy,
  * autonomousSafetyLimits) from TenantAgentConfig.
  *
- * LIFE-SAFETY (C9): This page controls autonomous PLC actuation.
+ * LIFE-SAFETY (C9): This page reflects autonomous PLC actuation policy.
  * It MUST show real backend state, not hardcoded defaults.
  *
- * The toggle endpoint (PUT /messaging/personas/:id) returns 501 because
- * persona configuration is currently read-only (managed by platform).
+ * Personas are platform-managed and read-only: there is no persona write
+ * endpoint, so the page offers no toggle or "add persona" control
+ * (ADMIN-HIGH-011 — a control whose request can never succeed is not shown).
  *
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
@@ -92,13 +93,7 @@ function tierAndSpecialty(personaId: string | null): { tier: string; specialty: 
 // ============================================================================
 
 /** Row for a single persona in the configuration table. */
-function PersonaRow({
-  persona,
-  onToggleAttempt,
-}: {
-  persona: AiPersonaDefinition;
-  onToggleAttempt: (personaId: string | null) => void;
-}): React.ReactElement {
+function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactElement {
   const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
   const shape = tierAndSpecialty(persona.id);
 
@@ -146,20 +141,6 @@ function PersonaRow({
           )}
         </div>
       </td>
-      <td className="px-4 py-3 text-center">
-        <button
-          onClick={() => onToggleAttempt(persona.id)}
-          className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors bg-green-500 cursor-pointer"
-          title="Attempt to toggle persona (currently read-only)"
-        >
-          <span className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform translate-x-4.5" />
-        </button>
-      </td>
-      <td className="px-4 py-3 text-center">
-        <Badge variant="success" size="sm">
-          All Tenants
-        </Badge>
-      </td>
     </tr>
   );
 }
@@ -174,9 +155,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
   // FE-HIGH-067: idle until the operator names a tenant — nothing is fetched
   // on mount, so an initial `loading: true` left "Load Personas" disabled forever.
   const [loadState, setLoadState] = useState<LoadState>({ loading: false, error: null });
-  const [toggleMessage, setToggleMessage] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState<string>('');
-  const [showAddForm, setShowAddForm] = useState(false);
 
   // ── Load personas from backend ──────────────────────────────────────
 
@@ -188,7 +167,6 @@ function MessagingAiPersonasPage(): React.ReactElement {
     }
 
     setLoadState({ loading: true, error: null });
-    setToggleMessage(null);
 
     try {
       const result = await messagingApi.getPersonas(tid.trim());
@@ -201,26 +179,6 @@ function MessagingAiPersonasPage(): React.ReactElement {
         loading: false,
         error: apiErr.message || 'Failed to load personas from backend.',
       });
-    }
-  }, []);
-
-  // ── Toggle attempt (expected to return 501) ─────────────────────────
-
-  const handleToggleAttempt = useCallback(async (personaId: string | null): Promise<void> => {
-    setToggleMessage(null);
-
-    try {
-      await messagingApi.updatePersona(personaId ?? 'general', { enabled: false });
-    } catch (err: unknown) {
-      const apiErr = err as ApiError;
-      if (apiErr.status === 501) {
-        setToggleMessage(
-          'Persona configuration is read-only (managed by platform). ' +
-            'Per-tenant persona toggles are planned for a future release.',
-        );
-      } else {
-        setToggleMessage(apiErr.message || 'Failed to update persona configuration.');
-      }
     }
   }, []);
 
@@ -239,9 +197,6 @@ function MessagingAiPersonasPage(): React.ReactElement {
             ai-service profile with real actuation policies.
           </p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)} variant="primary" size="sm">
-          + Add Custom Persona
-        </Button>
       </div>
 
       {/* LIFE-SAFETY Warning */}
@@ -307,36 +262,6 @@ function MessagingAiPersonasPage(): React.ReactElement {
         </div>
       </Card>
 
-      {/* Toggle Message (501 response) */}
-      {toggleMessage && (
-        <Card className="p-4 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
-          <div className="flex items-start gap-3">
-            <svg
-              className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div>
-              <p className="text-sm text-amber-800 dark:text-amber-200">{toggleMessage}</p>
-              <button
-                onClick={() => setToggleMessage(null)}
-                className="text-xs text-amber-600 hover:text-amber-800 mt-1"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Error State */}
       {loadState.error && (
         <Card className="p-4 bg-red-50 border-red-200">
@@ -380,16 +305,6 @@ function MessagingAiPersonasPage(): React.ReactElement {
         </Card>
       )}
 
-      {/* Future: Add custom persona form */}
-      {showAddForm && (
-        <Card className="p-4 border-dashed border-2 border-gray-300 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            Custom persona registration (with external MCP server URL) will be available in a future
-            release.
-          </p>
-        </Card>
-      )}
-
       {/* Personas table -- only shown when data is loaded */}
       {!loadState.loading && !loadState.error && personas.length > 0 && (
         <Card className="overflow-hidden">
@@ -410,20 +325,13 @@ function MessagingAiPersonasPage(): React.ReactElement {
                     Capabilities
                   </th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">
-                    Enabled
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">
                     Scope
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {personas.map((persona) => (
-                  <PersonaRow
-                    key={persona.id ?? 'general'}
-                    persona={persona}
-                    onToggleAttempt={(id) => void handleToggleAttempt(id)}
-                  />
+                  <PersonaRow key={persona.id ?? 'general'} persona={persona} />
                 ))}
               </tbody>
             </table>

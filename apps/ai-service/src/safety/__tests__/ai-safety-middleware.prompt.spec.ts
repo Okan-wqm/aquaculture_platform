@@ -1,7 +1,13 @@
 import 'reflect-metadata';
+import { collaborator } from '@aquaculture/testing';
 import { AiSafetyMiddleware } from '../ai-safety.middleware';
 import { InstructionHierarchyService } from '../instruction-hierarchy.service';
-import type { InputFilterService } from '@aquaculture/backend-common/ai-safety';
+import type {
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+} from '@aquaculture/backend-common/ai-safety';
+import type { ToolSchemaValidatorService } from '../tool-schema-validator.service';
 
 /**
  * AISAFETY-MEDIUM-025: the safety pipeline is the ONE place the final system
@@ -26,11 +32,11 @@ describe('AiSafetyMiddleware.preProcess prompt assembly (AISAFETY-MEDIUM-025)', 
       }),
     };
     const middleware = new AiSafetyMiddleware(
-      inputFilter as never,
+      collaborator<InputFilterService>(inputFilter, 'InputFilterService'),
       new InstructionHierarchyService(),
-      {} as never,
-      {} as never,
-      {} as never,
+      collaborator<OutputPiiScannerService>({}, 'OutputPiiScannerService'),
+      collaborator<SsrfValidatorService>({}, 'SsrfValidatorService'),
+      collaborator<ToolSchemaValidatorService>({}, 'ToolSchemaValidatorService'),
     );
     middleware.configure({ instructionHierarchyEnabled: options.hierarchy });
     return middleware;

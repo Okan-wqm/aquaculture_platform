@@ -16,7 +16,6 @@ import {
   Card,
   Modal,
   useToast,
-  ToastContainer,
   graphqlClient,
 } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
@@ -1407,7 +1406,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 const SettingsPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { toast, toasts, dismiss } = useToast();
+  const { toast } = useToast();
 
   // Determine active tab from URL
   const getActiveTab = useCallback((): SettingsTab => {
@@ -1472,9 +1471,6 @@ const SettingsPage: React.FC = () => {
       {activeTab === 'security' && <SecurityTab showToast={toast} />}
       {activeTab === 'preferences' && <PreferencesTab showToast={toast} />}
       {activeTab === 'privacy' && <ConsentSettingsPage />}
-
-      {/* Toast Container */}
-      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 };

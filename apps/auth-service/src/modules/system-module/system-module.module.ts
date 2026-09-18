@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { SeedService } from '../../database/seed.service';
 import { User } from '../authentication/entities/user.entity';
+import { PlatformCapabilityGrant } from '../tenant/entities/platform-capability-grant.entity';
 
 import { Module as SystemModuleEntity } from './entities/module.entity';
 
@@ -14,7 +15,7 @@ import { Module as SystemModuleEntity } from './entities/module.entity';
  * - Database seeding
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([SystemModuleEntity, User])],
+  imports: [TypeOrmModule.forFeature([SystemModuleEntity, User, PlatformCapabilityGrant])],
   providers: [SeedService],
   exports: [TypeOrmModule, SeedService],
 })

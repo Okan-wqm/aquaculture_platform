@@ -280,6 +280,7 @@ mod tests {
                 KeyPurpose::SqlCipherRetainPersistence => 0xa2,
                 KeyPurpose::SqlCipherLicenseCache => 0xa3,
                 KeyPurpose::SqlCipherBytecodeRetain => 0xa4,
+                KeyPurpose::SqlCipherScadaDisplay => 0xa5,
                 KeyPurpose::AuditHmacChain => 0xb1,
                 KeyPurpose::ReplayCache => 0xb2,
                 KeyPurpose::DekEscrow => 0xc1,

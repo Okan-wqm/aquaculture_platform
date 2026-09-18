@@ -10,7 +10,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, tenantScopeOf } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -89,7 +89,7 @@ export class AccountService {
     await Promise.allSettled([
       this.auditAccountEvent('USER_PROFILE_UPDATED', savedUser),
       this.bestEffort.publish(
-        createBaseEvent('UserProfileUpdated', savedUser.tenantId ?? 'system', {
+        createBaseEvent('UserProfileUpdated', tenantScopeOf(savedUser.tenantId), {
           aggregateId: savedUser.id,
           aggregateType: 'User',
           userId: savedUser.id,
@@ -172,7 +172,7 @@ export class AccountService {
     await Promise.allSettled([
       this.auditAccountEvent('PASSWORD_CHANGED', user),
       this.bestEffort.publish(
-        createBaseEvent('UserPasswordChanged', user.tenantId ?? 'system', {
+        createBaseEvent('UserPasswordChanged', tenantScopeOf(user.tenantId), {
           aggregateId: user.id,
           aggregateType: 'User',
           userId: user.id,

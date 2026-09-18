@@ -28,6 +28,13 @@ import { Tank } from '../../tank/entities/tank.entity';
 import { TankBatch, BatchDetail } from '../entities/tank-batch.entity';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
+/**
+ * kg aritmetiğinin float gürültüsü için tolerans (1 g). Bunun ötesindeki
+ * negatif bakiye gerçek bir taşmadır ve sessizce 0'a yuvarlanamaz
+ * (FARM-HIGH-246).
+ */
+const BIOMASS_FLOAT_TOLERANCE_KG = 0.001;
+
 export interface TankBatchDelta {
   batchId: string;
   batchNumber: string;
@@ -127,8 +134,18 @@ export class TankBatchService {
         );
       }
       d.quantity = d.quantity + delta.quantityDelta;
-      // Math.max stays ONLY as a float-noise floor for biomass (kg arithmetic).
-      d.biomassKg = Math.max(0, d.biomassKg + delta.biomassDelta);
+      // Biyokütle taşması SESSİZCE yutulamaz (FARM-HIGH-246): `Math.max(0, …)`
+      // aşırı beyan edilen kg'ı 0'a yuvarlayıp canlı tankı "boş" gösteriyor ve
+      // yemleme planını iptal ettiriyordu. Yalnız float gürültüsü (≤1 g)
+      // tolere edilir; gerçek taşma domain hatasıdır.
+      const nextBiomassKg = d.biomassKg + delta.biomassDelta;
+      if (nextBiomassKg < -BIOMASS_FLOAT_TOLERANCE_KG) {
+        throw new Error(
+          `Batch ${delta.batchNumber || delta.batchId} has only ${d.biomassKg}kg biomass in tank ` +
+            `${tankMeta?.code ?? tankId}; cannot remove ${-delta.biomassDelta}kg`,
+        );
+      }
+      d.biomassKg = Math.max(0, nextBiomassKg);
       if (delta.avgWeightG != null) {
         d.avgWeightG = delta.avgWeightG;
       } else if (d.quantity > 0) {
@@ -146,7 +163,9 @@ export class TankBatchService {
         biomassKg: Math.max(0, delta.biomassDelta),
         avgWeightG:
           delta.avgWeightG ??
-          (delta.quantityDelta > 0 ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta : 0),
+          (delta.quantityDelta > 0
+            ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta
+            : 0),
         percentageOfTank: 0,
       });
     } else if (delta.quantityDelta < 0) {
@@ -166,7 +185,8 @@ export class TankBatchService {
     const volume = tankMeta?.volumeM3 ?? 0;
     tankBatch.densityKgM3 = volume ? tankBatch.totalBiomassKg / volume : 0;
     for (const d of details) {
-      d.percentageOfTank = tankBatch.totalQuantity > 0 ? (d.quantity / tankBatch.totalQuantity) * 100 : 0;
+      d.percentageOfTank =
+        tankBatch.totalQuantity > 0 ? (d.quantity / tankBatch.totalQuantity) * 100 : 0;
     }
 
     tankBatch.isMixedBatch = details.length > 1;

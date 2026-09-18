@@ -113,7 +113,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -215,10 +215,10 @@ jobs:
           # Ignore list mirrors sens-api-gateway/.cargo/audit.toml — lock-step
           # enforced by scripts/ci/check-advisory-ignore-sync.ts.
           # 2026-06-11 (RUST-CVE-001): rumqttc-chain ignores removed (vendored
-          # fork at crates/local-rumqttc). RUSTSEC-2026-0173 (EDGE-CI-007,
-          # proc-macro-error2 via defmt/lorawan, deadline 2026-10-01) was
-          # MISSING here while present in sens-api-gateway-ci.yml — that
-          # latent drift would have failed the next agent-v* release audit.
+          # fork at crates/local-rumqttc). 2026-07-12 (PR935-HIGH-001):
+          # RUSTSEC-2026-0173 (proc-macro-error2, EDGE-CI-007) RESTORED — the
+          # 2026-07-11 removal was wrong; the crate still resolves via
+          # defmt-macros and the advisory is live, so the audit needs the ignore.
           cargo audit --deny warnings \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2025-0141 \

@@ -1,8 +1,10 @@
 import { of } from 'rxjs';
+import { collaborator, stub } from '@aquaculture/testing';
 import type { JwtService } from '@nestjs/jwt';
 import type { ConfigService } from '@nestjs/config';
 import type { ClientProxy } from '@nestjs/microservices';
 import type { Socket } from 'socket.io';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import { AiChatGateway } from '../ai-chat.gateway';
 
 /**
@@ -45,17 +47,25 @@ describe('AiChatGateway persona forwarding', () => {
     } as Partial<ConfigService> as ConfigService;
     const natsClient = { send: natsSend } as Partial<ClientProxy> as ClientProxy;
 
-    gateway = new AiChatGateway(jwtService, configService, natsClient);
-    // The handler touches only id / emit / disconnect / handshake; the rest of
-    // socket.io's surface is unused, so the double is typed through `never`
-    // (the repo's stand-in for an unexercised collaborator surface).
-    const socketDouble = {
-      id: 'sock-1',
-      emit,
-      disconnect: jest.fn(),
-      handshake: { auth: { token: 't' }, headers: {} },
-    };
-    client = socketDouble as never;
+    // SEC-MEDIUM-073/082: guard doubles (register/no-op semantics suffice
+    // for persona-forwarding tests).
+    const limiter = new TenantConnectionLimiter();
+    const revalidator = new WsTokenRevalidator({
+      intervalMs: 3_600_000,
+      isStillValid: async () => true,
+    });
+    gateway = new AiChatGateway(jwtService, configService, limiter, revalidator, natsClient);
+    // The handler touches only id / emit / disconnect / handshake; a
+    // collaborator double fails loudly if the gateway ever reaches further.
+    client = collaborator<Socket>(
+      stub<Socket>({
+        id: 'sock-1',
+        emit,
+        disconnect: jest.fn(),
+        handshake: stub<Socket['handshake']>({ auth: { token: 't' }, headers: {} }),
+      }),
+      'Socket',
+    );
     await gateway.handleConnection(client);
     emit.mockClear();
   });

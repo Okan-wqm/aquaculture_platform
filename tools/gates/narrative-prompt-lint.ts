@@ -44,7 +44,58 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const TOKEN_BUDGET_PER_FILE = 2000;
+/**
+ * Plan ARIA-V4 §2g — the per-tier narrative token budget.
+ *
+ * The budget is DERIVED from the kernel validator, which the plan names as its
+ * SSoT, instead of being restated here. This gate used to carry a flat
+ * `const TOKEN_BUDGET_PER_FILE = 2000` while
+ * `aria_kernel/narrative_prompt_validator.py` scaled the budget by tier
+ * (1 → 1500, 2 → 2800, 3 → 3500). A Tier-3 prompt of 2400 tokens therefore
+ * passed the validator that owns the rule and failed the lint that copies it,
+ * and neither number could be called wrong by reading only one file. Reading
+ * the table makes the two agree by construction rather than by discipline.
+ */
+const TOKEN_BUDGET_SSOT = 'aria-kernel/aria_kernel/narrative_prompt_validator.py';
+const TOKEN_BUDGET_TABLE_RE = /TOKEN_BUDGET_PER_TIER: dict\[int, int\] = \{([^}]*)\}/;
+const TOKEN_BUDGET_ENTRY_RE = /(\d+):\s*(\d+)/g;
+
+function loadTierBudgets(): ReadonlyMap<number, number> {
+  const ssotPath = path.resolve(__dirname, '..', '..', TOKEN_BUDGET_SSOT);
+  const source = fs.readFileSync(ssotPath, 'utf8');
+  const table = TOKEN_BUDGET_TABLE_RE.exec(source);
+  const body = table?.[1];
+  if (body === undefined) {
+    throw new Error(
+      `${TOKEN_BUDGET_SSOT} no longer declares TOKEN_BUDGET_PER_TIER in the expected shape; ` +
+        'this gate reads that table so the two implementations cannot diverge.',
+    );
+  }
+  const budgets = new Map<number, number>();
+  for (const entry of body.matchAll(TOKEN_BUDGET_ENTRY_RE)) {
+    const tier = entry[1];
+    const budget = entry[2];
+    if (tier === undefined || budget === undefined) continue;
+    budgets.set(Number(tier), Number(budget));
+  }
+  if (budgets.size === 0) {
+    throw new Error(`${TOKEN_BUDGET_SSOT} declares an empty TOKEN_BUDGET_PER_TIER table`);
+  }
+  return budgets;
+}
+
+const TIER_BUDGETS = loadTierBudgets();
+/** Tier-3 headroom is the documented default for an unknown or absent tier. */
+const DEFAULT_TIER = 3;
+
+function budgetForTier(tier: number | null): number {
+  const fallback = TIER_BUDGETS.get(DEFAULT_TIER);
+  if (fallback === undefined) {
+    throw new Error(`${TOKEN_BUDGET_SSOT} declares no tier ${DEFAULT_TIER} budget`);
+  }
+  if (tier === null) return fallback;
+  return TIER_BUDGETS.get(tier) ?? fallback;
+}
 
 function writeStdout(message = ''): void {
   process.stdout.write(`${message}\n`);
@@ -217,10 +268,11 @@ function validateFile(filePath: string, registry: PedagogyRegistry): FileValidat
     }
   }
 
-  // Token-budget check.
-  if (result.approx_tokens > TOKEN_BUDGET_PER_FILE) {
+  // Token-budget check, at the tier's budget rather than a flat ceiling.
+  const tokenBudget = budgetForTier(tier);
+  if (result.approx_tokens > tokenBudget) {
     result.violations.push(
-      `${path.basename(filePath)}: approx tokens ${result.approx_tokens} > budget ${TOKEN_BUDGET_PER_FILE} (Plan ARIA-V4 §2g I-V4-07)`,
+      `${path.basename(filePath)}: approx tokens ${result.approx_tokens} > budget ${tokenBudget} for tier ${tier} (Plan ARIA-V4 §2g I-V4-07)`,
     );
   }
 

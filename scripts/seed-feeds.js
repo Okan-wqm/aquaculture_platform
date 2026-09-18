@@ -24,9 +24,21 @@ const gqlRequest = createGraphqlRequester({
   getToken: () => TOKEN,
 });
 
+// SEC-MEDIUM (2026-08-23 scan №3): credentials come from the environment and
+// the script fails fast when they are absent — no real account password may
+// ever live in the repository (the previously committed one has been rotated).
+const SEED_EMAIL = process.env.SEED_USER_EMAIL;
+const SEED_PASSWORD = process.env.SEED_USER_PASSWORD;
+if (!SEED_EMAIL || !SEED_PASSWORD) {
+  console.error(
+    'SEED_USER_EMAIL and SEED_USER_PASSWORD must be set (see docs/runbooks/secret-rotation.md)',
+  );
+  process.exit(1);
+}
+
 async function login() {
   const data = await gqlRequest(`
-    mutation { login(input: { email: "okan@suderra.com", password: "12345678" }) { accessToken } }
+    mutation { login(input: { email: "${SEED_EMAIL}", password: "${SEED_PASSWORD}" }) { accessToken } }
   `);
   TOKEN = data.login.accessToken;
   console.log('Logged in successfully');
@@ -70,11 +82,14 @@ async function createSuppliers() {
   const supplierIds = {};
   for (const s of newSuppliers) {
     try {
-      const data = await gqlRequest(`
+      const data = await gqlRequest(
+        `
         mutation CreateSupplier($input: CreateSupplierInput!) {
           createSupplier(input: $input) { id name code }
         }
-      `, { input: s });
+      `,
+        { input: s },
+      );
       supplierIds[s.code] = data.createSupplier.id;
       console.log(`Created supplier: ${s.name} (${data.createSupplier.id})`);
     } catch (e) {
@@ -116,7 +131,14 @@ function generateMatrix(temps, weights, baseRate, tempCoeff, weightDecay) {
     rates.push(row);
     fcrMatrix.push(fcrRow);
   }
-  return { temperatures: temps, weights, rates, fcrMatrix, temperatureUnit: 'celsius', weightUnit: 'gram' };
+  return {
+    temperatures: temps,
+    weights,
+    rates,
+    fcrMatrix,
+    temperatureUnit: 'celsius',
+    weightUnit: 'gram',
+  };
 }
 
 // Ballan Wrasse matrix: 8-18°C, various weight ranges
@@ -173,7 +195,8 @@ function buildFeeds() {
       minFishWeightG: 0,
       maxFishWeightG: 2,
       productStage: 'First Feeding',
-      composition: 'Fish meal, krill meal, squid meal, fish oil, wheat gluten, vitamins, minerals, astaxanthin',
+      composition:
+        'Fish meal, krill meal, squid meal, fish oil, wheat gluten, vitamins, minerals, astaxanthin',
       storageRequirements: 'Cool dry place, <15°C, sealed container',
       shelfLifeMonths: 12,
       pricePerKg: 28.5,
@@ -181,7 +204,16 @@ function buildFeeds() {
       unitPrice: 142.5,
       minStock: 10,
       quantity: 50,
-      nutritionalContent: { crudeProtein: 58, crudeFat: 16, crudeFiber: 0.5, crudeAsh: 10, moisture: 6, phosphorus: 1.5, omega3: 3.2, nfe: 9.5 },
+      nutritionalContent: {
+        crudeProtein: 58,
+        crudeFat: 16,
+        crudeFiber: 0.5,
+        crudeAsh: 10,
+        moisture: 6,
+        phosphorus: 1.5,
+        omega3: 3.2,
+        nfe: 9.5,
+      },
       feedingMatrix2D: wrasseMatrix(0, 2),
       environmentalImpact: { co2EqWithLuc: 4.2, co2EqWithoutLuc: 3.1 },
     },
@@ -199,7 +231,8 @@ function buildFeeds() {
       minFishWeightG: 0,
       maxFishWeightG: 2,
       productStage: 'First Feeding',
-      composition: 'Fish meal, shrimp meal, fish oil, soy protein concentrate, wheat, vitamins, minerals',
+      composition:
+        'Fish meal, shrimp meal, fish oil, soy protein concentrate, wheat, vitamins, minerals',
       storageRequirements: 'Dry storage, <18°C, avoid direct sunlight',
       shelfLifeMonths: 10,
       pricePerKg: 26.0,
@@ -207,7 +240,16 @@ function buildFeeds() {
       unitPrice: 130.0,
       minStock: 10,
       quantity: 40,
-      nutritionalContent: { crudeProtein: 56, crudeFat: 15, crudeFiber: 0.8, crudeAsh: 11, moisture: 7, phosphorus: 1.4, omega3: 2.8, nfe: 10.2 },
+      nutritionalContent: {
+        crudeProtein: 56,
+        crudeFat: 15,
+        crudeFiber: 0.8,
+        crudeAsh: 11,
+        moisture: 7,
+        phosphorus: 1.4,
+        omega3: 2.8,
+        nfe: 10.2,
+      },
       feedingMatrix2D: wrasseMatrix(0, 2),
       environmentalImpact: { co2EqWithLuc: 3.8, co2EqWithoutLuc: 2.9 },
     },
@@ -226,7 +268,8 @@ function buildFeeds() {
       minFishWeightG: 2,
       maxFishWeightG: 10,
       productStage: 'Weaning',
-      composition: 'Fish meal, krill meal, fish oil, wheat gluten, soy lecithin, vitamins, pigments',
+      composition:
+        'Fish meal, krill meal, fish oil, wheat gluten, soy lecithin, vitamins, pigments',
       storageRequirements: 'Cool dry place, <15°C',
       shelfLifeMonths: 12,
       pricePerKg: 22.0,
@@ -234,7 +277,16 @@ function buildFeeds() {
       unitPrice: 220.0,
       minStock: 20,
       quantity: 80,
-      nutritionalContent: { crudeProtein: 55, crudeFat: 15, crudeFiber: 0.8, crudeAsh: 10.5, moisture: 7, phosphorus: 1.3, omega3: 3.0, nfe: 11.7 },
+      nutritionalContent: {
+        crudeProtein: 55,
+        crudeFat: 15,
+        crudeFiber: 0.8,
+        crudeAsh: 10.5,
+        moisture: 7,
+        phosphorus: 1.3,
+        omega3: 3.0,
+        nfe: 11.7,
+      },
       feedingMatrix2D: wrasseMatrix(2, 10),
       environmentalImpact: { co2EqWithLuc: 3.5, co2EqWithoutLuc: 2.7 },
     },
@@ -260,7 +312,16 @@ function buildFeeds() {
       unitPrice: 205.0,
       minStock: 20,
       quantity: 60,
-      nutritionalContent: { crudeProtein: 54, crudeFat: 14, crudeFiber: 1.0, crudeAsh: 11, moisture: 7, phosphorus: 1.4, omega3: 2.6, nfe: 12.0 },
+      nutritionalContent: {
+        crudeProtein: 54,
+        crudeFat: 14,
+        crudeFiber: 1.0,
+        crudeAsh: 11,
+        moisture: 7,
+        phosphorus: 1.4,
+        omega3: 2.6,
+        nfe: 12.0,
+      },
       feedingMatrix2D: wrasseMatrix(2, 10),
       environmentalImpact: { co2EqWithLuc: 3.3, co2EqWithoutLuc: 2.5 },
     },
@@ -279,7 +340,8 @@ function buildFeeds() {
       minFishWeightG: 10,
       maxFishWeightG: 50,
       productStage: 'Grower S',
-      composition: 'Fish meal, fish oil, soy protein, wheat gluten, rapeseed oil, vitamins, minerals, astaxanthin',
+      composition:
+        'Fish meal, fish oil, soy protein, wheat gluten, rapeseed oil, vitamins, minerals, astaxanthin',
       storageRequirements: 'Cool storage, <20°C, dry conditions',
       shelfLifeMonths: 14,
       pricePerKg: 16.0,
@@ -287,7 +349,16 @@ function buildFeeds() {
       unitPrice: 400.0,
       minStock: 50,
       quantity: 200,
-      nutritionalContent: { crudeProtein: 52, crudeFat: 16, crudeFiber: 1.2, crudeAsh: 9.5, moisture: 7, phosphorus: 1.2, omega3: 2.8, nfe: 14.3 },
+      nutritionalContent: {
+        crudeProtein: 52,
+        crudeFat: 16,
+        crudeFiber: 1.2,
+        crudeAsh: 9.5,
+        moisture: 7,
+        phosphorus: 1.2,
+        omega3: 2.8,
+        nfe: 14.3,
+      },
       feedingMatrix2D: wrasseMatrix(10, 50),
       environmentalImpact: { co2EqWithLuc: 2.9, co2EqWithoutLuc: 2.2 },
     },
@@ -305,7 +376,8 @@ function buildFeeds() {
       minFishWeightG: 10,
       maxFishWeightG: 50,
       productStage: 'Grower S',
-      composition: 'Fish meal, krill oil, rapeseed oil, wheat, soy protein concentrate, vitamins, minerals',
+      composition:
+        'Fish meal, krill oil, rapeseed oil, wheat, soy protein concentrate, vitamins, minerals',
       storageRequirements: 'Dry, <20°C, away from direct sunlight',
       shelfLifeMonths: 12,
       pricePerKg: 15.5,
@@ -313,7 +385,16 @@ function buildFeeds() {
       unitPrice: 387.5,
       minStock: 50,
       quantity: 150,
-      nutritionalContent: { crudeProtein: 50, crudeFat: 17, crudeFiber: 1.5, crudeAsh: 9, moisture: 7.5, phosphorus: 1.1, omega3: 3.0, nfe: 15.0 },
+      nutritionalContent: {
+        crudeProtein: 50,
+        crudeFat: 17,
+        crudeFiber: 1.5,
+        crudeAsh: 9,
+        moisture: 7.5,
+        phosphorus: 1.1,
+        omega3: 3.0,
+        nfe: 15.0,
+      },
       feedingMatrix2D: wrasseMatrix(10, 50),
       environmentalImpact: { co2EqWithLuc: 2.7, co2EqWithoutLuc: 2.0 },
     },
@@ -332,7 +413,8 @@ function buildFeeds() {
       minFishWeightG: 50,
       maxFishWeightG: 150,
       productStage: 'Grower L',
-      composition: 'Fish meal, rapeseed oil, fish oil, soy protein, wheat, vitamins, minerals, natural pigments',
+      composition:
+        'Fish meal, rapeseed oil, fish oil, soy protein, wheat, vitamins, minerals, natural pigments',
       storageRequirements: 'Cool dry storage, <20°C',
       shelfLifeMonths: 15,
       pricePerKg: 12.0,
@@ -340,7 +422,16 @@ function buildFeeds() {
       unitPrice: 300.0,
       minStock: 100,
       quantity: 500,
-      nutritionalContent: { crudeProtein: 48, crudeFat: 18, crudeFiber: 1.8, crudeAsh: 8.5, moisture: 7, phosphorus: 1.0, omega3: 2.5, nfe: 16.7 },
+      nutritionalContent: {
+        crudeProtein: 48,
+        crudeFat: 18,
+        crudeFiber: 1.8,
+        crudeAsh: 8.5,
+        moisture: 7,
+        phosphorus: 1.0,
+        omega3: 2.5,
+        nfe: 16.7,
+      },
       feedingMatrix2D: wrasseMatrix(50, 150),
       environmentalImpact: { co2EqWithLuc: 2.5, co2EqWithoutLuc: 1.8 },
     },
@@ -366,7 +457,16 @@ function buildFeeds() {
       unitPrice: 287.5,
       minStock: 100,
       quantity: 400,
-      nutritionalContent: { crudeProtein: 47, crudeFat: 17, crudeFiber: 2.0, crudeAsh: 9, moisture: 7, phosphorus: 1.1, omega3: 2.2, nfe: 18.0 },
+      nutritionalContent: {
+        crudeProtein: 47,
+        crudeFat: 17,
+        crudeFiber: 2.0,
+        crudeAsh: 9,
+        moisture: 7,
+        phosphorus: 1.1,
+        omega3: 2.2,
+        nfe: 18.0,
+      },
       feedingMatrix2D: wrasseMatrix(50, 150),
       environmentalImpact: { co2EqWithLuc: 2.1, co2EqWithoutLuc: 1.5 },
     },
@@ -385,7 +485,8 @@ function buildFeeds() {
       minFishWeightG: 150,
       maxFishWeightG: 350,
       productStage: 'Finisher',
-      composition: 'Fish meal, rapeseed oil, soy protein, wheat, fish oil, vitamins, astaxanthin, minerals',
+      composition:
+        'Fish meal, rapeseed oil, soy protein, wheat, fish oil, vitamins, astaxanthin, minerals',
       storageRequirements: 'Dry, <20°C, use within 3 months of opening',
       shelfLifeMonths: 18,
       pricePerKg: 10.0,
@@ -393,7 +494,16 @@ function buildFeeds() {
       unitPrice: 250.0,
       minStock: 200,
       quantity: 800,
-      nutritionalContent: { crudeProtein: 45, crudeFat: 20, crudeFiber: 2.0, crudeAsh: 8, moisture: 7, phosphorus: 0.9, omega3: 2.8, nfe: 18.0 },
+      nutritionalContent: {
+        crudeProtein: 45,
+        crudeFat: 20,
+        crudeFiber: 2.0,
+        crudeAsh: 8,
+        moisture: 7,
+        phosphorus: 0.9,
+        omega3: 2.8,
+        nfe: 18.0,
+      },
       feedingMatrix2D: wrasseMatrix(150, 350),
       environmentalImpact: { co2EqWithLuc: 2.3, co2EqWithoutLuc: 1.6 },
     },
@@ -411,7 +521,8 @@ function buildFeeds() {
       minFishWeightG: 150,
       maxFishWeightG: 350,
       productStage: 'Transfer/Finisher',
-      composition: 'Fish meal, fish oil, rapeseed oil, soy protein, wheat gluten, vitamins, minerals, immune stimulants',
+      composition:
+        'Fish meal, fish oil, rapeseed oil, soy protein, wheat gluten, vitamins, minerals, immune stimulants',
       storageRequirements: 'Cool, dry, <18°C',
       shelfLifeMonths: 15,
       pricePerKg: 10.5,
@@ -419,7 +530,16 @@ function buildFeeds() {
       unitPrice: 262.5,
       minStock: 200,
       quantity: 600,
-      nutritionalContent: { crudeProtein: 46, crudeFat: 19, crudeFiber: 1.8, crudeAsh: 8.5, moisture: 7, phosphorus: 1.0, omega3: 3.0, nfe: 17.7 },
+      nutritionalContent: {
+        crudeProtein: 46,
+        crudeFat: 19,
+        crudeFiber: 1.8,
+        crudeAsh: 8.5,
+        moisture: 7,
+        phosphorus: 1.0,
+        omega3: 3.0,
+        nfe: 17.7,
+      },
       feedingMatrix2D: wrasseMatrix(150, 350),
       environmentalImpact: { co2EqWithLuc: 2.4, co2EqWithoutLuc: 1.7 },
     },
@@ -442,7 +562,8 @@ function buildFeeds() {
       minFishWeightG: 0,
       maxFishWeightG: 2,
       productStage: 'First Feeding',
-      composition: 'Fish meal, krill meal, squid meal, fish oil, wheat, vitamins, minerals, taurine',
+      composition:
+        'Fish meal, krill meal, squid meal, fish oil, wheat, vitamins, minerals, taurine',
       storageRequirements: 'Refrigerated, <10°C, sealed',
       shelfLifeMonths: 9,
       pricePerKg: 32.0,
@@ -450,7 +571,16 @@ function buildFeeds() {
       unitPrice: 64.0,
       minStock: 5,
       quantity: 20,
-      nutritionalContent: { crudeProtein: 60, crudeFat: 14, crudeFiber: 0.4, crudeAsh: 12, moisture: 6, phosphorus: 1.6, omega3: 3.5, nfe: 7.6 },
+      nutritionalContent: {
+        crudeProtein: 60,
+        crudeFat: 14,
+        crudeFiber: 0.4,
+        crudeAsh: 12,
+        moisture: 6,
+        phosphorus: 1.6,
+        omega3: 3.5,
+        nfe: 7.6,
+      },
       feedingMatrix2D: lumpfishMatrix(0, 2),
       environmentalImpact: { co2EqWithLuc: 4.5, co2EqWithoutLuc: 3.4 },
     },
@@ -469,7 +599,8 @@ function buildFeeds() {
       minFishWeightG: 2,
       maxFishWeightG: 10,
       productStage: 'Fry',
-      composition: 'Fish meal, shrimp meal, fish oil, wheat gluten, soy lecithin, vitamins, beta-glucans',
+      composition:
+        'Fish meal, shrimp meal, fish oil, wheat gluten, soy lecithin, vitamins, beta-glucans',
       storageRequirements: 'Cool, <15°C, dry',
       shelfLifeMonths: 11,
       pricePerKg: 24.0,
@@ -477,7 +608,16 @@ function buildFeeds() {
       unitPrice: 120.0,
       minStock: 10,
       quantity: 40,
-      nutritionalContent: { crudeProtein: 56, crudeFat: 15, crudeFiber: 0.8, crudeAsh: 10, moisture: 7, phosphorus: 1.3, omega3: 3.0, nfe: 11.2 },
+      nutritionalContent: {
+        crudeProtein: 56,
+        crudeFat: 15,
+        crudeFiber: 0.8,
+        crudeAsh: 10,
+        moisture: 7,
+        phosphorus: 1.3,
+        omega3: 3.0,
+        nfe: 11.2,
+      },
       feedingMatrix2D: lumpfishMatrix(2, 10),
       environmentalImpact: { co2EqWithLuc: 3.6, co2EqWithoutLuc: 2.7 },
     },
@@ -496,7 +636,8 @@ function buildFeeds() {
       minFishWeightG: 10,
       maxFishWeightG: 30,
       productStage: 'Grower',
-      composition: 'Fish meal, fish oil, rapeseed oil, wheat, soy protein, vitamins, minerals, carotenoids',
+      composition:
+        'Fish meal, fish oil, rapeseed oil, wheat, soy protein, vitamins, minerals, carotenoids',
       storageRequirements: 'Dry, <20°C',
       shelfLifeMonths: 14,
       pricePerKg: 14.5,
@@ -504,7 +645,16 @@ function buildFeeds() {
       unitPrice: 362.5,
       minStock: 30,
       quantity: 120,
-      nutritionalContent: { crudeProtein: 50, crudeFat: 16, crudeFiber: 1.5, crudeAsh: 9, moisture: 7, phosphorus: 1.1, omega3: 2.5, nfe: 16.5 },
+      nutritionalContent: {
+        crudeProtein: 50,
+        crudeFat: 16,
+        crudeFiber: 1.5,
+        crudeAsh: 9,
+        moisture: 7,
+        phosphorus: 1.1,
+        omega3: 2.5,
+        nfe: 16.5,
+      },
       feedingMatrix2D: lumpfishMatrix(10, 30),
       environmentalImpact: { co2EqWithLuc: 2.8, co2EqWithoutLuc: 2.1 },
     },
@@ -523,7 +673,8 @@ function buildFeeds() {
       minFishWeightG: 30,
       maxFishWeightG: 50,
       productStage: 'Transfer',
-      composition: 'Fish meal, rapeseed oil, fish oil, soy protein, wheat, immune boosters, vitamins',
+      composition:
+        'Fish meal, rapeseed oil, fish oil, soy protein, wheat, immune boosters, vitamins',
       storageRequirements: 'Dry, cool, <20°C',
       shelfLifeMonths: 15,
       pricePerKg: 12.5,
@@ -531,7 +682,16 @@ function buildFeeds() {
       unitPrice: 312.5,
       minStock: 50,
       quantity: 200,
-      nutritionalContent: { crudeProtein: 48, crudeFat: 18, crudeFiber: 1.8, crudeAsh: 8.5, moisture: 7, phosphorus: 1.0, omega3: 2.8, nfe: 16.7 },
+      nutritionalContent: {
+        crudeProtein: 48,
+        crudeFat: 18,
+        crudeFiber: 1.8,
+        crudeAsh: 8.5,
+        moisture: 7,
+        phosphorus: 1.0,
+        omega3: 2.8,
+        nfe: 16.7,
+      },
       feedingMatrix2D: lumpfishMatrix(30, 50),
       environmentalImpact: { co2EqWithLuc: 2.5, co2EqWithoutLuc: 1.8 },
     },
@@ -554,7 +714,8 @@ function buildFeeds() {
       minFishWeightG: 0,
       maxFishWeightG: 0.5,
       productStage: 'Larval',
-      composition: 'Marine protein hydrolysate, krill meal, phospholipids, fish oil, vitamins, taurine, DHA',
+      composition:
+        'Marine protein hydrolysate, krill meal, phospholipids, fish oil, vitamins, taurine, DHA',
       storageRequirements: 'Refrigerated, 2-8°C, nitrogen-sealed',
       shelfLifeMonths: 6,
       pricePerKg: 85.0,
@@ -562,7 +723,16 @@ function buildFeeds() {
       unitPrice: 85.0,
       minStock: 3,
       quantity: 10,
-      nutritionalContent: { crudeProtein: 62, crudeFat: 14, crudeFiber: 0.2, crudeAsh: 12, moisture: 5, phosphorus: 1.8, omega3: 4.5, nfe: 6.8 },
+      nutritionalContent: {
+        crudeProtein: 62,
+        crudeFat: 14,
+        crudeFiber: 0.2,
+        crudeAsh: 12,
+        moisture: 5,
+        phosphorus: 1.8,
+        omega3: 4.5,
+        nfe: 6.8,
+      },
       feedingMatrix2D: halibutMatrix(0, 0.5),
       environmentalImpact: { co2EqWithLuc: 6.2, co2EqWithoutLuc: 4.8 },
     },
@@ -581,7 +751,8 @@ function buildFeeds() {
       minFishWeightG: 0.5,
       maxFishWeightG: 2,
       productStage: 'First Feeding',
-      composition: 'Fish meal, krill meal, fish oil, squid meal, wheat gluten, vitamins, minerals, phospholipids',
+      composition:
+        'Fish meal, krill meal, fish oil, squid meal, wheat gluten, vitamins, minerals, phospholipids',
       storageRequirements: 'Refrigerated, <10°C, sealed container',
       shelfLifeMonths: 8,
       pricePerKg: 55.0,
@@ -589,7 +760,16 @@ function buildFeeds() {
       unitPrice: 110.0,
       minStock: 5,
       quantity: 15,
-      nutritionalContent: { crudeProtein: 58, crudeFat: 16, crudeFiber: 0.5, crudeAsh: 11, moisture: 6, phosphorus: 1.6, omega3: 4.0, nfe: 8.5 },
+      nutritionalContent: {
+        crudeProtein: 58,
+        crudeFat: 16,
+        crudeFiber: 0.5,
+        crudeAsh: 11,
+        moisture: 6,
+        phosphorus: 1.6,
+        omega3: 4.0,
+        nfe: 8.5,
+      },
       feedingMatrix2D: halibutMatrix(0.5, 2),
       environmentalImpact: { co2EqWithLuc: 5.0, co2EqWithoutLuc: 3.8 },
     },
@@ -608,7 +788,8 @@ function buildFeeds() {
       minFishWeightG: 2,
       maxFishWeightG: 5,
       productStage: 'Fry',
-      composition: 'Fish meal, fish oil, krill meal, wheat, soy protein, vitamins, minerals, carotenoids',
+      composition:
+        'Fish meal, fish oil, krill meal, wheat, soy protein, vitamins, minerals, carotenoids',
       storageRequirements: 'Cool, <15°C, dry conditions',
       shelfLifeMonths: 10,
       pricePerKg: 35.0,
@@ -616,7 +797,16 @@ function buildFeeds() {
       unitPrice: 175.0,
       minStock: 8,
       quantity: 30,
-      nutritionalContent: { crudeProtein: 55, crudeFat: 17, crudeFiber: 0.8, crudeAsh: 10, moisture: 7, phosphorus: 1.4, omega3: 3.5, nfe: 10.2 },
+      nutritionalContent: {
+        crudeProtein: 55,
+        crudeFat: 17,
+        crudeFiber: 0.8,
+        crudeAsh: 10,
+        moisture: 7,
+        phosphorus: 1.4,
+        omega3: 3.5,
+        nfe: 10.2,
+      },
       feedingMatrix2D: halibutMatrix(2, 5),
       environmentalImpact: { co2EqWithLuc: 4.0, co2EqWithoutLuc: 3.0 },
     },
@@ -635,7 +825,8 @@ function buildFeeds() {
       minFishWeightG: 5,
       maxFishWeightG: 10,
       productStage: 'Juvenile Grower',
-      composition: 'Fish meal, fish oil, rapeseed oil, soy protein, wheat gluten, vitamins, minerals, nucleotides',
+      composition:
+        'Fish meal, fish oil, rapeseed oil, soy protein, wheat gluten, vitamins, minerals, nucleotides',
       storageRequirements: 'Dry, cool, <18°C',
       shelfLifeMonths: 12,
       pricePerKg: 22.0,
@@ -643,7 +834,16 @@ function buildFeeds() {
       unitPrice: 220.0,
       minStock: 15,
       quantity: 60,
-      nutritionalContent: { crudeProtein: 52, crudeFat: 18, crudeFiber: 1.2, crudeAsh: 9, moisture: 7, phosphorus: 1.2, omega3: 3.0, nfe: 12.8 },
+      nutritionalContent: {
+        crudeProtein: 52,
+        crudeFat: 18,
+        crudeFiber: 1.2,
+        crudeAsh: 9,
+        moisture: 7,
+        phosphorus: 1.2,
+        omega3: 3.0,
+        nfe: 12.8,
+      },
       feedingMatrix2D: halibutMatrix(5, 10),
       environmentalImpact: { co2EqWithLuc: 3.2, co2EqWithoutLuc: 2.4 },
     },
@@ -674,8 +874,10 @@ async function createFeeds(supplierIds) {
     // Resolve supplier IDs for new suppliers
     if (feed.supplierId === null) {
       if (feed.brand === 'EWOS') feed.supplierId = supplierIds['SUP-FEED-03'] || undefined;
-      else if (feed.brand === 'Mowi Feed') feed.supplierId = supplierIds['SUP-FEED-04'] || undefined;
-      else if (feed.brand === 'Aller Aqua') feed.supplierId = supplierIds['SUP-FEED-05'] || undefined;
+      else if (feed.brand === 'Mowi Feed')
+        feed.supplierId = supplierIds['SUP-FEED-04'] || undefined;
+      else if (feed.brand === 'Aller Aqua')
+        feed.supplierId = supplierIds['SUP-FEED-05'] || undefined;
     }
 
     // Remove supplierId if undefined (not null)
@@ -711,7 +913,9 @@ async function createFeeds(supplierIds) {
 
     try {
       const data = await gqlRequest(CREATE_FEED_MUTATION, { input });
-      console.log(`[${++created}/${feeds.length}] Created: ${data.createFeed.name} (${data.createFeed.code}) - ${data.createFeed.targetSpecies} minW=${data.createFeed.minFishWeightG}g`);
+      console.log(
+        `[${++created}/${feeds.length}] Created: ${data.createFeed.name} (${data.createFeed.code}) - ${data.createFeed.targetSpecies} minW=${data.createFeed.minFishWeightG}g`,
+      );
     } catch (e) {
       console.error(`FAILED: ${feed.name} - ${e.message}`);
     }

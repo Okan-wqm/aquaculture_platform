@@ -35,6 +35,26 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import sha256_file
 
+# A liveness guard for the race and crash fixtures — the bound after which a
+# peer that never resumes, or a spawned submit child that never reaches its
+# exit boundary, is declared wedged — not a performance budget for a real
+# submit. The threaded fixtures pause one writer before it takes any lock
+# and let the other run the REAL submit_claim_result (evidence checks,
+# ledger hashing, sealing); the crash fixtures spawn a fresh interpreter
+# that imports the kernel and runs that same submit up to an append
+# boundary. A wedge shows as a wait that never ends, and a loaded host shows
+# as a wait of tens of seconds. The pre-push suite of 2026-09-11 (3137
+# tests, five hours, host in IO wait beside two live model runs) saw the
+# real submit exceed a 5 s bound three times, each recorded as a
+# `TimeoutError('submit did not finish')`; the lane battery of 2026-09-13
+# (load 21 on four CPUs beside three other suites) saw the spawned child
+# exceed a 30 s join seven times, each recorded as `submit child hung after
+# artifact seals` — the module green alone in 66 s. No deadlock either
+# time, one busy host. The guard is large enough that only a wedge reaches
+# it, and it is ONE number for every fixture here, so a second budget
+# cannot be typed beside a wait again.
+RACE_LIVENESS_SECONDS = 120
+
 
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root."""
@@ -177,7 +197,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="evidence_judgment",
             suggested_prompt=f"validate F-001 evidence{nonce}",
             must_satisfy=[
-                {"id": "F-001-evidence", "criterion": "F-001 evidence is sufficient"},
+                {"id": "F-001-evidence", "description": "F-001 evidence is sufficient"},
             ],
             allowed_scope=["**"],
             convergence_id=f"conv-001{nonce}",
@@ -310,7 +330,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
@@ -775,7 +795,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                     },
                 )
                 process.start()
-                process.join(timeout=30)
+                process.join(timeout=RACE_LIVENESS_SECONDS)
                 if process.is_alive():
                     process.kill()
                     process.join(timeout=5)
@@ -844,7 +864,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
@@ -1783,7 +1803,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 in {Path(path).resolve() for path in paths}
             ):
                 submit_waiting.set()
-                if not release_finished.wait(timeout=5):
+                if not release_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("release did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1812,7 +1832,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name="submit-before-release-race",
             )
             submit_thread.start()
-            self.assertTrue(submit_waiting.wait(timeout=5))
+            self.assertTrue(submit_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             release_claim(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1821,7 +1841,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 base_dir=self.tools,
             )
             release_finished.set()
-            submit_thread.join(timeout=5)
+            submit_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(submit_thread.is_alive())
         self.assertEqual(len(submit_errors), 1, submit_errors)
@@ -1867,7 +1887,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and record.get("event") == target_event
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             return real_append(path, record, **append_kwargs)
 
@@ -1879,7 +1899,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and {claims_path, results_path}.issubset(resolved)
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1929,7 +1949,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name=f"{operation}-race",
             )
             lifecycle_thread.start()
-            self.assertTrue(lifecycle_waiting.wait(timeout=5))
+            self.assertTrue(lifecycle_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             submitted = submit_claim_result(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1940,7 +1960,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 **kwargs,
             )
             submit_finished.set()
-            lifecycle_thread.join(timeout=5)
+            lifecycle_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(lifecycle_thread.is_alive())
         self.assertEqual(submitted["status"], "accepted")
@@ -2148,7 +2168,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="primary_plan",
             suggested_prompt="draft architecture-first plan",
             must_satisfy=[
-                {"id": "sod-test", "criterion": "separation of duties enforced"},
+                {"id": "sod-test", "description": "separation of duties enforced"},
             ],
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-002",
@@ -2213,6 +2233,78 @@ class SubmitResultE2ETests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         joined = " ".join(result["reasons"])
         self.assertIn("envelope_unreadable", joined)
+
+    def _planner_submission(self, plan_content: dict) -> dict:
+        """Submit a challenger_plan envelope carrying ``plan_content``."""
+        from aria_kernel.plan_contract import render_plan_contract
+
+        request = create_agent_invocation_request(
+            target_agent="aria-challenger-planner",
+            role="challenger_plan",
+            suggested_prompt="write a competing plan " + plan_content["title"],
+            must_satisfy=[{"id": "MS-1", "description": "one falsifiable obligation"}],
+            allowed_scope=["**"],
+            convergence_id="plan-contract-seam",
+            target_sha=self.target_sha,
+            base_dir=self.tools,
+            plan_contract=render_plan_contract(self.tools),
+        )
+        claim = claim_request(
+            request_id=request["request_id"], agent_id="planner-worker-001", base_dir=self.tools,
+        )
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "challenger_plan",
+            "status": "submitted",
+            "satisfaction_matrix": [{"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["src.txt:1"]}],
+            "evidence_refs": ["src.txt:1"],
+            "plan_content": plan_content,
+        }
+        out_path = Path(request["expected_output_path"])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(envelope), encoding="utf-8")
+        transcript = self._transcript_artifact(request, claim)
+        return submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id=claim["agent_id"],
+            lease_token=claim["lease_token"],
+            output_path=out_path,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **self._binding_kwargs(request, transcript),
+        )
+
+    def test_a_planner_envelope_breaking_the_plan_contract_is_rejected_not_accepted(self) -> None:
+        """The plan contract is judged BEFORE acceptance.
+
+        Trial ten (2026-09-12): the first native CONVERGED plan carried no
+        `architectural_tier` and a plan-authored `npx nx run shell:test`;
+        nothing refused it until staging, when the plan was immutable. Had
+        the bridge refused it instead, the accepted-but-unbridged envelope
+        would have read as dead (ARIA-HIGH-080). A REJECTION here releases
+        the claim, and the reasons are the vocabulary the sealed prompt's
+        Plan contract section already taught the agent.
+        """
+        body = {
+            "schema_version": 1, "title": "contract-breaking", "summary": "s",
+            "affected_surfaces": [{"paths": ["src.txt"]}], "key_changes": ["k"],
+            "validation_commands": [{"cmd": "npx nx run shell:test"}],
+            "evidence_refs": ["src.txt:1"],
+        }
+        result = self._planner_submission(body)
+        self.assertEqual(result["status"], "rejected", result)
+        joined = " ".join(result["reasons"])
+        self.assertIn("plan_contract: plan_architectural_tier_missing", joined)
+        self.assertIn("plan_contract: plan_validation_command_not_declared:npx nx run shell:test", joined)
+
+        complete = {**body, "title": "contract-complete", "architectural_tier": 2,
+                    "validation_commands": [{"cmd": "nx affected --target=test"}]}
+        result = self._planner_submission(complete)
+        self.assertNotIn("plan_contract:", " ".join(result["reasons"]), result)
+        self.assertEqual(result["status"], "accepted", result)
 
 
 if __name__ == "__main__":

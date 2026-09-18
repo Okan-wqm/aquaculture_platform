@@ -15,6 +15,8 @@ import { ProtocolAssignment } from './entities/protocol-assignment.entity';
 import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
 import { FeedingMeal } from './entities/feeding-meal.entity';
 import { FeedingForecastSnapshot } from './entities/feeding-forecast-snapshot.entity';
+import { TenantLocalization } from './entities/tenant-localization.entity';
+import { FeedingJobRun } from './entities/feeding-job-run.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
@@ -23,11 +25,17 @@ import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.s
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
+import { ProtocolResolutionService } from './services/protocol-resolution.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
+import { MealFinalizationService } from './services/meal-finalization.service';
 import { DayPlanAdminService } from './services/day-plan-admin.service';
 import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
+import { FeedingClockService } from './services/feeding-clock.service';
+import { FeedingJobRunService } from './services/feeding-job-run.service';
+import { FeedingWindowReadinessListener } from './listeners/feeding-window-readiness.listener';
+import { TenantLocalizationProjectionListener } from './listeners/tenant-localization-projection.listener';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
@@ -71,6 +79,9 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
       FeedingDayPlan,
       FeedingMeal,
       FeedingForecastSnapshot,
+      // Cross-tenant saat/koşu altyapısı (W5) — `schema: 'farm'` bildirir.
+      TenantLocalization,
+      FeedingJobRun,
       Feed,
       Species,
     ]),
@@ -79,11 +90,21 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ProtocolValidationService,
     ProtocolRateService,
     MealPlanGeneratorService,
+    ProtocolResolutionService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
+    // Öğün kapatmanın tek gövdesi — operatör yolu ve 05:30 süpürmesi
+    // ikisi de bunu çağırır (FARM-MEDIUM-276).
+    MealFinalizationService,
     DayPlanAdminService,
     FeedingCronV2Service,
+    FeedingClockService,
+    FeedingJobRunService,
+    TenantLocalizationProjectionListener,
+    // W7/FARM-MEDIUM-271 — sensor-service'in öğün öncesi oksijen verdiktini
+    // öğüne damgalar; MealBoard rozeti buradan beslenir.
+    FeedingWindowReadinessListener,
     ProtocolFeedForecastService,
     ForecastRefreshListener,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
@@ -111,10 +132,13 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ProtocolValidationService,
     ProtocolRateService,
     MealPlanGeneratorService,
+    ProtocolResolutionService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
     ProtocolFeedForecastService,
+    // Takvim/saat çözümü domainler arası kullanılır (water-quality, admin).
+    FeedingClockService,
   ],
 })
 export class FeedingProtocolModule {}

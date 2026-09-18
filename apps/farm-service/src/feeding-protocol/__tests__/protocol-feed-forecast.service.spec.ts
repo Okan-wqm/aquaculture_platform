@@ -143,13 +143,18 @@ describe('ProtocolFeedForecastService.computeForecast (golden)', () => {
     startDate: START,
   });
   const scope = result.find((r) => r.scopeKey === SITE_1);
+  // W6: alarm OTORİTESİ tenant havuzudur; site satırı bilgilendiricidir.
+  const authority = result.find((r) => r.poolScope === 'TENANT');
 
-  it('A→B band geçişini 12. günde işaretler ve currentFeed B olur', () => {
+  it('A→B band geçişini 12. günde işaretler; currentFeed BUGÜNKÜ yemdir (FARM-LOW-265)', () => {
     const unit = scope?.perUnit.find((u) => u.unitId === 'unit-1');
     expect(unit?.transitions).toEqual([
       { fromFeedId: FEED_A, toFeedId: FEED_B, estimatedDate: '2026-01-13', daysFromNow: 12 },
     ]);
-    expect(unit?.currentFeedId).toBe(FEED_B);
+    // Eski hâl buraya simülasyonun SON yemini yazıyordu; operatör tankta
+    // hâlâ A varken B sipariş ediyordu.
+    expect(unit?.currentFeedId).toBe(FEED_A);
+    expect(unit?.terminalFeedId).toBe(FEED_B);
   });
 
   it('A yemi: stockout gün 5, coverageFromAdoption 5, default leadTime provenanslı', () => {
@@ -178,19 +183,32 @@ describe('ProtocolFeedForecastService.computeForecast (golden)', () => {
     expect(feedB?.remainingStockSeries[11]).toBe(50);
   });
 
-  it('alertler: A için STOCKOUT+REORDER_NOW, B için ünite bazlı kapsama açığı (1 gün)', () => {
-    expect(scope?.alerts).toEqual(
+  it('alertler OTORİTE kapsamda: A için STOCKOUT+REORDER_NOW, B için kapsama açığı', () => {
+    expect(authority?.alerts).toEqual(
       expect.arrayContaining([
-        { type: 'STOCKOUT_FORECAST', feedId: FEED_A, days: 5 },
-        { type: 'REORDER_NOW', feedId: FEED_A, days: 5 },
-        { type: 'STOCKOUT_FORECAST', feedId: FEED_B, days: 14 },
-        { type: 'TRANSITION_COVERAGE_GAP', feedId: FEED_B, unitId: 'unit-1', days: 1 },
+        { type: 'STOCKOUT_FORECAST', feedId: FEED_A, days: 5, atDay: 5 },
+        // REORDER_NOW "bugün sipariş ver" demektir → dilimleme birimi gün 0.
+        { type: 'REORDER_NOW', feedId: FEED_A, days: 5, atDay: 0 },
+        { type: 'STOCKOUT_FORECAST', feedId: FEED_B, days: 14, atDay: 14 },
+        // `days` = eksik gün BÜYÜKLÜĞÜ, `atDay` = geçişin günü (FARM-LOW-266).
+        {
+          type: 'TRANSITION_COVERAGE_GAP',
+          feedId: FEED_B,
+          unitId: 'unit-1',
+          days: 1,
+          atDay: 12,
+        },
       ]),
     );
   });
 
+  it('site kapsamı alarm ÜRETMEZ (yalnız taşıma sinyali) — çift taahhüt yok', () => {
+    expect(scope?.poolScope).toBe('SITE');
+    expect(scope?.alerts.every((a) => a.type === 'SITE_TRANSFER_NEEDED')).toBe(true);
+  });
+
   it('ölümsüz varsayım açıkça işaretlenir (source: none)', () => {
-    expect(scope?.mortalityAssumption).toEqual({ applied: false, source: 'none' });
+    expect(authority?.mortalityAssumption).toEqual({ applied: false, source: 'none' });
   });
 });
 
@@ -211,7 +229,38 @@ describe('ProtocolFeedForecastService.computeForecast (kapsam + ölüm projeksiy
     expect(scopeKeys).toEqual([SITE_1, TENANT_SCOPE_KEY].sort());
     const tenantScope = results.find((r) => r.scopeKey === TENANT_SCOPE_KEY);
     expect(tenantScope?.perFeed.find((f) => f.feedId === FEED_A)?.currentStockKg).toBe(100);
-    expect(tenantScope?.perUnit.map((u) => u.unitId)).toEqual(['unit-2']);
+    // W6 (FARM-HIGH-249): otorite kapsam TÜM üniteleri taşır — deposu olan
+    // sitenin ünitesi de havuzdan yer. Eski hâl yalnız fallback üniteyi
+    // sayıyor, aynı fiziksel kg'ı iki kapsamda taahhüt ediyordu.
+    expect(tenantScope?.perUnit.map((u) => u.unitId).sort()).toEqual(['unit-1', 'unit-2']);
+    expect(tenantScope?.poolScope).toBe('TENANT');
+  });
+
+  it('AYNI kg iki kez taahhüt edilmez: havuz tüketimi = site + fallback toplamı', () => {
+    const results = service.computeForecast({
+      units: [
+        unitFixture(),
+        unitFixture({ unitId: 'unit-2', unitCode: 'T2', scopeKey: TENANT_SCOPE_KEY }),
+      ],
+      feeds: feedFixtures(),
+      horizonDays: 30,
+      startDate: START,
+    });
+    const sum = (scopeKey: string): number =>
+      results
+        .find((r) => r.scopeKey === scopeKey)
+        ?.perFeed.flatMap((f) => f.dailyConsumptionSeries)
+        .reduce((a, b) => a + b, 0) ?? 0;
+
+    // Havuz stoğu (100 kg) TEK bir tüketim serisine karşı ölçülür; site
+    // satırı aynı üniteyi bilgilendirici olarak gösterir ama havuzdan
+    // ikinci kez düşmez.
+    const siteOnly = sum(SITE_1);
+    const pool = sum(TENANT_SCOPE_KEY);
+    expect(pool).toBeGreaterThan(siteOnly);
+    // Seriler kapsam başına 3 haneye yuvarlandığı için toplamda mikron
+    // mertebesinde fark kalır; iddia "havuz = iki ünitenin toplamı".
+    expect(pool).toBeCloseTo(siteOnly * 2, 1);
   });
 
   it('hayatta-kalma oranı uygulanınca tüketim düşer ve varsayım işaretlenir', () => {

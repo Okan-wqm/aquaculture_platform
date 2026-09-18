@@ -142,6 +142,9 @@ describe('VfdParameterWriterService', () => {
           provide: getRepositoryToken(VfdChangeSet),
           useValue: {
             save: jest.fn().mockImplementation((entity: VfdChangeSet) => Promise.resolve(entity)),
+            // Conditional claim (1818's one-active-per-device guard):
+            // the happy path admits exactly one applier.
+            update: jest.fn().mockResolvedValue({ affected: 1, generatedMaps: [] }),
             findByIds: jest.fn(),
           },
         },

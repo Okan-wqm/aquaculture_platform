@@ -134,23 +134,45 @@ export interface SensorDataChannel {
 }
 
 // ============================================================================
-// Input types for create/update (L5: added unitSymbol)
+// Input types for create/update
+//
+// SENSOR-HIGH-063: these mirror `CreateDataChannelInput` / `UpdateDataChannelInput`
+// in apps/sensor-service/src/registration/dto/data-channel.dto.ts, FIELD FOR FIELD.
+//
+// They used to be written against the ENTITY instead of the contract, which is the
+// whole defect. `unitSymbol`, `operationalMin` and `operationalMax` are real columns
+// on SensorDataChannel — they are simply not on any GraphQL input — and
+// `discoverySource` is a real column the server owns. GraphQL rejects an input
+// object carrying a field the type does not define, so one such key failed the
+// entire request. Two were sent unconditionally: `discoverySource: 'manual'` on
+// create and `dataType` on update. That is why channel CRUD failed 100% of the time
+// rather than only when a user filled in an optional field.
+//
+// The range travels as `minValue`/`maxValue` because those are the contract's
+// names and the editor's own range is the physical one. `operationalMin`/
+// `operationalMax` are a DIFFERENT pair — the operational band `validateValue`
+// checks against — seeded from the sensor-type template; no input exposes them, so
+// sending the physical range under those names was wrong twice over and never
+// arrived either way.
+//
+// `discoverySource` is absent on purpose: channel-management.service.ts stamps
+// `DiscoverySource.MANUAL` on every channel this path creates.
 // ============================================================================
 
 export interface CreateChannelInput {
   channelKey: string;
   displayLabel: string;
+  description?: string;
   dataType: string;
   unit?: string;
-  unitSymbol?: string;
-  operationalMin?: number;
-  operationalMax?: number;
+  dataPath?: string;
+  minValue?: number;
+  maxValue?: number;
   calibrationEnabled?: boolean;
   calibrationMultiplier?: number;
   calibrationOffset?: number;
-  alertThresholds?: Record<string, unknown>;
-  displaySettings?: Record<string, unknown>;
-  discoverySource?: string;
+  alertThresholds?: AlertThresholds;
+  displaySettings?: ChannelDisplaySettings;
   isEnabled?: boolean;
   displayOrder?: number;
 }
@@ -158,15 +180,23 @@ export interface CreateChannelInput {
 // SENSOR-HIGH-083: calibration coefficients are NOT part of the channel-update
 // contract — they are owned by the calibration aggregate (recordCalibration),
 // which stamps lastCalibratedAt/nextCalibrationDue so the status stays truthful.
+//
+// SENSOR-HIGH-063: `dataType` and `channelKey` are absent because the contract
+// omits them — they are fixed at creation. A channel's data type decides how its
+// readings were parsed and stored, so changing it after rows exist would reinterpret
+// history. The editor disables both fields once a channel has an id, so the UI no
+// longer offers an edit the contract cannot carry.
 export interface UpdateChannelInput {
   displayLabel?: string;
-  dataType?: string;
+  description?: string;
   unit?: string;
-  unitSymbol?: string;
-  operationalMin?: number;
-  operationalMax?: number;
-  alertThresholds?: Record<string, unknown>;
-  displaySettings?: Record<string, unknown>;
+  dataPath?: string;
+  minValue?: number;
+  maxValue?: number;
+  calibrationEnabled?: boolean;
+  calibrationIntervalDays?: number;
+  alertThresholds?: AlertThresholds;
+  displaySettings?: ChannelDisplaySettings;
   isEnabled?: boolean;
   displayOrder?: number;
 }

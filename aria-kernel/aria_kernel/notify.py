@@ -14,6 +14,7 @@ import json
 import os
 import smtplib
 import subprocess
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,7 +23,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, state_transaction
 from .tool_registry import ensure_tools_dir, utc_now
 
 OUTBOX_SURFACE = "notifications_outbox"
@@ -45,6 +46,28 @@ CHANNEL_SELECTOR_ENV = "ARIA_NOTIFY_CHANNELS"
 DEFAULT_DEDUP_WINDOW = timedelta(hours=6)
 ISSUE_MARKER_PREFIX = "[aria-notify:"
 Sender = Callable[[str, str, Mapping[str, str]], dict[str, Any]]
+
+# One transport call's bound — the number each sender hands its transport.
+_GH_CALL_TIMEOUT_SECONDS = 60
+_SMTP_SOCKET_TIMEOUT_SECONDS = 30
+_HTTP_TIMEOUT_SECONDS = 30
+# The wall clock ONE sender gets, whatever its transport. WHY a wall clock
+# and not the transport bounds alone: a socket timeout (SMTP, HTTP) bounds
+# one operation and a session is many, so the transport bounds do not add
+# up to a bound on the sender. The sender runs on a worker joined for this
+# long — the GitHub sender's longest sequence (list, then comment or
+# create) at its per-call bound — and one that has not returned by then is
+# recorded `failed` and the next channel runs.
+SENDER_WALL_CLOCK_SECONDS: float = float(2 * _GH_CALL_TIMEOUT_SECONDS)
+# The longest one `notify()` can legitimately take: every channel the
+# vocabulary knows at its sender's wall clock, then ONE state transaction
+# for all of the call's outbox rows (`ledger.STATE_LOCK_LIVENESS_SECONDS`
+# behind a live holder). Exported so a caller that runs a notifying kernel
+# command as a child — the executor's `human-required record` — sizes its
+# wall clock from this number instead of a guess (30 s, until 2026-09-12).
+NOTIFY_WORST_CASE_SECONDS: float = (
+    len(NOTIFY_CHANNELS) * SENDER_WALL_CLOCK_SECONDS + STATE_LOCK_LIVENESS_SECONDS
+)
 
 
 def signature_for(kind: str, key: str | None, title: str) -> str:
@@ -94,7 +117,7 @@ def _send_github_issue(title: str, body: str, environ: Mapping[str, str]) -> dic
     listed = subprocess.run(
         ["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{marker}" in:body',
          "--json", "number", "--limit", "1"],
-        capture_output=True, text=True, timeout=60, check=False, env=env,
+        capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env,
     )
     number: int | None = None
     if listed.returncode == 0:
@@ -106,11 +129,11 @@ def _send_github_issue(title: str, body: str, environ: Mapping[str, str]) -> dic
     text = f"{body}\n\n{marker}"
     if number is not None:
         done = subprocess.run(["gh", "issue", "comment", str(number), "--repo", repo, "--body", text],
-                              capture_output=True, text=True, timeout=60, check=False, env=env)
+                              capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env)
         action = "commented"
     else:
         done = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body", text, "--label", "aria"],
-                              capture_output=True, text=True, timeout=60, check=False, env=env)
+                              capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env)
         action = "created"
     if done.returncode != 0:
         raise RuntimeError(f"gh issue {action} failed rc={done.returncode}: {(done.stderr or '')[:200]}")
@@ -125,7 +148,7 @@ def _send_email(title: str, body: str, environ: Mapping[str, str]) -> dict[str, 
     message.set_content(body)
     host = environ["ARIA_SMTP_HOST"]
     port = int(environ.get("ARIA_SMTP_PORT") or 587)
-    with smtplib.SMTP(host, port, timeout=30) as smtp:
+    with smtplib.SMTP(host, port, timeout=_SMTP_SOCKET_TIMEOUT_SECONDS) as smtp:
         smtp.ehlo()
         if port != 25:
             smtp.starttls()
@@ -140,11 +163,41 @@ def _send_telegram(title: str, body: str, environ: Mapping[str, str]) -> dict[st
     token, chat = environ["ARIA_TELEGRAM_BOT_TOKEN"], environ["ARIA_TELEGRAM_CHAT_ID"]
     data = urllib.parse.urlencode({"chat_id": chat, "text": f"{title}\n{body}"[:4000]}).encode("utf-8")
     request = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data, method="POST")
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_SECONDS) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if not payload.get("ok"):
         raise RuntimeError(f"telegram refused: {str(payload)[:200]}")
     return {"transport": "telegram", "message_id": (payload.get("result") or {}).get("message_id")}
+
+
+class SenderWallClockExceeded(RuntimeError):
+    """A sender did not return inside SENDER_WALL_CLOCK_SECONDS."""
+
+
+def _send_bounded(sender: Sender, title: str, body: str, environ: Mapping[str, str]) -> dict[str, Any]:
+    """Run one sender under the wall clock; its result or its exception, or the timeout."""
+    outcome: dict[str, Any] = {}
+    failure: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            outcome.update(sender(title, body, environ))
+        except BaseException as exc:  # noqa: BLE001 — handed back to the caller below
+            failure.append(exc)
+
+    # A daemon so a transport that never returns cannot hold the process
+    # open past the caller's own exit; the row it would have produced is
+    # written as `failed` by the caller right now.
+    worker = threading.Thread(target=run, name="aria-notify-sender", daemon=True)
+    worker.start()
+    worker.join(SENDER_WALL_CLOCK_SECONDS)
+    if worker.is_alive():
+        raise SenderWallClockExceeded(
+            f"sender exceeded SENDER_WALL_CLOCK_SECONDS={SENDER_WALL_CLOCK_SECONDS:g}"
+        )
+    if failure:
+        raise failure[0]
+    return outcome
 
 
 SENDERS: dict[str, Sender] = {
@@ -219,11 +272,18 @@ def notify(
             row.update({"status": "dry_run", "detail": {}})
         else:
             try:
-                row.update({"status": "sent", "detail": table[channel](title, body, env)})
+                row.update({"status": "sent", "detail": _send_bounded(table[channel], title, body, env)})
             except Exception as exc:  # noqa: BLE001 — a channel failure is a row, never a crash
                 row.update({"status": "failed", "detail": {"error_class": type(exc).__name__, "error": str(exc)[:300]}})
-        append_declared_jsonl(path, row, expected_surface=OUTBOX_SURFACE)
         rows.append(row)
+    # ONE transaction for every row of this call, after every send: the
+    # senders (network) never run under the state lock, and the call waits
+    # for the lock once, not once per channel — the shape every kernel
+    # state-writing command has (claim, release, submit), and the shape
+    # NOTIFY_WORST_CASE_SECONDS prices.
+    with state_transaction([path]) as transaction:
+        for row in rows:
+            transaction.append_declared_jsonl(path, row, expected_surface=OUTBOX_SURFACE)
     return rows
 
 
@@ -242,9 +302,12 @@ __all__ = [
     "NOTIFY_CHANNELS",
     "NOTIFY_EVENT_KINDS",
     "NOTIFY_STATUSES",
+    "NOTIFY_WORST_CASE_SECONDS",
     "OUTBOX_RELPATH",
     "OUTBOX_SURFACE",
     "SENDERS",
+    "SENDER_WALL_CLOCK_SECONDS",
+    "SenderWallClockExceeded",
     "configured_channels",
     "notify",
     "notify_best_effort",

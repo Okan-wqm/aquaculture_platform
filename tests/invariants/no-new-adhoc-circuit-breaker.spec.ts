@@ -149,12 +149,15 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
           // `class CircuitBreaker {` at libs/backend-common/src/
           // resilience/circuit-breaker/circuit-breaker.service.ts.
           ':!libs/backend-common/src/resilience/circuit-breaker/**',
-          // Grandfathered ad-hoc breakers (W3 migration targets):
-          ':!apps/gateway-api/src/proxy/circuit-breaker.service.ts',
-          ':!apps/gateway-api/src/opa/opa-client.service.ts',
-          ':!apps/messaging-service/src/shared/redis.provider.ts',
-          ':!apps/admin-api-service/src/settings/services/email-sender.service.ts',
-          ':!apps/sensor-service/src/sensor/utils/retry.util.ts',
+          // Grandfathered ad-hoc breakers (W3 migration targets), DERIVED from
+          // the list above rather than repeated. The copy that used to live
+          // here had already drifted: it still excluded
+          // `apps/gateway-api/src/opa/opa-client.service.ts`, which the W3
+          // sweep deleted and which the ratchet above had correctly dropped —
+          // a stale exclusion is a hole, because re-introducing an ad-hoc
+          // breaker at that exact path would have been waved through by the
+          // gate that exists to catch it.
+          ...KNOWN_ADHOC_BREAKERS.map(({ path }) => `:!${path}`),
         ],
         { cwd: REPO_ROOT, encoding: 'utf8' },
       );

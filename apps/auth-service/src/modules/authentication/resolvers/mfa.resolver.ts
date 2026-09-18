@@ -1,6 +1,6 @@
 import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 import { RateLimit } from '@aquaculture/backend-common/rate-limit';
-import { Logger } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
@@ -24,9 +24,15 @@ import {
   buildRefreshTokenCookieOptions,
 } from '../utils/refresh-token-cookie';
 
+/**
+ * The exact request/response surface this resolver touches (a structural
+ * narrowing of express Request/Response). `user` is attached by JwtAuthGuard —
+ * on authenticated routes, and best-effort on @Public routes (ADR-046) — or by
+ * the gateway-forwarded x-user-payload middleware.
+ */
 interface GqlContext {
-  req: Request;
-  res: Response;
+  req: Pick<Request, 'headers' | 'ip'> & { user?: { sub: string } };
+  res: Pick<Response, 'cookie'>;
 }
 
 @Resolver(() => User)
@@ -50,7 +56,11 @@ export class MfaResolver {
    * Set refresh token as httpOnly cookie via the shared cookie SSoT
    * (same persistence contract as AuthResolver). See refresh-token-cookie.ts.
    */
-  private setRefreshTokenCookie(res: Response, token: string, rememberMe: boolean): void {
+  private setRefreshTokenCookie(
+    res: Pick<Response, 'cookie'>,
+    token: string,
+    rememberMe: boolean,
+  ): void {
     res.cookie(
       REFRESH_TOKEN_COOKIE_NAME,
       token,
@@ -70,32 +80,95 @@ export class MfaResolver {
   }
 
   // ==========================================================================
-  // MFA Setup (Authenticated)
+  // MFA Setup (authenticated session OR the ADR-046 mfa_setup token)
   // ==========================================================================
 
   /**
-   * Initiate MFA setup — generates TOTP secret, QR code URI, and recovery codes.
-   * User must be authenticated. MFA is NOT enabled until verifyMfaSetup succeeds.
+   * ADR-046: resolve the subject of an MFA enrollment operation from EITHER an
+   * authenticated session OR a valid mfa_setup token — never both, never
+   * neither.
+   *
+   * Precedence: an authenticated identity WINS and the token argument is
+   * ignored, so a setup token can never redirect an authenticated user's
+   * enrollment to another account. Without a session, the mfa_setup token —
+   * minted by login after password validation when the tenant enforces MFA —
+   * is the credential (MfaService positively requires type === 'mfa_setup').
+   * These two mutations are the ONLY consumers of the setup token.
    */
+  private resolveMfaSubject(context: GqlContext, mfaSetupToken?: string | null): string {
+    const authenticatedUserId = context.req?.user?.sub;
+    if (authenticatedUserId) {
+      return authenticatedUserId;
+    }
+    if (!mfaSetupToken) {
+      throw new UnauthorizedException('Authentication or an MFA setup token is required');
+    }
+    return this.mfaService.resolveSetupTokenUserId(mfaSetupToken);
+  }
+
+  /**
+   * Initiate MFA setup — generates TOTP secret, QR code URI, and recovery codes.
+   * MFA is NOT enabled until verifyMfaSetup succeeds.
+   *
+   * ADR-046: @Public so the pre-session enrollment path (tenant enforces MFA,
+   * user has no factor — login returned mfaSetupRequired + mfaSetupToken) can
+   * reach it. An authenticated session keeps working unchanged: JwtAuthGuard
+   * attaches optional identity on public routes and resolveMfaSubject gives
+   * the session precedence over any token argument.
+   */
+  // SECURITY: a pre-session surface → velocity-limited per setup token (the
+  // SEC-CRITICAL-002 pattern verifyMfaLogin established). Authenticated calls
+  // carry no token argument, so the identifier dimension falls back to user/ip.
+  @RateLimit({
+    name: 'mfa-setup-init',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    identifier: ({ args }) => (args?.['mfaSetupToken'] as string | undefined) || undefined,
+  })
+  @Public()
   @SkipTenantGuard()
   @Mutation(() => SetupMfaResponse, { description: 'Initiate MFA setup for the current user' })
   async setupMfa(
-    @CurrentUser('sub') userId: string,
+    @Context() context: GqlContext,
+    @Args('mfaSetupToken', {
+      type: () => String,
+      nullable: true,
+      description:
+        'MFA setup token from login (mfaSetupRequired=true) — identifies the user when no authenticated session exists',
+    })
+    mfaSetupToken?: string,
   ): Promise<SetupMfaResponse> {
-    return this.mfaService.setupMfa(userId);
+    return this.mfaService.setupMfa(this.resolveMfaSubject(context, mfaSetupToken));
   }
 
   /**
    * Verify the first TOTP code to complete MFA setup.
    * This enables MFA on the account.
+   *
+   * ADR-046: also reachable with input.mfaSetupToken (pre-session enrollment).
+   * On success via a setup token NO tokens are issued — the response is only
+   * `{ success: true }`. The user then signs in again: with MFA now enrolled,
+   * login takes the normal mfa_challenge flow. That deliberate extra login
+   * keeps token issuance on exactly one audited path.
    */
+  @RateLimit({
+    name: 'mfa-setup-verify',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    identifier: ({ args }) =>
+      (args?.['input'] as { mfaSetupToken?: string } | undefined)?.mfaSetupToken || undefined,
+  })
+  @Public()
   @SkipTenantGuard()
   @Mutation(() => VerifyMfaSetupResponse, { description: 'Verify TOTP code to complete MFA setup' })
   async verifyMfaSetup(
-    @CurrentUser('sub') userId: string,
+    @Context() context: GqlContext,
     @Args('input') input: VerifyMfaSetupInput,
   ): Promise<VerifyMfaSetupResponse> {
-    return this.mfaService.verifyMfaSetup(userId, input.code);
+    return this.mfaService.verifyMfaSetup(
+      this.resolveMfaSubject(context, input.mfaSetupToken),
+      input.code,
+    );
   }
 
   /**

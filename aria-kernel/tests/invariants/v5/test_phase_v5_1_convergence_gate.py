@@ -310,7 +310,9 @@ class PhaseV5_1ConvergenceGate(unittest.TestCase):
                 "summary": "V5.1 I-V5.1-03 test plan summary",
                 "affected_surfaces": ["test/"],
                 "key_changes": ["rule-1 satisfied"],
-                "validation_commands": [{"cmd": "pytest", "expected_exit": 0, "timeout_ms": 60000}],
+                # The opener refuses a seed whose commands the plan contract
+                # does not admit (ARIA-HIGH-104), so the seed declares the suite.
+                "validation_commands": [{"cmd": "nx affected --target=test", "expected_exit": 0, "timeout_ms": 60000}],
                 "evidence_refs": ["test.py"],
             },
             initial_revision_id="rev-1",

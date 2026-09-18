@@ -63,6 +63,9 @@ import {
   MARINE_PROVIDER_CREDENTIAL_SUBJECTS,
   TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
   TENANT_ERASURE_OUTCOME_KINDS,
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  AUTH_PUBLIC_COMMAND_SUBJECTS,
+  TENANT_COMMAND_SUBJECTS,
   TENANT_ERASURE_TARGET_SERVICES,
   tenantErasureOutcomeSubject,
 } from '@platform/event-contracts';
@@ -346,6 +349,15 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
+    // SEC-MEDIUM-103 (2026-08-23 scan №48): resolve NESTED member access —
+    // sendAuthCommand(AUTH_PUBLIC_COMMAND_SUBJECTS.RESET_PASSWORD, ...)
+    // indirections the flat OBJECT.CONST regex below could not see, which is
+    // exactly how the public password-reset subjects escaped RPC coverage.
+    const nested = /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)\.([A-Z][A-Z0-9_]+)$/.exec(ref);
+    if (nested) {
+      const container = constants.get(`${nested[1]}.${nested[2]}`);
+      if (container) return container;
+    }
     const constRef =
       /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);
@@ -360,6 +372,25 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
     // ClientProxy `.send(subject, ...)` / `.emit(subject, ...)` — generic
     // param optional. Prefix filter drops non-NATS senders (mailers etc.).
     for (const m of text.matchAll(/\.(?:send|emit)(?:<[^>]*>)?\(\s*([^),]+)/g)) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
+    }
+    // A subject constant handed to ANY call — `this.sendAuthCommand(
+    // TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING, …)` — is a send. The
+    // `.send(` rule above only saw the ClientProxy method by name, so a
+    // typed wrapper around it hid the subject and admin-api shipped without
+    // the BeginProvisioning publish grant: every tenant creation timed out
+    // at the request deadline (PLAT-CRITICAL-911). Decorators are excluded
+    // (`@MessagePattern(` is the handled side, captured above).
+    for (const m of text.matchAll(
+      /(?<![@.\w$])[A-Za-z_$][\w$]*(?:<[^>]*>)?\(\s*([A-Z][A-Z0-9_]*_SUBJECTS\.[A-Z][A-Z0-9_]+)/g,
+    )) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
+    }
+    for (const m of text.matchAll(
+      /\.[A-Za-z_$][\w$]*(?:<[^>]*>)?\(\s*([A-Z][A-Z0-9_]*_SUBJECTS\.[A-Z][A-Z0-9_]+)/g,
+    )) {
       const subject = resolveRef(m[1].trim());
       if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
     }
@@ -454,6 +485,64 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       }
     },
   );
+
+  it('universal _INBOX.> SUBSCRIBE grants are banned — reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43)', () => {
+    for (const svc of servicesDoc.services) {
+      const sub = svc.subscribe ?? [];
+      const universal = sub.filter((entry) => entry === '_INBOX.>');
+      if (universal.length > 0) {
+        throw new Error(
+          `${svc.name}: subscribe list still carries the universal _INBOX.> grant — ` +
+            `a compromised cert on ANY service receives every other service's ` +
+            `request-reply replies. Replace with _INBOX${(svc.name ?? 'UNKNOWN').toUpperCase()}.> ` +
+            `(the connection factory sets the matching inboxPrefix).`,
+        );
+      }
+      // Every service MUST have its own scoped inbox in subscribe (it needs to
+      // receive ITS OWN replies).
+      const expected = `_INBOX${(svc.name ?? 'UNKNOWN').toUpperCase().replace(/-/g, '_')}.>`;
+      if (!sub.includes(expected)) {
+        throw new Error(
+          `${svc.name}: subscribe list is missing its own scoped inbox ${expected} — ` +
+            `the service cannot receive request-reply responses.`,
+        );
+      }
+    }
+  });
+
+  it('bare $JS.API.> grants are banned — JetStream rights are enumerated per service (Task 2, SENSOR-HIGH-092)', () => {
+    // Pull-consumer delivery is NOT gated by subscribe ACLs, so narrowing
+    // loses nothing — while the bare root handed every service stream and
+    // consumer CRUD over EVERY stream (including AQUACULTURE_DLQ
+    // destruction, i.e. destroying forensic evidence of an intrusion).
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const s of [...svc.publish, ...svc.subscribe]) {
+        if (s === '$JS.API.>') offenders.push(`${svc.name}: ${s}`);
+      }
+    }
+    if (authBlock.includes("'$JS.API.>'")) offenders.push('nats.conf GENERATED block');
+    expect(offenders).toEqual([]);
+  });
+
+  it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {
+    // SensorReading/SensorMetricIngested route to AQUACULTURE_TELEMETRY;
+    // every identity allowed to publish them on the events root must ALSO
+    // hold the telemetry-root grant, or the routed publish fails with a
+    // Permissions Violation at runtime.
+    const HIGH_RATE = ['SensorReading', 'SensorMetricIngested'];
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const type of HIGH_RATE) {
+        const hasEvents = svc.publish.includes(`events.*.${type}`);
+        const hasTelemetry = svc.publish.includes(`telemetry.*.${type}`);
+        if (hasEvents && !hasTelemetry) {
+          offenders.push(`${svc.name}: events.*.${type} without telemetry.*.${type}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 
   it('legacy AQUACULTURE_EVENTS subject grants are banned (stream name ≠ subject prefix)', () => {
     // The schema already rejects the prefix structurally; this assertion
@@ -814,6 +903,45 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
               'events.{tenantId|system}.{EventType}; a different segment count ' +
               'never matches (NATS matching is segment-exact).',
           );
+        }
+      },
+    );
+  });
+
+  describe('admin-api → auth-service commands — every contract subject is granted end to end (PLAT-CRITICAL-911)', () => {
+    // The contract is the SSoT for the subject set. Deriving the grant check
+    // from it (rather than from a scan of call sites) means a subject that
+    // exists in the contract but is never granted fails here on the day it is
+    // added — which is the day BeginProvisioning should have failed instead of
+    // 502-ing every tenant creation in production after the 15 s deadline.
+    const requireService = (name: string): Service => {
+      const svc = serviceByName.get(name);
+      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
+      return svc;
+    };
+
+    // Three maps, one producer, one consumer: admin-api sends every one of
+    // these through its typed clients; auth-service handles every one with a
+    // @MessagePattern. Five of them (module create/update/delete, public
+    // password reset request/confirm) had NO publish grant anywhere in the
+    // fleet when this clause was written — the same class as BeginProvisioning.
+    it.each([
+      ...Object.entries(TENANT_COMMAND_SUBJECTS),
+      ...Object.entries(AUTH_ADMIN_COMMAND_SUBJECTS),
+      ...Object.entries(AUTH_PUBLIC_COMMAND_SUBJECTS),
+    ])(
+      '%s (%s): admin_api_service PUBLISHES it and auth_service SUBSCRIBES it',
+      (_key, subject) => {
+        const admin = requireService('admin_api_service');
+        const auth = requireService('auth_service');
+        if (!isCovered(subject, admin.publish)) {
+          throw new Error(
+            `admin_api_service is missing the PUBLISH grant for "${subject}" — the orchestrator ` +
+              'sends it and would time out at the request deadline',
+          );
+        }
+        if (!isCovered(subject, auth.subscribe)) {
+          throw new Error(`auth_service is missing the SUBSCRIBE grant for "${subject}"`);
         }
       },
     );

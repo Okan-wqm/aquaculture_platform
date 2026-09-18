@@ -1,3 +1,5 @@
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
 import {
   BadGatewayException,
@@ -26,25 +28,12 @@ import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
-// DTOs
-export class ForgotPasswordDto {
-  @IsEmail({}, { message: 'Valid email address is required' })
-  email!: string;
-}
-
-export class ResetPasswordDto {
-  @IsString()
-  token!: string;
-
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @MaxLength(128)
-  newPassword!: string;
-}
-
 // Mark endpoints as public (bypass auth guard)
 const IS_PUBLIC_KEY = 'isPublic';
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+/** Loose non-empty IP shape for the proxy-header fast path in getIpAddress. */
+const NONEMPTY_IP = /^[0-9a-fA-F:.]+$/;
 
 type MinimalRequest = {
   ip?: string;
@@ -62,15 +51,15 @@ export class PasswordResetController {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
    * Request password reset - sends email with reset link
    * Always returns success to prevent email enumeration
    */
+  @AuditedOperation({ resource: 'PasswordReset', action: 'FORGOT_PASSWORD' })
   @Post('forgot-password')
   @Public()
   @ThrottlePasswordReset()
@@ -106,6 +95,7 @@ export class PasswordResetController {
   /**
    * Reset password using token from email
    */
+  @AuditedOperation({ resource: 'Password', action: 'RESET' })
   @Post('reset-password')
   @Public()
   @ThrottlePasswordReset()
@@ -147,9 +137,7 @@ export class PasswordResetController {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -161,8 +149,18 @@ export class PasswordResetController {
   }
 
   private getIpAddress(request: MinimalRequest): string | undefined {
-    const forwarded = this.getHeader(request, 'x-forwarded-for');
-    return forwarded?.split(',')[0]?.trim() || request.ip;
+    // SEC-LOW-085 (2026-08-23 scan №32): the audit IP must resolve the same
+    // way everywhere — proxy-set X-Real-IP (nginx) first, then Express
+    // req.ip (TRUST_PROXY), and the spoofable client-prepended XFF value
+    // only as a last resort (nginx appends the real client after it).
+    const realIp = this.getHeader(request, 'x-real-ip');
+    if (realIp && NONEMPTY_IP.test(realIp)) {
+      return realIp;
+    }
+    if (request.ip) {
+      return request.ip;
+    }
+    return this.getHeader(request, 'x-forwarded-for')?.split(',')[0]?.trim();
   }
 
   private getCorrelationId(request: MinimalRequest): string | undefined {

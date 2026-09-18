@@ -4,69 +4,72 @@
  * Rol ve yetki yönetimi - Role hierarchy and permissions.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
-import {
-  usersApi,
-  RoleTemplate,
-  Permission,
-  RoleHierarchyItem,
-} from '../services/adminApi';
+import React, { useEffect, useState } from 'react';
+import { Card, Badge } from '@aquaculture/shared-ui';
+import { usersApi, Permission, RoleHierarchyItem } from '../services/adminApi';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Role Management Page
 // ============================================================================
 
 const RoleManagementPage: React.FC = () => {
-  const [roles, setRoles] = useState<RoleHierarchyItem[]>([]);
-  const [permissions, setPermissions] = useState<Record<string, Permission[]>>({});
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
+  const rolesQuery = useAdminQuery<RoleHierarchyItem[]>(
+    adminKeys.users.roleHierarchy(),
+    ({ signal }) => usersApi.getRoleHierarchy(signal),
+  );
+
+  const permissionsQuery = useAdminQuery<Record<string, Permission[]>>(
+    adminKeys.users.permissionCatalogue(),
+    ({ signal }) => usersApi.getPermissionsByCategory(signal),
+  );
+
+  const roles = rolesQuery.data ?? [];
+  const permissions = permissionsQuery.data ?? {};
+
+  // Which permissions the selected role actually holds. Keyed on the role, so
+  // switching back to a role already looked at does not re-request it and
+  // switching away cancels the outstanding request.
+  const rolePermissionsQuery = useAdminQuery<string[]>(
+    adminKeys.users.rolePermissions(selectedRole ?? 'none'),
+    ({ signal }) => usersApi.getRolePermissions(selectedRole ?? '', signal),
+    { enabled: selectedRole !== null },
+  );
+
+  // NOT `?? []`. An empty array here renders every permission in the catalogue
+  // as NOT granted — on a permission matrix that is a measurement, and a failed
+  // request would have shown the role as holding nothing at all. `undefined`
+  // means "not known", and the matrix says so instead of drawing sixty empty
+  // checkboxes.
+  const selectedRolePermissions = rolePermissionsQuery.data;
+
+  // Select the first role once the hierarchy arrives.
   useEffect(() => {
-    if (selectedRole) {
-      loadRolePermissions(selectedRole);
+    if (selectedRole === null && roles.length > 0 && roles[0]) {
+      setSelectedRole(roles[0].code);
     }
-  }, [selectedRole]);
+  }, [roles, selectedRole]);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [rolesData, permsData] = await Promise.all([
-        usersApi.getRoleHierarchy(),
-        usersApi.getPermissionsByCategory(),
-      ]);
-      setRoles(rolesData);
-      setPermissions(permsData);
-      // Select first role by default
-      if (rolesData.length > 0 && rolesData[0]) {
-        setSelectedRole(rolesData[0].code);
-      }
-    } catch (err) {
-      console.error('Failed to load roles and permissions:', err);
-      setRoles([]);
-      setPermissions({});
-      setError('Failed to load roles and permissions. Please try again.');
-    } finally {
-      setLoading(false);
+  const reload = (): void => {
+    void rolesQuery.refetch();
+    void permissionsQuery.refetch();
+    if (selectedRole !== null) {
+      void rolePermissionsQuery.refetch();
     }
   };
 
-  const loadRolePermissions = async (roleCode: string) => {
-    try {
-      const perms = await usersApi.getRolePermissions(roleCode);
-      setSelectedRolePermissions(perms);
-    } catch (err) {
-      console.error('Failed to load role permissions:', err);
-      setSelectedRolePermissions([]);
-    }
-  };
+  const queryErrors = [
+    rolesQuery.error,
+    permissionsQuery.error,
+    rolePermissionsQuery.error,
+  ];
 
   const getRoleLevelColor = (level: number): string => {
     if (level >= 90) return 'bg-red-100 text-red-800';
@@ -78,7 +81,7 @@ const RoleManagementPage: React.FC = () => {
 
   const selectedRoleData = roles.find((r) => r.code === selectedRole);
 
-  if (loading) {
+  if (rolesQuery.isPending && permissionsQuery.isPending) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -86,16 +89,14 @@ const RoleManagementPage: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-        {error}
-      </div>
-    );
+  if (roles.length === 0 && (rolesQuery.error || permissionsQuery.error)) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={reload} />;
   }
 
   return (
     <div className="space-y-6">
+      <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -221,6 +222,16 @@ const RoleManagementPage: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Permissions for {selectedRoleData?.name || 'Selected Role'}
           </h3>
+          {selectedRolePermissions === undefined ? (
+            /* The grant set did not load. Rendering the catalogue with every
+               box unchecked would state that this role holds no permissions —
+               a claim about authority, read off a request that failed. */
+            <p className="text-sm text-gray-500" role="status">
+              {rolePermissionsQuery.isPending
+                ? 'Loading permissions…'
+                : 'Permissions for this role could not be loaded.'}
+            </p>
+          ) : (
           <div className="space-y-6 max-h-[500px] overflow-y-auto">
             {Object.entries(permissions).map(([category, perms]) => (
               <div key={category}>
@@ -280,39 +291,42 @@ const RoleManagementPage: React.FC = () => {
               </div>
             ))}
           </div>
+          )}
         </Card>
       </div>
 
-      {/* Role Assignment Info */}
+      {/* Role Assignment Rules.
+
+          This was four hand-typed blocks naming `Super Admin (100)`,
+          `Tenant Admin (90)`, `Module Manager (70)` and `Module User (10)` in
+          JSX. The numbers were right today, which is the whole problem: it was
+          a fifth copy of a vocabulary that four other copies had already
+          drifted apart on (ADMIN-CRITICAL-133), and it could neither show a
+          role the platform added nor stop showing one it removed — the
+          catalogue lost two entries in W8r and this card would not have
+          noticed.
+
+          The rule itself is ONE rule, not four, and it lives in auth-service's
+          `assertRoleHierarchy`: a platform administrator may assign anything;
+          everyone else may assign only inside their own tenant and only at or
+          below their own rank. So the rule is stated once, and the roles it
+          ranks come from the hierarchy this page already fetched. */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Role Assignment Rules
-        </h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Role Assignment Rules</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          A platform administrator may assign any role. Every other role may assign only within
+          its own tenant, and only at or below its own level. The server enforces this; the
+          levels below are the catalogue it enforces against.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-red-50 rounded-lg p-4">
-            <h4 className="font-semibold text-red-800">Super Admin (100)</h4>
-            <p className="text-sm text-red-700 mt-1">
-              Can assign any role to any user across the platform
-            </p>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-4">
-            <h4 className="font-semibold text-purple-800">Tenant Admin (90)</h4>
-            <p className="text-sm text-purple-700 mt-1">
-              Can assign roles up to their level within their tenant
-            </p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-4">
-            <h4 className="font-semibold text-green-800">Module Manager (70)</h4>
-            <p className="text-sm text-green-700 mt-1">
-              Can invite Module Users only within their assigned modules
-            </p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-semibold text-gray-800">Module User (10)</h4>
-            <p className="text-sm text-gray-700 mt-1">
-              Cannot assign roles to other users
-            </p>
-          </div>
+          {roles.map((role) => (
+            <div key={role.code} className={`rounded-lg p-4 ${getRoleLevelColor(role.level)}`}>
+              <h4 className="font-semibold">
+                {role.name} ({role.level})
+              </h4>
+              <p className="text-sm mt-1">{role.description}</p>
+            </div>
+          ))}
         </div>
       </Card>
     </div>

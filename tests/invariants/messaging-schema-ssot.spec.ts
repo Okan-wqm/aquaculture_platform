@@ -65,47 +65,48 @@ describe('messaging schema SSoT (INFRA-CRITICAL-011)', () => {
     expect(violations).toEqual([]);
   });
 
+  /**
+   * A per-tenant table's DDL must be UNQUALIFIED so tenant provisioning — which
+   * is migration replay with `search_path` pinned to `tenant_<uuid>` — routes it
+   * into the tenant schema instead of writing back into `messaging`
+   * (DATA-CRITICAL-010). Pinning the qualified spelling here is what let the
+   * regression look correct, so the shape is now part of the assertion rather
+   * than incidental to it.
+   */
+  const perTenantColumn = (table: string, column: RegExp): RegExp =>
+    new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?"${table}" \\([^\`]*${column.source}`, 'i');
+
   const expectedMigrationPatterns: ReadonlyArray<readonly [string, RegExp]> = [
-    [
-      'channel_members.tenantId NOT NULL',
-      /CREATE TABLE "messaging"\."channel_members"[^`]*"tenantId" uuid NOT NULL/i,
-    ],
-    [
-      'channels.tenantId NOT NULL',
-      /CREATE TABLE "messaging"\."channels"[^`]*"tenantId" uuid NOT NULL/i,
-    ],
-    [
-      'messages.tenantId NOT NULL',
-      /CREATE TABLE "messaging"\."messages"[^`]*"tenantId" uuid NOT NULL/i,
-    ],
+    ['channel_members.tenantId NOT NULL', perTenantColumn('channel_members', /"tenantId" uuid NOT NULL/)],
+    ['channels.tenantId NOT NULL', perTenantColumn('channels', /"tenantId" uuid NOT NULL/)],
+    ['messages.tenantId NOT NULL', perTenantColumn('messages', /"tenantId" uuid NOT NULL/)],
     [
       'messages.isAiGenerated NOT NULL default',
-      /CREATE TABLE "messaging"\."messages"[^`]*"isAiGenerated" boolean NOT NULL DEFAULT false/i,
+      perTenantColumn('messages', /"isAiGenerated" boolean NOT NULL DEFAULT false/),
     ],
     [
       'message_attachments.is_deleted NOT NULL default',
-      /CREATE TABLE "messaging"\."message_attachments"[^`]*"is_deleted" boolean NOT NULL DEFAULT false/i,
+      perTenantColumn('message_attachments', /"is_deleted" boolean NOT NULL DEFAULT false/),
     ],
     [
       'message_attachments.deleted_at',
-      /CREATE TABLE "messaging"\."message_attachments"[^`]*"deleted_at" TIMESTAMP WITH TIME ZONE/i,
+      perTenantColumn('message_attachments', /"deleted_at" TIMESTAMP WITH TIME ZONE/),
     ],
     [
       'legal_holds.legalMatterId NOT NULL',
-      /CREATE TABLE "messaging"\."legal_holds"[^`]*"legalMatterId" uuid NOT NULL/i,
+      perTenantColumn('legal_holds', /"legalMatterId" uuid NOT NULL/),
     ],
     [
       'legal_holds.legalMatterDescription',
-      /CREATE TABLE "messaging"\."legal_holds"[^`]*"legalMatterDescription" text/i,
+      perTenantColumn('legal_holds', /"legalMatterDescription" text/),
     ],
-    [
-      'legal_holds.requestedBy',
-      /CREATE TABLE "messaging"\."legal_holds"[^`]*"requestedBy" uuid/i,
-    ],
+    ['legal_holds.requestedBy', perTenantColumn('legal_holds', /"requestedBy" uuid/)],
     [
       'legal_holds.expiresAt',
-      /CREATE TABLE "messaging"\."legal_holds"[^`]*"expiresAt" TIMESTAMP WITH TIME ZONE/i,
+      perTenantColumn('legal_holds', /"expiresAt" TIMESTAMP WITH TIME ZONE/),
     ],
+    // Cross-tenant infrastructure: the outbox stays in `messaging` by design,
+    // so its DDL is the one that KEEPS the schema qualifier.
     [
       'messaging_outbox.isDeadLettered NOT NULL default',
       /messaging\.messaging_outbox[^`]*"isDeadLettered" BOOLEAN NOT NULL DEFAULT false/i,

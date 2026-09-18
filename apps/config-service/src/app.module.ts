@@ -68,6 +68,11 @@ const configSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env)
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 @Module({
   imports: [
@@ -138,6 +143,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       introspection: process.env['NODE_ENV'] !== 'production',
       // installSubscriptionHandlers removed in @nestjs/graphql v13 — use graphql-ws for subscriptions instead
       validationRules: [depthLimit(10)],
+      /**
+       * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+       * hardening preset — production error masking (raw TypeORM/driver text must
+       * never reach clients through the gateway's message passthrough) and the
+       * complexity cap for direct-access defense-in-depth.
+       */
+      formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+      plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
       context: ({ req }: { req: Request }) => ({ req }),
     }),
 
@@ -178,6 +191,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'config-service' }),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

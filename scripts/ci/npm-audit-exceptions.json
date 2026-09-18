@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "advisories": {
+    "GHSA-7w5x-hrqm-74c2": {
+      "owner": "okan",
+      "reason": "Dev-only root-full leg: all 15 affected packages are the version-locked nx workspace toolchain; npm's only remediation is a SemVer-major 22.6.4 workspace-wide bump, tracked as a planned nx migrate. Production legs are clean.",
+      "expires_on": "2026-10-16",
+      "finding_id": "SUPPLY-HIGH-011",
+      "packages": [
+        "@nx/eslint",
+        "@nx/eslint-plugin",
+        "@nx/jest",
+        "@nx/js",
+        "@nx/module-federation",
+        "@nx/nest",
+        "@nx/node",
+        "@nx/react",
+        "@nx/rollup",
+        "@nx/vite",
+        "@nx/vitest",
+        "@nx/web",
+        "@nx/workspace",
+        "nx",
+        "smol-toml"
+      ],
+      "scopes": ["root-full"]
+    },
+    "GHSA-vwc7-r8mq-g2x9": {
+      "owner": "okan",
+      "reason": "Dev-only root-full leg on @nx/react and @nx/module-federation; npm suggests @nx/react@20.1.4 (SemVer-major, breaking). Same planned workspace-wide nx migration as SUPPLY-HIGH-011 covers the real fix.",
+      "expires_on": "2026-10-16",
+      "finding_id": "SUPPLY-HIGH-012",
+      "packages": ["@nx/react", "@nx/module-federation"],
+      "scopes": ["root-full"]
+    }
+  }
+}

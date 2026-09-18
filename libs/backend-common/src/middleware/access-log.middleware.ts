@@ -97,13 +97,20 @@ export class AccessLogMiddleware implements NestMiddleware {
           };
           tenantContext?: { tenantId?: string | null };
           correlationId?: string | null;
+          /** ADR-0007: the ingress-resolved act-as target for a SUPER_ADMIN. */
+          effectiveTenantId?: string;
         };
         const user = reqWithCtx.user;
         const userId = user?.sub ?? user?.id ?? null;
         // tenantId from the JWT trust anchor — same posture as
         // AUDITTRAIL-MEDIUM-003 cure on the audit interceptors.
+        // The tenant the request OPERATED ON: a SUPER_ADMIN act-as target
+        // outranks the (null) home tenant on the JWT.
         const tenantId =
-          user?.tenantId ?? reqWithCtx.tenantContext?.tenantId ?? null;
+          reqWithCtx.effectiveTenantId ??
+          user?.tenantId ??
+          reqWithCtx.tenantContext?.tenantId ??
+          null;
         const correlationId =
           reqWithCtx.correlationId ??
           (req.headers['x-correlation-id'] as string | undefined) ??

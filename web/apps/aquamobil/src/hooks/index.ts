@@ -1,18 +1,9 @@
 export { useAuth, AuthProvider } from './useAuth';
-export { useTheme } from './useTheme';
-export { useDensity } from './useDensity';
-export type { ThemePreference, ResolvedTheme, UseThemeReturn } from './useTheme';
-export type { Density, UseDensityReturn } from './useDensity';
+export { useDarkMode } from './useDarkMode';
+export type { DarkModePreference, UseDarkModeReturn } from './useDarkMode';
 export { useOfflineQueue, OfflineProvider } from './useOfflineQueue';
 export { useNetworkStatus } from './useNetworkStatus';
-export {
-  useMediaQuery,
-  useIsBoardViewport,
-  BOARD_MEDIA_QUERY,
-  BOARD_WIDE_MEDIA_QUERY,
-} from './useViewport';
 export { useTanks } from './useTanks';
-export { useReportDeadlines, type ReportDeadline } from './useReportDeadlines';
 export { useWebAuthn, isWebAuthnSupported, hasLocalCredentials } from './useWebAuthn';
 export {
   useAiDashboardInsights,

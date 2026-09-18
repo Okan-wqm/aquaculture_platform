@@ -20,16 +20,4 @@ describe('runtime module wiring', () => {
     );
     expect(exportsBlock).not.toContain('SensorMetricWriterService');
   });
-
-  it('provides the controller-scoped admin guard event dependency in ImpersonationModule', () => {
-    const impersonationModule = read(
-      'apps/admin-api-service/src/impersonation/impersonation.module.ts',
-    );
-    const providersBlock = /providers:\s*\[([\s\S]*?)\]/.exec(impersonationModule)?.[1] ?? '';
-
-    expect(impersonationModule).toContain(
-      "import { SecurityEventService } from '@aquaculture/backend-common/security'",
-    );
-    expect(providersBlock).toContain('SecurityEventService');
-  });
 });

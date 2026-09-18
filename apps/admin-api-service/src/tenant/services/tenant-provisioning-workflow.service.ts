@@ -1,29 +1,32 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
 import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
+  BillingPlanTier as ModulePlanTier,
   createBaseEvent,
   type BaseEvent,
-  type BillingCycle as BillingCommandBillingCycle,
+  type BillingCycle,
   type PlanTier as BillingCommandPlanTier,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
-import {
-  BillingCycle as ModuleBillingCycle,
-  PlanTier as ModulePlanTier,
-} from '../../billing/entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
 import {
   ModuleAssignmentService,
@@ -139,6 +142,7 @@ export class TenantProvisioningWorkflowService {
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
     private readonly metrics: TenantProvisioningMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async createTenantOperation(
@@ -386,40 +390,57 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_CREATE_REQUESTED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            name: tenant.name,
-            slug: tenant.slug,
-            moduleIds: payload.moduleIds,
+        // The runner is a cron continuation of a request a verified SUPER_ADMIN
+        // made; the actor is the persisted run row (ADMIN-CRITICAL-102).
+        await this.auditLogService.recordForActor(
+          { userId: run.actorUserId, source: 'workflow-run' },
+          {
+            action: 'TENANT_CREATE_REQUESTED',
+            entityType: 'tenant',
+            entityId: tenant.id,
+            details: {
+              operationId: run.id,
+              name: tenant.name,
+              slug: tenant.slug,
+              moduleIds: payload.moduleIds,
+            },
           },
-        });
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'assign_modules', async () => {
         await this.assignModulesWithPricing(tenant, payload, run.actorUserId);
       });
 
-      await this.runStep(run.id, leaseToken, 'publish_provisioning_requested', async () => {
-        await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
-        await this.enqueueEvent(
-          {
-            ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
-              aggregateId: tenant.id,
-              aggregateType: 'Tenant',
-            }),
-            slug: tenant.slug,
-            name: tenant.name,
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-          },
-          'tenant-provisioning-requested:' + run.id,
-        );
-      });
+      await this.runStep(
+        run.id,
+        leaseToken,
+        'publish_provisioning_requested',
+        async () => {
+          await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
+          await this.enqueueEvent(
+            {
+              ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
+                aggregateId: tenant.id,
+                aggregateType: 'Tenant',
+              }),
+              slug: tenant.slug,
+              name: tenant.name,
+              operationId: run.id,
+              moduleIds: payload.moduleIds,
+            },
+            'tenant-provisioning-requested:' + run.id,
+          );
+        },
+        {
+          // ADMIN-HIGH-094: on a retry the job this step published may have
+          // FAILED. `platform.request_tenant_schema_provisioning` is
+          // idempotent per operation_id and re-opens a FAILED/ABORTED job by
+          // design, so re-running the step is exactly the recovery; a job in
+          // any other state (including COMMITTED) leaves the step skipped.
+          postconditionHolds: () => this.dbMigrateProvisioningJobIsOutstanding(run.id, tenant.id),
+        },
+      );
 
       await this.runStep(run.id, leaseToken, 'wait_for_db_migrate_provisioner', async () => {
         await this.assertDbMigrateProvisionedTenantSchema(run.id, tenant.id);
@@ -454,17 +475,21 @@ export class TenantProvisioningWorkflowService {
       });
 
       await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_PROVISIONED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-            tenantStatus: TenantStatus.ACTIVE,
+        // The runner is a cron continuation of a request a verified SUPER_ADMIN
+        // made; the actor is the persisted run row (ADMIN-CRITICAL-102).
+        await this.auditLogService.recordForActor(
+          { userId: run.actorUserId, source: 'workflow-run' },
+          {
+            action: 'TENANT_PROVISIONED',
+            entityType: 'tenant',
+            entityId: tenant.id,
+            details: {
+              operationId: run.id,
+              moduleIds: payload.moduleIds,
+              tenantStatus: TenantStatus.ACTIVE,
+            },
           },
-        });
+        );
       });
 
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
@@ -532,7 +557,10 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  @ScheduledJob({
+    name: 'tenant-provisioning.process-queued-operations',
+    cron: CronExpression.EVERY_10_SECONDS,
+  })
   async processQueuedOperations(): Promise<void> {
     if (this.processingQueue) return;
     this.processingQueue = true;
@@ -1024,7 +1052,7 @@ export class TenantProvisioningWorkflowService {
       modules: this.buildModuleQuantityInputs(data),
       assignedBy,
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
     });
 
     if (!result.success) {
@@ -1039,17 +1067,21 @@ export class TenantProvisioningWorkflowService {
     tenant: Tenant,
     data: CreateTenantDto,
   ): Promise<void> {
-    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code, name,
-    // and REAL price (admin.module_pricing via PricingCalculatorService) in
-    // admin-api — the schema owner of that data — and pass priced moduleItems in
-    // the command. billing writes the module rows directly from these values, so
-    // it never runs the schema-unqualified `modules` query that failed (no
-    // billing grant on auth.modules) and rolled the whole subscription back, and
-    // never invents $0 module prices.
+    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code and
+    // name in admin-api — the schema owner of `auth.modules` — and pass priced
+    // moduleItems in the command. billing writes the module rows directly from
+    // these values, so it never runs the schema-unqualified `modules` query
+    // that failed (no billing grant on auth.modules) and rolled the whole
+    // subscription back, and never invents $0 module prices.
+    //
+    // ADR-0013: the PRICES now come from `billing.module_prices` through
+    // `request.billing.admin.quoteModuleSelection` — the service that owns the
+    // sheet does the multiplication, in exact decimals.
     const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
       modules: this.buildModuleQuantityInputs(data),
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
+      actorId: run.actorUserId,
     });
 
     const result = await this.billingCommandClient.provisionTenantSubscription({
@@ -1060,7 +1092,7 @@ export class TenantProvisioningWorkflowService {
       actorId: run.actorUserId,
       tenantName: tenant.name,
       tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
       moduleIds: data.moduleIds ?? [],
       moduleQuantities: data.moduleQuantities,
       moduleItems,
@@ -1118,7 +1150,8 @@ export class TenantProvisioningWorkflowService {
         quantities: module.quantities,
       })),
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(billingCycle),
+      billingCycle: this.toBillingCycle(billingCycle),
+      actorId,
     });
 
     // Deterministic operation identity so repeated reconciles converge on ONE
@@ -1145,7 +1178,7 @@ export class TenantProvisioningWorkflowService {
       actorId,
       tenantName: tenant.name,
       tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(billingCycle),
+      billingCycle: this.toBillingCycle(billingCycle),
       moduleIds: assignedModules.map((module) => module.moduleId),
       moduleItems,
     });
@@ -1245,16 +1278,6 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
 
-  private toModuleBillingCycle(value: CreateTenantDto['billingCycle']): ModuleBillingCycle {
-    const cycleMap: Record<string, ModuleBillingCycle> = {
-      monthly: ModuleBillingCycle.MONTHLY,
-      quarterly: ModuleBillingCycle.QUARTERLY,
-      semi_annual: ModuleBillingCycle.SEMI_ANNUAL,
-      annual: ModuleBillingCycle.ANNUAL,
-    };
-    return cycleMap[value ?? 'monthly'] ?? ModuleBillingCycle.MONTHLY;
-  }
-
   private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
     // FREE passes through on the wire (Billing Revival Faz B): the billing
     // command's PlanTier now legitimately accepts 'free', so a FREE tenant
@@ -1270,16 +1293,14 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
   }
 
-  private toBillingCommandCycle(
-    value: CreateTenantDto['billingCycle'],
-  ): BillingCommandBillingCycle {
-    const cycleMap: Record<string, BillingCommandBillingCycle> = {
-      monthly: 'monthly',
-      quarterly: 'quarterly',
-      semi_annual: 'semi_annual',
-      annual: 'annual',
-    };
-    return cycleMap[value ?? 'monthly'] ?? 'monthly';
+  /**
+   * The cycle a tenant is provisioned on. Since ADR-0013 there is ONE
+   * `BillingCycle` type — the contract's — so the two enum-to-enum mappers this
+   * replaced (one per direction) had nothing left to convert: the DTO already
+   * carries the value both the module assignment and the billing command want.
+   */
+  private toBillingCycle(value: CreateTenantDto['billingCycle']): BillingCycle {
+    return value ?? 'monthly';
   }
 
   private getFirstName(fullName?: string): string {
@@ -1289,6 +1310,28 @@ export class TenantProvisioningWorkflowService {
   private getLastName(fullName?: string): string {
     const parts = fullName?.trim().split(/\s+/).slice(1) ?? [];
     return parts.length > 0 ? parts.join(' ') : 'User';
+  }
+
+  /**
+   * The postcondition of `publish_provisioning_requested`: a PROVISION job for
+   * this operation exists and has not terminally failed. Read from the job
+   * table itself, not from the step ledger (ADMIN-HIGH-094).
+   */
+  private async dbMigrateProvisioningJobIsOutstanding(
+    operationId: string,
+    tenantId: string,
+  ): Promise<boolean> {
+    const rows = await this.queryRows<{ status: string }>(
+      `SELECT status
+         FROM platform.tenant_schema_jobs
+        WHERE operation_id = $1::uuid
+          AND tenant_id = $2::uuid
+          AND job_type = 'PROVISION'
+        LIMIT 1`,
+      [operationId, tenantId],
+    );
+    const status = rows[0]?.status;
+    return status !== undefined && status !== 'FAILED' && status !== 'ABORTED';
   }
 
   private async assertDbMigrateProvisionedTenantSchema(
@@ -1665,11 +1708,28 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
+  /**
+   * Run one saga step unless its ledger row already says SUCCEEDED.
+   *
+   * ADMIN-HIGH-094: a SUCCEEDED row is a record that the step's work ran, not
+   * proof that what the work established still holds. On a retry the run is
+   * reset but SUCCEEDED rows are kept, so a step whose postcondition lives in
+   * another table — `publish_provisioning_requested` establishes "a PROVISION
+   * job exists and is not terminally failed" in `platform.tenant_schema_jobs`
+   * — would be skipped even though the job it published has since FAILED, and
+   * the retry would be dead on arrival. `activateTenantAfterVerification`
+   * learned the same lesson for `activate_tenant` by re-verifying inside the
+   * step; here the check is generic: a step may declare `postconditionHolds`,
+   * and when the ledger says SUCCEEDED but the postcondition no longer holds,
+   * the step runs again. Steps that declare nothing keep the plain
+   * short-circuit.
+   */
   private async runStep(
     runId: string,
     leaseToken: string | null | undefined,
     stepName: string,
     work: () => Promise<void>,
+    options: { postconditionHolds?: () => Promise<boolean> } = {},
   ): Promise<void> {
     const existingRows = await this.queryRows<TenantProvisioningStepRow>(
       `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
@@ -1680,7 +1740,12 @@ export class TenantProvisioningWorkflowService {
     );
 
     if (existingRows[0]?.state === TenantProvisioningState.SUCCEEDED) {
-      return;
+      if (options.postconditionHolds === undefined || (await options.postconditionHolds())) {
+        return;
+      }
+      this.logger.warn(
+        `Step ${stepName} of operation ${runId} is recorded SUCCEEDED but its postcondition no longer holds; running it again`,
+      );
     }
 
     await this.extendLease(runId, leaseToken);

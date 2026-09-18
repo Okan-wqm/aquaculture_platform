@@ -195,16 +195,10 @@ export class AgentRunnerService {
       throw new Error(`Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`);
     }
 
-    // 3. Check token budget
-    const budgetCheck = await this.tokenBudget.checkBudget(
-      request.tenantId,
-      config.monthlyTokenBudget,
-    );
-    if (!budgetCheck.allowed) {
-      throw new Error(
-        `Monthly token budget exceeded (${budgetCheck.used}/${config.monthlyTokenBudget})`,
-      );
-    }
+    // 3. Token budget: enforced ATOMICALLY per provider call below
+    // (SEC-MEDIUM-075 — the old read-then-spend pre-check raced; every
+    // concurrent request passed it and all spent). reserveBudget is the
+    // single enforcement point.
 
     // 4. Resolve agent profile (persona authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
@@ -246,6 +240,16 @@ export class AgentRunnerService {
     if (existingConversation?.messages) {
       for (const msg of existingConversation.messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
+          // SEC-LOW-088 (2026-08-23 scan №33): replayed history is untrusted
+          // context (stored strings can carry tenant-editable data). An entry
+          // failing the filter is DROPPED, not passed through — the model
+          // never sees the payload.
+          if (!this.aiSafety.scanUntrustedContext(msg.content, request.tenantId)) {
+            this.logger.warn(
+              `AI safety dropped a history entry from conversation ${conversationId} (indirect-injection patterns)`,
+            );
+            continue;
+          }
           messages.push({
             role: msg.role,
             content: [{ type: 'text', text: msg.content }],
@@ -350,6 +354,14 @@ export class AgentRunnerService {
       // runaway loop cannot trip the breaker for everyone, and one provider's
       // outage does not trip the other.
       let response;
+      // SEC-MEDIUM-075: reserve the per-call ceiling BEFORE the billable
+      // call; settle to actual usage right after. Concurrent requests can no
+      // longer all pass one shared pre-check.
+      await this.tokenBudget.reserveBudget(
+        request.tenantId,
+        config.monthlyTokenBudget,
+        profile.persona.maxTokensPerTurn,
+      );
       try {
         response = await this.breaker.execute({
           serviceName: `${credential.provider}-api`,
@@ -368,6 +380,15 @@ export class AgentRunnerService {
             ),
         });
       } catch (err) {
+        // The call never produced billable tokens — refund the reservation
+        // (budget-exceeded errors already rolled their reservation back).
+        if (!(err instanceof Error && err.message.includes('token budget'))) {
+          await this.tokenBudget.settleReservation(
+            request.tenantId,
+            profile.persona.maxTokensPerTurn,
+            0,
+          );
+        }
         // A rejected key is a tenant-actionable configuration problem, not a
         // transient outage — surface it as AI_KEY_MISSING so the UI prompts for
         // a new key instead of showing a generic failure.
@@ -390,6 +411,13 @@ export class AgentRunnerService {
       // excluded (billed at ~0.1x input; see TokenUsageBreakdown docblock).
       totalTokens.total +=
         response.usage.input + response.usage.output + response.usage.cacheCreation;
+
+      // SEC-MEDIUM-075: refund the unused part of this call's reservation.
+      await this.tokenBudget.settleReservation(
+        request.tenantId,
+        profile.persona.maxTokensPerTurn,
+        response.usage.input + response.usage.output + response.usage.cacheCreation,
+      );
 
       // Process response content
       const textBlocks: string[] = [];
@@ -498,10 +526,21 @@ export class AgentRunnerService {
           result: result.data,
         });
 
+        // SEC-LOW-088 (2026-08-23 scan №33): tool output is untrusted context
+        // (tenant data like tank/sensor names rides inside) — a payload
+        // failing the filter is replaced wholesale, keeping the tool loop
+        // alive without handing the payload to the model.
+        let toolContent = result.success ? JSON.stringify(result.data) : `Error: ${result.error}`;
+        if (!this.aiSafety.scanUntrustedContext(toolContent, request.tenantId)) {
+          this.logger.warn(
+            `AI safety replaced tool result of ${toolUse.name} (indirect-injection patterns)`,
+          );
+          toolContent = '[Tool output removed by the safety filter]';
+        }
         toolResults.push({
           type: 'tool_result',
           toolUseId: toolUse.id,
-          content: result.success ? JSON.stringify(result.data) : `Error: ${result.error}`,
+          content: toolContent,
           isError: !result.success,
         });
       }
@@ -560,7 +599,8 @@ export class AgentRunnerService {
 
     // 13. Update token usage (total = input + output + cacheCreation — see
     // the TokenUsageBreakdown docblock for the budget semantics)
-    await this.tokenBudget.addUsage(request.tenantId, totalTokens.total);
+    // SEC-MEDIUM-075: budget accounting happened per call via
+    // reserve/settle — a final addUsage here would double-count.
     await this.conversationService.updateTokenCount(
       conversationId,
       request.tenantId,

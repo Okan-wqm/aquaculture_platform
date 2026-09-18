@@ -292,7 +292,7 @@ export class User {
    * failedLoginAttempts) and loses its microseconds crossing the pg driver, so
    * an equality predicate on it never matched and every login was refused.
    *
-   * WHAT: `trg_users_bump_credential_version` (migration 1808500000000)
+   * WHAT: `trg_users_bump_credential_version` (migration 1819200000000, AddUserCredentialVersion)
    * increments this only when `password`, `role`, `tenantId` or `isActive`
    * changes and otherwise pins it to the previous value. `update: false` keeps
    * TypeORM from ever writing it, so the value loaded at authentication time

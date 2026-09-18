@@ -115,8 +115,6 @@ const superAdminNavigation: NavigationItem[] = [
       { id: 'system-performance', label: 'Performance', path: '/admin/system/performance' },
       { id: 'system-errors', label: 'Error Tracking', path: '/admin/system/errors' },
       { id: 'system-jobs', label: 'Job Queue', path: '/admin/system/jobs' },
-      { id: 'system-impersonation', label: 'Impersonation', path: '/admin/system/impersonation' },
-      { id: 'system-debug', label: 'Debug Tools', path: '/admin/system/debug' },
     ],
   },
   {
@@ -141,7 +139,6 @@ const superAdminNavigation: NavigationItem[] = [
     children: [
       { id: 'settings-general', label: 'General', path: '/admin/settings' },
       { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email' },
-      { id: 'settings-integrations', label: 'Integrations', path: '/admin/settings/integrations' },
     ],
   },
 ];

@@ -21,12 +21,9 @@ ARIA_POC = Path(__file__).resolve().parent.parent.parent / "tools" / "aria-poc"
 
 
 def _load_ci_executor():
-    spec = importlib.util.spec_from_file_location(
-        "ci_executor", ARIA_POC / "ci_executor.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    from tests._helpers.executor_module import load_ci_executor
+
+    return load_ci_executor("ci_executor")
 
 
 class MockBoolNormalizeTests(unittest.TestCase):

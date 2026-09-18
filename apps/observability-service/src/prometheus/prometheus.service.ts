@@ -14,6 +14,17 @@ export class PrometheusService implements OnModuleInit, OnModuleDestroy {
   private registry: client.Registry;
   private defaultMetricsDispose: (() => void) | null = null;
 
+  /**
+   * Registries owned by other services in this process, appended to the scrape.
+   *
+   * observability-service keeps its own registry rather than the shared
+   * `ServiceMetricsService`, so anything that publishes through the platform's
+   * contributor port — `CronHeartbeatService`, above all — had nowhere to
+   * appear. A heartbeat that is recorded and never scraped is the exact failure
+   * the heartbeat exists to detect, one level up.
+   */
+  private readonly contributorRegistries = new Map<string, client.Registry>();
+
   // Cached metrics response to avoid blocking event loop on large registries
   private cachedMetrics: string | null = null;
   private cacheTimestamp = 0;
@@ -160,6 +171,20 @@ export class PrometheusService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Append another registry's series to this service's scrape.
+   *
+   * Same shape and semantics as `ServiceMetricsService.registerContributor`, so
+   * a platform service that depends on the contributor port behaves identically
+   * whichever registry owns the endpoint.
+   */
+  registerContributor(name: string, registry: client.Registry): void {
+    this.contributorRegistries.set(name, registry);
+    // Invalidate the scrape cache so a contributor registered between scrapes
+    // is visible on the next one, not up to cacheTtlMs later.
+    this.cachedMetrics = null;
+  }
+
+  /**
    * Get all metrics in Prometheus format (cached for 5s to avoid event-loop blocking)
    */
   async getMetrics(): Promise<string> {
@@ -167,7 +192,14 @@ export class PrometheusService implements OnModuleInit, OnModuleDestroy {
     if (this.cachedMetrics && now - this.cacheTimestamp < this.cacheTtlMs) {
       return this.cachedMetrics;
     }
-    this.cachedMetrics = await this.registry.metrics();
+    const parts = [await this.registry.metrics()];
+    for (const registry of this.contributorRegistries.values()) {
+      parts.push(await registry.metrics());
+    }
+    this.cachedMetrics = `${parts
+      .map((part) => part.trimEnd())
+      .filter((part) => part.length > 0)
+      .join('\n')}\n`;
     this.cacheTimestamp = now;
     return this.cachedMetrics;
   }

@@ -1,19 +1,21 @@
 import * as crypto from 'crypto';
 
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import {
-  Injectable,
-  Optional,
-  UnauthorizedException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
+  type RegistrationResponseJSON,
+} from '@simplewebauthn/server';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { isLoginAllowed } from '@platform/event-contracts';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { User } from '../entities/user.entity';
 import {
@@ -24,16 +26,31 @@ import {
   WebAuthnVerifyLoginInput,
   WebAuthnCredentialInfo,
   WebAuthnRemoveResponse,
+  WEBAUTHN_TRANSPORTS,
+  type WebAuthnTransport,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
 import { TokenService } from './token.service';
 
 /**
- * In-memory challenge store with TTL.
- * Challenges expire after 5 minutes.
+ * WebAuthn ceremony implementation.
  *
- * SECURITY: Challenges are single-use and time-limited to prevent replay attacks.
- * In a multi-instance deployment, this should be replaced with Redis.
+ * SEC-CRITICAL-001/002 (2026-08-23 scan №37-№40): verification is delegated
+ * to `@simplewebauthn/server`. The hand-rolled predecessor stored a
+ * client-supplied public key with no attestation verification (no
+ * proof-of-possession), never checked the authenticatorData UP/UV flags or
+ * rpIdHash, and consumed challenges with a non-atomic GET/DEL pair.
+ *
+ * The library makes the wrong behaviour structurally impossible here:
+ * - the COSE key is DERIVED from the attestation object, never accepted
+ *   from the client;
+ * - rpIdHash, origin, UP/UV flags and the challenge are verified inside
+ *   `verifyRegistrationResponse` / `verifyAuthenticationResponse`
+ *   (`requireUserVerification: true`);
+ * - challenges are consumed atomically via Redis GETDEL (single-use under
+ *   concurrency). Redis is a hard dependency in production (see app.module
+ *   buildRedisOptions('required')) — the in-memory fallback that silently
+ *   weakened single-use semantics on multi-instance deployments is gone.
  */
 interface StoredChallenge {
   challenge: string;
@@ -42,7 +59,7 @@ interface StoredChallenge {
   createdAt: number;
 }
 
-const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CHALLENGE_TTL_SECONDS = 300;
 const MAX_CREDENTIALS_PER_USER = 10;
 
 @Injectable()
@@ -50,28 +67,31 @@ export class WebAuthnService {
   private readonly logger = new Logger(WebAuthnService.name);
   private readonly rpId: string;
   private readonly rpName: string;
-  /** In-memory fallback when Redis unavailable */
-  private readonly localChallenges = new Map<string, StoredChallenge>();
-  private readonly useRedis: boolean;
+  private readonly allowedOrigins: string[];
 
   constructor(
     @InjectRepository(WebAuthnCredential)
     private readonly credentialRepository: Repository<WebAuthnCredential>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Tenant)
+    private readonly tenantRepository: Repository<Tenant>,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
-    @Optional() private readonly redisService?: RedisService,
+    private readonly redisService: RedisService,
   ) {
     // RP ID is the domain without protocol or port
     this.rpId = this.configService.get<string>('WEBAUTHN_RP_ID', 'localhost');
     this.rpName = this.configService.get<string>('WEBAUTHN_RP_NAME', 'AquaCulture Platform');
-    this.useRedis = !!this.redisService;
-    if (!this.useRedis) {
-      this.logger.warn('WebAuthn challenge store: in-memory only (no Redis). Not distributed.');
-      setInterval(() => this.cleanExpiredChallenges(), 60_000);
-    }
+    this.allowedOrigins = this.configService
+      .get<string>(
+        'WEBAUTHN_ALLOWED_ORIGINS',
+        `https://${this.rpId},http://localhost:3000,http://localhost:5173`,
+      )
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0);
   }
 
   // ==========================================================================
@@ -103,7 +123,6 @@ export class WebAuthnService {
     // Generate random challenge
     const challenge = crypto.randomBytes(32).toString('base64url');
 
-    // Store challenge for verification
     await this.storeChallenge(challenge, {
       challenge,
       userId,
@@ -127,80 +146,104 @@ export class WebAuthnService {
    * navigator.credentials.create() ceremony.
    *
    * SECURITY:
-   * - Validates challenge was issued by us and is not expired
-   * - Validates origin matches expected RP
-   * - Validates clientDataJSON type is "webauthn.create"
-   * - Stores public key for future authentication
+   * - SEC-CRITICAL-002: requires password re-authentication, so a stolen
+   *   access token alone cannot plant a persistent biometric credential.
+   * - The challenge is consumed atomically (GETDEL) and must belong to the
+   *   calling user.
+   * - `verifyRegistrationResponse` proves possession of the private key:
+   *   the COSE public key is extracted from the attestation object, and
+   *   origin/rpIdHash/challenge/UP-UV flags are all verified by the library.
    */
   async registerCredential(
     userId: string,
     input: WebAuthnRegisterCredentialInput,
   ): Promise<WebAuthnRegisterResponse> {
-    // Verify challenge
-    const storedChallenge = await this.getChallenge(input.challenge);
-    if (!storedChallenge) {
+    // Step-up: verify the account password before touching the ceremony
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    const reAuth = await user.verifyPasswordAndSignalMigration(input.currentPassword);
+    if (!reAuth.matched) {
+      await this.logAudit(
+        'WEBAUTHN_REGISTRATION_REAUTH_FAILED',
+        userId,
+        {},
+        AuditLogSeverity.WARNING,
+      );
+      throw new UnauthorizedException('Password verification failed');
+    }
+
+    // Atomic single-use challenge consumption
+    const storedChallenge = await this.consumeChallenge(input.challenge);
+    if (!storedChallenge || storedChallenge.type !== 'registration') {
       throw new BadRequestException('Invalid or expired challenge');
     }
-
-    if (storedChallenge.type !== 'registration') {
-      throw new BadRequestException('Challenge type mismatch');
-    }
-
     if (storedChallenge.userId !== userId) {
       throw new BadRequestException('Challenge does not match user');
     }
 
-    if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      await this.deleteChallenge(input.challenge);
-      throw new BadRequestException('Challenge expired');
-    }
+    const registrationResponse: RegistrationResponseJSON = {
+      id: input.credentialId,
+      rawId: input.credentialId,
+      type: 'public-key',
+      clientExtensionResults: {},
+      response: {
+        clientDataJSON: input.clientDataJSON,
+        attestationObject: input.attestationObject,
+        transports: input.transports ?? [],
+        publicKeyAlgorithm: input.publicKeyAlgorithm,
+        ...(input.authenticatorData ? { authenticatorData: input.authenticatorData } : {}),
+      },
+    };
 
-    // Single-use: delete challenge immediately
-    await this.deleteChallenge(input.challenge);
-
-    // Validate clientDataJSON
+    let registrationInfo: Awaited<
+      ReturnType<typeof verifyRegistrationResponse>
+    >['registrationInfo'];
     try {
-      const clientData = JSON.parse(
-        Buffer.from(input.clientDataJSON, 'base64url').toString('utf-8'),
-      );
-
-      // Verify type
-      if (clientData.type !== 'webauthn.create') {
-        throw new BadRequestException('Invalid clientData type');
+      const verification = await verifyRegistrationResponse({
+        response: registrationResponse,
+        expectedChallenge: input.challenge,
+        expectedOrigin: this.allowedOrigins,
+        expectedRPID: this.rpId,
+        requireUserVerification: true,
+      });
+      if (!verification.verified || !verification.registrationInfo) {
+        throw new Error('verification not verified');
       }
-
-      // Verify challenge matches
-      if (clientData.challenge !== input.challenge) {
-        throw new BadRequestException('Challenge mismatch in clientData');
-      }
-
-      // Verify origin
-      if (!this.isOriginAllowed(clientData.origin)) {
-        this.logger.warn(
-          `WebAuthn registration rejected: origin ${clientData.origin} not allowed`,
-        );
-        throw new BadRequestException('Origin not allowed');
-      }
+      registrationInfo = verification.registrationInfo;
     } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException('Invalid clientDataJSON');
+      this.logger.warn(
+        `WebAuthn registration rejected for user ${userId}: ${error instanceof Error ? error.message : 'verification failed'}`,
+      );
+      await this.logAudit(
+        'WEBAUTHN_REGISTRATION_REJECTED',
+        userId,
+        { credentialId: input.credentialId },
+        AuditLogSeverity.WARNING,
+      );
+      throw new BadRequestException('Biometric credential verification failed');
     }
+
+    // Library-derived credential — publicKey comes from the attestation,
+    // never from client input.
+    const derived = registrationInfo.credential;
+    const publicKeyBase64url = Buffer.from(derived.publicKey).toString('base64url');
 
     // Check for duplicate credential
     const existingCredential = await this.credentialRepository.findOne({
-      where: { credentialId: input.credentialId },
+      where: { credentialId: derived.id },
     });
     if (existingCredential) {
       throw new BadRequestException('Credential already registered');
     }
 
-    // Store credential
     const credential = this.credentialRepository.create({
       userId,
-      credentialId: input.credentialId,
-      publicKey: input.publicKey,
-      counter: 0,
-      transports: input.transports,
+      credentialId: derived.id,
+      publicKey: publicKeyBase64url,
+      counter: derived.counter ?? 0,
+      transports: derived.transports ?? input.transports,
       deviceName: input.deviceName || 'Biometric Device',
     });
 
@@ -229,23 +272,17 @@ export class WebAuthnService {
    *
    * SECURITY:
    * - Returns generic error if user has no credentials (prevents enumeration)
-   * - Does not reveal whether the user exists
    */
   async generateLoginChallenge(email: string): Promise<WebAuthnLoginChallengeResponse> {
     const user = await this.userRepository.findOne({
       where: { email: email.toLowerCase() },
     });
 
-    if (!user) {
-      // SECURITY: Return generic error to prevent user enumeration
+    if (!user || !user.isActive) {
+      // SECURITY: identical message for unknown user and inactive account
       throw new UnauthorizedException('Biometric login not available');
     }
 
-    if (!user.isActive) {
-      throw new UnauthorizedException('Biometric login not available');
-    }
-
-    // Get user's credentials
     const credentials = await this.credentialRepository.find({
       where: { userId: user.id },
     });
@@ -254,10 +291,8 @@ export class WebAuthnService {
       throw new UnauthorizedException('Biometric login not available');
     }
 
-    // Generate random challenge
     const challenge = crypto.randomBytes(32).toString('base64url');
 
-    // Store challenge
     await this.storeChallenge(challenge, {
       challenge,
       userId: user.id,
@@ -276,127 +311,137 @@ export class WebAuthnService {
    * Step 2: Verify the WebAuthn assertion and issue JWT tokens.
    *
    * SECURITY:
-   * - Validates challenge, origin, clientDataJSON type
-   * - Verifies signature using stored public key
-   * - Checks and increments counter to detect cloned authenticators
-   * - Returns full auth tokens on success
+   * - Challenge consumed atomically (GETDEL), bound to the challenged user.
+   * - `verifyAuthenticationResponse` verifies the signature over
+   *   authenticatorData || SHA-256(clientDataJSON), the rpIdHash, the
+   *   origin allowlist and the UP/UV flags (`requireUserVerification: true`).
+   * - Counter rollback (cloned authenticator) rejects with a CRITICAL audit.
+   * - SEC-CRITICAL-002: the SAME login gate as password login — account
+   *   state AND tenant status must allow login. Biometric login must not
+   *   become a side door around tenant suspension.
    */
   async verifyLogin(
     input: WebAuthnVerifyLoginInput,
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
-    // Verify challenge
-    const storedChallenge = await this.getChallenge(input.challenge);
-    if (!storedChallenge) {
+    const storedChallenge = await this.consumeChallenge(input.challenge);
+    if (!storedChallenge || storedChallenge.type !== 'authentication') {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
 
-    if (storedChallenge.type !== 'authentication') {
-      throw new UnauthorizedException('Challenge type mismatch');
-    }
-
-    if (Date.now() - storedChallenge.createdAt > CHALLENGE_TTL_MS) {
-      await this.deleteChallenge(input.challenge);
-      throw new UnauthorizedException('Challenge expired');
-    }
-
-    // Single-use
-    await this.deleteChallenge(input.challenge);
-
-    // Find credential
     const credential = await this.credentialRepository.findOne({
       where: { credentialId: input.credentialId },
     });
-
     if (!credential) {
       throw new UnauthorizedException('Unknown credential');
     }
-
-    // Verify the credential belongs to the challenged user
     if (credential.userId !== storedChallenge.userId) {
       throw new UnauthorizedException('Credential does not match user');
     }
 
-    // Validate clientDataJSON
-    let clientData: { type: string; challenge: string; origin: string };
+    const authenticationResponse: AuthenticationResponseJSON = {
+      id: input.credentialId,
+      rawId: input.credentialId,
+      type: 'public-key',
+      clientExtensionResults: {},
+      response: {
+        clientDataJSON: input.clientDataJSON,
+        authenticatorData: input.authenticatorData,
+        signature: input.signature,
+        ...(input.userHandle ? { userHandle: input.userHandle } : {}),
+      },
+    };
+
+    let newCounter: number;
     try {
-      clientData = JSON.parse(
-        Buffer.from(input.clientDataJSON, 'base64url').toString('utf-8'),
+      const verification = await verifyAuthenticationResponse({
+        response: authenticationResponse,
+        expectedChallenge: input.challenge,
+        expectedOrigin: this.allowedOrigins,
+        expectedRPID: this.rpId,
+        requireUserVerification: true,
+        credential: {
+          id: credential.credentialId,
+          // COSE key stored at registration, base64url-encoded
+          publicKey: new Uint8Array(Buffer.from(credential.publicKey, 'base64url')),
+          counter: credential.counter,
+          transports: this.knownTransports(credential.transports),
+        },
+      });
+      if (!verification.verified) {
+        throw new Error('verification not verified');
+      }
+      newCounter = verification.authenticationInfo.newCounter;
+    } catch (error) {
+      this.logger.warn(
+        `WebAuthn assertion rejected for credential ${credential.id}: ${error instanceof Error ? error.message : 'verification failed'}`,
       );
-    } catch {
-      throw new UnauthorizedException('Invalid clientDataJSON');
-    }
-
-    if (clientData.type !== 'webauthn.get') {
-      throw new UnauthorizedException('Invalid clientData type');
-    }
-
-    if (clientData.challenge !== input.challenge) {
-      throw new UnauthorizedException('Challenge mismatch in clientData');
-    }
-
-    if (!this.isOriginAllowed(clientData.origin)) {
-      throw new UnauthorizedException('Origin not allowed');
-    }
-
-    // Verify the signature
-    const isValid = this.verifySignature(
-      credential.publicKey,
-      input.authenticatorData,
-      input.clientDataJSON,
-      input.signature,
-    );
-
-    if (!isValid) {
-      this.logger.warn(`WebAuthn signature verification failed for credential ${credential.id}`);
-      await this.logAudit('WEBAUTHN_LOGIN_FAILED', credential.userId, {
-        credentialId: credential.id,
-        reason: 'Signature verification failed',
-      }, AuditLogSeverity.WARNING);
+      await this.logAudit(
+        'WEBAUTHN_LOGIN_FAILED',
+        credential.userId,
+        { credentialId: credential.id, reason: 'Assertion verification failed' },
+        AuditLogSeverity.WARNING,
+      );
       throw new UnauthorizedException('Biometric verification failed');
     }
-
-    // Check and update counter (detect cloned authenticators)
-    const authenticatorDataBuffer = Buffer.from(input.authenticatorData, 'base64url');
-    const newCounter = this.extractCounter(authenticatorDataBuffer);
 
     if (newCounter !== 0 && newCounter <= credential.counter) {
       this.logger.error(
         `WebAuthn counter rollback detected for credential ${credential.id}: ` +
-        `stored=${credential.counter}, received=${newCounter}. Possible cloned authenticator.`,
+          `stored=${credential.counter}, received=${newCounter}. Possible cloned authenticator.`,
       );
-      await this.logAudit('WEBAUTHN_COUNTER_ROLLBACK', credential.userId, {
-        credentialId: credential.id,
-        storedCounter: credential.counter,
-        receivedCounter: newCounter,
-      }, AuditLogSeverity.CRITICAL);
+      await this.logAudit(
+        'WEBAUTHN_COUNTER_ROLLBACK',
+        credential.userId,
+        {
+          credentialId: credential.id,
+          storedCounter: credential.counter,
+          receivedCounter: newCounter,
+        },
+        AuditLogSeverity.CRITICAL,
+      );
       throw new UnauthorizedException('Authenticator security check failed');
     }
 
-    // Update credential
     credential.counter = newCounter;
     credential.lastUsedAt = new Date();
     await this.credentialRepository.save(credential);
 
-    // Get user and generate tokens
     const user = await this.userRepository.findOne({ where: { id: credential.userId } });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Account not available');
     }
-
     if (user.isLocked()) {
       throw new UnauthorizedException('Account locked');
     }
 
-    // Update user login info
+    // Tenant gate — the same status machine as password login
+    // (isLoginAllowed — ACTIVE only). Password login enforces this before
+    // token mint (authentication.service.login); refresh enforces it in
+    // assertTenantOperationalForRefresh. Biometric login is held to the
+    // identical standard.
+    if (user.tenantId) {
+      const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+      if (tenant && !isLoginAllowed(tenant.status)) {
+        this.logger.debug(`WebAuthn login blocked: tenant ${user.tenantId} is ${tenant.status}`);
+        await this.logAudit(
+          'WEBAUTHN_LOGIN_TENANT_BLOCKED',
+          user.id,
+          { tenantId: user.tenantId, tenantStatus: tenant.status },
+          AuditLogSeverity.WARNING,
+        );
+        throw new UnauthorizedException('Biometric login not available');
+      }
+    }
+
     user.lastLoginAt = new Date();
     user.lastLoginIp = ipAddress ?? null;
     user.failedLoginAttempts = 0;
     user.lockedUntil = null;
     await this.userRepository.save(user);
 
-    this.logger.log(`WebAuthn login successful for user ${user.email}`);
+    this.logger.log(`WebAuthn login successful for user ${user.id}`);
 
     await this.logAudit('WEBAUTHN_LOGIN_SUCCESS', user.id, {
       credentialId: credential.id,
@@ -456,12 +501,13 @@ export class WebAuthnService {
   }
 
   /**
-   * Remove ALL WebAuthn credentials for a user (GDPR erasure).
+   * Remove ALL WebAuthn credentials for a user.
    *
-   * Called by GdprComplianceService.executeErasure() to ensure passkey/security
-   * key records (credentialPublicKey linked to a physical device) are deleted
-   * as part of right-to-erasure. Without this, WebAuthn credentials persist
-   * after account anonymisation.
+   * Called by GdprComplianceService.executeErasure() AND by
+   * AuthenticationService.resetPassword() (SEC-CRITICAL-002 №38): a password
+   * reset invalidates every second factor bound to the previous credential
+   * set, so a biometric credential planted with a stolen token cannot
+   * survive the victim rotating their password.
    */
   async removeAllCredentials(userId: string): Promise<number> {
     const credentials = await this.credentialRepository.find({
@@ -470,7 +516,7 @@ export class WebAuthnService {
     if (credentials.length === 0) return 0;
 
     await this.credentialRepository.remove(credentials);
-    this.logger.log(`GDPR: removed ${credentials.length} WebAuthn credential(s) for user ${userId}`);
+    this.logger.log(`Removed ${credentials.length} WebAuthn credential(s) for user ${userId}`);
     return credentials.length;
   }
 
@@ -487,124 +533,40 @@ export class WebAuthnService {
   // ==========================================================================
 
   /**
-   * Verify the WebAuthn assertion signature using the stored public key.
-   *
-   * The signature is over: authenticatorData || SHA-256(clientDataJSON)
-   *
-   * We use Node.js crypto for signature verification with ECDSA P-256 (ES256)
-   * which is the most common algorithm for platform authenticators (Touch ID, Face ID, etc.)
+   * Narrow stored transport strings to the WebAuthn L3 vocabulary the
+   * library accepts (historical rows may hold arbitrary strings).
    */
-  private verifySignature(
-    publicKeyBase64url: string,
-    authenticatorDataBase64url: string,
-    clientDataJSONBase64url: string,
-    signatureBase64url: string,
-  ): boolean {
-    try {
-      const publicKeyBuffer = Buffer.from(publicKeyBase64url, 'base64url');
-      const authenticatorData = Buffer.from(authenticatorDataBase64url, 'base64url');
-      const clientDataJSON = Buffer.from(clientDataJSONBase64url, 'base64url');
-      const signature = Buffer.from(signatureBase64url, 'base64url');
-
-      // Hash of clientDataJSON
-      const clientDataHash = crypto.createHash('sha256').update(clientDataJSON).digest();
-
-      // The signed data is: authenticatorData || clientDataHash
-      const signedData = Buffer.concat([authenticatorData, clientDataHash]);
-
-      // Try to verify using ECDSA P-256 (most common for platform authenticators)
-      // The public key is stored in SPKI/DER format
-      try {
-        const verify = crypto.createVerify('SHA256');
-        verify.update(signedData);
-
-        // Try SPKI format first (the key may be stored as raw SPKI)
-        const spkiKey = crypto.createPublicKey({
-          key: publicKeyBuffer,
-          format: 'der',
-          type: 'spki',
-        });
-
-        return verify.verify(spkiKey, signature);
-      } catch {
-        // Fallback: try with raw EC key wrapped in SPKI header
-        // This handles the case where the key is a raw COSE key
-        // that we've converted to SPKI during registration
-        this.logger.debug('Primary signature verification failed, trying fallback');
-        return false;
-      }
-    } catch (error) {
-      this.logger.error('Signature verification error', error);
-      return false;
-    }
+  private knownTransports(transports: string[] | undefined): WebAuthnTransport[] {
+    const known: readonly string[] = WEBAUTHN_TRANSPORTS;
+    return (transports ?? []).filter((t): t is WebAuthnTransport => known.includes(t));
   }
 
-  /**
-   * Extract the signature counter from authenticator data.
-   * Counter is at bytes 33-36 (big-endian uint32).
-   */
-  private extractCounter(authenticatorData: Buffer): number {
-    if (authenticatorData.length < 37) {
-      return 0;
-    }
-    // Counter is at offset 33, 4 bytes big-endian
-    return authenticatorData.readUInt32BE(33);
+  // ── Challenge store (Redis-backed, atomic single-use via GETDEL) ──────────
+
+  private challengeKey(c: string): string {
+    return `webauthn:challenge:${c}`;
   }
-
-  /**
-   * Check if the origin is in the allowed origins list.
-   */
-  private isOriginAllowed(origin: string): boolean {
-    const allowedOrigins = this.configService
-      .get<string>('WEBAUTHN_ALLOWED_ORIGINS', `https://${this.rpId},http://localhost:3000,http://localhost:5173`)
-      .split(',')
-      .map((o) => o.trim());
-
-    return allowedOrigins.includes(origin);
-  }
-
-  /**
-   * Remove expired challenges from memory.
-   */
-
-  // ── Challenge store (Redis-backed with in-memory fallback) ──────────
-  private challengeKey(c: string): string { return `webauthn:challenge:${c}`; }
 
   private async storeChallenge(challenge: string, data: StoredChallenge): Promise<void> {
-    if (this.useRedis) {
-      await this.redisService!.set(this.challengeKey(challenge), JSON.stringify(data), 300);
-    } else {
-      this.localChallenges.set(challenge, data);
-    }
+    await this.redisService.set(
+      this.challengeKey(challenge),
+      JSON.stringify(data),
+      CHALLENGE_TTL_SECONDS,
+    );
   }
 
-  private async getChallenge(challenge: string): Promise<StoredChallenge | null> {
-    if (this.useRedis) {
-      const raw = await this.redisService!.get(this.challengeKey(challenge));
-      return raw ? JSON.parse(raw) as StoredChallenge : null;
-    }
-    return this.localChallenges.get(challenge) ?? null;
-  }
-
-  private async deleteChallenge(challenge: string): Promise<void> {
-    if (this.useRedis) {
-      await this.redisService!.del(this.challengeKey(challenge));
-    } else {
-      this.localChallenges.delete(challenge);
-    }
-  }
-
-  private cleanExpiredChallenges(): void {
-    const now = Date.now();
-    let cleaned = 0;
-    for (const [key, value] of this.localChallenges.entries()) {
-      if (now - value.createdAt > CHALLENGE_TTL_MS) {
-        this.localChallenges.delete(key);
-        cleaned++;
-      }
-    }
-    if (cleaned > 0) {
-      this.logger.debug(`Cleaned ${cleaned} expired WebAuthn challenges`);
+  /**
+   * Atomically consume a challenge: GETDEL returns the stored value and
+   * deletes the key in one round-trip, so two concurrent ceremonies with
+   * the same challenge cannot both succeed.
+   */
+  private async consumeChallenge(challenge: string): Promise<StoredChallenge | null> {
+    const raw = await this.redisService.getdel(this.challengeKey(challenge));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as StoredChallenge;
+    } catch {
+      return null;
     }
   }
 
@@ -618,11 +580,6 @@ export class WebAuthnService {
    * A silent swallow on DB failure silently loses that evidence while
    * letting the WebAuthn flow proceed as if audit succeeded — the same
    * regression class the auditor flagged on mfa.service.ts.
-   *
-   * The cure is removing the try/catch and letting the failure bubble
-   * to the caller, who already `await`s this helper. AuditLogService.log
-   * propagates DB errors (apps/auth-service/src/audit/audit-log.service.ts:36),
-   * so the chain is end-to-end fail-closed.
    *
    * Tier-1 "make it impossible": no future maintainer can reintroduce
    * silent loss without deliberately re-adding the swallow.

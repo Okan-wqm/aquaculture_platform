@@ -1,0 +1,78 @@
+name: Require an online self-hosted runner
+description: >-
+  Fail this (GitHub-hosted) job by name unless an ONLINE self-hosted runner
+  carries every label the lane's self-hosted job runs on.
+
+# B8 (2026-09-12) — a lane that cannot get its runner fails by name instead
+# of vanishing. The only runner carrying [self-hosted, linux, claude] went
+# offline on 2026-09-08 09:48Z; every scheduled aria-auto-cycle and
+# aria-agent-executor run since queued with zero jobs and was CANCELLED ~12h
+# later by the next schedule taking its concurrency group's single pending
+# slot. No red, no error line, no notification: green by absence.
+#
+# WHAT: the self-hosted job `needs` a hosted preflight job that uses this
+# action. The action asks GitHub for the repository's runner roster through
+# the ARIA GitHub App — the Actions token cannot read it (administration:
+# read) — and refuses the run with a named reason unless an ONLINE runner
+# carries every required label. The token is minted INSIDE
+# `aria_kernel.runner_availability` with administration:read and nothing
+# else (a GitHub-hosted job never holds a write scope on the repository),
+# and revoked before the step returns; it never enters the job environment.
+# Decision logic and the closed reason vocabulary:
+# aria-kernel/aria_kernel/runner_availability.py.
+#
+# ONE DEFINITION. Five workflows run on the self-hosted runner; a copied
+# preflight block in each is how they drift (the setup-aria-kernel action
+# records what that cost). aria-kernel/tests/test_runner_availability.py
+# discovers every self-hosted job across .github/workflows/ and fails any
+# lane whose self-hosted jobs do not `need` a hosted job that uses this
+# action with `required-labels` equal to their `runs-on`.
+
+inputs:
+  required-labels:
+    description: >-
+      Comma-separated labels, verbatim the self-hosted job's `runs-on`
+      (the invariant test compares the two so they cannot drift apart).
+    required: true
+  app-id:
+    description: The ARIA GitHub App id (secrets.ARIA_GH_APP_ID).
+    required: true
+  app-installation-id:
+    description: The App installation id (secrets.ARIA_GH_APP_INSTALLATION_ID).
+    required: true
+  app-private-key:
+    description: >-
+      The App private key PEM content (secrets.ARIA_GH_APP_PRIVATE_KEY);
+      ubuntu-latest has no operator home dir, so the PEM is materialized
+      into an ephemeral 0600 file for the duration of the step.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-aria-kernel
+
+    - name: Require an online self-hosted runner with the lane's labels
+      shell: bash
+      env:
+        # The mint refuses without the App (ARIA_REQUIRE_MODE_A): a status
+        # this job cannot read is a named failure, never a pass.
+        ARIA_REQUIRE_MODE_A: "true"
+        ARIA_GH_APP_ID: ${{ inputs.app-id }}
+        ARIA_GH_APP_INSTALLATION_ID: ${{ inputs.app-installation-id }}
+        ARIA_GH_APP_PRIVATE_KEY: ${{ inputs.app-private-key }}
+        REQUIRED_RUNNER_LABELS: ${{ inputs.required-labels }}
+        PYTHONPATH: aria-kernel
+      run: |
+        set -euo pipefail
+        KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+        umask 077
+        printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+        export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+        trap 'rm -f "$KEY_FILE"' EXIT
+        python3 -m aria_kernel.runner_availability \
+          --repository "$GITHUB_REPOSITORY" \
+          --required-labels "$REQUIRED_RUNNER_LABELS" \
+          --app-token \
+          --workspace-root "$RUNNER_TEMP" \
+          --cycle-id "runner-preflight-$GITHUB_RUN_ID"

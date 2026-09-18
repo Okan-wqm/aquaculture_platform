@@ -117,20 +117,13 @@ impl ForceRegistryStore {
             }
         }
 
-        let conn = Connection::open(&db_path)
-            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
-
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| StoreError::ConnectionFailed(format!("derive encryption key: {}", e)))?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
-
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA busy_timeout=5000;
-             PRAGMA cache_size=-8000;
-             PRAGMA temp_store=MEMORY;",
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key, PERF pragma profile) instead of hand-rolling
+        // the PRAGMA key + durability sequence.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            db_path.as_ref(),
+            "force_registry",
+            crate::db::sqlcipher_factory::PragmaProfile::PERF,
         )
         .map_err(|e| StoreError::ConnectionFailed(e.to_string()))?;
 

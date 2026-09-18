@@ -1,7 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
+import {
+  PARAMETER_BY_READING_FIELD,
+  requiresDurableDelivery,
+  type SensorReadingEvent,
+} from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
@@ -40,9 +44,7 @@ function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, num
  * connection checkout to the correct tenant schema.
  */
 @Injectable()
-export class SensorReadingEventHandler
-  implements IEventHandler<SensorReadingEvent>, OnModuleInit
-{
+export class SensorReadingEventHandler implements IEventHandler<SensorReadingEvent>, OnModuleInit {
   private readonly logger = new Logger(SensorReadingEventHandler.name);
 
   constructor(
@@ -54,7 +56,7 @@ export class SensorReadingEventHandler
   async onModuleInit(): Promise<void> {
     // Subscribe to SensorReading events ACROSS EVERY TENANT.
     //
-    // WHAT — `subscribeWildcard` builds `events.*.SensorReading` (3 segments),
+    // WHAT — `subscribeWildcard` builds `telemetry.*.SensorReading` (3 segments, Task 2 route registry),
     // matching the publisher's `events.{tenantId}.SensorReading` for every
     // tenant + the platform `events.system.SensorReading` channel.
     //
@@ -75,19 +77,17 @@ export class SensorReadingEventHandler
 
   // getTenantSchemaName imported from @aquaculture/backend-common
 
-  async handle(event: SensorReadingEvent): Promise<void> {
-    this.logger.debug(
-      `Processing sensor reading from ${event.sensorId}`,
-    );
+  async handle(event: SensorReadingEvent): Promise<HandlerOutcome> {
+    this.logger.debug(`Processing sensor reading from ${event.sensorId}`);
 
     // SECURITY: tenantId is required for multi-tenant isolation
     // Empty string fallback could cause cross-tenant data leakage
     if (!event.tenantId) {
       this.logger.error(
         `Missing tenantId for sensor reading from ${event.sensorId}. ` +
-        'Skipping alert evaluation to prevent multi-tenant isolation breach.',
+          'Skipping alert evaluation to prevent multi-tenant isolation breach.',
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // Validate UUID format to prevent schema name injection
@@ -95,7 +95,7 @@ export class SensorReadingEventHandler
       this.logger.error(
         `Invalid tenantId format for sensor reading from ${event.sensorId}: ${event.tenantId}. Skipping.`,
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // NATS handlers have NO AsyncLocalStorage context.
@@ -117,17 +117,36 @@ export class SensorReadingEventHandler
         await this.evaluationService.evaluateSensorReading({
           sensorId: event.sensorId,
           tenantId: event.tenantId,
+          // Task 1.4/1.5: the reading's deterministic identity — the alert
+          // engine's idempotency key.
+          sourceEventId: event.eventId,
           readings,
           farmId: event.farmId,
           pondId: event.pondId,
           timestamp: event.timestamp,
         });
       });
+      return HandlerOutcome.ack();
     } catch (error) {
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      // The delivery class decides, not this handler. #1338 rethrew here
+      // unconditionally on the argument that a threshold crossing is one-shot
+      // even when the reading stream is not; the classification SSoT
+      // (FARM_SIGNAL_DELIVERY_SEMANTICS) already weighed exactly that case and
+      // ruled the other way for SensorReading — "rethrowing here would turn one
+      // bad reading into a redelivery storm on the platform's highest-volume
+      // subject for no gain", with the next reading seconds later re-evaluating
+      // every rule. Deferring keeps one authority over delivery semantics; a
+      // one-shot event routed through this handler still rethrows.
+      return outcomeForError('SensorReading', error, {
+        reproducible: !requiresDurableDelivery(event.eventType),
+      });
     }
   }
 }

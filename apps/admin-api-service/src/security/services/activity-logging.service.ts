@@ -5,8 +5,13 @@
  * API calls, data access, and security events.
  */
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In, Like } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
@@ -20,13 +25,16 @@ import {
   RequestInfo,
   LoginAttempt,
   ApiUsageLog,
-  UserSession,
 } from '../entities/security.entity';
 import {
   ACTIVITY_LOG_SORT_COLUMNS,
   ACTIVITY_LOG_SORT_FIELDS,
   ActivityLogSortField,
 } from '../sorting/activity-log-sort';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Interfaces
@@ -45,7 +53,8 @@ export interface LogActivityParams {
   entityType?: string;
   entityId?: string;
   entityName?: string;
-  ipAddress: string;
+  /** Absent when the source signal carried no address (ADMIN-HIGH-012). */
+  ipAddress?: string;
   geoLocation?: GeoLocation;
   deviceInfo?: DeviceInfo;
   requestInfo?: RequestInfo;
@@ -111,8 +120,7 @@ export class ActivityLoggingService implements OnModuleInit {
     private readonly loginAttemptRepository: Repository<LoginAttempt>,
     @InjectRepository(ApiUsageLog)
     private readonly apiUsageRepository: Repository<ApiUsageLog>,
-    @InjectRepository(UserSession)
-    private readonly sessionRepository: Repository<UserSession>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   onModuleInit(): void {
@@ -173,17 +181,6 @@ export class ActivityLoggingService implements OnModuleInit {
   }
 
   /**
-   * Log activity immediately (bypass buffer)
-   */
-  async logActivityImmediate(params: LogActivityParams): Promise<ActivityLog> {
-    const log = this.activityRepository.create({
-      ...params,
-      severity: params.severity || this.determineSeverity(params),
-    });
-    return this.activityRepository.save(log);
-  }
-
-  /**
    * Flush the log buffer to database
    */
   private async flushBuffer(): Promise<void> {
@@ -239,9 +236,10 @@ export class ActivityLoggingService implements OnModuleInit {
     sessionId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    const changedFields = params.previousValue && params.newValue
-      ? this.getChangedFields(params.previousValue, params.newValue)
-      : undefined;
+    const changedFields =
+      params.previousValue && params.newValue
+        ? this.getChangedFields(params.previousValue, params.newValue)
+        : undefined;
 
     await this.logActivity({
       category: 'user_action',
@@ -356,9 +354,24 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Record login attempt
    */
+  /**
+   * Project one login fact into `admin.login_attempts` (ADMIN-HIGH-014).
+   *
+   * Returns the stored row, or `null` when `sourceEventId` names an event that
+   * was already projected — the caller then knows this delivery is a replay and
+   * must not re-run the detectors over a row that is already counted.
+   *
+   * The insert is `ON CONFLICT DO NOTHING` against the partial unique index on
+   * `sourceEventId` (migration `1809300000000`) rather than a read-then-write:
+   * the JetStream consumer that drives this method NAKs on failure, so the same
+   * event can legitimately arrive twice, and two concurrent deliveries would
+   * pass a `findOne` guard together. PostgreSQL is the only thing that can
+   * decide this race, so it decides it.
+   */
   async recordLoginAttempt(params: {
     email: string;
-    ipAddress: string;
+    /** Absent when the login signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     success: boolean;
     failureReason?: string;
     geoLocation?: GeoLocation;
@@ -366,20 +379,34 @@ export class ActivityLoggingService implements OnModuleInit {
     tenantId?: string;
     userId?: string;
     sessionId?: string;
-  }): Promise<LoginAttempt> {
-    const attempt = this.loginAttemptRepository.create({
-      email: params.email,
-      ipAddress: params.ipAddress,
-      success: params.success,
-      failureReason: params.failureReason || null,
-      geoLocation: params.geoLocation || null,
-      deviceInfo: params.deviceInfo || null,
-      tenantId: params.tenantId || null,
-      userId: params.userId || null,
-      sessionId: params.sessionId || null,
-    });
+    sourceEventId?: string;
+  }): Promise<LoginAttempt | null> {
+    const insert = await this.loginAttemptRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
+        email: params.email,
+        ipAddress: params.ipAddress ?? null,
+        success: params.success,
+        failureReason: params.failureReason || null,
+        geoLocation: params.geoLocation || null,
+        deviceInfo: params.deviceInfo || null,
+        tenantId: params.tenantId || null,
+        userId: params.userId || null,
+        sessionId: params.sessionId || null,
+        sourceEventId: params.sourceEventId || null,
+      })
+      .orIgnore()
+      .returning('*')
+      .execute();
 
-    const saved = await this.loginAttemptRepository.save(attempt);
+    const saved = (insert.raw as LoginAttempt[])[0];
+    if (!saved) {
+      // A replay of an event whose row is already stored. Writing the paired
+      // activity entry anyway would put a second "Failed login attempt for …"
+      // line in the ledger an operator reads as a count.
+      return null;
+    }
 
     // Also log as activity
     await this.logActivity({
@@ -407,10 +434,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Get recent login attempts for IP
    */
-  async getRecentLoginAttempts(
-    ipAddress: string,
-    minutes = 15,
-  ): Promise<LoginAttempt[]> {
+  async getRecentLoginAttempts(ipAddress: string, minutes = 15): Promise<LoginAttempt[]> {
     const since = new Date(Date.now() - minutes * 60 * 1000);
     return this.loginAttemptRepository.find({
       where: {
@@ -456,6 +480,13 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Log API usage
    */
+  /**
+   * Project one API-usage fact into `admin.api_usage_logs` (ADMIN-HIGH-014).
+   *
+   * Returns `false` when `sourceEventId` names an event already projected —
+   * see `recordLoginAttempt` for why the decision belongs to PostgreSQL and
+   * not to a read-then-write guard in this process.
+   */
   async logApiUsage(params: {
     tenantId?: string;
     userId?: string;
@@ -463,12 +494,13 @@ export class ActivityLoggingService implements OnModuleInit {
     method: string;
     endpoint: string;
     path: string;
-    queryParams?: Record<string, unknown>;
+    queryParams?: Record<string, string | string[]>;
     requestSize?: number;
     statusCode: number;
     responseSize?: number;
     responseTimeMs: number;
-    ipAddress: string;
+    /** Absent when the source signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     userAgent?: string;
     geoLocation?: GeoLocation;
     rateLimitRemaining?: number;
@@ -477,133 +509,39 @@ export class ActivityLoggingService implements OnModuleInit {
     errorCode?: string;
     errorMessage?: string;
     correlationId?: string;
-  }): Promise<void> {
-    const log = this.apiUsageRepository.create({
-      tenantId: params.tenantId || null,
-      userId: params.userId || null,
-      apiKeyId: params.apiKeyId || null,
-      method: params.method,
-      endpoint: params.endpoint,
-      path: params.path,
-      queryParams: params.queryParams || null,
-      requestSize: params.requestSize || null,
-      statusCode: params.statusCode,
-      responseSize: params.responseSize || null,
-      responseTimeMs: params.responseTimeMs,
-      ipAddress: params.ipAddress,
-      userAgent: params.userAgent || null,
-      geoLocation: params.geoLocation || null,
-      rateLimitRemaining: params.rateLimitRemaining || null,
-      rateLimitExceeded: params.rateLimitExceeded || false,
-      isError: params.isError || params.statusCode >= 400,
-      errorCode: params.errorCode || null,
-      errorMessage: params.errorMessage || null,
-      correlationId: params.correlationId || null,
-    });
+    sourceEventId?: string;
+  }): Promise<boolean> {
+    const insert = await this.apiUsageRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
+        tenantId: params.tenantId || null,
+        userId: params.userId || null,
+        apiKeyId: params.apiKeyId || null,
+        method: params.method,
+        endpoint: params.endpoint,
+        path: params.path,
+        queryParams: params.queryParams || null,
+        requestSize: params.requestSize || null,
+        statusCode: params.statusCode,
+        responseSize: params.responseSize || null,
+        responseTimeMs: params.responseTimeMs,
+        ipAddress: params.ipAddress ?? null,
+        userAgent: params.userAgent || null,
+        geoLocation: params.geoLocation || null,
+        rateLimitRemaining: params.rateLimitRemaining || null,
+        rateLimitExceeded: params.rateLimitExceeded || false,
+        isError: params.isError || params.statusCode >= 400,
+        errorCode: params.errorCode || null,
+        errorMessage: params.errorMessage || null,
+        correlationId: params.correlationId || null,
+        sourceEventId: params.sourceEventId || null,
+      })
+      .orIgnore()
+      .returning('id')
+      .execute();
 
-    await this.apiUsageRepository.save(log);
-  }
-
-  // ============================================================================
-  // Session Management
-  // ============================================================================
-
-  /**
-   * Create session record
-   */
-  async createSession(params: {
-    sessionToken: string;
-    userId: string;
-    userName: string;
-    tenantId?: string;
-    tenantName?: string;
-    expiresAt: Date;
-    ipAddress: string;
-    geoLocation?: GeoLocation;
-    deviceInfo?: DeviceInfo;
-  }): Promise<UserSession> {
-    const session = this.sessionRepository.create({
-      sessionToken: params.sessionToken,
-      userId: params.userId,
-      userName: params.userName,
-      tenantId: params.tenantId || null,
-      tenantName: params.tenantName || null,
-      isActive: true,
-      expiresAt: params.expiresAt,
-      ipAddress: params.ipAddress,
-      geoLocation: params.geoLocation || null,
-      deviceInfo: params.deviceInfo || null,
-      requestCount: 0,
-      lastActivityAt: new Date(),
-    });
-
-    return this.sessionRepository.save(session);
-  }
-
-  /**
-   * Update session activity
-   */
-  async updateSessionActivity(
-    sessionToken: string,
-    path: string,
-  ): Promise<void> {
-    await this.sessionRepository.update(
-      { sessionToken, isActive: true },
-      {
-        requestCount: () => 'request_count + 1',
-        lastActivityAt: new Date(),
-        lastActivityPath: path,
-      },
-    );
-  }
-
-  /**
-   * Terminate session
-   */
-  async terminateSession(
-    sessionToken: string,
-    reason: 'logout' | 'expired' | 'forced' | 'security',
-    terminatedBy?: string,
-  ): Promise<void> {
-    await this.sessionRepository.update(
-      { sessionToken },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: reason,
-        terminatedBy: terminatedBy || null,
-      },
-    );
-  }
-
-  /**
-   * Get active sessions for user
-   */
-  async getActiveSessionsForUser(userId: string): Promise<UserSession[]> {
-    return this.sessionRepository.find({
-      where: { userId, isActive: true },
-      order: { lastActivityAt: 'DESC' },
-    });
-  }
-
-  /**
-   * Terminate all sessions for user
-   */
-  async terminateAllUserSessions(
-    userId: string,
-    reason: 'logout' | 'forced' | 'security',
-    terminatedBy?: string,
-  ): Promise<number> {
-    const result = await this.sessionRepository.update(
-      { userId, isActive: true },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: reason,
-        terminatedBy: terminatedBy || null,
-      },
-    );
-    return result.affected || 0;
+    return (insert.raw as { id: string }[]).length > 0;
   }
 
   // ============================================================================
@@ -613,12 +551,7 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Query activities with filters
    */
-  async queryActivities(options: ActivityQueryOptions): Promise<{
-    data: ActivityLog[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  async queryActivities(options: ActivityQueryOptions): Promise<PaginationResultV1<ActivityLog>> {
     const {
       page = 1,
       limit = 50,
@@ -661,9 +594,11 @@ export class ActivityLoggingService implements OnModuleInit {
     }
 
     if (tags && tags.length > 0) {
-      qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
+      qb.andWhere('activity.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
+    // SEC-HIGH №1 (2026-08-23 scan): orderBy interpolates verbatim — the column
+    // comes from the ACTIVITY_LOG_SORT_COLUMNS map keyed by the validated field.
     const normalizedSortField = safeSortField(
       sortBy,
       ACTIVITY_LOG_SORT_FIELDS,
@@ -675,7 +610,7 @@ export class ActivityLoggingService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ActivityLog>(data, total, page, limit);
   }
 
   /**
@@ -820,7 +755,7 @@ export class ActivityLoggingService implements OnModuleInit {
     // Activity over time (last 30 days by default)
     const activityOverTime = await this.activityRepository
       .createQueryBuilder('activity')
-      .select("DATE(activity.createdAt)", 'date')
+      .select('DATE(activity.createdAt)', 'date')
       .addSelect('COUNT(*)', 'count')
       .where(tenantId ? 'activity.tenantId = :tenantId' : '1=1', { tenantId })
       .andWhere(startDate ? 'activity.createdAt >= :startDate' : '1=1', { startDate })
@@ -852,56 +787,6 @@ export class ActivityLoggingService implements OnModuleInit {
         count: parseInt(a.count, 10),
       })),
     };
-  }
-
-  // ============================================================================
-  // Cleanup & Maintenance
-  // ============================================================================
-
-  /**
-   * Archive old activity logs
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async archiveOldLogs(): Promise<void> {
-    const archiveDate = new Date();
-    archiveDate.setDate(archiveDate.getDate() - 90); // Archive logs older than 90 days
-
-    const result = await this.activityRepository.update(
-      {
-        createdAt: LessThan(archiveDate),
-        isArchived: false,
-      },
-      {
-        isArchived: true,
-        archivedAt: new Date(),
-      },
-    );
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Archived ${result.affected} activity logs`);
-    }
-  }
-
-  /**
-   * Clean up expired sessions
-   */
-  @Cron(CronExpression.EVERY_HOUR)
-  async cleanupExpiredSessions(): Promise<void> {
-    const result = await this.sessionRepository.update(
-      {
-        isActive: true,
-        expiresAt: LessThan(new Date()),
-      },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: 'expired',
-      },
-    );
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Cleaned up ${result.affected} expired sessions`);
-    }
   }
 
   // ============================================================================

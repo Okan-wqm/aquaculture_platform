@@ -174,7 +174,7 @@ export class DepartmentResolver {
   async departmentsBySite(
     @Args('siteId', { type: () => ID }) siteId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<DepartmentResponse[]> {
+  ): Promise<readonly DepartmentResponse[]> {
     this.logger.debug('action=department.list_by_site');
     const query = new ListDepartmentsQuery(tenantId, { siteId }, { limit: 1000 });
     const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<DepartmentResponse>;

@@ -186,7 +186,15 @@ export class Subscription {
   @Column({ default: true, name: 'auto_renew' })
   autoRenew!: boolean;
 
+  // SECREV-CRITICAL-001: invoice.payment_failed and
+  // customer.subscription.deleted resolve the owning subscription (and
+  // therefore the tenant) from this column alone — see the note on
+  // Payment.stripeChargeId. Partial so local-only subscriptions keep NULL.
   @HideField()
+  @Index('IDX_subscription_stripe_sub', {
+    unique: true,
+    where: '"stripe_subscription_id" IS NOT NULL',
+  })
   @Column({ nullable: true, name: 'stripe_subscription_id' })
   stripeSubscriptionId?: string;
 

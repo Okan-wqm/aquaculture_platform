@@ -14,10 +14,14 @@ import {
   Message,
   MessageStatus,
   MessageAttachment,
-  ThreadSummary,
   BulkMessageRequest,
   AnnouncementTarget,
 } from '../entities/support.entity';
+import { ThreadSummaryDto } from '../controllers/dto/messaging.dto';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Service
@@ -109,12 +113,7 @@ export class MessagingService {
     limit?: number;
     status?: 'open' | 'closed' | 'all';
     hasUnread?: boolean;
-  }): Promise<{
-    data: ThreadSummary[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<ThreadSummaryDto>> {
     const { page = 1, limit = 20, status = 'all', hasUnread } = options;
 
     const where: Record<string, unknown> = {
@@ -152,7 +151,7 @@ export class MessagingService {
     }
 
     // Map threads to summaries without additional queries
-    const data: ThreadSummary[] = threads.map((thread) => {
+    const data: ThreadSummaryDto[] = threads.map((thread) => {
       const lastMessage = lastMessagesMap.get(thread.id);
 
       return {
@@ -168,7 +167,7 @@ export class MessagingService {
       };
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<ThreadSummaryDto>(data, total, page, limit);
   }
 
   /**

@@ -4,8 +4,9 @@
  * Destek ticket sistemi - SLA tracking, önceliklendirme, atama.
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, IsNull, Not } from 'typeorm';
 
@@ -19,6 +20,10 @@ import {
   TicketStats,
   SLAConfig,
 } from '../entities/support.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // SLA Configuration
@@ -45,6 +50,7 @@ export class TicketService {
     private readonly ticketRepository: Repository<SupportTicket>,
     @InjectRepository(TicketComment)
     private readonly commentRepository: Repository<TicketComment>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -215,13 +221,17 @@ export class TicketService {
     assignedTo?: string;
     tenantId?: string;
     search?: string;
-  }): Promise<{
-    data: SupportTicket[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    const { page = 1, limit = 20, status, priority, category, assignedTo, tenantId, search } = options;
+  }): Promise<PaginationResultV1<SupportTicket>> {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      priority,
+      category,
+      assignedTo,
+      tenantId,
+      search,
+    } = options;
 
     const qb = this.ticketRepository.createQueryBuilder('ticket');
 
@@ -243,7 +253,7 @@ export class TicketService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SupportTicket>(data, total, page, limit);
   }
 
   /**
@@ -252,7 +262,7 @@ export class TicketService {
   async getTicketsForTenant(
     tenantId: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { tenantId };
     if (status) where.status = status;
@@ -264,7 +274,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SupportTicket>(data, total, page, limit);
   }
 
   /**
@@ -273,7 +283,7 @@ export class TicketService {
   async getAssignedTickets(
     assignedTo: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { assignedTo };
     if (status) where.status = status;
@@ -285,7 +295,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SupportTicket>(data, total, page, limit);
   }
 
   /**
@@ -293,7 +303,7 @@ export class TicketService {
    */
   async getUnassignedTickets(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<SupportTicket>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.ticketRepository.findAndCount({
@@ -306,7 +316,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<SupportTicket>(data, total, page, limit);
   }
 
   // ============================================================================
@@ -482,7 +492,7 @@ export class TicketService {
   async getComments(
     ticketId: string,
     options: { includeInternal?: boolean; page?: number; limit?: number } = {},
-  ): Promise<{ data: TicketComment[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<TicketComment>> {
     const { includeInternal = true, page = 1, limit = 50 } = options;
 
     const where: Record<string, unknown> = { ticketId };
@@ -495,7 +505,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<TicketComment>(data, total, page, limit);
   }
 
   // ============================================================================
@@ -533,7 +543,7 @@ export class TicketService {
   /**
    * Check SLA breaches (runs every 5 minutes)
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({ name: 'support-tickets.check-sla-breaches', cron: CronExpression.EVERY_5_MINUTES })
   async checkSLABreaches(): Promise<void> {
     const now = new Date();
 

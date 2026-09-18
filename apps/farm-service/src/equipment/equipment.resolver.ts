@@ -18,7 +18,7 @@ import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
-import { TenantContextError } from '@aquaculture/backend-common/database';
+import { TenantContextError, numberOrUndefined } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { getTenantSchemaName } from '../common/utils/schema-sanitizer';
 import { FarmGraphQLContext } from '../common/types/graphql-context.types';
@@ -174,7 +174,7 @@ export class EquipmentResolver {
   async equipmentByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<EquipmentResponse[]> {
+  ): Promise<readonly EquipmentResponse[]> {
     const query = new ListEquipmentQuery(
       tenantId,
       { departmentId, isActive: true },
@@ -378,7 +378,7 @@ export class EquipmentResolver {
           mortalityRate: initialQty > 0 ? (totalMort / initialQty) * 100 : 0,
           survivalRate: initialQty > 0 ? ((initialQty - totalMort) / initialQty) * 100 : 100,
           fcr: batch.fcr?.actual,
-          sgr: batch.sgr ? Number(batch.sgr) : undefined,
+          sgr: numberOrUndefined(batch.sgr),
           speciesCode: batch.speciesCode || undefined,
         };
       }

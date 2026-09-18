@@ -196,4 +196,50 @@ describe('LoginForm', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/'));
     expect(navigate).not.toHaveBeenCalledWith('/%09/evil.example');
   });
+
+  // ADR-046 / ADMIN-HIGH-010 — the tenant enforces MFA and this user has no
+  // second factor. login() returns NO session; the UI must route into
+  // enrollment instead of navigating anywhere or reporting an error.
+  describe('MFA-setup-required branch (ADR-046)', () => {
+    const submitCredentials = (container: HTMLElement): void => {
+      const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+      const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+      if (!email || !password) throw new Error('login fields not found');
+      fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+      fireEvent.change(password, { target: { value: 'password123' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    };
+
+    it('routes into the enrollment screen and navigates nowhere', async () => {
+      login.mockResolvedValueOnce({
+        mfaSetupRequired: true,
+        mfaSetupToken: 'mfa-setup-token',
+      });
+      const { container } = renderForm();
+
+      submitCredentials(container);
+
+      await screen.findByText(/multi-factor authentication/i);
+      // No session was issued, so no redirect may happen.
+      expect(navigate).not.toHaveBeenCalled();
+      // And the login form itself is gone — the user cannot resubmit past the
+      // gate while enrollment is pending.
+      expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
+    });
+
+    it('does not treat the setup outcome as a redirect result', async () => {
+      login.mockResolvedValueOnce({
+        mfaSetupRequired: true,
+        mfaSetupToken: 'mfa-setup-token',
+      });
+      const { container } = renderForm();
+
+      submitCredentials(container);
+
+      await screen.findByText(/multi-factor authentication/i);
+      // The pre-fix shape would have read `undefined` as redirectPath and sent
+      // the user to '/' with no session.
+      expect(navigate).not.toHaveBeenCalledWith('/');
+    });
+  });
 });

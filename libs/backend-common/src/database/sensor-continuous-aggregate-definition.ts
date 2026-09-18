@@ -30,7 +30,14 @@ export interface SensorContinuousAggregateStatement {
   readonly sql: string;
 }
 
-/** Ordered lowest-to-highest rollup DDL; every operation is idempotent. */
+/**
+ * Ordered lowest-to-highest rollup DDL; every operation is idempotent.
+ *
+ * Refresh `start_offset`s are one full retention step behind the schedule
+ * (24h / 7d / 30d) rather than a few buckets: edge gateways buffer offline
+ * and replay telemetry hours to days late, and a narrower window would leave
+ * those late rows unrolled forever (100-tenant readiness plan, Task 4).
+ */
 export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAggregateStatement[] =
   [
     {
@@ -64,7 +71,7 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       label: 'metrics_1min refresh policy',
       phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
-        start_offset => INTERVAL '3 minutes',
+        start_offset => INTERVAL '24 hours',
         end_offset => INTERVAL '1 minute',
         schedule_interval => INTERVAL '1 minute',
         if_not_exists => TRUE)`,
@@ -111,7 +118,7 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       label: 'metrics_1hour refresh policy',
       phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
-        start_offset => INTERVAL '3 hours',
+        start_offset => INTERVAL '7 days',
         end_offset => INTERVAL '1 hour',
         schedule_interval => INTERVAL '1 hour',
         if_not_exists => TRUE)`,
@@ -158,7 +165,7 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       label: 'metrics_1day refresh policy',
       phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
-        start_offset => INTERVAL '3 days',
+        start_offset => INTERVAL '30 days',
         end_offset => INTERVAL '1 day',
         schedule_interval => INTERVAL '1 day',
         if_not_exists => TRUE)`,

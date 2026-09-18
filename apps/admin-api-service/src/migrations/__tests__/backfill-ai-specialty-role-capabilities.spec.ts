@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { BACKFILL } from '../1808600000000-BackfillAiSpecialtyRoleCapabilities';
+import { BACKFILL } from '../1810300000000-BackfillAiSpecialtyRoleCapabilities';
 
 /**
  * RBAC-MEDIUM-016 backfill snapshot integrity — same contract as the

@@ -1,14 +1,38 @@
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, RequireTenantPermission, Role } from '@aquaculture/backend-common/decorators';
+import {
+  CurrentUser,
+  Public,
+  SuperAdminOnly,
+  TenantAdminOrHigher,
+  RequireTenantPermission,
+  Role,
+} from '@aquaculture/backend-common/decorators';
 import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
-import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
+import {
+  TenantLocalizationSettings,
+  UpdateTenantLocalizationInput,
+} from '../dto/tenant-localization.dto';
+import {
+  TenantStats,
+  TenantDatabaseInfo,
+  TableSchemaInfo,
+  AuditLogPage,
+  TenantActivityResponse,
+  ModuleUsageStatResponse,
+} from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant } from '../entities/tenant.entity';
+import {
+  readLocalization,
+  TenantProvisioningCommandService,
+} from '../services/tenant-provisioning-command.service';
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -39,6 +63,8 @@ export class TenantResolver {
   constructor(
     private readonly tenantService: TenantService,
     private readonly auditLogService: AuditLogService,
+    // W5: `auth.tenants` üzerindeki tek meşru yazma yolu command-receipt'tir.
+    private readonly tenantCommands: TenantProvisioningCommandService,
   ) {}
 
   @SuperAdminOnly()
@@ -98,9 +124,7 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  suspendTenant(
-    @Args('id', { type: () => ID }) id: string,
-  ): Tenant {
+  suspendTenant(@Args('id', { type: () => ID }) id: string): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
@@ -109,9 +133,7 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  activateTenant(
-    @Args('id', { type: () => ID }) id: string,
-  ): Tenant {
+  activateTenant(@Args('id', { type: () => ID }) id: string): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
@@ -120,9 +142,7 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  cancelTenant(
-    @Args('id', { type: () => ID }) id: string,
-  ): Tenant {
+  cancelTenant(@Args('id', { type: () => ID }) id: string): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
@@ -138,10 +158,57 @@ export class TenantResolver {
    */
   @TenantAdminOrHigher()
   @Query(() => Tenant)
-  async myTenant(
-    @CurrentUser('tenantId') tenantId: string,
-  ): Promise<Tenant> {
+  async myTenant(@CurrentUser('tenantId') tenantId: string): Promise<Tenant> {
     return this.tenantService.findById(tenantId);
+  }
+
+  /**
+   * Tenant'ın lokalizasyon ayarı (W5). Saat dilimi hiç ayarlanmamışsa `UTC`
+   * döner — "ayarlanmamış" durumu UI'da varsayılan olarak görünür, sessiz
+   * kalmaz.
+   */
+  @TenantAdminOrHigher()
+  @Query(() => TenantLocalizationSettings)
+  async myTenantLocalization(
+    @CurrentUser('tenantId') tenantId: string,
+  ): Promise<TenantLocalizationSettings> {
+    const tenant = await this.tenantService.findById(tenantId);
+    const localization = readLocalization(tenant.settings);
+    return { timezone: localization.timezone ?? 'UTC', locale: localization.locale };
+  }
+
+  /**
+   * Tenant lokalizasyonunu günceller (W5, kullanıcı kararı 3).
+   *
+   * Generic `updateTenant` command-receipt'e devredildiği için reddedilmeye
+   * devam eder; bu mutation da AYNI receipt yolundan geçer (idempotency +
+   * fail-closed denetim izi + aynı tx'te outbox). Saat dilimi farm-service'in
+   * yemleme cron'larının gün sınırı olduğundan doğrulama fail-closed'dır:
+   * geçersiz IANA kimliği 400 döner, sessizce UTC'ye düşmez.
+   */
+  @TenantAdminOrHigher()
+  @Mutation(() => TenantLocalizationSettings)
+  async updateTenantLocalization(
+    @Args('input') input: UpdateTenantLocalizationInput,
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('email') email: string | undefined,
+    @CurrentUser('tenantId') tenantId: string | null,
+  ): Promise<TenantLocalizationSettings> {
+    // Tenant izolasyonu: hedef DAİMA çağıranın kendi tenant'ıdır — id
+    // argüman olarak alınmaz, dolayısıyla başka tenant'a yazmak ifade
+    // edilemez (tier-1).
+    if (!tenantId) {
+      throw new ForbiddenException('Localization can only be changed within a tenant context');
+    }
+    const { tenant } = await this.tenantCommands.updateTenantLocalization({
+      operationId: randomUUID(),
+      tenantId,
+      actor: { id: userId, type: 'user', email },
+      timezone: input.timezone,
+      locale: input.locale,
+    });
+    const localization = readLocalization(tenant.settings);
+    return { timezone: localization.timezone ?? 'UTC', locale: localization.locale };
   }
 
   /**
@@ -149,9 +216,7 @@ export class TenantResolver {
    */
   @TenantAdminOrHigher()
   @Query(() => TenantStats)
-  async tenantStats(
-    @CurrentUser('tenantId') tenantId: string,
-  ): Promise<TenantStats> {
+  async tenantStats(@CurrentUser('tenantId') tenantId: string): Promise<TenantStats> {
     return this.tenantService.getTenantStats(tenantId);
   }
 
@@ -160,9 +225,7 @@ export class TenantResolver {
    */
   @TenantAdminOrHigher()
   @Query(() => [TenantModule])
-  async myTenantModules(
-    @CurrentUser('tenantId') tenantId: string,
-  ): Promise<TenantModule[]> {
+  async myTenantModules(@CurrentUser('tenantId') tenantId: string): Promise<TenantModule[]> {
     return this.tenantService.getTenantModules(tenantId);
   }
 
@@ -195,9 +258,7 @@ export class TenantResolver {
    */
   @TenantAdminOrHigher()
   @Query(() => TenantDatabaseInfo)
-  async tenantDatabase(
-    @CurrentUser('tenantId') tenantId: string,
-  ): Promise<TenantDatabaseInfo> {
+  async tenantDatabase(@CurrentUser('tenantId') tenantId: string): Promise<TenantDatabaseInfo> {
     return this.tenantService.getTenantDatabaseInfo(tenantId);
   }
 
@@ -224,11 +285,7 @@ export class TenantResolver {
     @Args('input') input: AssignModuleManagerInput,
     @CurrentUser('tenantId') tenantId: string,
   ): Promise<TenantModule> {
-    return this.tenantService.assignModuleManager(
-      tenantId,
-      input.moduleId,
-      input.userId,
-    );
+    return this.tenantService.assignModuleManager(tenantId, input.moduleId, input.userId);
   }
 
   /**
@@ -278,7 +335,7 @@ export class TenantResolver {
       offset: offset ?? 0,
     });
     return {
-      data: result.data.map(log => ({
+      data: result.data.map((log) => ({
         ...log,
         performedByEmail: log.performedByEmail ?? undefined,
         entityId: log.entityId ?? undefined,
@@ -312,8 +369,8 @@ export class TenantResolver {
     });
 
     // Build recent logins from login-type audit entries
-    const loginLogs = logs.filter(l => l.action?.toLowerCase().includes('login'));
-    const recentLogins = loginLogs.slice(0, 50).map(l => ({
+    const loginLogs = logs.filter((l) => l.action?.toLowerCase().includes('login'));
+    const recentLogins = loginLogs.slice(0, 50).map((l) => ({
       id: l.id,
       userId: l.performedBy,
       email: l.performedByEmail ?? l.performedBy,
@@ -327,7 +384,10 @@ export class TenantResolver {
     }));
 
     // Build user activity summaries
-    const userMap = new Map<string, { email: string; actions: number; lastAt: Date | null; logins: number }>();
+    const userMap = new Map<
+      string,
+      { email: string; actions: number; lastAt: Date | null; logins: number }
+    >();
     for (const log of logs) {
       const key = log.performedBy;
       const existing = userMap.get(key);

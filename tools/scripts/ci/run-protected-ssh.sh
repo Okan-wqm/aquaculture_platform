@@ -66,9 +66,9 @@ printf '%s\n' "${DROPLET_SSH_KEY}" > "${KEY_PATH}"
 chmod 0600 "${KEY_PATH}"
 unset DROPLET_SSH_KEY
 
-if ! ssh-keyscan -T 15 -p "${DROPLET_PORT}" "${DROPLET_HOST}" \
+if ! ssh-keyscan -T 15 -t ed25519 -p "${DROPLET_PORT}" "${DROPLET_HOST}" \
   > "${CANDIDATE_HOST_KEYS}" 2>/dev/null; then
-  die 'ssh-keyscan could not retrieve the protected host key.'
+  die 'ssh-keyscan could not retrieve the protected ED25519 host key.'
 fi
 : > "${KNOWN_HOSTS_PATH}"
 while IFS= read -r candidate_key; do
@@ -93,15 +93,28 @@ while IFS= read -r candidate_key; do
   candidate_key_info=${candidate_key_info%%$'\n'*}
   candidate_fingerprint=${candidate_key_info#* }
   candidate_fingerprint=${candidate_fingerprint%% *}
+  # The provisioning contract for this droplet selects an ED25519 host key —
+  # recorded on 2026-07-18 when INFRA-CRITICAL-078's fingerprint secret was
+  # first populated — and DROPLET_SSH_FINGERPRINT is that key's SHA256. The
+  # exact fingerprint match already excludes an arbitrary key, but it says
+  # nothing about which ALGORITHM the accepted line carries, so a host
+  # advertising several keys, or one caught mid-rotation, left the selection
+  # ambiguous. Requiring the algorithm too makes it part of the accepted
+  # contract instead of an accident of scan order. The check sits AFTER the
+  # parse so an unreadable line still takes the skip path above and keeps its
+  # diagnostic; the scan-continuation contract is unchanged.
+  candidate_algorithm=${candidate_key#* }
+  candidate_algorithm=${candidate_algorithm%% *}
+  [ "${candidate_algorithm}" = 'ssh-ed25519' ] || continue
   if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then
     printf '%s\n' "${candidate_key}" >> "${KNOWN_HOSTS_PATH}"
   fi
 done < "${CANDIDATE_HOST_KEYS}"
 if [ "$(wc -l < "${KNOWN_HOSTS_PATH}")" -ne 1 ]; then
-  die 'protected SSH host fingerprint did not match exactly one advertised host key.'
+  die 'protected SSH fingerprint did not match exactly one advertised ED25519 host key.'
 fi
 chmod 0600 "${KNOWN_HOSTS_PATH}"
-unset DROPLET_SSH_FINGERPRINT candidate_fingerprint
+unset DROPLET_SSH_FINGERPRINT candidate_fingerprint candidate_algorithm
 
 env -i \
   PATH="${PATH}" \
@@ -121,6 +134,7 @@ env -i \
     -o PermitLocalCommand=no \
     -o RequestTTY=no \
     -o StrictHostKeyChecking=yes \
+    -o HostKeyAlgorithms=ssh-ed25519 \
     -o UserKnownHostsFile="${KNOWN_HOSTS_PATH}" \
     -o GlobalKnownHostsFile=/dev/null \
     -o UpdateHostKeys=no \

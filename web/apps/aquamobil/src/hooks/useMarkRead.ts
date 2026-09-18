@@ -85,7 +85,7 @@ export function useMarkRead(channelId: string | undefined): UseMarkReadResult {
       }
 
       try {
-        await graphqlRequest<{ markMessagesRead: boolean }>(MARK_MESSAGES_READ, {
+        await graphqlRequest(MARK_MESSAGES_READ, {
           input: { channelId, messageId },
         });
         if (tenantId) {

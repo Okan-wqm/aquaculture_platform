@@ -138,3 +138,62 @@ export const UPDATE_TENANT_MUTATION = `
  * @deprecated Use UPDATE_TENANT_MUTATION instead.
  */
 export const UPDATE_TENANT_SETTINGS_MUTATION = UPDATE_TENANT_MUTATION;
+
+// ============================================================================
+// Localization (W5)
+// ============================================================================
+
+/**
+ * Tenant saat dilimi + dil. Saat dilimi bir görünüm tercihi DEĞİLDİR: farm
+ * modülünün yemleme cron'ları (plan üretimi, sabah süpürmesi, gün özeti, FCR
+ * ve stok kapsama süpürmeleri) tenant'ın YEREL gününde koşar ve gün sınırını
+ * bu ayardan alır.
+ */
+export const MY_TENANT_LOCALIZATION_QUERY = `
+  query MyTenantLocalization {
+    myTenantLocalization {
+      timezone
+      locale
+    }
+  }
+`;
+
+export const UPDATE_TENANT_LOCALIZATION_MUTATION = `
+  mutation UpdateTenantLocalization($input: UpdateTenantLocalizationInput!) {
+    updateTenantLocalization(input: $input) {
+      timezone
+      locale
+    }
+  }
+`;
+
+// ============================================================================
+// Tenant auth-security policy (ADR-046)
+//
+// TENANT_ADMIN-guarded auth-service subgraph. The policy is ENFORCED — the
+// login MFA gate reads enforceMfa, and the refresh-TTL clamp inside
+// TokenService.generateTokens reads sessionTimeoutMinutes. tenantId is never
+// an input: the server derives it from the caller's JWT.
+//
+// Localization (timezone/locale) is a DIFFERENT authority with its own
+// surface (updateTenantLocalization, written through the tenant
+// command-receipt path) and is deliberately not folded in here.
+// ============================================================================
+
+export const TENANT_SECURITY_POLICY_QUERY = `
+  query TenantSecurityPolicy {
+    tenantSecurityPolicy {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;
+
+export const UPDATE_TENANT_SECURITY_POLICY_MUTATION = `
+  mutation UpdateTenantSecurityPolicy($input: UpdateTenantSecurityPolicyInput!) {
+    updateTenantSecurityPolicy(input: $input) {
+      enforceMfa
+      sessionTimeoutMinutes
+    }
+  }
+`;

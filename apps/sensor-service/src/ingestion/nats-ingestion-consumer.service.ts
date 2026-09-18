@@ -8,12 +8,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import {
-  IEventBus,
-  IEventHandler,
-} from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   createBaseEvent,
+  deriveEventId,
   parameterForChannelKey,
   readingFieldForParameter,
   type SensorMetricIngestedEvent,
@@ -67,10 +65,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  */
 @Injectable()
 export class NatsIngestionConsumerService
-  implements
-    OnModuleInit,
-    OnModuleDestroy,
-    IEventHandler<SensorMetricIngestedEvent>
+  implements OnModuleInit, OnModuleDestroy, IEventHandler<SensorMetricIngestedEvent>
 {
   private readonly logger = new Logger(NatsIngestionConsumerService.name);
 
@@ -80,7 +75,9 @@ export class NatsIngestionConsumerService
    * `deriveSubject`: `events.{tenantId}.{eventType}` — the wildcard
    * captures every tenant.
    */
-  private static readonly SUBJECT_PATTERN = 'events.*.SensorMetricIngested';
+  // Task 2 (SENSOR-HIGH-092): SensorMetricIngested is a high-rate telemetry
+  // type — it lives on the telemetry root / AQUACULTURE_TELEMETRY stream.
+  private static readonly SUBJECT_PATTERN = 'telemetry.*.SensorMetricIngested';
 
   /** Accumulators for bulk-flush observability (logged every minute). */
   private receivedCount = 0;
@@ -110,9 +107,7 @@ export class NatsIngestionConsumerService
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe',
-      );
+      this.logger.warn('EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe');
       return;
     }
 
@@ -157,13 +152,9 @@ export class NatsIngestionConsumerService
     }
     if (this.eventBus) {
       try {
-        await this.eventBus.unsubscribeFrom(
-          NatsIngestionConsumerService.SUBJECT_PATTERN,
-        );
+        await this.eventBus.unsubscribeFrom(NatsIngestionConsumerService.SUBJECT_PATTERN);
       } catch (e) {
-        this.logger.warn(
-          `unsubscribeFrom failed at shutdown: ${(e as Error).message}`,
-        );
+        this.logger.warn(`unsubscribeFrom failed at shutdown: ${(e as Error).message}`);
       }
     }
   }
@@ -189,7 +180,7 @@ export class NatsIngestionConsumerService
    * (DB unavailable) — the platform's redelivery is the right answer
    * there.
    */
-  async handle(event: SensorMetricIngestedEvent): Promise<void> {
+  async handle(event: SensorMetricIngestedEvent): Promise<HandlerOutcome> {
     this.receivedCount++;
 
     // 0. JSON Schema validation — defence-in-depth at the trust
@@ -197,8 +188,9 @@ export class NatsIngestionConsumerService
     //    rejects shape drift on the publish side; this validator
     //    rejects anything that arrives malformed (extra field, wrong
     //    discriminator, range violation on qualityCode/producerTs).
-    //    Drops here NEVER throw — we want JetStream to ack-and-discard
-    //    a poison payload, not redeliver it forever.
+    //    A poison payload can never become valid: it is TERMINATED
+    //    (dead-lettered with its reason, PLAT-HIGH-902), never
+    //    redelivered and never silently acknowledged.
     const schemaResult = validateSensorEvent('SensorMetricIngested', event);
     if (!schemaResult.valid) {
       this.rejectedSchemaCount++;
@@ -207,7 +199,7 @@ export class NatsIngestionConsumerService
           (event as { eventId?: unknown }).eventId ?? 'unknown'
         }): ${schemaResult.errors}`,
       );
-      return;
+      return HandlerOutcome.terminate(`SensorMetricIngested: ${schemaResult.errors}`);
     }
 
     // 1. Sensor metadata lookup (cached) — needed for tenantId
@@ -218,7 +210,9 @@ export class NatsIngestionConsumerService
       this.logger.debug(
         `SensorMetricIngested for unknown sensorId=${event.sensorId} (tenant=${event.tenantId}); dropping`,
       );
-      return;
+      // Not applicable to this deployment (a sensor this service does not know
+      // about); a drop by design, acknowledged.
+      return HandlerOutcome.ack();
     }
 
     // 2. ADR-025 § Threat 2 sanity: the sidecar already enforces
@@ -229,7 +223,7 @@ export class NatsIngestionConsumerService
       this.logger.warn(
         `Tenant mismatch on SensorMetricIngested: event.tenantId=${event.tenantId} sensor.tenantId=${sensor.tenantId}; dropping`,
       );
-      return;
+      return HandlerOutcome.terminate('SensorMetricIngested: tenant binding mismatch');
     }
 
     // 3. Channel lookup (cached). The sidecar identifies the channel
@@ -242,7 +236,7 @@ export class NatsIngestionConsumerService
       this.logger.debug(
         `SensorMetricIngested for unknown channelId=${event.channelId} on sensor=${event.sensorId}; dropping`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     // 4. Build the SensorMetricInput and hand to the existing
@@ -279,7 +273,12 @@ export class NatsIngestionConsumerService
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
-    this.metricWriter.enqueue(metric);
+    // 4. Hand to the single writer and AWAIT the durable outcome: the writer
+    //    settles this promise only after the row's tenant batch COMMITTED
+    //    (ack-after-commit, SENSOR-CRITICAL-087), so the event-bus ACK fires
+    //    strictly after persistence and a DB failure propagates into a NAK
+    //    for redelivery instead of an acked loss.
+    await this.metricWriter.enqueue(metric);
     this.enqueuedCount++;
 
     // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by
@@ -307,11 +306,15 @@ export class NatsIngestionConsumerService
         await this.eventBus.publish<SensorReadingEvent>(typed);
         this.publishedCount++;
       } catch (e) {
+        // The metric row is already enqueued for persistence; the typed
+        // re-emit is a best-effort fan-out (alert-engine has its own path),
+        // so a publish failure does not redeliver the ingested metric.
         this.logger.warn(
           `Failed to publish typed SensorReadingEvent (sensor=${event.sensorId}): ${(e as Error).message}`,
         );
       }
     }
+    return HandlerOutcome.ack();
   }
 
   /**
@@ -343,6 +346,12 @@ export class NatsIngestionConsumerService
       ...createBaseEvent('SensorReading', event.tenantId, {
         aggregateId: sensor.id,
         aggregateType: 'Sensor',
+        // Task 1.4: the child event's identity is a pure function of the
+        // SOURCE event + channel — a redelivered source re-emits the SAME
+        // child id, so JetStream dedup (Nats-Msg-Id = eventId) and
+        // downstream uniqueness keys collapse the duplicate instead of
+        // double-firing alerts.
+        eventId: deriveEventId(`${event.eventId}\u0000${event.channelId}`),
       }),
       eventType: 'SensorReading',
       sensorId: sensor.id,

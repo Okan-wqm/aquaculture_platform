@@ -5,9 +5,12 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
+import { saveBlob } from '../services/blob-client';
+import { useAdminQuery, useAdminMutation, adminKeys } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Types
@@ -54,75 +57,6 @@ interface TableData {
   page: number;
   limit: number;
   totalPages: number;
-}
-
-// ============================================================================
-// API Functions (via centralized databaseApi)
-// ============================================================================
-
-const fetchSchemas = (): Promise<string[]> => databaseApi.getExplorerSchemas();
-
-const fetchTables = (schema: string): Promise<TableInfo[]> => databaseApi.getExplorerTables(schema);
-
-const fetchTableData = (
-  schema: string,
-  table: string,
-  page = 1,
-  limit = 50,
-  orderBy?: string,
-  orderDirection?: 'ASC' | 'DESC'
-): Promise<TableData> =>
-  databaseApi.getExplorerTableData(schema, table, { page, limit, orderBy, orderDirection });
-
-const insertRow = (
-  schema: string,
-  table: string,
-  data: Record<string, unknown>
-): Promise<Record<string, unknown>> => databaseApi.insertExplorerRow(schema, table, data);
-
-const updateRow = (
-  schema: string,
-  table: string,
-  id: string,
-  data: Record<string, unknown>
-): Promise<Record<string, unknown>> => databaseApi.updateExplorerRow(schema, table, id, data);
-
-const deleteRow = (
-  schema: string,
-  table: string,
-  id: string
-): Promise<void> => databaseApi.deleteExplorerRow(schema, table, id);
-
-async function exportTableData(
-  schema: string,
-  table: string,
-  format: 'csv' | 'json',
-  orderBy?: string,
-  orderDirection?: 'ASC' | 'DESC'
-): Promise<void> {
-  // Export uses a download URL -- must use direct fetch for blob response
-  const url = databaseApi.exportExplorerTable(schema, table, format, orderBy, orderDirection);
-  const { getAccessToken } = await import('@aquaculture/shared-ui');
-  const token = getAccessToken();
-  const response = await fetch(url, {
-    credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to export data');
-  }
-
-  // Trigger file download
-  const blob = await response.blob();
-  const blobUrl = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = `${table}_export.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(blobUrl);
-  document.body.removeChild(a);
 }
 
 // ============================================================================
@@ -356,19 +290,16 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
 // Main Component
 // ============================================================================
 
-const DatabaseExplorerPage: React.FC = () => {
-  // State
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [selectedSchema, setSelectedSchema] = useState('public');
-  const [tables, setTables] = useState<TableInfo[]>([]);
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [tableData, setTableData] = useState<TableData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const PAGE_SIZE = 50;
 
-  // Pagination & Sorting
+const DatabaseExplorerPage: React.FC = () => {
+  // Selection
+  const [selectedSchema, setSelectedSchema] = useState('public');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+
+  // Pagination & Sorting — part of the table-data cache key, not local
+  // bookkeeping over one shared result.
   const [page, setPage] = useState(1);
-  const [limit] = useState(50);
   const [orderBy, setOrderBy] = useState<string | undefined>();
   const [orderDirection, setOrderDirection] = useState<'ASC' | 'DESC'>('ASC');
 
@@ -383,67 +314,134 @@ const DatabaseExplorerPage: React.FC = () => {
     id: string;
   }>({ show: false, id: '' });
 
-  // Export state
-  const [exporting, setExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
 
-  // Load schemas
-  useEffect(() => {
-    fetchSchemas()
-      .then(setSchemas)
-      .catch((err) => setError(err.message));
-  }, []);
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  // Load tables when schema changes
-  useEffect(() => {
-    if (selectedSchema) {
-      setLoading(true);
-      fetchTables(selectedSchema)
-        .then((data) => {
-          setTables(data);
-          setSelectedTable(null);
-          setTableData(null);
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    }
-  }, [selectedSchema]);
+  const schemasQuery = useAdminQuery<string[]>(
+    adminKeys.database.schemas(),
+    ({ signal }) => databaseApi.getExplorerSchemas(signal),
+  );
 
-  // Load table data
-  const loadTableData = useCallback(async () => {
-    if (!selectedTable) return;
+  const tablesQuery = useAdminQuery<TableInfo[]>(
+    adminKeys.database.tables(selectedSchema),
+    ({ signal }) => databaseApi.getExplorerTables(selectedSchema, signal),
+  );
 
-    setLoading(true);
-    setError(null);
+  const dataParams = {
+    page,
+    limit: PAGE_SIZE,
+    orderBy,
+    orderDirection,
+  };
 
-    try {
-      const data = await fetchTableData(
+  const tableDataQuery = useAdminQuery<TableData>(
+    adminKeys.database.tableData(selectedSchema, selectedTable ?? '', dataParams),
+    ({ signal }) =>
+      databaseApi.getExplorerTableData(
         selectedSchema,
-        selectedTable,
-        page,
-        limit,
-        orderBy,
-        orderDirection
-      );
-      setTableData(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedSchema, selectedTable, page, limit, orderBy, orderDirection]);
+        // `enabled` below keeps this from running with no table selected; the
+        // coalesce is what makes that provable to the compiler rather than
+        // asserted with a cast.
+        selectedTable ?? '',
+        dataParams,
+        signal,
+      ),
+    { enabled: selectedTable !== null },
+  );
 
-  useEffect(() => {
-    if (selectedTable) {
-      loadTableData();
+  const schemas = schemasQuery.data ?? [];
+  const tables = tablesQuery.data ?? [];
+  const tableData = selectedTable === null ? undefined : tableDataQuery.data;
+
+  // The primary key decides which row actions are POSSIBLE, so it is read once
+  // here and the actions that need it are not rendered without it. Before W8p
+  // both were rendered unconditionally: an edit on a key-less table ran no
+  // request and closed the modal as if it had saved, and its delete button did
+  // nothing at all, silently, every time.
+  const primaryKey = tableData?.columns.find((column) => column.isPrimaryKey);
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  // A row write changes the table's row count and on-disk size, both of which
+  // the sidebar shows — so it invalidates the table LIST as well as the data.
+  // `database.table(...)` is a prefix over every page and sort, so a delete on
+  // page 1 does not leave page 2 holding the row it removed.
+  const rowWriteKeys = (table: string) => [
+    adminKeys.database.tables(selectedSchema),
+    adminKeys.database.table(selectedSchema, table),
+  ];
+
+  const insertRow = useAdminMutation<
+    Record<string, unknown>,
+    { table: string; data: Record<string, unknown> }
+  >(({ table, data }) => databaseApi.insertExplorerRow(selectedSchema, table, data), {
+    invalidateKeys: selectedTable ? rowWriteKeys(selectedTable) : [],
+  });
+
+  const updateRow = useAdminMutation<
+    Record<string, unknown>,
+    { table: string; id: string; data: Record<string, unknown> }
+  >(({ table, id, data }) => databaseApi.updateExplorerRow(selectedSchema, table, id, data), {
+    invalidateKeys: selectedTable ? rowWriteKeys(selectedTable) : [],
+  });
+
+  const deleteRow = useAdminMutation<void, { table: string; id: string }>(
+    ({ table, id }) => databaseApi.deleteExplorerRow(selectedSchema, table, id),
+    { invalidateKeys: selectedTable ? rowWriteKeys(selectedTable) : [] },
+  );
+
+  const exportTable = useAdminMutation<void, { table: string; format: 'csv' | 'json' }>(
+    async ({ table, format }) => {
+      const { blob, filename } = await databaseApi.exportExplorerTable(
+        selectedSchema,
+        table,
+        format,
+        orderBy,
+        orderDirection,
+      );
+      saveBlob(blob, filename ?? `${table}_export.${format}`);
+    },
+  );
+
+  // A failed read or a failed delete/export has no modal of its own, so it is
+  // named here. Insert and update report inside the editor that caused them.
+  const queryErrors = [
+    schemasQuery.error,
+    tablesQuery.error,
+    tableDataQuery.error,
+    deleteRow.error,
+    exportTable.error,
+  ];
+
+  const loading =
+    schemasQuery.isPending || tablesQuery.isPending || (selectedTable !== null && tableDataQuery.isPending);
+
+  const reload = (): void => {
+    void schemasQuery.refetch();
+    void tablesQuery.refetch();
+    if (selectedTable !== null) {
+      void tableDataQuery.refetch();
     }
-  }, [selectedTable, loadTableData]);
+  };
 
   // Handlers
   const handleTableSelect = (tableName: string) => {
     // All four setState calls are inside a React event handler — React 18 batches them
     // automatically into a single render, preventing multiple loadTableData triggers (PERF-004)
     setSelectedTable(tableName);
+    setPage(1);
+    setOrderBy(undefined);
+    setOrderDirection('ASC');
+  };
+
+  const handleSchemaSelect = (schema: string): void => {
+    setSelectedSchema(schema);
+    setSelectedTable(null);
     setPage(1);
     setOrderBy(undefined);
     setOrderDirection('ASC');
@@ -470,57 +468,55 @@ const DatabaseExplorerPage: React.FC = () => {
     setIsEditorOpen(true);
   };
 
-  const handleSaveRow = async (data: Record<string, unknown>) => {
-    if (!selectedTable || !tableData) return;
+  const handleSaveRow = async (data: Record<string, unknown>): Promise<void> => {
+    if (!selectedTable) return;
 
     if (editorMode === 'create') {
-      await insertRow(selectedSchema, selectedTable, data);
-    } else if (editingRow) {
-      const pkColumn = tableData.columns.find((c) => c.isPrimaryKey);
-      if (pkColumn) {
-        const id = String(editingRow[pkColumn.columnName]);
-        await updateRow(selectedSchema, selectedTable, id, data);
-      }
+      await insertRow.mutateAsync({ table: selectedTable, data });
+      return;
     }
 
-    loadTableData();
+    if (!editingRow) return;
+    if (!primaryKey) {
+      // Reported in the editor rather than swallowed. The edit button should
+      // not be reachable on a key-less table; this is the second line.
+      throw new Error(
+        `${selectedTable} has no primary key, so a single row cannot be addressed for update.`,
+      );
+    }
+
+    await updateRow.mutateAsync({
+      table: selectedTable,
+      id: String(editingRow[primaryKey.columnName]),
+      data,
+    });
   };
 
-  const handleDeleteRow = async () => {
+  // `mutate`, not `mutateAsync`: the outcome is read off the mutation — the
+  // confirmation closes on success, and a failure reaches the operator through
+  // `queryErrors` below. `mutateAsync` here would reject into a click handler
+  // with nothing to catch it.
+  const handleDeleteRow = (): void => {
     if (!selectedTable || !deleteConfirm.id) return;
 
-    try {
-      await deleteRow(selectedSchema, selectedTable, deleteConfirm.id);
-      setDeleteConfirm({ show: false, id: '' });
-      loadTableData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete');
-    }
+    deleteRow.mutate(
+      { table: selectedTable, id: deleteConfirm.id },
+      { onSuccess: () => setDeleteConfirm({ show: false, id: '' }) },
+    );
   };
 
   const confirmDelete = (row: Record<string, unknown>) => {
-    const pkColumn = tableData?.columns.find((c) => c.isPrimaryKey);
-    if (pkColumn) {
-      setDeleteConfirm({
-        show: true,
-        id: String(row[pkColumn.columnName]),
-      });
-    }
+    if (!primaryKey) return;
+    setDeleteConfirm({
+      show: true,
+      id: String(row[primaryKey.columnName]),
+    });
   };
 
-  const handleExport = async (format: 'csv' | 'json') => {
+  const handleExport = (format: 'csv' | 'json'): void => {
     if (!selectedTable) return;
-
-    setExporting(true);
     setShowExportMenu(false);
-
-    try {
-      await exportTableData(selectedSchema, selectedTable, format, orderBy, orderDirection);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export failed');
-    } finally {
-      setExporting(false);
-    }
+    exportTable.mutate({ table: selectedTable, format });
   };
 
   // Find selected table info
@@ -540,7 +536,7 @@ const DatabaseExplorerPage: React.FC = () => {
           <select
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
             value={selectedSchema}
-            onChange={(e) => setSelectedSchema(e.target.value)}
+            onChange={(e) => handleSchemaSelect(e.target.value)}
           >
             {schemas.map((schema) => (
               <option key={schema} value={schema}>
@@ -555,9 +551,9 @@ const DatabaseExplorerPage: React.FC = () => {
                 <Button
                   variant="outline"
                   onClick={() => setShowExportMenu(!showExportMenu)}
-                  disabled={exporting}
+                  disabled={exportTable.isPending}
                 >
-                  {exporting ? (
+                  {exportTable.isPending ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
                   ) : (
                     <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -603,11 +599,11 @@ const DatabaseExplorerPage: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={tables.length > 0}
+        onRetry={reload}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Table List */}
@@ -661,8 +657,8 @@ const DatabaseExplorerPage: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={loadTableData}
-                    disabled={loading}
+                    onClick={() => void tableDataQuery.refetch()}
+                    disabled={tableDataQuery.isFetching}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -716,9 +712,8 @@ const DatabaseExplorerPage: React.FC = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {tableData.rows.map((row, idx) => {
-                      const pkCol = tableData.columns.find((c) => c.isPrimaryKey);
-                      const rowKey = pkCol
-                        ? String(row[pkCol.columnName])
+                      const rowKey = primaryKey
+                        ? String(row[primaryKey.columnName])
                         : idx;
 
                       return (
@@ -755,24 +750,34 @@ const DatabaseExplorerPage: React.FC = () => {
                             );
                           })}
                           <td className="px-4 py-2 text-right whitespace-nowrap">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditRow(row)}
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => confirmDelete(row)}
-                            >
-                              <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </Button>
+                            {primaryKey ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label="Edit row"
+                                  onClick={() => handleEditRow(row)}
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label="Delete row"
+                                  onClick={() => confirmDelete(row)}
+                                >
+                                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </Button>
+                              </>
+                            ) : (
+                              <span className="text-xs italic text-gray-500">
+                                no primary key
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -843,7 +848,11 @@ const DatabaseExplorerPage: React.FC = () => {
           >
             Cancel
           </Button>
-          <Button variant="danger" onClick={handleDeleteRow}>
+          <Button
+            variant="danger"
+            loading={deleteRow.isPending}
+            onClick={handleDeleteRow}
+          >
             Delete
           </Button>
         </div>

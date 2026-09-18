@@ -19,7 +19,7 @@ import type { Batch } from '../../../hooks/useBatches';
 
 interface FeedingSummaryTabProps {
   batchId?: string;
-  batches: Batch[];
+  batches: readonly Batch[];
 }
 
 // ============================================================================

@@ -29,6 +29,9 @@ import { CodeGeneratorService } from '../../database/services/code-generator.ser
 import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { adaptTankToEquipment } from '../utils/tank-lookup.util';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { TankBatchService } from '../services/tank-batch.service';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 
 @Injectable()
 @CommandHandler(CreateBatchCommand)
@@ -51,6 +54,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
     private readonly financeSettings: FinanceSettingsService,
+    // The single writer for tank composition and for the container fish count.
+    private readonly tankBatchService: TankBatchService,
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: CreateBatchCommand): Promise<Batch> {
@@ -262,8 +268,12 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
 
       // ── P-H3: Process initial locations with bulk pre-fetch ─────────
       //
-      // The previous implementation issued 4-5 queries PER location
-      // inside the handler's pessimistic-lock transaction:
+      // NB: this transaction holds NO pessimistic lock and runs at READ
+      // COMMITTED — an earlier version of this comment claimed otherwise and
+      // was simply wrong. The gap against allocate-to-tank's SERIALIZABLE +
+      // pessimistic_write model is tracked as FARM-HIGH-323, not fixed here.
+      //
+      // The previous implementation issued 4-5 queries PER location:
       //
       //   1. findOne(Equipment) — primary tank lookup
       //   2. findOne(Tank)      — legacy fallback (when Equipment miss)
@@ -275,12 +285,17 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
       // all downstream rows held write locks — 350 ms per call in
       // production measurements (P-H3, comprehensive review).
       //
-      // The fix is three bulk reads BEFORE the loop (Equipment-by-ids,
-      // Tank fallback only for missing ids, TankBatch-by-tankIds),
-      // pure in-memory iteration to build up update/insert collections,
-      // then a bulk save at the end. Round-trip count drops from
-      // ~40 to ~5, latency from ~350 ms to ~80 ms (4× faster), and the
-      // lock-hold window shrinks proportionally.
+      // The fix was three bulk reads BEFORE the loop (Equipment-by-ids,
+      // Tank fallback only for missing ids, TankBatch-by-tankIds), then a
+      // bulk save at the end — ~40 round-trips down to ~5, ~350 ms to ~80 ms.
+      //
+      // The bulk READS survive. The in-memory tank_batches mutation did not
+      // (FARM-HIGH-139): composition now goes through applyBatchDelta, which
+      // re-reads and locks the row per call, so a multi-location stocking
+      // costs a few round-trips more than the pure in-memory version did.
+      // That is the deliberate trade — initial stocking happens once per
+      // batch and is not a hot path, and a second writer that drifts from the
+      // SSoT is not worth the milliseconds.
       if (payload.initialLocations && payload.initialLocations.length > 0) {
         this.logger.log(
           `Processing ${payload.initialLocations.length} initial location(s) for batch ${savedBatch.batchNumber}`,
@@ -361,7 +376,6 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
           const legacyTankUpdates: Array<{
             id: string;
             biomassKg: number;
-            count: number;
           }> = [];
           // Initial stocking MUST enter the tank_allocations ledger. Every other
           // stock inflow (allocate, transfer-in) writes an allocation row; this
@@ -420,64 +434,50 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               incomingBiomassKg: location.biomass,
             });
 
-            if (tankBatch) {
-              // Update existing TankBatch (mixed batch scenario)
-              tankBatch.isMixedBatch = true;
-              tankBatch.totalQuantity += location.quantity;
-              tankBatch.totalBiomassKg = Number(tankBatch.totalBiomassKg) + location.biomass;
-              tankBatch.avgWeightG =
-                tankBatch.totalQuantity > 0
-                  ? (Number(tankBatch.totalBiomassKg) * 1000) / tankBatch.totalQuantity
-                  : avgWeightG;
-              tankBatch.densityKgM3 = capacity.projectedDensityKgM3;
-              tankBatch.capacityUsedPercent = capacity.utilizationPercent;
-              tankBatch.isOverCapacity = capacity.isOverCapacity;
-
-              // Add to batch details
-              const batchDetails = tankBatch.batchDetails || [];
-              batchDetails.push({
+            // Route the stocking inflow through the SINGLE tank-composition
+            // writer (FARM-HIGH-139). This handler used to hand-mutate the row:
+            // it treated the aggregates as the source and batchDetails[] as a
+            // follower, which is the inversion TankBatchService exists to
+            // prevent. Four defects went with that block — a new row was born
+            // with populated totals and an EMPTY batchDetails[] (the pre-SSoT
+            // shape applyBatchDelta then has to self-heal on every later
+            // mortality/cull/transfer), percentageOfTank was derived from
+            // biomass instead of quantity and only for the pushed entry,
+            // re-stocking the same batch pushed a DUPLICATE detail rather than
+            // merging it, and the row carried a write to the retired
+            // `currentQuantity` column that PostgreSQL silently discarded.
+            // The service derives all of it from batchDetails[], the way every
+            // other stock path already does.
+            const savedTankBatch = await this.tankBatchService.applyBatchDelta(
+              queryRunner.manager,
+              tenantId,
+              tankId,
+              {
                 batchId: savedBatch.id,
                 batchNumber: savedBatch.batchNumber,
-                quantity: location.quantity,
-                avgWeightG: avgWeightG,
-                biomassKg: location.biomass,
-                percentageOfTank: (location.biomass / Number(tankBatch.totalBiomassKg)) * 100,
-              });
-              tankBatch.batchDetails = batchDetails;
+                quantityDelta: location.quantity,
+                biomassDelta: location.biomass,
+                avgWeightG,
+              },
+              {
+                code: equipment.code,
+                name: equipment.name,
+                // The capacity service already resolved the tank's volume;
+                // passing 0 here would silently zero densityKgM3.
+                volumeM3: Number(capacity.tankVolumeM3) || 0,
+              },
+            );
 
-              this.logger.log(
-                `Updated existing TankBatch for equipment ${equipment.code} (mixed batch)`,
-              );
-            } else {
-              // Create new TankBatch — capacity flags come from the
-              // service so they match the allocate / transfer / deploy
-              // outputs exactly.
-              tankBatch = queryRunner.manager.create(TankBatch, {
-                tenantId,
-                tankId,
-                tankName: equipment.name,
-                tankCode: equipment.code,
-                primaryBatchId: savedBatch.id,
-                primaryBatchNumber: savedBatch.batchNumber,
-                totalQuantity: location.quantity,
-                currentQuantity: location.quantity,
-                avgWeightG: avgWeightG,
-                totalBiomassKg: location.biomass,
-                currentBiomassKg: location.biomass,
-                densityKgM3: capacity.projectedDensityKgM3,
-                capacityUsedPercent: capacity.utilizationPercent,
-                isOverCapacity: capacity.isOverCapacity,
-                isMixedBatch: false,
-                /** Cleaner fish fields default to zero for production batches.
-                 *  TypeORM create() sends explicit null for omitted fields,
-                 *  bypassing the DB column default — must be set explicitly. */
-                cleanerFishBiomassKg: 0,
-                cleanerFishQuantity: 0,
-              });
-              tankBatchMap.set(tankId, tankBatch);
+            // Capacity flags are the caller's to persist — applyBatchDelta
+            // derives composition, not policy. Same split as allocate-to-tank.
+            savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
+            savedTankBatch.isOverCapacity = capacity.isOverCapacity;
+            tankBatch = savedTankBatch;
 
-              this.logger.log(`Created new TankBatch for equipment ${equipment.code}`);
-            }
+            // Keep the pre-fetched map in step with what the service just
+            // wrote, so a second location on the SAME tank reads the updated
+            // biomass for its capacity check instead of the stale pre-loop row.
+            tankBatchMap.set(tankId, savedTankBatch);
 
             tankBatchesToSave.push(tankBatch);
 
@@ -507,15 +507,19 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             // it with all siblings after the loop. Tank path: queue a
             // raw UPDATE because the adapted entity cannot be saved
             // through the Equipment metadata.
+            // Biomass only. The fish COUNT on the container is written by
+            // applyBatchDelta — it is the single writer for currentCount on
+            // both the Equipment and the legacy Tank row (the 900-vs-719
+            // web/mobile divergence, FARM-HIGH-104). Writing it here too is
+            // what made this handler a second counter; the value below is the
+            // service-derived total, never local arithmetic.
             if (isFromTanks) {
               legacyTankUpdates.push({
                 id: tankId,
                 biomassKg: Number(tankBatch.totalBiomassKg),
-                count: tankBatch.totalQuantity,
               });
             } else {
               equipmentRecord!.currentBiomass = Number(tankBatch.totalBiomassKg);
-              equipmentRecord!.currentCount = tankBatch.totalQuantity;
               if (!equipmentsToSave.includes(equipmentRecord!)) {
                 equipmentsToSave.push(equipmentRecord!);
               }
@@ -547,11 +551,16 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
               .update(Tank)
               .set({
                 currentBiomass: update.biomassKg,
-                currentCount: update.count,
               })
               .where('id = :id', { id: update.id })
               .execute();
           }
+
+          // Refresh the farm-stock snapshots inside this transaction, the way
+          // every other stock path does. Initial stocking used to skip it, so
+          // a freshly stocked tank read stale until some later mutation
+          // happened to refresh it.
+          await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, tankIds);
         }
       }
 

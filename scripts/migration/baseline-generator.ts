@@ -335,7 +335,6 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
     'alert_audit_log',
     'tool_execution_audit',
     'compliance_audit_log',
-    'impersonation_sessions',
   ];
   for (const tbl of PROTECTED_TABLE_NAMES) {
     // Exact match against `CREATE TABLE "<schema>"."<tbl>"`.

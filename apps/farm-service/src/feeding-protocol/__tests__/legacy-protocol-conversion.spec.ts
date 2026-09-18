@@ -56,7 +56,14 @@ describe('sampleMatrix', () => {
   it('interpolates bilinearly inside the domain', () => {
     // temp 15 (yarı), weight 50 (yarı): ortalaması (4+2+6+4)/4 = 4
     const value = sampleMatrix(
-      { temperatures: [10, 20], weights: [0, 100], values: [[4, 2], [6, 4]] },
+      {
+        temperatures: [10, 20],
+        weights: [0, 100],
+        values: [
+          [4, 2],
+          [6, 4],
+        ],
+      },
       15,
       50,
     );
@@ -65,7 +72,14 @@ describe('sampleMatrix', () => {
 
   it('clamps out-of-domain requests to the nearest edge', () => {
     const value = sampleMatrix(
-      { temperatures: [10, 20], weights: [0, 100], values: [[4, 2], [6, 4]] },
+      {
+        temperatures: [10, 20],
+        weights: [0, 100],
+        values: [
+          [4, 2],
+          [6, 4],
+        ],
+      },
       99,
       -5,
     );
@@ -77,7 +91,13 @@ describe('normalizeAssignmentsToRanges', () => {
   it('resolves overlaps by priority (1 wins) and merges same-feed neighbours', () => {
     const { ranges, notes } = normalizeAssignmentsToRanges([
       assignment({ minWeightG: 0, maxWeightG: 60, priority: 2 }),
-      assignment({ feedId: FEED_B.id, feedCode: 'FB', minWeightG: 40, maxWeightG: 100, priority: 1 }),
+      assignment({
+        feedId: FEED_B.id,
+        feedCode: 'FB',
+        minWeightG: 40,
+        maxWeightG: 100,
+        priority: 1,
+      }),
     ]);
     expect(ranges).toHaveLength(2);
     expect(ranges[0]).toMatchObject({ minWeightG: 0, maxWeightG: 40 });
@@ -128,7 +148,14 @@ describe('convertProgramToProtocolV2', () => {
     const converted = convertProgramToProtocolV2(
       program({
         settings: { fcrSource: 'program', defaultMealsPerDay: 3 },
-        fcrTable: { temperatures: [10, 20], weights: [0, 100], fcrValues: [[1, 1], [2, 2]] },
+        fcrTable: {
+          temperatures: [10, 20],
+          weights: [0, 100],
+          fcrValues: [
+            [1, 1],
+            [2, 2],
+          ],
+        },
       }),
       { feedsById: new Map([[FEED_A.id, FEED_A]]), medianTempC: 10 },
     );
@@ -177,9 +204,7 @@ describe('convertProgramToProtocolV2', () => {
     expect(converted!.settings.adjustments?.preMedicationFastingHours).toBe(24);
     expect(converted!.settings.adjustments?.lowOxygenReduction).toBe(30);
     expect(converted!.settings.minDissolvedOxygen).toBe(5.5);
-    expect(converted!.temperatureAdjustments).toEqual([
-      { minC: 5, maxC: 12, rateMultiplier: 0.7 },
-    ]);
+    expect(converted!.temperatureAdjustments).toEqual([{ minC: 5, maxC: 12, rateMultiplier: 0.7 }]);
   });
 });
 
@@ -238,9 +263,7 @@ describe('convertV1ProtocolToV2', () => {
     const converted = convertV1ProtocolToV2(
       v1({
         feedId: FEED_A.id,
-        growthStageProtocols: [
-          { minWeight: 0, maxWeight: 1, weightUnit: 'kg', feedPercent: 2.5 },
-        ],
+        growthStageProtocols: [{ minWeight: 0, maxWeight: 1, weightUnit: 'kg', feedPercent: 2.5 }],
         defaultSchedule: {
           totalMealsPerDay: 2,
           schedule: [

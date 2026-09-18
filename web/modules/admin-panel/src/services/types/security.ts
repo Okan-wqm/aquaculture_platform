@@ -2,6 +2,8 @@
  * Security domain types
  */
 
+import type { ApiSchema } from '../contract';
+
 export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type SecurityEventType =
   | 'failed_login'
@@ -35,7 +37,15 @@ export type ActivityLogCategory =
   | 'authentication';
 
 export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-export type AuditSeverity = 'info' | 'warning' | 'critical';
+/**
+ * The severities `admin.audit_logs` can hold, derived rather than restated.
+ *
+ * This union was already RIGHT while `audit.ts` declared the same field as
+ * `low | medium | high | critical` and `AuditLogPage` imported that one
+ * (ADMIN-HIGH-112). Two hand-written declarations of one column, one correct
+ * and one not, is precisely what a contract-sourced type removes.
+ */
+export type AuditSeverity = ApiSchema<'AuditLog'>['severity'];
 export type SecurityEventStatus =
   | 'detected'
   | 'investigating'
@@ -59,7 +69,12 @@ export type ThreatIndicatorType =
   | 'user_agent'
   | 'cidr';
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestType =
+  | 'access'
+  | 'deletion'
+  | 'portability'
+  | 'rectification'
+  | 'restriction';
 export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
 
 export interface BackendActivityLog {
@@ -95,24 +110,13 @@ export interface BackendActivityLog {
   timestamp?: string;
 }
 
-export interface BackendAuditLog {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId?: string | null;
-  tenantId?: string | null;
-  performedBy: string;
-  performedByEmail?: string | null;
-  ipAddress?: string | null;
-  details?: Record<string, unknown> | null;
-  previousValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
-  severity: AuditSeverity;
-  requestId?: string | null;
-  sessionId?: string | null;
-  createdAt: string;
-  legalHold?: boolean;
-}
+/**
+ * One `admin.audit_logs` row. Identical to {@link AuditLog} in `audit.ts` —
+ * both described the same endpoint's response, which is how they came to
+ * disagree. Kept as an alias of the same contract schema so the existing
+ * imports of this name keep resolving to one shape.
+ */
+export type BackendAuditLog = ApiSchema<'AuditLog'>;
 
 export interface ActivityStatsOverview {
   totalActivities: number;
@@ -154,6 +158,43 @@ export interface BackendAuditAlertRule {
   lastTriggeredAt?: string;
 }
 
+/**
+ * One GDPR/framework requirement — mirrors the backend `ComplianceRequirement`
+ * (apps/admin-api-service/src/security/services/compliance.service.ts).
+ *
+ * The human-readable text lives HERE, nested, not flattened onto the check
+ * result. Declaring `requirement` as a string is what put an object into JSX.
+ */
+export interface BackendComplianceRequirement {
+  id: string;
+  framework: ComplianceType;
+  requirement: string;
+  description: string;
+  category: string;
+  isMandatory: boolean;
+  verificationMethod: string;
+}
+
+/**
+ * The result of running one requirement check — mirrors the backend
+ * `ComplianceCheckResult`. Parity is pinned by
+ * tests/invariants/admin-security-runtime-contract.spec.ts.
+ *
+ * There is no `nextReview`: checks execute live per request and the platform
+ * has no scheduled-review concept. The panel used to declare one (along with
+ * `id`, `category`, `description` and `lastChecked` at the top level), all of
+ * which arrived `undefined` and none of which the compiler could question,
+ * because `apiFetch<T>`'s generic is an unchecked assertion across the wire.
+ */
+export interface BackendComplianceCheckResult {
+  requirement: BackendComplianceRequirement;
+  status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
+  details: string;
+  evidence?: string;
+  remediation?: string;
+  checkedAt: string;
+}
+
 export interface BackendComplianceReport {
   id: string;
   complianceType: ComplianceType;
@@ -164,14 +205,15 @@ export interface BackendComplianceReport {
   complianceScore: number;
   violations?: Array<Record<string, unknown>> | null;
   recommendations?: string[] | null;
+  /**
+   * `generateComplianceReport` stores the check results verbatim into this
+   * jsonb column, so `complianceResults` is exactly `ComplianceCheckResult[]`.
+   * It was declared as flat optional strings, which made `finding.requirement`
+   * read as a string when it is an object — the same crash as the Checks tab,
+   * on a report the monthly cron guarantees exists.
+   */
   detailedFindings?: {
-    complianceResults?: Array<{
-      category?: string;
-      requirement?: string;
-      status?: string;
-      description?: string;
-      recommendation?: string;
-    }>;
+    complianceResults?: BackendComplianceCheckResult[];
     [key: string]: unknown;
   } | null;
   generatedBy?: string | null;
@@ -310,23 +352,18 @@ export interface BackendSecurityHealthScore {
   recommendations: string[];
 }
 
+/**
+ * A retention window in force, as declared in the owning service's retention
+ * bootstrap module and enforced by the platform's single registry-driven
+ * enforcer (ADR-0012). Read-only: windows are compliance commitments
+ * reviewed as code, not settings.
+ */
 export interface RetentionPolicy {
   id: string;
-  name: string;
-  entityType?: string;
-  category?: string;
-  description?: string | null;
+  ownerTag: string;
+  schema: string;
+  tableName: string;
+  timestampColumn: string;
   retentionDays: number;
-  archiveAfterDays?: number;
-  deleteAfterArchiveDays?: number | null;
-  isGlobal?: boolean;
-  specificTenants?: string[] | null;
-  complianceFrameworks?: string[] | null;
-  isActive: boolean;
-  createdBy?: string;
-  updatedBy?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-  lastRunAt?: string;
-  nextRunAt?: string;
+  legalHoldAware: boolean;
 }

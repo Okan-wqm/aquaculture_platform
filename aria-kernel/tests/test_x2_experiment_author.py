@@ -42,8 +42,13 @@ def _seed_repo() -> Path:
 
 class AuthorTests(unittest.TestCase):
     def setUp(self) -> None:
+        from unittest.mock import patch
+
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
+        state_root = patch.dict("os.environ", {"ARIA_REPO_STATE_ROOT": str(self.repo / "repo-state")})
+        state_root.start()
+        self.addCleanup(state_root.stop)
 
     def tearDown(self) -> None:
         import shutil
@@ -85,6 +90,74 @@ class AuthorTests(unittest.TestCase):
         plan = plan_night_experiments(self.repo, base_dir=self.tools)
         self.assertEqual(len(plan["problem"]), 1)
         self.assertEqual(plan["problem"][0]["finding_id"], fid)
+
+    def test_unprovisioned_author_recipe_remains_unscoped(self) -> None:
+        finding_id = self._finding()
+        result = author_night_experiments(self.repo, cycle_id="cyc-unprovisioned", base_dir=self.tools)
+        self.assertEqual(len(result["authored"]), 1)
+        self.assertEqual(result["authored"][0]["finding_id"], finding_id)
+        recipes = list_recipes(base_dir=self.tools)
+        self.assertEqual(len(recipes), 1)
+        self.assertEqual(recipes[0]["recipe_id"], "recipe-auto-farm-service")
+        self.assertEqual(recipes[0]["command"],
+                         "npx nx run-many --target=test --projects=farm-service --skip-nx-cache --output-style=stream")
+        self.assertNotIn("input_scope", recipes[0])
+        experiments = list_experiments(base_dir=self.tools)
+        self.assertEqual(len(experiments), 1)
+        self.assertEqual(experiments[0]["recipe_ref"], recipes[0]["recipe_id"])
+        self.assertEqual(experiments[0]["finding_ref"], finding_id)
+        self.assertEqual(experiments[0]["observation_contract"], {"comparator": "status_equals", "expected": "failed"})
+        plan = plan_night_experiments(self.repo, base_dir=self.tools)
+        self.assertEqual([r["finding_id"] for r in plan["problem"]], [finding_id])
+
+    def test_author_reuses_explicitly_seeded_service_recipe_without_rewriting_scope(self) -> None:
+        import io
+        import json
+        import sys
+        from contextlib import redirect_stdout
+
+        original_path = sys.path[:]
+        self.addCleanup(lambda: sys.path.__setitem__(slice(None), original_path))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "aria-poc"))
+        from seed_experiment_recipes import main
+
+        descriptor = {"schema_version": 1,
+                      "files": {"source": ["apps/farm-service/src/module1.ts"],
+                                "test": [], "config": [], "dependency": []}}
+        manifest = {
+            "schema_version": 1,
+            "recipes": [{"recipe_id": "recipe-auto-farm-service", "timeout_ms": 900_000,
+                         "command": "npx nx run-many --target=test --projects=farm-service --skip-nx-cache --output-style=stream",
+                         "deterministic": True, "input_scope": descriptor}],
+            "experiments": [],
+        }
+        manifest_path = self.repo / "explicit-service-manifest.json"
+        original_manifest = (json.dumps(manifest, indent=2) + "\n").encode()
+        manifest_path.write_bytes(original_manifest)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["--manifest", str(manifest_path), "--base-dir", str(self.tools),
+                                   "--cycle-id", "cyc-service-seed"]), 0)
+        seeded = list_recipes(base_dir=self.tools)
+        self.assertEqual(len(seeded), 1)
+        self.assertEqual(seeded[0]["input_scope"], descriptor)
+        recipe_bytes = (self.tools / "experiments" / "recipes.jsonl").read_bytes()
+        findings = []
+        for suffix in ("1", "4"):
+            findings.append(self._finding(suffix=suffix))
+            result = author_night_experiments(self.repo, cycle_id="cyc-author-" + suffix, base_dir=self.tools)
+            self.assertEqual(len(result["authored"]), 1)
+            self.assertEqual(result["authored"][0]["finding_id"], findings[-1])
+            self.assertEqual(result["authored"][0]["recipe_ref"], "recipe-auto-farm-service")
+            self.assertEqual(list_recipes(base_dir=self.tools), seeded)
+            self.assertEqual((self.tools / "experiments" / "recipes.jsonl").read_bytes(), recipe_bytes)
+        experiments = list_experiments(base_dir=self.tools)
+        self.assertEqual(len(experiments), 2)
+        self.assertEqual({e["finding_ref"] for e in experiments}, set(findings))
+        self.assertEqual({e["recipe_ref"] for e in experiments}, {"recipe-auto-farm-service"})
+        plan = plan_night_experiments(self.repo, base_dir=self.tools)
+        self.assertEqual(len(plan["problem"]), 2)
+        self.assertEqual({r["finding_id"] for r in plan["problem"]}, set(findings))
+        self.assertEqual(manifest_path.read_bytes(), original_manifest)
 
     def test_author_is_idempotent_one_experiment_per_finding_ever(self) -> None:
         self._finding()

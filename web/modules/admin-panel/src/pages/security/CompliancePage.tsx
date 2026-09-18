@@ -26,21 +26,28 @@ import {
   Globe,
   FileCheck,
 } from 'lucide-react';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type {
+  BackendComplianceCheckResult,
   BackendComplianceReport,
   BackendDataSubjectRequest,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
 } from '../../services/types/security';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'sox' | 'soc2';
-type DataRequestType = 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction' | 'objection';
-type DataRequestStatus = 'pending' | 'in_progress' | 'identity_verification' | 'processing' | 'completed' | 'rejected';
+// ADMIN-HIGH-115. This file used to re-declare `ComplianceType`,
+// `DataRequestType` and `DataRequestStatus`, each with members the API cannot
+// send and each missing one it can. They are imported now, from the module that
+// matches the contract.
 
 interface DataRequest {
   id: string;
@@ -94,17 +101,28 @@ interface ComplianceCheck {
   description: string;
   status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
   evidence?: string;
+  /** The check's own message — the backend has always sent it; the page discarded it. */
+  details: string;
+  /** How to fix it, present on the branches that found something. */
+  remediation?: string;
   lastChecked: string;
-  nextReview: string;
 }
 
 interface ComplianceStats {
   totalRequests: number;
-  pendingRequests: number;
-  inProgressRequests: number;
-  completedRequests: number;
-  overdueRequests: number;
-  averageResolutionTime: number;
+  /**
+   * The four per-status counts and the resolution average are NOT in
+   * `/security/compliance/data-requests` — it returns a page of rows and a
+   * total, nothing more. They were being displayed as literal `0`, which on
+   * this page means the platform telling an operator there are no OVERDUE
+   * GDPR data-subject requests. `null` is the honest value until the endpoint
+   * computes them (ADMIN-HIGH-122); the cards render an em dash for it.
+   */
+  pendingRequests: number | null;
+  inProgressRequests: number | null;
+  completedRequests: number | null;
+  overdueRequests: number | null;
+  averageResolutionTime: number | null;
 }
 
 const toPrimitiveString = (value: unknown, fallback: string): string => {
@@ -119,72 +137,91 @@ const toPrimitiveString = (value: unknown, fallback: string): string => {
 // API Service - Using centralized securityApi with auth headers
 // ============================================================================
 
+/** The only framework the checks endpoint is called with today. */
+const COMPLIANCE_FRAMEWORK = 'gdpr';
+
+/** One page of compliance reports. */
+const REPORT_PAGE_SIZE = 50;
+
+/** What a stat card shows when the API does not compute that aggregate. */
+const UNAVAILABLE = '—';
+
+/** The three actions an operator can take on a data-subject request. */
+type RequestAction = 'verify' | 'reject' | 'complete';
+
+// Stable empties — `?? []` would hand a new array on every render.
+const EMPTY_REQUESTS: readonly DataRequest[] = [];
+const EMPTY_REPORTS: readonly ComplianceReport[] = [];
+const EMPTY_CHECKS: readonly ComplianceCheck[] = [];
+
 async function fetchDataRequests(params: {
   page?: number;
   limit?: number;
   status?: string;
   requestType?: string;
   searchQuery?: string;
-}): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
+}, signal?: AbortSignal): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
   if (params.status && params.status !== 'all') apiParams.status = params.status;
   if (params.requestType && params.requestType !== 'all') {
-    apiParams.requestType = params.requestType === 'erasure' ? 'deletion' : params.requestType;
+    apiParams.requestType = params.requestType;
   }
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
-  const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data)
-    ? result.data.map(mapDataSubjectRequest)
-    : [];
-  const total = typeof result?.total === 'number' ? result.total : data.length;
+  const result = await securityApi.getDataRequests(apiParams, signal);
+  const data = result.data.map(mapDataSubjectRequest);
   return {
     data,
-    total,
+    total: result.total,
     stats: {
-      totalRequests: total,
-      pendingRequests: 0,
-      inProgressRequests: 0,
-      completedRequests: 0,
-      overdueRequests: 0,
-      averageResolutionTime: 0,
+      totalRequests: result.total,
+      pendingRequests: null,
+      inProgressRequests: null,
+      completedRequests: null,
+      overdueRequests: null,
+      averageResolutionTime: null,
     },
   };
 }
 
-async function fetchComplianceReports(): Promise<ComplianceReport[]> {
-  const result = await securityApi.getComplianceReports({ limit: 50 });
+async function fetchComplianceReports(signal?: AbortSignal): Promise<ComplianceReport[]> {
+  const result = await securityApi.getComplianceReports({ limit: REPORT_PAGE_SIZE }, signal);
   return result.data.map(mapComplianceReport);
 }
 
-async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
-  const result = await securityApi.getComplianceChecks(framework);
-  // SECURITY: Enforce response contract — backend compliance/checks/:framework
-  // might return {checks: [...], requirements: [...]} wrapper or error object.
-  // Only accept arrays; if wrapped, extract the array.
-  if (Array.isArray(result)) {
-    return result.map(mapComplianceCheck);
+async function fetchComplianceChecks(
+  framework: string,
+  signal?: AbortSignal,
+): Promise<ComplianceCheck[]> {
+  const result = await securityApi.getComplianceChecks(framework, signal);
+  // The `{ checks: [...] }` unwrap branch that used to sit here defended
+  // against a shape the route has never returned — `runComplianceChecks`
+  // returns `ComplianceCheckResult[]` untransformed. The trust-boundary
+  // assertion below is the part that earns its place: apiFetch's generic is an
+  // assertion, not a check, so this is the first line that can notice.
+  if (!Array.isArray(result)) {
+    throw new Error(`Compliance checks: expected an array, got ${typeof result}`);
   }
-  if (result && typeof result === 'object' && 'checks' in result) {
-    const checks = (result as { checks?: unknown }).checks;
-    if (Array.isArray(checks)) {
-      return checks.map(mapComplianceCheck);
-    }
-  }
-  throw new Error(`Compliance checks: expected array, got ${typeof result}`);
+  return result.map(mapComplianceCheck);
 }
 
 function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
-  const requestType: DataRequestType =
-    request.requestType === 'deletion' ? 'erasure' : request.requestType;
-
   return {
     id: request.id,
-    requestType,
+    // Was `request.requestType === 'deletion' ? 'erasure' : …`, renaming the
+    // API's vocabulary on the way in and back again on the way out. One
+    // vocabulary now — the API's — with GDPR's wording kept in the LABEL, which
+    // is where a presentation choice belongs (ADMIN-HIGH-115).
+    requestType: request.requestType,
     complianceFramework: request.complianceFramework ?? 'gdpr',
-    status: request.status === 'expired' ? 'rejected' : request.status,
+    // `expired` used to be relabelled `rejected` here. Those are not the same
+    // thing: expired means the statutory response window ran out — the
+    // platform's own failure — and rejected means a reasoned refusal. Showing
+    // the first as the second misstates the compliance posture on the page
+    // built to report it (ADMIN-HIGH-115).
+    status: request.status,
     tenantId: request.tenantId ?? '',
     tenantName: request.tenantName ?? request.tenantId ?? 'Unknown tenant',
     requesterId: request.requesterId ?? undefined,
@@ -218,16 +255,28 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
       ? violation.recommendation
       : undefined,
   }));
+  // Reads the nested paths the persisted shape actually has, and routes every
+  // rendered field through toPrimitiveString.
+  //
+  // These findings ARE ComplianceCheckResult rows — generateComplianceReport
+  // stores them verbatim into the jsonb column. The old mapper read
+  // `finding.category` (absent, so undefined) and fell back to
+  // `finding.requirement`, which is the requirement OBJECT, and assigned it to
+  // both `category` and `description`. The sibling `violations` branch already
+  // applied the toPrimitiveString guard; this branch did not, so the object
+  // reached JSX and crashed the Reports tab — on a report the monthly cron
+  // guarantees exists.
   const findings = resultFindings.length > 0
     ? resultFindings.map((finding) => ({
-        category: finding.category ?? finding.requirement ?? 'general',
-        status: finding.status === 'fail' || finding.status === 'non_compliant'
+        category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
+        status: finding.status === 'non_compliant'
           ? 'fail' as const
-          : finding.status === 'warning' || finding.status === 'partial'
+          : finding.status === 'partial'
             ? 'warning' as const
             : 'pass' as const,
-        description: finding.description ?? finding.requirement ?? 'Compliance check',
-        recommendation: finding.recommendation,
+        description: toPrimitiveString(finding.details, 'Compliance check'),
+        recommendation:
+          typeof finding.remediation === 'string' ? finding.remediation : undefined,
       }))
     : violationFindings;
 
@@ -248,29 +297,26 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
   };
 }
 
-function mapComplianceCheck(
-  check: {
-    id: string;
-    category: string;
-    requirement: string;
-    description: string;
-    status: string;
-    evidence?: string;
-    lastChecked: string;
-    nextReview: string;
-  },
-): ComplianceCheck {
-  const allowed: ComplianceCheck['status'][] = [
-    'compliant',
-    'non_compliant',
-    'partial',
-    'not_applicable',
-  ];
+/**
+ * Projection, not a spread.
+ *
+ * `{ ...check }` is what carried the nested `requirement` OBJECT straight into
+ * `<p>{check.requirement}</p>`, which React refuses to render — taking the
+ * whole page down, since admin-panel has no error boundary of its own. Naming
+ * every field means the object cannot reach JSX by accident, and the status
+ * union no longer needs a runtime allow-list because the source is typed.
+ */
+function mapComplianceCheck(result: BackendComplianceCheckResult): ComplianceCheck {
   return {
-    ...check,
-    status: allowed.includes(check.status as ComplianceCheck['status'])
-      ? (check.status as ComplianceCheck['status'])
-      : 'not_applicable',
+    id: result.requirement.id,
+    category: result.requirement.category,
+    requirement: result.requirement.requirement,
+    description: result.requirement.description,
+    status: result.status,
+    evidence: result.evidence,
+    details: result.details,
+    remediation: result.remediation,
+    lastChecked: result.checkedAt,
   };
 }
 
@@ -296,53 +342,51 @@ const formatDateTime = (dateString: string): string => {
   });
 };
 
-const getRequestTypeIcon = (type: DataRequestType): React.ReactElement => {
-  switch (type) {
-    case 'access':
-      return <Eye className="w-4 h-4" />;
-    case 'erasure':
-      return <Trash2 className="w-4 h-4" />;
-    case 'portability':
-      return <Download className="w-4 h-4" />;
-    case 'rectification':
-      return <FileCheck className="w-4 h-4" />;
-    case 'restriction':
-      return <Lock className="w-4 h-4" />;
-    case 'objection':
-      return <XCircle className="w-4 h-4" />;
-    default:
-      return <FileText className="w-4 h-4" />;
-  }
+// Exhaustive over the union the API actually sends, so a request type added
+// server-side is a compile error here rather than a row with no icon. The old
+// switch handled `objection`, which the API has never had, and had no case for
+// `deletion`, which it always sends (ADMIN-HIGH-115).
+const REQUEST_TYPE_ICONS: Record<DataRequestType, React.ReactElement> = {
+  access: <Eye className="w-4 h-4" />,
+  deletion: <Trash2 className="w-4 h-4" />,
+  portability: <Download className="w-4 h-4" />,
+  rectification: <FileCheck className="w-4 h-4" />,
+  restriction: <Lock className="w-4 h-4" />,
 };
+const getRequestTypeIcon = (type: DataRequestType): React.ReactElement =>
+  REQUEST_TYPE_ICONS[type];
 
-const getRequestTypeLabel = (type: DataRequestType): string => {
-  const labels: Record<DataRequestType, string> = {
-    access: 'Data Access',
-    rectification: 'Rectification',
-    erasure: 'Erasure (Right to be Forgotten)',
-    portability: 'Data Portability',
-    restriction: 'Processing Restriction',
-    objection: 'Objection to Processing',
-  };
-  return labels[type];
+// GDPR's own wording lives HERE, on the label, rather than in a renamed value
+// the request had to be translated into and back out of.
+const REQUEST_TYPE_LABELS: Record<DataRequestType, string> = {
+  access: 'Data Access',
+  rectification: 'Rectification',
+  deletion: 'Erasure (Right to be Forgotten)',
+  portability: 'Data Portability',
+  restriction: 'Processing Restriction',
 };
+const getRequestTypeLabel = (type: DataRequestType): string => REQUEST_TYPE_LABELS[type];
 
-const getStatusColor = (status: DataRequestStatus): string => {
-  switch (status) {
-    case 'completed':
-      return 'bg-green-100 text-green-800';
-    case 'rejected':
-      return 'bg-red-100 text-red-800';
-    case 'pending':
-      return 'bg-gray-100 text-gray-800';
-    case 'in_progress':
-    case 'processing':
-      return 'bg-blue-100 text-blue-800';
-    case 'identity_verification':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
+// Exhaustive, and `expired` has its own colour rather than falling through a
+// default that made it look like `pending`. It is amber because a request that
+// ran out of its statutory window is the one state on this page that reports a
+// failure by the platform rather than a decision about the request
+// (ADMIN-HIGH-115).
+const STATUS_COLORS: Record<DataRequestStatus, string> = {
+  pending: 'bg-gray-100 text-gray-800',
+  in_progress: 'bg-blue-100 text-blue-800',
+  completed: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-800',
+  expired: 'bg-amber-100 text-amber-800',
+};
+const getStatusColor = (status: DataRequestStatus): string => STATUS_COLORS[status];
+
+const STATUS_LABELS: Record<DataRequestStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  rejected: 'Rejected',
+  expired: 'Expired',
 };
 
 const getComplianceStatusColor = (status: string): string => {
@@ -367,7 +411,10 @@ const getComplianceStatusColor = (status: string): string => {
 const DataRequestDetailModal: React.FC<{
   request: DataRequest;
   onClose: () => void;
-  onAction: (action: string) => void;
+  // Typed as the union, not `string`: the page's handler switches on it
+  // exhaustively, and a plain `string` prop forced a cast at the call site
+  // that would have swallowed a typo'd action name.
+  onAction: (action: RequestAction) => void;
   actionLoading?: boolean;
   actionError?: string | null;
 }> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
@@ -586,12 +633,6 @@ const DataRequestDetailModal: React.FC<{
 
 export const CompliancePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'requests' | 'reports' | 'checks'>('requests');
-  const [dataRequests, setDataRequests] = useState<DataRequest[]>([]);
-  const [reports, setReports] = useState<ComplianceReport[]>([]);
-  const [checks, setChecks] = useState<ComplianceCheck[]>([]);
-  const [stats, setStats] = useState<ComplianceStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<DataRequest | null>(null);
 
   // Filters
@@ -599,104 +640,92 @@ export const CompliancePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const [requestsResult, reportsResult, checksResult] = await Promise.allSettled([
-      fetchDataRequests({
-        status: statusFilter,
-        requestType: typeFilter,
-        searchQuery: searchTerm || undefined,
-      }),
-      fetchComplianceReports(),
-      fetchComplianceChecks('gdpr'),
-    ]);
-    const failures: string[] = [];
+  // Three INDEPENDENT queries. As on the other security pages, the
+  // `Promise.allSettled` this replaces collected a `failures[]` the render then
+  // discarded unless the request list was ALSO empty (ADMIN-HIGH-121).
+  const requestFilter = useMemo(
+    () => ({
+      status: statusFilter,
+      requestType: typeFilter,
+      searchQuery: searchTerm || undefined,
+    }),
+    [statusFilter, typeFilter, searchTerm],
+  );
 
-    if (requestsResult.status === 'fulfilled') {
-      setDataRequests(requestsResult.value.data);
-      setStats(requestsResult.value.stats);
-    } else {
-      failures.push(
-        requestsResult.reason instanceof Error
-          ? requestsResult.reason.message
-          : 'Failed to load data subject requests',
-      );
-    }
+  const requestsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'data-requests', requestFilter],
+    ({ signal }) => fetchDataRequests(requestFilter, signal),
+    { placeholderData: (previous) => previous, staleTime: 30_000 },
+  );
 
-    if (reportsResult.status === 'fulfilled') {
-      setReports(reportsResult.value);
-    } else {
-      failures.push(
-        reportsResult.reason instanceof Error
-          ? reportsResult.reason.message
-          : 'Failed to load compliance reports',
-      );
-    }
+  const reportsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'compliance-reports'],
+    ({ signal }) => fetchComplianceReports(signal),
+    { staleTime: 60_000 },
+  );
 
-    if (checksResult.status === 'fulfilled') {
-      setChecks(checksResult.value);
-    } else {
-      failures.push(
-        checksResult.reason instanceof Error
-          ? checksResult.reason.message
-          : 'Failed to load compliance checks',
-      );
-    }
+  const checksQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'compliance-checks', COMPLIANCE_FRAMEWORK],
+    ({ signal }) => fetchComplianceChecks(COMPLIANCE_FRAMEWORK, signal),
+    { staleTime: 60_000 },
+  );
 
-    setError(failures.length > 0 ? failures.join('; ') : null);
-    setLoading(false);
-  }, [statusFilter, typeFilter, searchTerm]);
+  const dataRequests = requestsQuery.data?.data ?? EMPTY_REQUESTS;
+  const stats = requestsQuery.data?.stats ?? null;
+  const reports = reportsQuery.data ?? EMPTY_REPORTS;
+  const checks = checksQuery.data ?? EMPTY_CHECKS;
+  const loading = requestsQuery.isPending;
+  const queryErrors = [requestsQuery.error, reportsQuery.error, checksQuery.error];
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const loadData = (): void => {
+    void requestsQuery.refetch();
+    void reportsQuery.refetch();
+    void checksQuery.refetch();
+  };
 
   /**
-   * Handle verify/reject/complete actions on a data subject request.
-   * Calls the real backend endpoint and only closes modal on success.
+   * The three data-subject-request actions, through the write primitive
+   * (ADMIN-HIGH-121). This is the first admin page to use it, and it earns its
+   * keep here: the old handler called `loadData()` on success, re-fetching the
+   * request list AND the compliance reports AND the framework checks — two of
+   * which the action cannot have changed. `invalidateKeys` names the one slice
+   * that moved, so the reports and checks stay cached.
+   *
+   * `mutateAsync` keeps the existing contract that the modal closes only on a
+   * SUCCESSFUL backend mutation; `isPending` and `error` replace the two
+   * hand-rolled pieces of state that tracked it.
    */
-  const handleRequestAction = async (action: string): Promise<void> => {
-    if (!selectedRequest) return;
-
-    setActionLoading(true);
-    setActionError(null);
-
-    try {
+  const requestAction = useAdminMutation<void, { id: string; action: RequestAction }>(
+    async ({ id, action }) => {
       switch (action) {
         case 'verify':
-          await securityApi.verifyDataRequestIdentity(
-            selectedRequest.id,
-            'admin_manual_verification',
-          );
-          break;
+          await securityApi.verifyDataRequestIdentity(id, 'admin_manual_verification');
+          return;
         case 'reject':
-          await securityApi.rejectDataRequest(
-            selectedRequest.id,
-            'Rejected by administrator',
-          );
-          break;
+          await securityApi.rejectDataRequest(id, 'Rejected by administrator');
+          return;
         case 'complete':
-          await securityApi.completeDataRequest(
-            selectedRequest.id,
-            'Completed by administrator',
-          );
-          break;
-        default:
-          throw new Error(`Unknown action: ${action}`);
+          await securityApi.completeDataRequest(id, 'Completed by administrator');
+          return;
       }
+    },
+    { invalidateKeys: [[...adminKeys.security.all(), 'data-requests']] },
+  );
 
-      // SECURITY: Only close modal and refresh on successful backend mutation
+  const actionLoading = requestAction.isPending;
+  const actionError = requestAction.error
+    ? `Failed to complete request action: ${requestAction.error.message}`
+    : null;
+
+  const handleRequestAction = async (action: RequestAction): Promise<void> => {
+    if (!selectedRequest) return;
+    try {
+      await requestAction.mutateAsync({ id: selectedRequest.id, action });
+      // SECURITY: only close the modal once the backend mutation succeeded.
       setSelectedRequest(null);
-      await loadData();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Action failed';
-      setActionError(`Failed to ${action} request: ${message}`);
-    } finally {
-      setActionLoading(false);
+    } catch {
+      // `requestAction.error` carries it; the modal stays open so the operator
+      // sees which action failed on which request.
     }
   };
 
@@ -720,23 +749,21 @@ export const CompliancePage: React.FC = () => {
     );
   }
 
-  if (error && dataRequests.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={() => void loadData()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
-    );
+  if (dataRequests.length === 0 && queryErrors.some((queryError) => queryError)) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
   return (
     <div className="space-y-6">
+      {/* Partial failure: the requests loaded but the reports or the framework
+          checks did not, or the reverse. On a GDPR surface an empty tab with no
+          explanation reads as "nothing to report" (ADMIN-HIGH-121). */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={dataRequests.length > 0}
+        onRetry={loadData}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -778,7 +805,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -789,7 +816,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -800,7 +827,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -811,7 +838,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests}</p>
+                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -864,10 +891,13 @@ export const CompliancePage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Types</option>
-                <option value="access">Data Access</option>
-                <option value="erasure">Erasure</option>
-                <option value="portability">Portability</option>
-                <option value="rectification">Rectification</option>
+                {/* Built from the union the API sends, so an option cannot
+                    offer a value it will never match (ADMIN-HIGH-115). */}
+                {(Object.keys(REQUEST_TYPE_LABELS) as DataRequestType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {REQUEST_TYPE_LABELS[t]}
+                  </option>
+                ))}
               </select>
               <select
                 value={statusFilter}
@@ -875,12 +905,14 @@ export const CompliancePage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="identity_verification">Identity Verification</option>
-                <option value="processing">Processing</option>
-                <option value="completed">Completed</option>
-                <option value="rejected">Rejected</option>
+                {/* Identity Verification and Processing used to be offered here
+                    and the API can return neither, so both filtered to nothing;
+                    Expired, which it can return, was absent (ADMIN-HIGH-115). */}
+                {(Object.keys(STATUS_LABELS) as DataRequestStatus[]).map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1123,6 +1155,16 @@ export const CompliancePage: React.FC = () => {
                       </div>
                       <p className="text-sm text-gray-700 mt-2">{check.requirement}</p>
                       <p className="text-sm text-gray-500 mt-1">{check.description}</p>
+                      {/* The check's own verdict. The backend has always sent
+                          `details`; the page discarded it and rendered only the
+                          static requirement text, so the table said what was
+                          being checked but never what the check found. */}
+                      <p className="text-sm text-gray-700 mt-2">{check.details}</p>
+                      {check.remediation && (
+                        <p className="text-sm text-amber-700 mt-1">
+                          Remediation: {check.remediation}
+                        </p>
+                      )}
                       {check.evidence && (
                         <p className="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded">
                           Evidence: {check.evidence}
@@ -1130,8 +1172,10 @@ export const CompliancePage: React.FC = () => {
                       )}
                     </div>
                     <div className="text-right text-xs text-gray-500 ml-4">
-                      <p>Last checked: {formatDate(check.lastChecked)}</p>
-                      <p>Next review: {formatDate(check.nextReview)}</p>
+                      {/* No "next review": checks run live on every request and
+                          the platform has no scheduled-review concept, so the
+                          column rendered "Invalid Date" from an absent field. */}
+                      <p>Checked: {formatDateTime(check.lastChecked)}</p>
                     </div>
                   </div>
                 </div>
@@ -1145,8 +1189,13 @@ export const CompliancePage: React.FC = () => {
       {selectedRequest && (
         <DataRequestDetailModal
           request={selectedRequest}
-          onClose={() => { setSelectedRequest(null); setActionError(null); }}
-          onAction={(action) => { void handleRequestAction(action); }}
+          onClose={() => {
+            setSelectedRequest(null);
+            requestAction.reset();
+          }}
+          onAction={(action) => {
+            void handleRequestAction(action);
+          }}
           actionLoading={actionLoading}
           actionError={actionError}
         />

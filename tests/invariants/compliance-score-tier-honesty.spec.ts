@@ -51,8 +51,14 @@ describe('COMPLIANCE-MEDIUM-002 — compliance-score tier honesty', () => {
     const src = read(COMPLIANCE_SERVICE_PATH);
     // Locate the checkRequirement method body and zoom into the
     // default branch.
+    // Anchored on the METHOD, not on one spelling of its return type. Pinning
+    // the body by `Promise<ComplianceCheckResult>` made this spec fail the
+    // moment that type was legitimately split into `ComplianceCheckOutcome`
+    // (what a check concludes) and `ComplianceCheckResult` (that, plus the
+    // runner's `checkedAt`) — a rename is not the regression this gate exists
+    // to catch, and a gate that trips on one is a gate people learn to edit.
     const declRe =
-      /private\s+async\s+checkRequirement\s*\([\s\S]*?\)\s*:\s*Promise<ComplianceCheckResult>\s*{/;
+      /private\s+async\s+checkRequirement\s*\([\s\S]*?\)\s*:\s*Promise<\w+>\s*{/;
     const declMatch = declRe.exec(src);
     expect(declMatch).not.toBeNull();
     const after = src.slice(declMatch!.index);

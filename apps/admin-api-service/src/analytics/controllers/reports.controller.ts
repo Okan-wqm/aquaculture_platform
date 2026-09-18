@@ -5,6 +5,15 @@
  */
 
 import {
+  CreateDefinitionDto,
+  ExecuteReportDto,
+  GenerateReportDto,
+  QuickReportDto,
+  UpdateDefinitionDto,
+} from './dto/reports.dto';
+import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import {
   Controller,
   Get,
   Post,
@@ -35,140 +44,7 @@ import {
   ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
 import { ReportsService } from '../services/reports.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class GenerateReportDto {
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  type!: ReportType;
-
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsString()
-  startDate!: string;
-
-  @IsString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class CreateDefinitionDto {
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  type!: ReportType;
-
-  @IsOptional()
-  @IsIn(['json', 'csv', 'pdf'])
-  defaultFormat?: ReportFormat;
-
-  @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
-  @IsObject()
-  defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class UpdateDefinitionDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsIn(['json', 'csv', 'pdf'])
-  defaultFormat?: ReportFormat;
-
-  @IsOptional()
-  @IsIn(['active', 'inactive', 'draft'])
-  status?: ReportDefinitionStatus;
-
-  @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
-  @IsObject()
-  defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  includeCharts?: boolean;
-}
-
-class ExecuteReportDto {
-  @IsOptional()
-  @IsString()
-  reportId?: string;
-
-  @IsOptional()
-  @IsString()
-  definitionId?: string;
-
-  @IsOptional()
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
-  reportType?: ReportType;
-
-  @IsOptional()
-  @IsString()
-  reportName?: string;
-
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-}
-
-class QuickReportDto {
-  @IsIn(['json', 'csv', 'pdf'])
-  format!: ReportFormat;
-
-  @IsOptional()
-  @IsObject()
-  filters?: Record<string, unknown>;
-}
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Controller
@@ -198,7 +74,7 @@ export class ReportsController {
     @Query('type') type?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<ReportDefinition>> {
     return this.reportsService.getDefinitions({
       status,
       type,
@@ -212,12 +88,16 @@ export class ReportsController {
     return this.reportsService.getDefinition(id);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('definitions')
   @HttpCode(HttpStatus.CREATED)
   async createDefinition(@Body() dto: CreateDefinitionDto): Promise<ReportDefinition> {
     return this.reportsService.createDefinition(dto);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('definitions/:id')
   async updateDefinition(
     @Param('id') id: string,
@@ -226,6 +106,9 @@ export class ReportsController {
     return this.reportsService.updateDefinition(id, dto);
   }
 
+  @AuditedOperation({ resource: 'Definition', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('definitions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDefinition(@Param('id') id: string): Promise<void> {
@@ -243,7 +126,7 @@ export class ReportsController {
     @Query('reportType') reportType?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<ReportExecution>> {
     return this.reportsService.getExecutions({
       definitionId,
       status,
@@ -253,6 +136,8 @@ export class ReportsController {
     });
   }
 
+  @AuditedOperation({ resource: 'Execution', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('executions')
   @HttpCode(HttpStatus.CREATED)
   async createExecution(
@@ -308,24 +193,32 @@ export class ReportsController {
   // Quick Reports (Frontend Compatible)
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_TENANTS_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/tenants')
   @HttpCode(HttpStatus.OK)
   async quickTenantsReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickTenantsReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_USERS_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/users')
   @HttpCode(HttpStatus.OK)
   async quickUsersReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickUsersReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_REVENUE_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/revenue')
   @HttpCode(HttpStatus.OK)
   async quickRevenueReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
     return this.reportsService.generateQuickRevenueReport(dto.format, dto.filters);
   }
 
+  @AuditedOperation({ resource: 'Reports', action: 'QUICK_AUDIT_REPORT' })
+  @RequiresCapability('security-ops')
   @Post('quick/audit')
   @HttpCode(HttpStatus.OK)
   async quickAuditReport(@Body() dto: QuickReportDto): Promise<ReportExecution> {
@@ -345,6 +238,8 @@ export class ReportsController {
   // Report Generation
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Report', action: 'GENERATE' })
+  @RequiresCapability('security-ops')
   @Post('generate')
   async generateReport(@Body() dto: GenerateReportDto): Promise<ReportResult> {
     // Validate dates

@@ -10,7 +10,7 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useTenantQuery } from '@aquaculture/shared-ui';
 import { useState, useCallback } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
 import { TENANT_ACTIVITY_QUERY } from '../graphql';
@@ -61,11 +61,17 @@ export type ActivityPeriod = '7d' | '30d';
 // Query Keys
 // ============================================================================
 
-export const activityKeys = {
-  all: ['tenant-activity'] as const,
-  summary: (period: ActivityPeriod) =>
-    [...activityKeys.all, 'summary', period] as const,
-};
+/**
+ * Domain key SEGMENTS only. The tenant prefix and the session epoch are added
+ * by useTenantQuery — a bare ['tenant-activity'] key is a cross-tenant cache
+ * hazard: the cached login/session activity of tenant A survives a switch to
+ * tenant B and is served to it (FE-CRITICAL-014/015/016).
+ */
+const activitySegments = (period: ActivityPeriod): readonly unknown[] => [
+  'tenantActivity',
+  'summary',
+  period,
+];
 
 // ============================================================================
 // Hook
@@ -74,9 +80,9 @@ export const activityKeys = {
 export function useTenantActivity() {
   const [period, setPeriod] = useState<ActivityPeriod>('7d');
 
-  const query = useQuery({
-    queryKey: activityKeys.summary(period),
-    queryFn: async (): Promise<TenantActivityData> => {
+  const query = useTenantQuery<TenantActivityData>(
+    activitySegments(period),
+    async (): Promise<TenantActivityData> => {
       try {
         const data = await graphqlRequest<{ tenantActivity: TenantActivityData }>(
           TENANT_ACTIVITY_QUERY,
@@ -88,9 +94,11 @@ export function useTenantActivity() {
         throw err;
       }
     },
-    staleTime: 60 * 1000, // 1 minute
-    refetchInterval: 2 * 60 * 1000, // Refetch every 2 minutes
-  });
+    {
+      staleTime: 60 * 1000,
+      refetchInterval: 2 * 60 * 1000,
+    },
+  );
 
   const changePeriod = useCallback((p: ActivityPeriod) => {
     setPeriod(p);

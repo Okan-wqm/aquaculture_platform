@@ -186,7 +186,7 @@ function mapSpeciesNameToCode(name: string): CleanerFishSpecies | null {
 /**
  * Aggregate cleaner fish inventory from all tanks
  */
-function aggregateCleanerFishFromTanks(tanks: Tank[]): {
+function aggregateCleanerFishFromTanks(tanks: readonly Tank[]): {
   fishBySpecies: CleanerFishSpeciesCount[];
   totalCount: number;
   mortalityBySpecies: { species: CleanerFishSpecies; count: number; rate: number }[];
@@ -252,7 +252,7 @@ function aggregateCleanerFishFromTanks(tanks: Tank[]): {
 /**
  * Build per-cage data from tanks that have cleaner fish
  */
-function buildPerCageDataFromTanks(tanks: Tank[]): PerCageEntry[] {
+function buildPerCageDataFromTanks(tanks: readonly Tank[]): PerCageEntry[] {
   const entries: PerCageEntry[] = [];
 
   for (const tank of tanks) {
@@ -302,7 +302,7 @@ function getInitialFormData(): CleanerFishFormData {
 interface InventoryStepProps {
   formData: CleanerFishFormData;
   onChange: (data: Partial<CleanerFishFormData>) => void;
-  tanks?: Tank[];
+  tanks?: readonly Tank[];
 }
 
 const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks }) => {

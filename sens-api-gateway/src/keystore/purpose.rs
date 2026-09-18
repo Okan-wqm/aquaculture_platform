@@ -56,6 +56,17 @@ pub enum KeyPurpose {
     /// matches `SqlCipherRetainPersistence` per ADR-017 §7).
     SqlCipherBytecodeRetain,
 
+    /// SQLCipher master key for the SCADA-display store (`scada_db.rs`
+    /// — trends, `alarm_history`, `calibration_log`, `audit_log`),
+    /// EDGE-CRITICAL-002. Context bytes: deployment-instance UUID
+    /// (device-bound, same shape as `SqlCipherOfflineQueue` — the
+    /// SCADA store is bound to the device, not to any program
+    /// artifact). Replaces the prior machine-id-only `derive_db_key`
+    /// (readable off a stolen SD card) + its universal
+    /// `"default-machine-id"` fallback with the keystore/TPM-aware
+    /// consumer-key resolver.
+    SqlCipherScadaDisplay,
+
     /// HMAC-SHA256 chain key for the append-only audit log (ADR-020 §2).
     /// Context bytes: `b"audit-hmac-chain-v1"` (constant; rotation happens at
     /// master level). Rotation closes the old chain and opens a new one with
@@ -90,6 +101,7 @@ impl KeyPurpose {
             Self::SqlCipherRetainPersistence => b"suderra:sqlcipher:retain-persistence:v1",
             Self::SqlCipherLicenseCache => b"suderra:sqlcipher:license-cache:v2",
             Self::SqlCipherBytecodeRetain => b"suderra:sqlcipher:bytecode-retain:v1",
+            Self::SqlCipherScadaDisplay => b"suderra:sqlcipher:scada-display:v1",
             Self::AuditHmacChain => b"suderra:audit:hmac-chain:v1",
             Self::ReplayCache => b"suderra:replay-cache:v1",
             Self::DekEscrow => b"suderra:dek-escrow:v1",
@@ -130,6 +142,7 @@ impl KeyPurpose {
                 | Self::SqlCipherRetainPersistence
                 | Self::SqlCipherLicenseCache
                 | Self::SqlCipherBytecodeRetain
+                | Self::SqlCipherScadaDisplay
         )
     }
 }
@@ -196,6 +209,11 @@ mod tests {
             KeyPurpose::SqlCipherBytecodeRetain.hkdf_info(),
             b"suderra:sqlcipher:bytecode-retain:v1"
         );
+        // EDGE-CRITICAL-002 — SCADA-display store.
+        assert_eq!(
+            KeyPurpose::SqlCipherScadaDisplay.hkdf_info(),
+            b"suderra:sqlcipher:scada-display:v1"
+        );
         assert_eq!(
             KeyPurpose::AuditHmacChain.hkdf_info(),
             b"suderra:audit:hmac-chain:v1"
@@ -220,6 +238,7 @@ mod tests {
             KeyPurpose::SqlCipherRetainPersistence,
             KeyPurpose::SqlCipherLicenseCache,
             KeyPurpose::SqlCipherBytecodeRetain,
+            KeyPurpose::SqlCipherScadaDisplay,
             KeyPurpose::AuditHmacChain,
             KeyPurpose::ReplayCache,
             KeyPurpose::DekEscrow,

@@ -40,6 +40,10 @@
 //! `SUDERRA_DB_KEY_PATH` env var redirects the read to
 //! a sandboxed path (CI + tests). Production deployments
 //! leave the env unset + use `/etc/suderra/db.key`.
+//! With the env unset a TEST build resolves a per-process
+//! temp sandbox instead — see `default_secret_key_path`
+//! for why the hermeticity is a default and not an
+//! opt-in.
 //! Mirrors the `SUDERRA_MACHINE_ID_PATH` override on
 //! `crate::machine_id::read` (Batch #344) — both are
 //! the SAME convention for the same reason (test +
@@ -71,6 +75,71 @@ pub const DEFAULT_SECRET_KEY_PATH: &str = "/etc/suderra/db.key";
 /// this was inline in `load_or_create_db_secret`.
 pub const MIN_SECRET_KEY_LEN: usize = 16;
 
+/// Resolve the file the v1 secret-key lives in: the
+/// `SUDERRA_DB_KEY_PATH` override when set, else this
+/// build's default. THE resolver — every reader of the
+/// v1 secret goes through it (read-or-create below, the
+/// read-only migration ceremony in
+/// `db_migration::cli_runtime`), so no consumer can
+/// invent a second answer to "where does the key live".
+pub fn secret_key_path() -> PathBuf {
+    match std::env::var_os(SECRET_KEY_OVERRIDE_ENV) {
+        Some(v) => PathBuf::from(v),
+        None => default_secret_key_path(),
+    }
+}
+
+/// Production default: the `/etc` path the root-owned
+/// agent installs into.
+#[cfg(not(test))]
+fn default_secret_key_path() -> PathBuf {
+    PathBuf::from(DEFAULT_SECRET_KEY_PATH)
+}
+
+/// Test-build default: a per-process sandbox under the
+/// temp dir.
+///
+/// **Why the default differs instead of every test
+/// opting in.** The sandbox used to be opt-in
+/// (`offline_queue::test_support::ensure_key_sandbox`).
+/// A test that forgot it still passed for the author —
+/// a root shell or container CAN create `/etc/suderra` —
+/// and failed only on the unprivileged CI runner, which
+/// is exactly how four `db::sqlcipher_factory` tests
+/// went red with `Permission denied` on
+/// `/etc/suderra`. Making the sandbox the DEFAULT
+/// deletes the opt-in: no in-crate test can reach `/etc`
+/// through this resolver, whether or not its author
+/// remembered to ask.
+#[cfg(test)]
+fn default_secret_key_path() -> PathBuf {
+    test_sandbox::path()
+}
+
+/// The single sandbox location for the whole test
+/// binary. One owner, so no test module can seed a
+/// second path that races the process-wide `OnceLock`
+/// latch in `offline_queue::derive_db_encryption_key`.
+#[cfg(test)]
+pub(crate) mod test_sandbox {
+    use std::path::PathBuf;
+    use std::sync::LazyLock;
+
+    static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let dir = std::env::temp_dir().join(format!("suderra-db-key-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir test key sandbox");
+        dir.join("db.key")
+    });
+
+    /// Path only — the file is created by
+    /// `read_or_create_v1_secret` on first use, so the
+    /// read-only migration path still observes a genuine
+    /// missing-file when nothing has seeded it.
+    pub(crate) fn path() -> PathBuf {
+        PATH.clone()
+    }
+}
+
 /// Read the v1 SQLCipher secret-key file, generating a
 /// fresh random key on missing-file. Used by every
 /// SQLCipher consumer's legacy v1 derivation path.
@@ -97,10 +166,7 @@ pub const MIN_SECRET_KEY_LEN: usize = 16;
 /// context — caller wraps in domain-specific error
 /// type if needed.
 pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
-    let path_buf: PathBuf = match std::env::var_os(SECRET_KEY_OVERRIDE_ENV) {
-        Some(v) => PathBuf::from(v),
-        None => PathBuf::from(DEFAULT_SECRET_KEY_PATH),
-    };
+    let path_buf: PathBuf = secret_key_path();
     let secret_path: &Path = path_buf.as_path();
 
     if secret_path.exists() {
@@ -116,9 +182,10 @@ pub fn read_or_create_v1_secret() -> Result<Vec<u8>> {
     }
 
     // Generate a new random key.
-    use rand::RngCore;
+    // SEC-LOW-122 (2026-08-23 scan №67): key material from the OS CSPRNG
+    // (rand's ThreadRng disclaims CSPRNG suitability for key material).
     let mut key = vec![0u8; 32];
-    rand::rng().fill_bytes(&mut key);
+    getrandom::getrandom(&mut key).map_err(|e| anyhow::anyhow!("OS CSPRNG unavailable: {e}"))?;
 
     if let Some(parent) = secret_path.parent() {
         std::fs::create_dir_all(parent).with_context(|| {
@@ -283,5 +350,46 @@ mod tests {
         // Only the lower 9 bits are the perms; mask off
         // the file-type bits.
         assert_eq!(mode & 0o777, 0o400);
+    }
+
+    /// The hermeticity guarantee itself: with the
+    /// override unset, a TEST build resolves the secret
+    /// key inside the process sandbox, never under
+    /// `/etc`. This is what makes a test that never
+    /// heard of the sandbox pass on an unprivileged CI
+    /// runner instead of dying on
+    /// `mkdir /etc/suderra: Permission denied`.
+    #[test]
+    fn test_builds_resolve_the_secret_key_outside_etc() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: env-mutation serialized via ENV_MUTEX.
+        unsafe {
+            std::env::remove_var(SECRET_KEY_OVERRIDE_ENV);
+        }
+        let resolved = secret_key_path();
+        assert!(
+            resolved.starts_with(std::env::temp_dir()),
+            "test-build default must live in the temp sandbox, got {}",
+            resolved.display(),
+        );
+        assert_ne!(resolved, PathBuf::from(DEFAULT_SECRET_KEY_PATH));
+    }
+
+    /// The override still wins — production and the
+    /// tests that seed their own key file are unchanged.
+    #[test]
+    fn override_env_still_wins_over_the_default() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let explicit = dir.path().join("explicit.key");
+        // SAFETY: env-mutation serialized via ENV_MUTEX.
+        unsafe {
+            std::env::set_var(SECRET_KEY_OVERRIDE_ENV, &explicit);
+        }
+        let resolved = secret_key_path();
+        unsafe {
+            std::env::remove_var(SECRET_KEY_OVERRIDE_ENV);
+        }
+        assert_eq!(resolved, explicit);
     }
 }

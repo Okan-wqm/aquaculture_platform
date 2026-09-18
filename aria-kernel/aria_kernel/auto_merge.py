@@ -7,7 +7,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .implementation_safety import is_gh_api_path_forbidden
+from .implementation_safety import (
+    CANONICAL_VALIDATION_COMMANDS,
+    canonical_command_satisfied_by,
+    is_gh_api_path_forbidden,
+)
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -467,24 +471,33 @@ def record_pr_lifecycle(
     )
 
 
-# The three universal dimensions and the command substrings that prove
-# them. Commands come from validation.run_validation_commands' closed
-# allowlist, so the substrings match structured commands, not free text.
-_HYGIENE_DIMENSIONS: dict[str, tuple[str, ...]] = {
-    "format": ("format:check",),
-    "typecheck": ("type-check",),
-    "test": ("--target=test", "npm run test"),
-}
+# ARIA-HIGH-104 (2) — the hygiene battery IS the canonical validation suite.
+#
+# This table used to name three hand-picked dimensions (format / typecheck /
+# test) with substring needles, one of which (`format:check`) no other
+# contract named: the plan contract admitted the canonical suite, staging
+# ran it as baseline, the implementer was told to run it, the pre-PR-open
+# perimeter required it — and then the merge gate demanded a fourth command
+# that none of them had mentioned, so a change that did exactly what every
+# contract said could never merge. The suite is one tuple now
+# (`implementation_safety.CANONICAL_VALIDATION_COMMANDS`, which grew
+# `npm run format:check`), and this gate reads it: one dimension per
+# canonical command, keyed by the command itself, matched by the same
+# whole-entry rule the perimeter uses (`canonical_command_satisfied_by`).
+# Derived, not retyped, so the two cannot disagree again — pinned by
+# tests/test_validation_suite_ssot.py.
+_HYGIENE_DIMENSIONS: tuple[str, ...] = CANONICAL_VALIDATION_COMMANDS
 
 
 def _hygiene_battery_result(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which canonical commands have a verified exit-0 run, and which do not."""
     satisfied: dict[str, str] = {}
     for run in runs:
         if not isinstance(run, dict) or run.get("status") != "ok":
             continue
         cmd = str(run.get("cmd") or "")
-        for dimension, needles in _HYGIENE_DIMENSIONS.items():
-            if dimension not in satisfied and any(n in cmd for n in needles):
+        for dimension in _HYGIENE_DIMENSIONS:
+            if dimension not in satisfied and canonical_command_satisfied_by(cmd, dimension):
                 satisfied[dimension] = str(run.get("validation_run_id") or "")
     return {
         "satisfied": satisfied,
@@ -804,7 +817,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision",
+                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,reviews,reviewDecision",
             ],
         )
         return {
@@ -814,10 +827,14 @@ class GhCliGitHubAdapter:
             "target_ref": payload.get("baseRefName"),
             "base_branch": payload.get("baseRefName"),
             "baseRefName": payload.get("baseRefName"),
+            "base_sha": payload.get("baseRefOid"),
+            "baseRefOid": payload.get("baseRefOid"),
             "head_ref": payload.get("headRefName"),
             "headRefName": payload.get("headRefName"),
             "head_sha": payload.get("headRefOid"),
             "headRefOid": payload.get("headRefOid"),
+            "body": payload.get("body"),
+            "url": payload.get("url"),
             "changed_files": payload.get("files", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),

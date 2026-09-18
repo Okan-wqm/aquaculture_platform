@@ -3,33 +3,17 @@ import { useMemo } from 'react';
 
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
+import { useTodaysDayPlans } from './useTodaysDayPlans';
 
-import {
-  GET_FEEDING_DAY_PLANS,
-  GET_TASK_STATS,
-  GET_TODAYS_DAILY_OPS_COUNTS,
-} from '@/graphql/operations';
+import type { GetTodaysDailyOpsCountsQuery } from '@/generated/graphql';
+import { GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// WHY inline type: mirrors GraphQL response shape used only here (Faz 6 öğün
-// cutover'ı — sayım aggregate ile aynı semantik: fed|skipped / iptal-dışı).
-// Enum alanları tel üzerinde AD taşır ('FED', 'SKIPPED', 'CANCELLED').
-interface DayPlanMealSlice {
-  status: string;
-}
-interface FeedingDayPlanSlice {
-  meals: DayPlanMealSlice[];
-}
-
-// WHY explicit shape: backend aggregate returns flat counts, not entity lists.
-interface DailyOpsCountsResponse {
-  mortalityCount: number;
-  wqReadingsCount: number;
-  feedingCompletedCount: number;
-  feedingTotalCount: number;
-}
+// MOB-HIGH-022: the counts slice is the generated result of the document
+// below, so the field names are checked against the wire contract.
+type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts'];
 
 /**
  * Aggregates clock-in (HR), feeding (farm), mortality/WQ (farm), and task
@@ -38,42 +22,27 @@ interface DailyOpsCountsResponse {
  * WHY aggregation hook: normalizes 4 data sources into one shape with a
  * single isLoading flag, avoiding 4+ loading states in the page component.
  */
-export function useDailyOpsStats(): {
-  stats: DailyOpsStats;
-  isLoading: boolean;
-  /** ORPHAN-HIGH-595: a failed counts query must not read as a quiet day. */
-  isError: boolean;
-} {
+export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean } {
   const { tenantId, isAuthenticated } = useAuth();
 
   // Source 1: Clock-in status (React Query, already migrated)
   const { data: todaysAttendance, isLoading: attendanceLoading } = useTodaysAttendance();
 
-  // Source 2: Feeding plan progress
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }, []);
-
-  const { data: dayPlans, isLoading: feedingLoading } = useQuery<FeedingDayPlanSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, todayStr),
-    queryFn: async () => {
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS,
-        { planDate: todayStr },
-      );
-      return result.feedingDayPlans ?? [];
-    },
-    enabled: isAuthenticated && !!tenantId,
-    staleTime: 1000 * 60 * 5, // WHY 5min: feeding plan changes infrequently
-    gcTime: 1000 * 60 * 30,
-  });
+  // Source 2: Feeding plan progress.
+  //
+  // W8/FARM-LOW-281: paylaşılan hook. Bu hook ve RecordFeedingPage AYNI React
+  // Query anahtarını kullanıyordu ama İKİ ayrı `queryFn` ile; anahtar
+  // paylaşıldığı için yalnız ilk mount edenin fonksiyonu koşuyor ve ana sayfa
+  // hemen her zaman önce mount ettiği için RecordFeedingPage'in çevrimdışı
+  // `cacheData` yazımı HİÇ çalışmıyordu. Tek okuyucu = tek queryFn = mount
+  // sırası davranışı değiştiremez.
+  const { plans: dayPlans, isLoading: feedingLoading } = useTodaysDayPlans();
 
   // Source 3: Task stats (totalToday, completedToday)
   const { data: taskStats, isLoading: taskStatsLoading } = useQuery<TaskStats>({
     queryKey: createTenantQueryKey(tenantId, 'taskStats', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ taskStats: TaskStats }>(GET_TASK_STATS);
+      const result = await graphqlRequest(GET_TASK_STATS);
       return result.taskStats;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -82,16 +51,10 @@ export function useDailyOpsStats(): {
   });
 
   // Source 4: Mortality + WQ counts from the farm mobile aggregate resolver.
-  const {
-    data: opsCounts,
-    isLoading: opsCountsLoading,
-    isError: opsCountsError,
-  } = useQuery<DailyOpsCountsResponse>({
+  const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
     queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(
-        GET_TODAYS_DAILY_OPS_COUNTS,
-      );
+      const result = await graphqlRequest(GET_TODAYS_DAILY_OPS_COUNTS);
       return result.todaysDailyOpsCounts;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -130,7 +93,5 @@ export function useDailyOpsStats(): {
   return {
     stats,
     isLoading: attendanceLoading || feedingLoading || taskStatsLoading || opsCountsLoading,
-    // ORPHAN-HIGH-595: a failed counts query must not read as a quiet day.
-    isError: opsCountsError,
   };
 }

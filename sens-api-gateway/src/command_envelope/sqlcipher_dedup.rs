@@ -71,7 +71,7 @@
 //! `rbac_version.sqlite` under /var/lib/suderra.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -81,8 +81,12 @@ use tracing::{debug, info};
 use super::jti::{DedupResult, DedupTableError, Jti, JtiDedupTable};
 
 /// Persistent 72h dedup store backed by SQLCipher.
+///
+/// EDGE-HIGH-014: the connection is held behind `Arc<Mutex<...>>` so the
+/// blocking SQLCipher I/O in the `async` trait methods runs on the blocking
+/// thread pool (`spawn_blocking`) instead of directly on a tokio worker.
 pub struct SqlCipherJtiDedupTable {
-    conn: Mutex<Connection>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl SqlCipherJtiDedupTable {
@@ -95,19 +99,19 @@ impl SqlCipherJtiDedupTable {
                 .map_err(|e| format!("SqlCipherJtiDedupTable mkdir {}: {}", parent.display(), e))?;
         }
 
-        let conn = Connection::open(path)
-            .map_err(|e| format!("SqlCipherJtiDedupTable open {}: {}", path.display(), e))?;
-
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| format!("SqlCipherJtiDedupTable key derivation: {}", e))?;
-        conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| format!("SqlCipherJtiDedupTable PRAGMA key: {}", e))?;
+        // EDGE-HIGH-026: open + key via the canonical SQLCipher factory
+        // (v1 device-secret key, DEFAULT pragma profile). The factory owns
+        // the PRAGMA key + WAL/synchronous/busy_timeout/auto_vacuum sequence;
+        // this store only creates its own schema afterwards.
+        let conn = crate::db::sqlcipher_factory::open_device_secret(
+            path,
+            "jti_dedup",
+            crate::db::sqlcipher_factory::PragmaProfile::DEFAULT,
+        )
+        .map_err(|e| format!("SqlCipherJtiDedupTable open {}: {}", path.display(), e))?;
 
         conn.execute_batch(
             "
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS jti_dedup (
                 jti        TEXT PRIMARY KEY,
                 expires_at INTEGER NOT NULL
@@ -124,7 +128,7 @@ impl SqlCipherJtiDedupTable {
         );
 
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -146,7 +150,7 @@ impl SqlCipherJtiDedupTable {
         )
         .map_err(|e| format!("in_memory schema: {}", e))?;
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 }
@@ -173,50 +177,54 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
 
         let jti_str = jti.as_str().to_string();
 
-        let conn = self
-            .conn
-            .lock()
+        // EDGE-HIGH-014: run the blocking SQLCipher probe + insert on the
+        // blocking pool so a replay-storm cannot stall a tokio worker.
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
+
+            // First: probe whether a non-expired row exists (FAST,
+            // index-covered by idx_jti_expires_at + PK). Separate
+            // from the insert to avoid writing on the duplicate
+            // path (reduces SQLite write amplification under
+            // replay-storm load).
+            let existing: Option<i64> = conn
+                .query_row(
+                    "SELECT expires_at FROM jti_dedup WHERE jti = ?1",
+                    [&jti_str],
+                    |r| r.get(0),
+                )
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })
+                .map(Some)
+                .map_err(|_e| DedupTableError::StoreIoError)?
+                .flatten();
+
+            if let Some(exp) = existing {
+                if exp > now_secs {
+                    debug!(
+                        "SqlCipherJtiDedupTable: duplicate jti (expires in {}s)",
+                        exp - now_secs
+                    );
+                    return Ok(DedupResult::Duplicate);
+                }
+                // Expired row present — replace via INSERT OR
+                // REPLACE rather than DELETE+INSERT to stay
+                // within a single statement.
+            }
+
+            conn.execute(
+                "INSERT OR REPLACE INTO jti_dedup (jti, expires_at) VALUES (?1, ?2)",
+                rusqlite::params![jti_str, expires_at_secs],
+            )
             .map_err(|_| DedupTableError::StoreIoError)?;
 
-        // First: probe whether a non-expired row exists (FAST,
-        // index-covered by idx_jti_expires_at + PK). Separate
-        // from the insert to avoid writing on the duplicate
-        // path (reduces SQLite write amplification under
-        // replay-storm load).
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT expires_at FROM jti_dedup WHERE jti = ?1",
-                [&jti_str],
-                |r| r.get(0),
-            )
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })
-            .map(Some)
-            .map_err(|_e| DedupTableError::StoreIoError)?
-            .flatten();
-
-        if let Some(exp) = existing {
-            if exp > now_secs {
-                debug!(
-                    "SqlCipherJtiDedupTable: duplicate jti (expires in {}s)",
-                    exp - now_secs
-                );
-                return Ok(DedupResult::Duplicate);
-            }
-            // Expired row present — replace via INSERT OR
-            // REPLACE rather than DELETE+INSERT to stay
-            // within a single statement.
-        }
-
-        conn.execute(
-            "INSERT OR REPLACE INTO jti_dedup (jti, expires_at) VALUES (?1, ?2)",
-            rusqlite::params![jti_str, expires_at_secs],
-        )
-        .map_err(|_| DedupTableError::StoreIoError)?;
-
-        Ok(DedupResult::Fresh)
+            Ok(DedupResult::Fresh)
+        })
+        .await
+        .map_err(|_| DedupTableError::StoreIoError)?
     }
 
     async fn live_entry_count(&self) -> Result<usize, DedupTableError> {
@@ -225,18 +233,21 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| DedupTableError::StoreIoError)?;
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM jti_dedup WHERE expires_at > ?1",
-                [now_secs],
-                |r| r.get(0),
-            )
-            .map_err(|_| DedupTableError::StoreIoError)?;
-        Ok(count.max(0) as usize)
+        // EDGE-HIGH-014: offload the blocking count to the blocking pool.
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM jti_dedup WHERE expires_at > ?1",
+                    [now_secs],
+                    |r| r.get(0),
+                )
+                .map_err(|_| DedupTableError::StoreIoError)?;
+            Ok(count.max(0) as usize)
+        })
+        .await
+        .map_err(|_| DedupTableError::StoreIoError)?
     }
 
     async fn sweep_expired(&self, now: SystemTime) -> Result<usize, DedupTableError> {
@@ -245,14 +256,17 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| DedupTableError::StoreIoError)?;
-        let removed = conn
-            .execute("DELETE FROM jti_dedup WHERE expires_at <= ?1", [now_secs])
-            .map_err(|_| DedupTableError::StoreIoError)?;
-        Ok(removed)
+        // EDGE-HIGH-014: offload the blocking delete to the blocking pool.
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
+            let removed = conn
+                .execute("DELETE FROM jti_dedup WHERE expires_at <= ?1", [now_secs])
+                .map_err(|_| DedupTableError::StoreIoError)?;
+            Ok(removed)
+        })
+        .await
+        .map_err(|_| DedupTableError::StoreIoError)?
     }
 }
 

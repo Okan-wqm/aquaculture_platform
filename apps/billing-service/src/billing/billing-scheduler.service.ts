@@ -1,12 +1,21 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { toEventIso, createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
-import { StripeApiService } from '@aquaculture/backend-common/billing';
-import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
+import {
+  StripeApiService,
+  addBillingCycle,
+  cycleAmountFor,
+} from '@aquaculture/backend-common/billing';
+import { Subscription, SubscriptionStatus } from './entities/subscription.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -40,6 +49,7 @@ export class BillingSchedulerService {
     // MUST mirror the immediate change-subscription-plan path at Stripe, else the
     // tenant keeps paying the old price after the downgrade lands locally.
     private readonly stripeApi: StripeApiService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
@@ -49,7 +59,7 @@ export class BillingSchedulerService {
    * Every hour, find TRIAL subscriptions whose trialEndDate has passed
    * and transition them to ACTIVE with a fresh billing period.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.trial-expiry', cron: CronExpression.EVERY_HOUR })
   async handleTrialExpiry(): Promise<void> {
     const now = new Date();
 
@@ -96,7 +106,7 @@ export class BillingSchedulerService {
 
         sub.status = SubscriptionStatus.ACTIVE;
         sub.currentPeriodStart = now;
-        sub.currentPeriodEnd = this.calculatePeriodEnd(now, sub.billingCycle);
+        sub.currentPeriodEnd = addBillingCycle(now, sub.billingCycle);
         sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
         this.logger.log(
@@ -121,7 +131,7 @@ export class BillingSchedulerService {
    * and transition them to EXPIRED. A 3-day grace period is applied
    * so tenants have a short window to renew before losing access.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.subscription-expiry', cron: CronExpression.EVERY_HOUR })
   async handleSubscriptionExpiry(): Promise<void> {
     const now = new Date();
     const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days
@@ -181,7 +191,10 @@ export class BillingSchedulerService {
    * Every day at midnight, find SENT or PENDING invoices whose dueDate
    * has passed and mark them as OVERDUE.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @ScheduledJob({
+    name: 'billing.overdue-invoices',
+    cron: CronExpression.EVERY_DAY_AT_MIDNIGHT,
+  })
   async handleOverdueInvoices(): Promise<void> {
     const now = new Date();
 
@@ -227,23 +240,23 @@ export class BillingSchedulerService {
    * for the same subscription + period. If so, we skip it to prevent duplicates
    * on re-runs or overlapping scheduler instances.
    */
-  @Cron('0 1 1 * *') // 1st of every month at 01:00
+  // 1st of every month at 01:00.
+  @ScheduledJob({ name: 'billing.generate-monthly-invoices', cron: '0 1 1 * *' })
   async generateMonthlyInvoices(): Promise<void> {
-    // Distributed lock: pg_try_advisory_lock prevents two scheduler replicas
-    // from running invoice generation concurrently. Without this, both instances
-    // read subscriptions with no existing invoice, both generate, and the
-    // per-subscription idempotency check only catches WITHIN a single run —
-    // not across concurrent runs that interleave reads and writes.
-    const INVOICE_GEN_LOCK_ID = 900001; // unique advisory lock ID
-    const lockResult = await this.dataSource.query(
-      'SELECT pg_try_advisory_lock($1) as acquired', [INVOICE_GEN_LOCK_ID],
-    );
-    if (!lockResult?.[0]?.acquired) {
-      this.logger.log('Another instance holds the invoice generation lock — skipping');
-      return;
-    }
-
-    try {
+    // The single-replica guarantee is `@ScheduledJob`'s, and it has to be:
+    // the hand-rolled lock this replaced called `pg_try_advisory_lock` through
+    // `dataSource.query`, which takes a connection from the pool and returns
+    // it. A session-scoped advisory lock belongs to the connection that took
+    // it, so the matching `pg_advisory_unlock` — issued through a second
+    // `dataSource.query`, on whatever connection the pool handed out next —
+    // returned false rather than releasing anything. `pg_advisory_unlock`
+    // reports that by RETURNING false, not by throwing, so the `.catch` that
+    // was supposed to notice never fired. The lock stayed held for the life of
+    // the first connection and no replica generated an invoice again.
+    //
+    // `ScheduledJobRunner` takes `pg_try_advisory_xact_lock` on its own query
+    // runner and releases it with the connection, so the lock cannot outlive
+    // the tick.
     const now = new Date();
     this.logger.log('Starting auto-invoice generation run...');
 
@@ -286,23 +299,36 @@ export class BillingSchedulerService {
           continue;
         }
 
-        // Build line items from subscription pricing using Money
+        // Build line items from subscription pricing using Money.
+        //
+        // `pricing.basePrice` is the MONTHLY rate by contract — create-subscription
+        // publishes it as `monthlyPrice` on SubscriptionCreated — so the cycle
+        // amount is derived, never read. `cycleAmountFor` is the same function the
+        // operator's quote goes through, which is what stops the invoice from
+        // charging above the agreed price (BILLING-CRITICAL-007).
         const pricingCurrency = sub.pricing.currency || 'USD';
-        const basePriceMoney = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
+        const monthlyPrice = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
+        const cycle = cycleAmountFor(monthlyPrice, sub.billingCycle);
         const lineItems = [
           {
-            description: `${sub.planName} - Base subscription`,
+            description:
+              cycle.months > 1
+                ? `${sub.planName} - Base subscription (${cycle.months} months)`
+                : `${sub.planName} - Base subscription`,
             quantity: 1,
-            unitPrice: basePriceMoney.toDecimal().toNumber(),
+            unitPrice: cycle.gross.toDecimal().toNumber(),
           },
         ];
 
-        // Calculate cycle multiplier for non-monthly billing
-        const cycleMonths = this.cycleToMonths(sub.billingCycle);
-        if (cycleMonths > 1 && lineItems[0]) {
-          lineItems[0].description = `${sub.planName} - Base subscription (${cycleMonths} months)`;
-          lineItems[0].unitPrice = basePriceMoney.multiply(cycleMonths).toDecimal().toNumber();
-        }
+        // The line items are the GROSS cycle amount; the commitment discount is
+        // the invoice's own `discount`, so what the customer was granted is named
+        // on the document rather than folded into a unit price nobody can
+        // reconcile against the quote.
+        const lineItemsTotal = lineItems.reduce(
+          (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+          Money.zero(pricingCurrency),
+        );
+        const invoiceTotal = lineItemsTotal.subtract(cycle.commitmentDiscount);
 
         // Generate invoice number
         const invoiceNumber = this.generateInvoiceNumber(sub.tenantId);
@@ -333,19 +359,14 @@ export class BillingSchedulerService {
               amount: lineMoney.toDecimal().toNumber(),
             };
           }),
-          subtotal: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
-          total: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
+          subtotal: lineItemsTotal.toDecimal(),
+          // Always written, including the monthly zero: a stored 0 says the
+          // commitment discount was computed and none applied, where NULL would
+          // be indistinguishable from an invoice issued before this rule existed.
+          discount: cycle.commitmentDiscount.toDecimal(),
+          total: invoiceTotal.toDecimal(),
           amountPaid: Money.zero(pricingCurrency).toDecimal(),
-          amountDue: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
+          amountDue: invoiceTotal.toDecimal(),
           currency: pricingCurrency,
           issueDate: now,
           dueDate,
@@ -404,12 +425,6 @@ export class BillingSchedulerService {
     this.logger.log(
       `Auto-invoice generation complete: ${generated} generated, ${skipped} skipped (already invoiced)`,
     );
-    } finally {
-      // Always release advisory lock — even on error, so next cron run can acquire it.
-      await this.dataSource.query(
-        'SELECT pg_advisory_unlock($1)', [INVOICE_GEN_LOCK_ID],
-      ).catch((err: Error) => this.logger.warn(`Advisory unlock failed: ${err.message}`));
-    }
   }
 
   /**
@@ -417,7 +432,7 @@ export class BillingSchedulerService {
    */
   private async advanceSubscriptionPeriod(sub: Subscription, now: Date): Promise<void> {
     sub.currentPeriodStart = sub.currentPeriodEnd;
-    sub.currentPeriodEnd = this.calculatePeriodEnd(sub.currentPeriodStart, sub.billingCycle);
+    sub.currentPeriodEnd = addBillingCycle(sub.currentPeriodStart, sub.billingCycle);
     sub.updatedBy = 'system';
     await this.subscriptionRepo.save(sub);
     this.logger.debug(
@@ -464,35 +479,6 @@ export class BillingSchedulerService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────
 
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    const months = this.cycleToMonths(billingCycle);
-    return this.addMonthsClamped(startDate, months);
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:     return 1;
-      case BillingCycle.QUARTERLY:   return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:      return 12;
-    }
-  }
-
-  /**
-   * Add months to a date, clamping the day to the last valid day of the target month.
-   * Avoids the JS Date.setMonth() overflow bug (e.g. Jan 31 + 1 month -> Mar 3).
-   */
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(date.getDate(), lastDay);
-
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, clampedDay);
-    return result;
-  }
-
   // ─── IP-2: Apply Scheduled Plan Changes ─────────────────────────────
 
   /**
@@ -509,7 +495,7 @@ export class BillingSchedulerService {
    *
    * Idempotent: only processes PENDING changes, marks them APPLIED on success.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.apply-scheduled-plan-changes', cron: CronExpression.EVERY_HOUR })
   async applyScheduledPlanChanges(): Promise<void> {
     const now = new Date();
 

@@ -170,7 +170,6 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         transferReason,
         transferredAt,
         notes,
-        skipCapacityCheck: false, // C-FARM-03: capacity enforced server-side; bypass requires FARM_MANAGER role
       });
 
       resetForm();

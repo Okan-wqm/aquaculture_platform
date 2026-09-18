@@ -1,4 +1,4 @@
-import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { numberOrUndefined, runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
@@ -154,7 +154,7 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
       locationId: loc.id,
       locationName: loc.name,
       locationType: loc.type,
-      capacity: loc.capacity ? Number(loc.capacity) : undefined,
+      capacity: numberOrUndefined(loc.capacity),
       capacityUnit: loc.capacityUnit,
       usedCapacity: Number(loc.usedCapacity),
       fillPercentage: loc.capacity && Number(loc.capacity) > 0

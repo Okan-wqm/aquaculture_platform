@@ -36,9 +36,13 @@
  *      under an `.archive/` segment (archiving a migration is a legitimate
  *      lifecycle move handled by migration-deletion-witness).
  *   3. For each modified shipped migration, require a PR-body waiver line
- *      `MIGRATION-IMMUTABLE-OK: <filename> — <reason>` (env PR_BODY). The waiver
- *      exists only for genuinely content-neutral edits (a typo in a comment,
- *      a lint/format-only change) and carries CODEOWNERS review.
+ *      `MIGRATION-IMMUTABLE-OK: <repo-relative path> — <reason>` (env PR_BODY).
+ *      The waiver exists only for genuinely content-neutral edits (a typo in a
+ *      comment, a lint/format-only change) and carries CODEOWNERS review. A bare
+ *      basename is accepted only while it names exactly one shipped migration in
+ *      the repository: fourteen services call their first migration
+ *      `1800000000000-Baseline.ts`, so a bare name there waived all fourteen at
+ *      once, including services the PR never touched (PROC-MEDIUM-026).
  *   4. If a modification has no waiver, fail loudly — the cure is to revert the
  *      edit and add a NEW forward migration that completes the desired state.
  *
@@ -149,17 +153,74 @@ function isShippedMigrationFile(path: string): boolean {
   return /[\\/]migrations[\\/]\d{10,}-[^\\/]+\.(ts|sql)$/i.test(path);
 }
 
-function findWaiver(path: string): string | null {
-  const body = process.env.PR_BODY ?? '';
+/**
+ * Every shipped migration tracked in the repository, by basename.
+ *
+ * The waiver used to match the BASENAME alone, and fourteen services name their
+ * first migration `1800000000000-Baseline.ts`. One waiver line therefore waived
+ * every Baseline in the repository at once, including services the PR never
+ * touched — a gate whose exemption is wider than anything a reviewer would grant
+ * on purpose (PROC-MEDIUM-026). The counts below decide when a basename is
+ * still safe shorthand and when it is not.
+ */
+function shippedMigrationsByBaseName(): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  let tracked: string;
+  try {
+    tracked = git('ls-files -- "*/migrations/*"');
+  } catch {
+    // No index to consult (shallow checkout, detached tooling run): fall back to
+    // treating every basename as ambiguous, which only ever asks for MORE
+    // precision in the waiver.
+    return index;
+  }
+  for (const path of tracked.split('\n')) {
+    if (path.trim().length === 0) continue;
+    if (!isShippedMigrationFile(path)) continue;
+    const baseName = path.split(/[\\/]/).pop() ?? path;
+    index.set(baseName, [...(index.get(baseName) ?? []), path]);
+  }
+  return index;
+}
+
+const SHIPPED_BY_BASENAME = shippedMigrationsByBaseName();
+
+/**
+ * A waiver must name the repo-relative PATH of the file it waives.
+ *
+ * A bare basename is accepted only while it is unambiguous across the whole
+ * repository — there, the two spellings identify exactly the same file and
+ * demanding the longer one would be ceremony. The moment a second service
+ * ships a migration with that name, the shorthand stops being accepted and the
+ * waiver has to say which file it means.
+ *
+ * Exported and free of git/env so the decision itself can be tested rather than
+ * only asserted to exist — `tests/invariants/migration-immutability.spec.ts`.
+ */
+export function resolveWaiver(
+  path: string,
+  body: string,
+  shippedByBaseName: ReadonlyMap<string, readonly string[]>,
+): string | null {
   if (!body) return null;
+
+  const marker = (needle: string): boolean =>
+    new RegExp(`MIGRATION-IMMUTABLE-OK:[^\\n]*\\b${escapeRegex(needle)}(?!\\S)`, 'i').test(body);
+
+  if (marker(path)) {
+    return `PR_BODY MIGRATION-IMMUTABLE-OK marker for ${path}`;
+  }
+
   const baseName = path.split(/[\\/]/).pop() ?? path;
-  const re = new RegExp(
-    `MIGRATION-IMMUTABLE-OK:[^\\n]*\\b${escapeRegex(baseName)}\\b`,
-    'i',
-  );
-  return re.test(body)
-    ? `PR_BODY MIGRATION-IMMUTABLE-OK marker for ${baseName}`
-    : null;
+  const sharing = shippedByBaseName.get(baseName) ?? [];
+  if (sharing.length === 1 && marker(baseName)) {
+    return `PR_BODY MIGRATION-IMMUTABLE-OK marker for ${baseName} (unambiguous repo-wide)`;
+  }
+  return null;
+}
+
+function findWaiver(path: string): string | null {
+  return resolveWaiver(path, process.env.PR_BODY ?? '', SHIPPED_BY_BASENAME);
 }
 
 function escapeRegex(s: string): string {
@@ -219,8 +280,15 @@ function main(): void {
   err('      it adds — Reconcile*/Repair*/Heal*/Align*EntitySurface/Replay*Alignment/');
   err('      Sync*ToDb names are rejected by tests/invariants/drift-repair-naming.spec.ts; OR');
   err('  (b) for a genuinely content-neutral edit (comment/lint-only), add a PR-body');
-  err('      line `MIGRATION-IMMUTABLE-OK: <filename> — <reason>` (CODEOWNERS-reviewed).');
+  err('      line `MIGRATION-IMMUTABLE-OK: <repo-relative path> — <reason>`');
+  err('      (CODEOWNERS-reviewed), one per file:');
+  for (const e of unaccounted) {
+    err(`        MIGRATION-IMMUTABLE-OK: ${e.path} — <reason>`);
+  }
+  err('      A bare filename is accepted only when it is unique repo-wide. All');
+  err('      fourteen Baselines are named 1800000000000-Baseline.ts, so a bare');
+  err('      name there would waive every one of them (PROC-MEDIUM-026).');
   process.exit(1);
 }
 
-main();
+if (require.main === module) main();

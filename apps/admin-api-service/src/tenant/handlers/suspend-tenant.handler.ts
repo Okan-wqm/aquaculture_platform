@@ -154,11 +154,10 @@ export class SuspendTenantHandler
         `Tenant suspended: ${tenantId} by ${suspendedBy}. Reason: ${data.reason}`,
       );
 
-      await this.auditLogService.log({
+      await this.auditLogService.record({
         action: 'TENANT_SUSPENDED',
         entityType: 'tenant',
         entityId: tenantId,
-        performedBy: suspendedBy,
         details: {
           reason: data.reason,
           previousStatus,
@@ -271,11 +270,10 @@ export class ActivateTenantHandler
 
       this.logger.log(`Tenant activated: ${tenantId} by ${activatedBy}`);
 
-      await this.auditLogService.log({
+      await this.auditLogService.record({
         action: 'TENANT_ACTIVATED',
         entityType: 'tenant',
         entityId: tenantId,
-        performedBy: activatedBy,
         details: { previousStatus },
       });
 
@@ -362,11 +360,10 @@ export class DeactivateTenantHandler
 
       this.logger.warn(`Tenant deactivated: ${tenantId} by ${deactivatedBy}`);
 
-      await this.auditLogService.log({
+      await this.auditLogService.record({
         action: 'TENANT_DEACTIVATED',
         entityType: 'tenant',
         entityId: tenantId,
-        performedBy: deactivatedBy,
         details: { reason, previousStatus },
       });
 
@@ -461,11 +458,10 @@ export class ArchiveTenantHandler
 
       this.logger.warn(`Tenant archived: ${tenantId} by ${archivedBy}`);
 
-      await this.auditLogService.log({
+      await this.auditLogService.record({
         action: 'TENANT_ARCHIVED',
         entityType: 'tenant',
         entityId: tenantId,
-        performedBy: archivedBy,
         details: { previousStatus },
       });
 

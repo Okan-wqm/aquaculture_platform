@@ -563,10 +563,34 @@ jobs:
         with:
           tools-dir: ${{ env.ARIA_TOOLS_DIR }}
 
+      - name: Materialise the ARIA GitHub App identity for this job (Mode A)
+        # The App (docs/runbooks/aria-github-app-setup.md) has been installed
+        # and its secrets set since 2026-08-23, and the hosted preflight mints
+        # with them — but this job never received them, so every kernel mint
+        # fell back to the PAT and emitted installation_token_fallback_active
+        # (Mode B). The key lives in RUNNER_TEMP for this job only, never on
+        # the runner's disk; absent secrets leave Mode B in force, by name.
+        if: steps.lease_check.outputs.blocked != 'true'
+        env:
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ARIA_GH_APP_PRIVATE_KEY:-}" ]; then
+            echo "gh app identity: no private key secret — Mode B stays in force"
+            exit 0
+          fi
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          echo "ARIA_GH_APP_PRIVATE_KEY_PATH=$KEY_FILE" >> "$GITHUB_ENV"
+          echo "gh app identity: private key materialised for this job (Mode A)"
+
       - name: Run CI executor
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
@@ -668,6 +692,10 @@ jobs:
             # only grow (162 pending judge requests by 2026-08-11).
             PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py --drain
           fi
+
+      - name: Remove the ARIA GitHub App private key from RUNNER_TEMP
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gh-app-private-key.pem"
 
       - name: Upload response envelope (artefact)
         # `drained == '0'` is a drain night where the queue emptied between

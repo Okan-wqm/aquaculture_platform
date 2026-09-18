@@ -1840,3 +1840,27 @@ expired and could not be refreshed`. The managed spawn binds the login's one fil
   a queue that interleaves healthy routes keeps draining. Pinned in
   `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
   selections; a dispatch between skips resets it.
+
+## ARIA-MEDIUM-156 — the GitHub App existed for 26 days and no lane ever received it
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-10-02
+- **Evidence:** repository secrets `ARIA_GH_APP_ID`, `ARIA_GH_APP_INSTALLATION_ID`,
+  `ARIA_GH_APP_PRIVATE_KEY` set 2026-08-23/24; the hosted `runner-preflight` job mints an
+  installation token with them on every run (`require-self-hosted-runner`,
+  `ARIA_REQUIRE_MODE_A=true`) — and the self-hosted jobs that run the kernel receive none of
+  them, so `mint_installation_token` takes the PAT/job-token fallback on every mint and emits
+  `installation_token_fallback_active` (Mode B, the V9.0-C shim). The cycle's own header on
+  2026-09-18 read `gh identity: job token fallback`; the runbook's step 4 told an operator
+  session where to put the values and said nothing about the lanes; its step 5 still named
+  `snowball` as the protected target. The readiness-claim lane refuses Mode B by design, so the
+  chain's last ring waited on an identity that was already provisioned.
+- **Rule:** an identity the repository holds reaches the job that needs it, or the job says by
+  name which mode it runs in; a runbook names where the lanes read from, not only where a
+  session does.
+- **What is now true (2026-09-18):** both lanes materialise the App's private key in
+  `RUNNER_TEMP` for the job (`umask 077`, removed on exit) and export
+  `ARIA_GH_APP_PRIVATE_KEY_PATH`, with `ARIA_GH_APP_ID` / `ARIA_GH_APP_INSTALLATION_ID` on the
+  kernel step's env; absent secrets print "Mode B stays in force" and change nothing. The
+  runbook's step 4 names the lanes' source and step 5 is marked stale. Verified by the
+  workflow-contract suites (141 tests) on the edited lanes; proven when a lane's governance
+  ledger shows a mint without `installation_token_fallback_active`.

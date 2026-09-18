@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Button, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Select, chartChrome, chartPalette, colors } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { DownloadIcon } from '../components/icons';
 import {
@@ -48,29 +48,38 @@ import type {
 
 // DASH-SEC-009: allowlist for date range values -- validate before using as GraphQL variable
 const VALID_DATE_RANGES = ['7days', '30days', '90days', 'year'] as const;
-type DateRange = typeof VALID_DATE_RANGES[number];
+type DateRange = (typeof VALID_DATE_RANGES)[number];
 
 function safeValidateDateRange(value: string): DateRange {
-  return (VALID_DATE_RANGES as readonly string[]).includes(value)
-    ? (value as DateRange)
-    : '30days';
+  return (VALID_DATE_RANGES as readonly string[]).includes(value) ? (value as DateRange) : '30days';
 }
 
 // PERF-M1: tooltip style hoisted to module scope -- prevents new object on every render
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
 // Month labels (Turkish abbreviations)
 const MONTH_LABELS = [
-  '', 'Oca', 'Sub', 'Mar', 'Nis', 'May', 'Haz',
-  'Tem', 'Agu', 'Eyl', 'Eki', 'Kas', 'Ara',
+  '',
+  'Oca',
+  'Sub',
+  'Mar',
+  'Nis',
+  'May',
+  'Haz',
+  'Tem',
+  'Agu',
+  'Eyl',
+  'Eki',
+  'Kas',
+  'Ara',
 ];
 
 // Pie chart colors for farm distribution
-const PIE_COLORS = ['#0073e6', '#00b36b', '#ff8f73', '#f59e0b', '#8b5cf6', '#ec4899'];
+const PIE_COLORS = chartPalette;
 
 // ============================================================================
 // CSV Export Helper
@@ -116,10 +125,14 @@ function transformSpeciesData(batches: BatchSummary[]) {
   if (!batches || batches.length === 0) return [];
 
   // Group by speciesId
-  const speciesMap = new Map<string, { speciesId: string; totalQuantity: number; batchCount: number }>();
+  const speciesMap = new Map<
+    string,
+    { speciesId: string; totalQuantity: number; batchCount: number }
+  >();
   for (const batch of batches) {
     // Only count active/growing batches
-    if (batch.status === 'CLOSED' || batch.status === 'FAILED' || batch.status === 'HARVESTED') continue;
+    if (batch.status === 'CLOSED' || batch.status === 'FAILED' || batch.status === 'HARVESTED')
+      continue;
     const existing = speciesMap.get(batch.speciesId);
     if (existing) {
       existing.totalQuantity += batch.currentQuantity || batch.initialQuantity;
@@ -148,16 +161,18 @@ function transformSpeciesData(batches: BatchSummary[]) {
 function transformSensorData(readings: SensorReadingData[]) {
   if (!readings || readings.length === 0) return [];
 
-  return readings.map((r) => {
-    const time = new Date(r.timestamp);
-    return {
-      time: `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`,
-      ph: r.readings.ph ?? null,
-      oksijen: r.readings.dissolvedOxygen ?? null,
-      sicaklik: r.readings.temperature ?? null,
-      sensor: r.sensorId.slice(0, 8),
-    };
-  }).sort((a, b) => a.time.localeCompare(b.time));
+  return readings
+    .map((r) => {
+      const time = new Date(r.timestamp);
+      return {
+        time: `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`,
+        ph: r.readings.ph ?? null,
+        oksijen: r.readings.dissolvedOxygen ?? null,
+        sicaklik: r.readings.temperature ?? null,
+        sensor: r.sensorId.slice(0, 8),
+      };
+    })
+    .sort((a, b) => a.time.localeCompare(b.time));
 }
 
 // ============================================================================
@@ -236,7 +251,7 @@ const AnalyticsPage: React.FC = () => {
     // Fall back to sensor farm grouping if farms not available directly
     if (!statsQuery.data) return [];
     return [
-      { name: 'Aktif Ciftlikler', value: statsQuery.data.totalFarms, color: '#00b36b' },
+      { name: 'Aktif Ciftlikler', value: statsQuery.data.totalFarms, color: colors.secondary[600] },
     ];
   }, [statsQuery.data]);
 
@@ -280,11 +295,7 @@ const AnalyticsPage: React.FC = () => {
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    downloadCSV(
-      `analitik-rapor-${dateStr}.csv`,
-      ['Kategori', 'Deger1', 'Deger2', 'Deger3'],
-      rows,
-    );
+    downloadCSV(`analitik-rapor-${dateStr}.csv`, ['Kategori', 'Deger1', 'Deger2', 'Deger3'], rows);
   }, [productionChartData, speciesChartData, sensorChartData]);
 
   // Summary KPIs from harvest data
@@ -296,9 +307,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Analitik</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Detayli performans metrikleri ve trendler
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Detayli performans metrikleri ve trendler</p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center space-x-3">
           <Select
@@ -334,7 +343,9 @@ const AnalyticsPage: React.FC = () => {
               {summary.totalRevenue > 0 ? `${(summary.totalRevenue / 1000).toFixed(0)}K` : '0'}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              {summary.averagePricePerKg > 0 ? `Ort. ${summary.averagePricePerKg.toFixed(1)} /kg` : 'Fiyat verisi yok'}
+              {summary.averagePricePerKg > 0
+                ? `Ort. ${summary.averagePricePerKg.toFixed(1)} /kg`
+                : 'Fiyat verisi yok'}
             </p>
           </Card>
           <Card className="p-4">
@@ -376,20 +387,20 @@ const AnalyticsPage: React.FC = () => {
               <ComposedChart data={productionChartData}>
                 <defs>
                   <linearGradient id="colorUretim" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0073e6" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#0073e6" stopOpacity={0.1} />
+                    <stop offset="5%" stopColor={colors.primary[500]} stopOpacity={0.8} />
+                    <stop offset="95%" stopColor={colors.primary[500]} stopOpacity={0.1} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                <XAxis dataKey="month" stroke={chartChrome.axis} />
+                <YAxis stroke={chartChrome.axis} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend />
                 <Area
                   type="monotone"
                   dataKey="uretim"
                   name="Uretim (Ton)"
-                  stroke="#0073e6"
+                  stroke={colors.primary[500]}
                   fillOpacity={1}
                   fill="url(#colorUretim)"
                 />
@@ -397,7 +408,7 @@ const AnalyticsPage: React.FC = () => {
                   type="monotone"
                   dataKey="hasat"
                   name="Hasat Sayisi"
-                  stroke="#94a3b8"
+                  stroke={colors.neutral[400]}
                   strokeDasharray="5 5"
                 />
               </ComposedChart>
@@ -424,14 +435,35 @@ const AnalyticsPage: React.FC = () => {
             <div className="p-4">
               <ResponsiveContainer width="100%" height={250}>
                 <ComposedChart data={sensorChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="time" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                  <XAxis dataKey="time" stroke={chartChrome.axis} />
+                  <YAxis stroke={chartChrome.axis} />
                   <Tooltip contentStyle={tooltipStyle} />
                   <Legend />
-                  <Line type="monotone" dataKey="ph" name="pH" stroke="#0073e6" strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="oksijen" name="Oksijen (mg/L)" stroke="#00b36b" strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="sicaklik" name="Sicaklik (C)" stroke="#ff8f73" strokeWidth={2} connectNulls />
+                  <Line
+                    type="monotone"
+                    dataKey="ph"
+                    name="pH"
+                    stroke={colors.primary[500]}
+                    strokeWidth={2}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="oksijen"
+                    name="Oksijen (mg/L)"
+                    stroke={colors.secondary[600]}
+                    strokeWidth={2}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="sicaklik"
+                    name="Sicaklik (C)"
+                    stroke={colors.accent[500]}
+                    strokeWidth={2}
+                    connectNulls
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -463,7 +495,10 @@ const AnalyticsPage: React.FC = () => {
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                   >
                     {farmDistData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color || PIE_COLORS[index % PIE_COLORS.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.color || PIE_COLORS[index % PIE_COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={tooltipStyle} />
@@ -490,11 +525,16 @@ const AnalyticsPage: React.FC = () => {
           <div className="p-4">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={speciesChartData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" stroke="#6b7280" />
-                <YAxis dataKey="species" type="category" stroke="#6b7280" width={80} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                <XAxis type="number" stroke={chartChrome.axis} />
+                <YAxis dataKey="species" type="category" stroke={chartChrome.axis} width={80} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="miktar" name="Miktar (adet)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                <Bar
+                  dataKey="miktar"
+                  name="Miktar (adet)"
+                  fill={colors.primary[500]}
+                  radius={[0, 4, 4, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>

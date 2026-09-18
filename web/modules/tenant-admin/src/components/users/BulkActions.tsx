@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { RefreshCw, UserMinus, ShieldCheck } from 'lucide-react';
+import { ConfirmModal } from '@aquaculture/shared-ui';
 
 import type { TenantRole } from '../../lib/types';
 import type { BulkAssignRoleResult } from '../../lib/types';
-import { DeleteConfirmModal } from '../common';
 
 export interface BulkDeactivateResult {
   userId: string;
@@ -57,14 +57,13 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     setResults([]);
     setRunning(true);
 
-    const settled = await Promise.allSettled(
-      selectedUsers.map((userId) => onDeactivate(userId))
-    );
+    const settled = await Promise.allSettled(selectedUsers.map((userId) => onDeactivate(userId)));
 
     const itemResults: BulkDeactivateResult[] = settled.map((result, idx) => ({
       userId: selectedUsers[idx],
       status: result.status,
-      reason: result.status === 'rejected' ? String((result as PromiseRejectedResult).reason) : undefined,
+      reason:
+        result.status === 'rejected' ? String((result as PromiseRejectedResult).reason) : undefined,
     }));
 
     setResults(itemResults);
@@ -141,23 +140,23 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
             </>
           )}
           {canDeactivateUsers && (
-          <button
-            onClick={handleBulkDeactivate}
-            disabled={isDeactivating || running}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDeactivating || running ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                Deactivating...
-              </>
-            ) : (
-              <>
-                <UserMinus className="w-3.5 h-3.5" />
-                Deactivate
-              </>
-            )}
-          </button>
+            <button
+              onClick={handleBulkDeactivate}
+              disabled={isDeactivating || running}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDeactivating || running ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Deactivating...
+                </>
+              ) : (
+                <>
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Deactivate
+                </>
+              )}
+            </button>
           )}
         </div>
       </div>
@@ -169,22 +168,25 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
             {results
               .filter((r) => r.status === 'rejected')
               .map((r) => (
-                <li key={r.userId}>{r.userId}: {r.reason}</li>
+                <li key={r.userId}>
+                  {r.userId}: {r.reason}
+                </li>
               ))}
           </ul>
         </div>
       )}
 
-      <DeleteConfirmModal
+      <ConfirmModal
         isOpen={isAssignConfirmOpen}
         onClose={() => setIsAssignConfirmOpen(false)}
         onConfirm={handleConfirmAssignRole}
         title="Assign Role"
         message={`Assign the role "${selectedRole?.name ?? ''}" to ${selectedUsers.length} selected user(s)? Existing role assignments will be replaced.`}
-        confirmLabel="Assign Role"
-        cancelLabel="Cancel"
+        confirmText="Assign Role"
+        cancelText="Cancel"
         variant="warning"
         isLoading={isAssigningRole}
+        loadingText="Processing..."
       />
     </div>
   );

@@ -18,7 +18,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { X, Download, Image, FileText, Loader2 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Download, Image, FileText, Loader2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +159,8 @@ async function captureViewport(
   selector: string,
   scale: ExportResolution,
 ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number }> {
-  const viewport = document.querySelector(selector) ?? document.querySelector('.react-flow__viewport');
+  const viewport =
+    document.querySelector(selector) ?? document.querySelector('.react-flow__viewport');
   if (!viewport) {
     throw new Error('Could not find ReactFlow viewport element');
   }
@@ -188,7 +190,8 @@ async function captureViewport(
   const clone = container.cloneNode(true) as HTMLElement;
 
   // Remove interactive controls (minimap, controls panel, context menus)
-  clone.querySelectorAll('.react-flow__controls, .react-flow__minimap, [data-export-exclude]')
+  clone
+    .querySelectorAll('.react-flow__controls, .react-flow__minimap, [data-export-exclude]')
     .forEach((el) => el.remove());
 
   const svgStr = [
@@ -289,116 +292,102 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-[420px] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Export View</h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-100 text-gray-500"
-            aria-label="Close export dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <Modal isOpen={isOpen} onClose={onClose} size="sm" bodyClassName="" title="Export View">
+      {/* Body */}
+      <div className="px-5 py-4 space-y-4">
+        {/* Format selector */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">Format</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFormat('png')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                format === 'png'
+                  ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Image className="w-4 h-4" />
+              PNG
+            </button>
+            <button
+              onClick={() => setFormat('pdf')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                format === 'pdf'
+                  ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              PDF
+            </button>
+          </div>
         </div>
 
-        {/* Body */}
-        <div className="px-5 py-4 space-y-4">
-          {/* Format selector */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Format</label>
-            <div className="flex gap-2">
+        {/* Resolution */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">Resolution</label>
+          <div className="flex gap-2">
+            {([1, 2, 3] as ExportResolution[]).map((res) => (
               <button
-                onClick={() => setFormat('png')}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                  format === 'png'
+                key={res}
+                onClick={() => setResolution(res)}
+                className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                  resolution === res
                     ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
                     : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                <Image className="w-4 h-4" />
-                PNG
+                {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
               </button>
-              <button
-                onClick={() => setFormat('pdf')}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                  format === 'pdf'
-                    ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                PDF
-              </button>
-            </div>
+            ))}
           </div>
-
-          {/* Resolution */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Resolution</label>
-            <div className="flex gap-2">
-              {([1, 2, 3] as ExportResolution[]).map((res) => (
-                <button
-                  key={res}
-                  onClick={() => setResolution(res)}
-                  className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                    resolution === res
-                      ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filename */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Filename</label>
-            <input
-              type="text"
-              value={filename}
-              onChange={(e) => setFilename(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              placeholder="scada-export"
-            />
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</div>
-          )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={isExporting || !filename.trim()}
-            className={`flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg transition-colors ${
-              isExporting || !filename.trim()
-                ? 'bg-cyan-400 cursor-not-allowed'
-                : 'bg-cyan-600 hover:bg-cyan-700'
-            }`}
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            {isExporting ? 'Exporting...' : 'Export'}
-          </button>
+        {/* Filename */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-2">Filename</label>
+          <input
+            type="text"
+            value={filename}
+            onChange={(e) => setFilename(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            placeholder="scada-export"
+          />
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={isExporting || !filename.trim()}
+          className={`flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+            isExporting || !filename.trim()
+              ? 'bg-cyan-400 cursor-not-allowed'
+              : 'bg-cyan-600 hover:bg-cyan-700'
+          }`}
+        >
+          {isExporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          {isExporting ? 'Exporting...' : 'Export'}
+        </button>
+      </div>
+    </Modal>
   );
 };
 

@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { cn, useAuth } from '@aquaculture/shared-ui';
+import { cn, useAuth, colors } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -54,34 +54,93 @@ interface ScheduleCategory {
 }
 
 const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Calisma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
-  { code: 'X', name: 'Off', color: '#9CA3AF', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'P', name: 'Izin', color: '#3B82F6', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'OT', name: 'Fazla Mesai', color: '#F59E0B', textColor: '#FFFFFF', isWorking: true, hours: 4 },
-  { code: 'E', name: 'Egitim', color: '#8B5CF6', textColor: '#FFFFFF', isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalik', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
+  {
+    code: 'D',
+    name: 'Calisma',
+    color: colors.success[500],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 9,
+  },
+  {
+    code: 'X',
+    name: 'Off',
+    color: colors.neutral[400],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
+  {
+    code: 'P',
+    name: 'Izin',
+    color: colors.info[500],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
+  {
+    code: 'OT',
+    name: 'Fazla Mesai',
+    color: colors.warning[500],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 4,
+  },
+  {
+    code: 'E',
+    name: 'Egitim',
+    color: colors.primary[700],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 8,
+  },
+  {
+    code: 'H',
+    name: 'Hastalik',
+    color: colors.error[500],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
 ];
 
 // SEC-007: categories storage key is built at runtime with tenant+user identity
 // via makeCategoryStorageKey() — see WeeklySchedulePage for shared rationale.
-function makeCategoryStorageKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+function makeCategoryStorageKey(
+  tenantId: string | null | undefined,
+  userId: string | null | undefined,
+): string {
   return `aqua-schedule-categories-${tenantId || 'anon'}-${userId || 'anon'}`;
 }
 
 const CATEGORY_COLORS = [
-  '#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6',
-  '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#9CA3AF',
+  colors.success[500],
+  colors.info[500],
+  colors.warning[500],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[500],
+  colors.primary[400],
+  colors.secondary[500],
+  colors.accent[600],
+  colors.neutral[400],
 ];
 
 function loadCategories(tenantId?: string | null, userId?: string | null): ScheduleCategory[] {
   try {
     const stored = localStorage.getItem(makeCategoryStorageKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_CATEGORIES;
 }
 
-function saveCategories(cats: ScheduleCategory[], tenantId?: string | null, userId?: string | null) {
+function saveCategories(
+  cats: ScheduleCategory[],
+  tenantId?: string | null,
+  userId?: string | null,
+) {
   localStorage.setItem(makeCategoryStorageKey(tenantId, userId), JSON.stringify(cats));
 }
 
@@ -110,23 +169,25 @@ export function SchedulingSettingsPage() {
     endTime: '16:00',
     totalMinutes: 480,
     breakMinutes: 60,
-    colorCode: '#3B82F6',
+    colorCode: colors.info[500],
   });
 
   // Category management state — SEC-007: namespaced key
-  const [categories, setCategories] = useState<ScheduleCategory[]>(() => loadCategories(tenantId, userId));
+  const [categories, setCategories] = useState<ScheduleCategory[]>(() =>
+    loadCategories(tenantId, userId),
+  );
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [editingCategoryCode, setEditingCategoryCode] = useState<string | null>(null);
   const [categoryForm, setCategoryForm] = useState({
     code: '',
     name: '',
-    color: '#22C55E',
+    color: colors.success[500],
     isWorking: true,
     hours: 9,
   });
 
   const resetCategoryForm = () => {
-    setCategoryForm({ code: '', name: '', color: '#22C55E', isWorking: true, hours: 9 });
+    setCategoryForm({ code: '', name: '', color: colors.success[500], isWorking: true, hours: 9 });
     setEditingCategoryCode(null);
     setShowCategoryForm(false);
   };
@@ -138,14 +199,14 @@ export function SchedulingSettingsPage() {
       code: categoryForm.code.toUpperCase(),
       name: categoryForm.name,
       color: categoryForm.color,
-      textColor: '#FFFFFF',
+      textColor: colors.white,
       isWorking: categoryForm.isWorking,
       hours: categoryForm.isWorking ? categoryForm.hours : 0,
     };
 
     let updated: ScheduleCategory[];
     if (editingCategoryCode) {
-      updated = categories.map((c) => c.code === editingCategoryCode ? newCat : c);
+      updated = categories.map((c) => (c.code === editingCategoryCode ? newCat : c));
     } else {
       if (categories.some((c) => c.code === newCat.code)) return; // duplicate
       updated = [...categories, newCat];
@@ -180,12 +241,28 @@ export function SchedulingSettingsPage() {
   };
 
   const SHIFT_COLORS = [
-    '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444',
-    '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
+    colors.info[500],
+    colors.success[500],
+    colors.warning[500],
+    colors.primary[700],
+    colors.error[500],
+    colors.accent[500],
+    colors.primary[400],
+    colors.secondary[500],
+    colors.accent[600],
+    colors.primary[500],
   ];
 
   const resetShiftForm = () => {
-    setShiftForm({ code: '', name: '', startTime: '08:00', endTime: '16:00', totalMinutes: 480, breakMinutes: 60, colorCode: '#3B82F6' });
+    setShiftForm({
+      code: '',
+      name: '',
+      startTime: '08:00',
+      endTime: '16:00',
+      totalMinutes: 480,
+      breakMinutes: 60,
+      colorCode: colors.info[500],
+    });
     setEditingShiftId(null);
     setShowShiftForm(false);
   };
@@ -194,8 +271,14 @@ export function SchedulingSettingsPage() {
     if (!shiftForm.code.trim() || !shiftForm.name.trim()) return;
     if (editingShiftId) {
       updateShiftMutation.mutate(
-        { id: editingShiftId, name: shiftForm.name, startTime: shiftForm.startTime, endTime: shiftForm.endTime, colorCode: shiftForm.colorCode },
-        { onSuccess: resetShiftForm }
+        {
+          id: editingShiftId,
+          name: shiftForm.name,
+          startTime: shiftForm.startTime,
+          endTime: shiftForm.endTime,
+          colorCode: shiftForm.colorCode,
+        },
+        { onSuccess: resetShiftForm },
       );
     } else {
       const createInput: CreateShiftInput = {
@@ -219,16 +302,16 @@ export function SchedulingSettingsPage() {
       endTime: shift.endTime?.substring(0, 5) || '16:00',
       totalMinutes: 480,
       breakMinutes: 0,
-      colorCode: shift.colorCode || '#3B82F6',
+      colorCode: shift.colorCode || colors.info[500],
     });
     setEditingShiftId(shift.id);
     setShowShiftForm(true);
   };
 
   const handleToggleShiftActive = (shift: Shift) => {
-    updateShiftMutation.mutate(
-      { id: shift.id, isActive: !shift.isActive } as { id: string } & Partial<CreateShiftInput>
-    );
+    updateShiftMutation.mutate({ id: shift.id, isActive: !shift.isActive } as {
+      id: string;
+    } & Partial<CreateShiftInput>);
   };
 
   // Initialize form when settings load
@@ -250,7 +333,10 @@ export function SchedulingSettingsPage() {
     }
   }, [settings]);
 
-  const handleChange = (field: keyof UpdateSchedulingSettingsInput, value: UpdateSchedulingSettingsInput[keyof UpdateSchedulingSettingsInput]) => {
+  const handleChange = (
+    field: keyof UpdateSchedulingSettingsInput,
+    value: UpdateSchedulingSettingsInput[keyof UpdateSchedulingSettingsInput],
+  ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
@@ -305,9 +391,7 @@ export function SchedulingSettingsPage() {
         <div className="max-w-3xl mx-auto">
           <div className="bg-red-50 rounded-xl p-6 text-center">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-red-800 mb-2">
-              Ayarlar yuklenemedi
-            </h3>
+            <h3 className="text-lg font-medium text-red-800 mb-2">Ayarlar yuklenemedi</h3>
             <p className="text-red-600">{String(error)}</p>
           </div>
         </div>
@@ -325,9 +409,7 @@ export function SchedulingSettingsPage() {
               <Settings className="h-6 w-6 text-indigo-600" />
               Cizelge Ayarlari
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Haftalik planlama yapilandirmasi
-            </p>
+            <p className="text-sm text-gray-500 mt-1">Haftalik planlama yapilandirmasi</p>
           </div>
 
           {hasChanges && (
@@ -344,7 +426,7 @@ export function SchedulingSettingsPage() {
                 className={cn(
                   'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
                   'hover:bg-indigo-700 transition-colors',
-                  'disabled:opacity-50'
+                  'disabled:opacity-50',
                 )}
               >
                 {updateMutation.isPending ? (
@@ -378,7 +460,10 @@ export function SchedulingSettingsPage() {
               </button>
               {!showCategoryForm && (
                 <button
-                  onClick={() => { resetCategoryForm(); setShowCategoryForm(true); }}
+                  onClick={() => {
+                    resetCategoryForm();
+                    setShowCategoryForm(true);
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
                 >
                   <Plus className="h-4 w-4" />
@@ -390,7 +475,8 @@ export function SchedulingSettingsPage() {
 
           <div className="p-6">
             <p className="text-xs text-gray-500 mb-4">
-              Cizelge tablosunda hucrelere atanacak kategorileri yonetin. Calisma kategorileri gun ve saat hesabina dahil edilir.
+              Cizelge tablosunda hucrelere atanacak kategorileri yonetin. Calisma kategorileri gun
+              ve saat hesabina dahil edilir.
             </p>
 
             {/* Category Form */}
@@ -400,7 +486,10 @@ export function SchedulingSettingsPage() {
                   <h3 className="text-sm font-semibold text-gray-800">
                     {editingCategoryCode ? 'Kategori Duzenle' : 'Yeni Kategori Ekle'}
                   </h3>
-                  <button onClick={resetCategoryForm} className="p-1 text-gray-400 hover:text-gray-600">
+                  <button
+                    onClick={resetCategoryForm}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -411,7 +500,9 @@ export function SchedulingSettingsPage() {
                       type="text"
                       maxLength={4}
                       value={categoryForm.code}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
+                      onChange={(e) =>
+                        setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+                      }
                       disabled={!!editingCategoryCode}
                       placeholder="D, X, P, OT..."
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
@@ -435,7 +526,9 @@ export function SchedulingSettingsPage() {
                       max={24}
                       step={0.5}
                       value={categoryForm.hours}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, hours: parseFloat(e.target.value) || 0 }))}
+                      onChange={(e) =>
+                        setCategoryForm((p) => ({ ...p, hours: parseFloat(e.target.value) || 0 }))
+                      }
                       disabled={!categoryForm.isWorking}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
                     />
@@ -445,7 +538,13 @@ export function SchedulingSettingsPage() {
                       type="checkbox"
                       id="catIsWorking"
                       checked={categoryForm.isWorking}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, isWorking: e.target.checked, hours: e.target.checked ? p.hours || 9 : 0 }))}
+                      onChange={(e) =>
+                        setCategoryForm((p) => ({
+                          ...p,
+                          isWorking: e.target.checked,
+                          hours: e.target.checked ? p.hours || 9 : 0,
+                        }))
+                      }
                       className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                     />
                     <label htmlFor="catIsWorking" className="ml-2 text-sm text-gray-700">
@@ -464,7 +563,9 @@ export function SchedulingSettingsPage() {
                         onClick={() => setCategoryForm((p) => ({ ...p, color }))}
                         className={cn(
                           'w-7 h-7 rounded-full border-2 transition-all',
-                          categoryForm.color === color ? 'border-gray-800 scale-110' : 'border-transparent hover:scale-105'
+                          categoryForm.color === color
+                            ? 'border-gray-800 scale-110'
+                            : 'border-transparent hover:scale-105',
                         )}
                         style={{ backgroundColor: color }}
                       />
@@ -486,7 +587,7 @@ export function SchedulingSettingsPage() {
                     disabled={!categoryForm.code.trim() || !categoryForm.name.trim()}
                     className={cn(
                       'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg',
-                      'hover:bg-indigo-700 transition-colors disabled:opacity-50'
+                      'hover:bg-indigo-700 transition-colors disabled:opacity-50',
                     )}
                   >
                     <Save className="h-3.5 w-3.5" />
@@ -567,7 +668,10 @@ export function SchedulingSettingsPage() {
             </div>
             {!showShiftForm && (
               <button
-                onClick={() => { resetShiftForm(); setShowShiftForm(true); }}
+                onClick={() => {
+                  resetShiftForm();
+                  setShowShiftForm(true);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 <Plus className="h-4 w-4" />
@@ -584,7 +688,10 @@ export function SchedulingSettingsPage() {
                   <h3 className="text-sm font-semibold text-gray-800">
                     {editingShiftId ? 'Vardiya Duzenle' : 'Yeni Vardiya Ekle'}
                   </h3>
-                  <button onClick={resetShiftForm} className="p-1 text-gray-400 hover:text-gray-600">
+                  <button
+                    onClick={resetShiftForm}
+                    className="p-1 text-gray-400 hover:text-gray-600"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -595,7 +702,9 @@ export function SchedulingSettingsPage() {
                       type="text"
                       maxLength={10}
                       value={shiftForm.code}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
+                      onChange={(e) =>
+                        setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+                      }
                       disabled={!!editingShiftId}
                       placeholder="S, A, G..."
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
@@ -612,7 +721,9 @@ export function SchedulingSettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Baslangic
+                    </label>
                     <input
                       type="time"
                       value={shiftForm.startTime}
@@ -630,26 +741,37 @@ export function SchedulingSettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Toplam Dakika</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Toplam Dakika
+                    </label>
                     <input
                       type="number"
                       min={60}
                       max={1440}
                       step={30}
                       value={shiftForm.totalMinutes}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, totalMinutes: parseInt(e.target.value) || 480 }))}
+                      onChange={(e) =>
+                        setShiftForm((p) => ({
+                          ...p,
+                          totalMinutes: parseInt(e.target.value) || 480,
+                        }))
+                      }
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Mola (dk)</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Mola (dk)
+                    </label>
                     <input
                       type="number"
                       min={0}
                       max={240}
                       step={15}
                       value={shiftForm.breakMinutes}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) =>
+                        setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))
+                      }
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
@@ -665,7 +787,9 @@ export function SchedulingSettingsPage() {
                         onClick={() => setShiftForm((p) => ({ ...p, colorCode: color }))}
                         className={cn(
                           'w-7 h-7 rounded-full border-2 transition-all',
-                          shiftForm.colorCode === color ? 'border-gray-800 scale-110' : 'border-transparent hover:scale-105'
+                          shiftForm.colorCode === color
+                            ? 'border-gray-800 scale-110'
+                            : 'border-transparent hover:scale-105',
                         )}
                         style={{ backgroundColor: color }}
                       />
@@ -684,10 +808,15 @@ export function SchedulingSettingsPage() {
                   <button
                     type="button"
                     onClick={handleSaveShift}
-                    disabled={!shiftForm.code.trim() || !shiftForm.name.trim() || createShiftMutation.isPending || updateShiftMutation.isPending}
+                    disabled={
+                      !shiftForm.code.trim() ||
+                      !shiftForm.name.trim() ||
+                      createShiftMutation.isPending ||
+                      updateShiftMutation.isPending
+                    }
                     className={cn(
                       'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg',
-                      'hover:bg-indigo-700 transition-colors disabled:opacity-50'
+                      'hover:bg-indigo-700 transition-colors disabled:opacity-50',
                     )}
                   >
                     <Save className="h-3.5 w-3.5" />
@@ -710,23 +839,29 @@ export function SchedulingSettingsPage() {
                     key={shift.id}
                     className={cn(
                       'flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors',
-                      shift.isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'
+                      shift.isActive
+                        ? 'bg-white border-gray-200'
+                        : 'bg-gray-50 border-gray-100 opacity-60',
                     )}
                   >
                     <div
                       className="w-4 h-4 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: shift.colorCode || '#9CA3AF' }}
+                      style={{ backgroundColor: shift.colorCode || colors.neutral[400] }}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm" style={{ color: shift.colorCode || '#374151' }}>
+                        <span
+                          className="font-semibold text-sm"
+                          style={{ color: shift.colorCode || colors.neutral[700] }}
+                        >
                           {shift.code}
                         </span>
                         <span className="text-sm text-gray-700">{shift.name}</span>
                       </div>
                       <div className="text-xs text-gray-500">
                         {shift.startTime?.substring(0, 5)} - {shift.endTime?.substring(0, 5)}
-                        {(shift as Shift & { totalMinutes?: number }).totalMinutes && ` (${formatMinutesAsHours((shift as Shift & { totalMinutes?: number }).totalMinutes!)})`}
+                        {(shift as Shift & { totalMinutes?: number }).totalMinutes &&
+                          ` (${formatMinutesAsHours((shift as Shift & { totalMinutes?: number }).totalMinutes!)})`}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
@@ -744,7 +879,7 @@ export function SchedulingSettingsPage() {
                           'px-2 py-1 text-xs rounded-full font-medium transition-colors',
                           shift.isActive
                             ? 'text-green-700 bg-green-100 hover:bg-green-200'
-                            : 'text-gray-500 bg-gray-100 hover:bg-gray-200'
+                            : 'text-gray-500 bg-gray-100 hover:bg-gray-200',
                         )}
                       >
                         {shift.isActive ? 'Aktif' : 'Pasif'}
@@ -758,7 +893,10 @@ export function SchedulingSettingsPage() {
                 <Layers className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                 <p className="text-sm text-gray-500 mb-3">Henuz vardiya tanimlanmamis</p>
                 <button
-                  onClick={() => { resetShiftForm(); setShowShiftForm(true); }}
+                  onClick={() => {
+                    resetShiftForm();
+                    setShowShiftForm(true);
+                  }}
                   className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
                 >
                   Ilk vardiyayi olustur
@@ -797,9 +935,7 @@ export function SchedulingSettingsPage() {
                     dakika ({formatMinutesAsHours(formData.standardWeeklyMinutes || 2700)})
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Ornek: 2700 dakika = 45 saat
-                </p>
+                <p className="mt-1 text-xs text-gray-500">Ornek: 2700 dakika = 45 saat</p>
               </div>
 
               {/* Max Weekly Overtime */}
@@ -887,9 +1023,7 @@ export function SchedulingSettingsPage() {
                 </label>
                 <select
                   value={formData.workWeekStartDay || 'monday'}
-                  onChange={(e) =>
-                    handleChange('workWeekStartDay', e.target.value as WeekDay)
-                  }
+                  onChange={(e) => handleChange('workWeekStartDay', e.target.value as WeekDay)}
                   className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   {WEEKDAY_OPTIONS.map((opt) => (
@@ -907,9 +1041,7 @@ export function SchedulingSettingsPage() {
                 </label>
                 <select
                   value={formData.defaultShiftId || ''}
-                  onChange={(e) =>
-                    handleChange('defaultShiftId', e.target.value || undefined)
-                  }
+                  onChange={(e) => handleChange('defaultShiftId', e.target.value || undefined)}
                   className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   <option value="">Secilmedi</option>
@@ -934,14 +1066,10 @@ export function SchedulingSettingsPage() {
                   min="1"
                   max="14"
                   value={formData.maxConsecutiveWorkDays || 6}
-                  onChange={(e) =>
-                    handleChange('maxConsecutiveWorkDays', parseInt(e.target.value))
-                  }
+                  onChange={(e) => handleChange('maxConsecutiveWorkDays', parseInt(e.target.value))}
                   className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Bu limite ulasinca uyari gosterilir
-                </p>
+                <p className="mt-1 text-xs text-gray-500">Bu limite ulasinca uyari gosterilir</p>
               </div>
 
               {/* Allow Overtime Without Approval */}
@@ -950,15 +1078,10 @@ export function SchedulingSettingsPage() {
                   type="checkbox"
                   id="allowOvertimeWithoutApproval"
                   checked={formData.allowOvertimeWithoutApproval || false}
-                  onChange={(e) =>
-                    handleChange('allowOvertimeWithoutApproval', e.target.checked)
-                  }
+                  onChange={(e) => handleChange('allowOvertimeWithoutApproval', e.target.checked)}
                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                 />
-                <label
-                  htmlFor="allowOvertimeWithoutApproval"
-                  className="text-sm text-gray-700"
-                >
+                <label htmlFor="allowOvertimeWithoutApproval" className="text-sm text-gray-700">
                   Fazla mesai onay gerektirmesin
                 </label>
               </div>
@@ -978,15 +1101,10 @@ export function SchedulingSettingsPage() {
                   type="checkbox"
                   id="autoNotifyEmployees"
                   checked={formData.autoNotifyEmployees || false}
-                  onChange={(e) =>
-                    handleChange('autoNotifyEmployees', e.target.checked)
-                  }
+                  onChange={(e) => handleChange('autoNotifyEmployees', e.target.checked)}
                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                 />
-                <label
-                  htmlFor="autoNotifyEmployees"
-                  className="text-sm text-gray-700"
-                >
+                <label htmlFor="autoNotifyEmployees" className="text-sm text-gray-700">
                   Plan yayinlaninca calisanlari otomatik bilgilendir
                 </label>
               </div>
@@ -1003,9 +1121,7 @@ export function SchedulingSettingsPage() {
                     min="0"
                     max="7"
                     value={formData.notifyDaysBefore || 2}
-                    onChange={(e) =>
-                      handleChange('notifyDaysBefore', parseInt(e.target.value))
-                    }
+                    onChange={(e) => handleChange('notifyDaysBefore', parseInt(e.target.value))}
                     className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
                   <span className="text-sm text-gray-500">gun once</span>
@@ -1030,7 +1146,7 @@ export function SchedulingSettingsPage() {
                 className={cn(
                   'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
                   'hover:bg-indigo-700 transition-colors',
-                  'disabled:opacity-50'
+                  'disabled:opacity-50',
                 )}
               >
                 {updateMutation.isPending ? (

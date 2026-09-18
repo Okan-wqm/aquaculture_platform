@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Printer, FileDown } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { formatMinutesAsHours, getWeekdayShortTR } from '../../hooks/useScheduling';
 import type { TeamWeeklyOverview, WeekDay } from '../../types/scheduling.types';
 
@@ -69,7 +69,7 @@ export function PrintScheduleButton({
         'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium',
         'text-gray-700 bg-white border border-gray-300 rounded-lg',
         'hover:bg-gray-50 transition-colors',
-        className
+        className,
       )}
     >
       <Printer className="h-4 w-4" />
@@ -81,7 +81,7 @@ export function PrintScheduleButton({
 function generatePrintableHTML(
   overview: TeamWeeklyOverview,
   siteName?: string,
-  departmentName?: string
+  departmentName?: string,
 ): string {
   const weekStart = new Date(overview.weekStartDate);
   const weekEnd = new Date(overview.weekEndDate);
@@ -106,16 +106,16 @@ function generatePrintableHTML(
           return '<td class="cell holiday">RESMI</td>';
         }
 
-        const timeRange = dayEntry.startTime && dayEntry.endTime
-          ? `${escapeHtml(dayEntry.startTime.slice(0, 5))}-${escapeHtml(dayEntry.endTime.slice(0, 5))}`
-          : escapeHtml(dayEntry.shiftCode || '-');
+        const timeRange =
+          dayEntry.startTime && dayEntry.endTime
+            ? `${escapeHtml(dayEntry.startTime.slice(0, 5))}-${escapeHtml(dayEntry.endTime.slice(0, 5))}`
+            : escapeHtml(dayEntry.shiftCode || '-');
 
         return `<td class="cell work">${timeRange}</td>`;
       }).join('');
 
-      const overtime = emp.overtimeMinutes > 0
-        ? `+${formatMinutesAsHours(emp.overtimeMinutes)}`
-        : '-';
+      const overtime =
+        emp.overtimeMinutes > 0 ? `+${formatMinutesAsHours(emp.overtimeMinutes)}` : '-';
 
       return `
         <tr>
@@ -182,7 +182,7 @@ function generatePrintableHTML(
           text-align: center;
         }
         th {
-          background: #f0f0f0;
+          background: ${colors.neutral[100]};
           font-weight: bold;
           font-size: 10px;
         }
@@ -199,29 +199,29 @@ function generatePrintableHTML(
           font-size: 10px;
         }
         .cell.work {
-          background: #e3f2fd;
+          background: ${colors.info[50]};
         }
         .cell.off {
-          background: #f5f5f5;
+          background: ${colors.neutral[100]};
           color: #666;
         }
         .cell.leave {
-          background: #e8f5e9;
-          color: #2e7d32;
+          background: ${colors.success[50]};
+          color: ${colors.success[700]};
         }
         .cell.holiday {
-          background: #f3e5f5;
-          color: #7b1fa2;
+          background: ${colors.accent[50]};
+          color: ${colors.accent[700]};
         }
         .total, .hours, .overtime {
           font-weight: bold;
           width: 6%;
         }
         .overtime {
-          color: #d32f2f;
+          color: ${colors.error[600]};
         }
         .summary-row {
-          background: #fff3e0;
+          background: ${colors.warning[50]};
         }
         .summary-cell {
           font-size: 9px;
@@ -262,7 +262,14 @@ function generatePrintableHTML(
       <div class="header">
         <h1>Haftalik Calisma Cizelgesi</h1>
         <div class="subtitle">${formatDate(weekStart)} - ${formatDate(weekEnd)}</div>
-        ${siteName || departmentName ? `<div class="meta">${[siteName, departmentName].filter((s): s is string => Boolean(s)).map(s => escapeHtml(s)).join(' - ')}</div>` : ''}
+        ${
+          siteName || departmentName
+            ? `<div class="meta">${[siteName, departmentName]
+                .filter((s): s is string => Boolean(s))
+                .map((s) => escapeHtml(s))
+                .join(' - ')}</div>`
+            : ''
+        }
       </div>
 
       <table>
@@ -293,19 +300,19 @@ function generatePrintableHTML(
 
       <div class="legend">
         <div class="legend-item">
-          <div class="legend-box" style="background: #e3f2fd;"></div>
+          <div class="legend-box" style="background: ${colors.info[50]};"></div>
           <span>Mesai</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #f5f5f5;"></div>
+          <div class="legend-box" style="background: ${colors.neutral[100]};"></div>
           <span>Tatil</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #e8f5e9;"></div>
+          <div class="legend-box" style="background: ${colors.success[50]};"></div>
           <span>Izin</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #f3e5f5;"></div>
+          <div class="legend-box" style="background: ${colors.accent[50]};"></div>
           <span>Resmi Tatil</span>
         </div>
       </div>

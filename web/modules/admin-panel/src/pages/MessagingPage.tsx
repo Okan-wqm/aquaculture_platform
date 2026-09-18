@@ -6,13 +6,13 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
   Users,
   Search,
   Archive,
-  X,
   MoreVertical,
   Paperclip,
   Clock,
@@ -105,23 +105,26 @@ export const MessagingPage: React.FC = () => {
   }, []);
 
   // Fetch messages for a thread
-  const fetchMessages = useCallback(async (threadId: string) => {
-    try {
-      setMessagesLoading(true);
-      const data = await supportApi.getThreadMessages(threadId);
-      setMessages(data || []);
+  const fetchMessages = useCallback(
+    async (threadId: string) => {
+      try {
+        setMessagesLoading(true);
+        const data = await supportApi.getThreadMessages(threadId);
+        setMessages(data || []);
 
-      // Mark as read
-      await supportApi.markAsRead(threadId);
+        // Mark as read
+        await supportApi.markAsRead(threadId);
 
-      // Refresh threads to update unread count
-      fetchThreads();
-    } catch (err) {
-      console.error('Failed to fetch messages:', err);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [fetchThreads]);
+        // Refresh threads to update unread count
+        fetchThreads();
+      } catch (err) {
+        console.error('Failed to fetch messages:', err);
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    [fetchThreads],
+  );
 
   useEffect(() => {
     fetchThreads();
@@ -138,7 +141,7 @@ export const MessagingPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const filteredThreads = threads.filter(thread => {
+  const filteredThreads = threads.filter((thread) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -203,7 +206,11 @@ export const MessagingPage: React.FC = () => {
     }
   };
 
-  const handleCreateThread = async (data: { tenantId: string; subject: string; content: string }) => {
+  const handleCreateThread = async (data: {
+    tenantId: string;
+    subject: string;
+    content: string;
+  }) => {
     try {
       await supportApi.createThread({
         ...data,
@@ -217,7 +224,12 @@ export const MessagingPage: React.FC = () => {
     }
   };
 
-  const handleBulkMessage = async (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => {
+  const handleBulkMessage = async (data: {
+    subject: string;
+    content: string;
+    tenantIds?: string[];
+    sendEmail: boolean;
+  }) => {
     try {
       await supportApi.sendBulkMessage(data);
       setShowBulkModal(false);
@@ -257,7 +269,10 @@ export const MessagingPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { fetchThreads(); fetchStats(); }}
+              onClick={() => {
+                fetchThreads();
+                fetchStats();
+              }}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -321,7 +336,10 @@ export const MessagingPage: React.FC = () => {
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Search conversations..."
@@ -493,8 +511,8 @@ export const MessagingPage: React.FC = () => {
                           message.isInternal
                             ? 'bg-yellow-50 border border-yellow-200'
                             : message.senderType === 'super_admin'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white border border-gray-200'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white border border-gray-200'
                         }`}
                       >
                         {message.isInternal && (
@@ -504,20 +522,30 @@ export const MessagingPage: React.FC = () => {
                           </div>
                         )}
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-sm font-medium ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700'
-                          }`}>
+                          <span
+                            className={`text-sm font-medium ${
+                              message.senderType === 'super_admin' && !message.isInternal
+                                ? 'text-blue-100'
+                                : 'text-gray-700'
+                            }`}
+                          >
                             {message.senderName}
                           </span>
-                          <span className={`text-xs ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
-                          }`}>
+                          <span
+                            className={`text-xs ${
+                              message.senderType === 'super_admin' && !message.isInternal
+                                ? 'text-blue-200'
+                                : 'text-gray-500'
+                            }`}
+                          >
                             {formatTime(message.createdAt)}
                           </span>
                         </div>
-                        <p className={`text-sm whitespace-pre-wrap ${
-                          message.isInternal ? 'text-yellow-800' : ''
-                        }`}>
+                        <p
+                          className={`text-sm whitespace-pre-wrap ${
+                            message.isInternal ? 'text-yellow-800' : ''
+                          }`}
+                        >
                           {message.content}
                         </p>
 
@@ -536,9 +564,13 @@ export const MessagingPage: React.FC = () => {
                               >
                                 <Paperclip size={14} />
                                 <span className="text-sm truncate">{att.filename}</span>
-                                <span className={`text-xs ${
-                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
-                                }`}>
+                                <span
+                                  className={`text-xs ${
+                                    message.senderType === 'super_admin' && !message.isInternal
+                                      ? 'text-blue-200'
+                                      : 'text-gray-500'
+                                  }`}
+                                >
                                   {formatFileSize(att.size)}
                                 </span>
                               </a>
@@ -583,7 +615,9 @@ export const MessagingPage: React.FC = () => {
                       <textarea
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
-                        placeholder={isInternalNote ? 'Write an internal note...' : 'Type your message...'}
+                        placeholder={
+                          isInternalNote ? 'Write an internal note...' : 'Type your message...'
+                        }
                         rows={3}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         onKeyDown={(e) => {
@@ -606,9 +640,7 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    Press Cmd+Enter to send
-                  </div>
+                  <div className="text-xs text-gray-500 mt-2">Press Cmd+Enter to send</div>
                 </div>
               )}
             </>
@@ -626,10 +658,7 @@ export const MessagingPage: React.FC = () => {
 
       {/* Bulk Message Modal */}
       {showBulkModal && (
-        <BulkMessageModal
-          onClose={() => setShowBulkModal(false)}
-          onSubmit={handleBulkMessage}
-        />
+        <BulkMessageModal onClose={() => setShowBulkModal(false)} onSubmit={handleBulkMessage} />
       )}
 
       {/* New Thread Modal */}
@@ -649,7 +678,12 @@ export const MessagingPage: React.FC = () => {
 
 interface BulkMessageModalProps {
   onClose: () => void;
-  onSubmit: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => void;
+  onSubmit: (data: {
+    subject: string;
+    content: string;
+    tenantIds?: string[];
+    sendEmail: boolean;
+  }) => void;
 }
 
 const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }) => {
@@ -664,74 +698,23 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">Bulk Message</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter message subject..."
-            />
-          </div>
-
-          {/* Content */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Message Content
-            </label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={6}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Enter your message..."
-            />
-          </div>
-
-          {/* Options */}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sendEmail}
-                onChange={(e) => setSendEmail(e.target.checked)}
-                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">Send email notification</span>
-            </label>
-          </div>
-
-          {/* Preview */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-500 mb-2">Preview</div>
-            <div className="text-sm text-gray-700">
-              This message will be sent to <strong>all active tenants</strong>.
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Bulk Message"
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!subject || !content}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -739,9 +722,54 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
             <Send size={18} />
             Send to All
           </button>
+        </>
+      }
+    >
+      {/* Subject */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter message subject..."
+        />
+      </div>
+
+      {/* Content */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Message Content</label>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={6}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          placeholder="Enter your message..."
+        />
+      </div>
+
+      {/* Options */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            onChange={(e) => setSendEmail(e.target.checked)}
+            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-700">Send email notification</span>
+        </label>
+      </div>
+
+      {/* Preview */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="text-sm text-gray-500 mb-2">Preview</div>
+        <div className="text-sm text-gray-700">
+          This message will be sent to <strong>all active tenants</strong>.
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -762,67 +790,23 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Tenant ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tenant ID
-            </label>
-            <input
-              type="text"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter tenant ID..."
-            />
-          </div>
-
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter conversation subject..."
-            />
-          </div>
-
-          {/* Initial Message */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Initial Message
-            </label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Enter your message..."
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title="New Conversation"
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!tenantId || !subject || !message}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -830,9 +814,45 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
             <MessageSquare size={18} />
             Start Conversation
           </button>
-        </div>
+        </>
+      }
+    >
+      {/* Tenant ID */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Tenant ID</label>
+        <input
+          type="text"
+          value={tenantId}
+          onChange={(e) => setTenantId(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter tenant ID..."
+        />
       </div>
-    </div>
+
+      {/* Subject */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter conversation subject..."
+        />
+      </div>
+
+      {/* Initial Message */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Initial Message</label>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          rows={4}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          placeholder="Enter your message..."
+        />
+      </div>
+    </Modal>
   );
 };
 

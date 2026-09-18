@@ -15,6 +15,7 @@ import {
   formatCurrency as sharedFormatCurrency,
   parseMoney,
   DEFAULT_CURRENCY,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
@@ -115,7 +116,8 @@ export const SparePartsPage: React.FC = () => {
 
   // Stock movement modal
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
-  const [stockMovementData, setStockMovementData] = useState<StockMovementFormData>(defaultStockMovementData);
+  const [stockMovementData, setStockMovementData] =
+    useState<StockMovementFormData>(defaultStockMovementData);
   const [selectedPartForStock, setSelectedPartForStock] = useState<SparePart | null>(null);
 
   // API hooks
@@ -136,7 +138,7 @@ export const SparePartsPage: React.FC = () => {
         item.name.toLowerCase().includes(term) ||
         item.code.toLowerCase().includes(term) ||
         item.partNumber.toLowerCase().includes(term) ||
-        item.description?.toLowerCase().includes(term)
+        item.description?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -202,7 +204,7 @@ export const SparePartsPage: React.FC = () => {
           unitPrice: formData.unitPrice || undefined,
           currency: formData.currency,
           leadTimeDays: formData.leadTimeDays || undefined,
-          location: Object.values(location).some(v => v) ? location : undefined,
+          location: Object.values(location).some((v) => v) ? location : undefined,
           notes: formData.notes || undefined,
         });
       } else {
@@ -220,7 +222,7 @@ export const SparePartsPage: React.FC = () => {
           unitPrice: formData.unitPrice || undefined,
           currency: formData.currency,
           leadTimeDays: formData.leadTimeDays || undefined,
-          location: Object.values(location).some(v => v) ? location : undefined,
+          location: Object.values(location).some((v) => v) ? location : undefined,
           notes: formData.notes || undefined,
         };
         await createMutation.mutateAsync(input);
@@ -251,8 +253,16 @@ export const SparePartsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu yedek parçayı silmek istediğinizden emin misiniz?')) {
+    if (
+      await confirm({
+        title: 'Yedek parçayı sil?',
+        confirmText: 'Sil',
+        cancelText: 'Vazgeç',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -294,10 +304,7 @@ export const SparePartsPage: React.FC = () => {
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetch() }}>
           Yedek parçalar yenilenemedi — son yüklenen veriler gösteriliyor.
         </Alert>
       )}
@@ -334,7 +341,9 @@ export const SparePartsPage: React.FC = () => {
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500">Toplam Değer</div>
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {formatCurrency(parseMoney(stockSummary.totalValueDecimal))}
+            </div>
           </Card>
         </div>
       )}
@@ -406,9 +415,7 @@ export const SparePartsPage: React.FC = () => {
                   filteredItems.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {item.code}
-                        </div>
+                        <div className="text-sm font-medium text-gray-900">{item.code}</div>
                         <div className="text-sm text-gray-500">{item.name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -425,8 +432,8 @@ export const SparePartsPage: React.FC = () => {
                             item.quantity <= item.minStock
                               ? 'text-red-600'
                               : item.quantity <= item.reorderPoint
-                              ? 'text-yellow-600'
-                              : 'text-gray-900'
+                                ? 'text-yellow-600'
+                                : 'text-gray-900'
                           }`}
                         >
                           {item.quantity} {item.unit}
@@ -630,13 +637,8 @@ export const SparePartsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               İptal
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Kaydediliyor...'
-                : 'Kaydet'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </div>
         </form>
@@ -688,16 +690,12 @@ export const SparePartsPage: React.FC = () => {
           <Input
             label="Sebep"
             value={stockMovementData.reason}
-            onChange={(e) =>
-              setStockMovementData({ ...stockMovementData, reason: e.target.value })
-            }
+            onChange={(e) => setStockMovementData({ ...stockMovementData, reason: e.target.value })}
           />
           <Input
             label="Notlar"
             value={stockMovementData.notes}
-            onChange={(e) =>
-              setStockMovementData({ ...stockMovementData, notes: e.target.value })
-            }
+            onChange={(e) => setStockMovementData({ ...stockMovementData, notes: e.target.value })}
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsStockModalOpen(false)}>

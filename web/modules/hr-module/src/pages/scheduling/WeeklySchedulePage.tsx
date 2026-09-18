@@ -5,16 +5,9 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import {
-  Calendar,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Save,
-  RefreshCw,
-} from 'lucide-react';
+import { Calendar, Settings, ChevronLeft, ChevronRight, Save, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey, colors } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -38,12 +31,54 @@ type ViewMode = 'daily' | 'weekly' | 'monthly';
 // =====================
 
 const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Çalışma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
-  { code: 'X', name: 'Off', color: '#9CA3AF', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'P', name: 'Izin', color: '#3B82F6', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'OT', name: 'Fazla Mesai', color: '#F59E0B', textColor: '#FFFFFF', isWorking: true, hours: 4 },
-  { code: 'E', name: 'Egitim', color: '#8B5CF6', textColor: '#FFFFFF', isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalık', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
+  {
+    code: 'D',
+    name: 'Çalışma',
+    color: colors.success[500],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 9,
+  },
+  {
+    code: 'X',
+    name: 'Off',
+    color: colors.neutral[400],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
+  {
+    code: 'P',
+    name: 'Izin',
+    color: colors.info[500],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
+  {
+    code: 'OT',
+    name: 'Fazla Mesai',
+    color: colors.warning[500],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 4,
+  },
+  {
+    code: 'E',
+    name: 'Egitim',
+    color: colors.primary[700],
+    textColor: colors.white,
+    isWorking: true,
+    hours: 8,
+  },
+  {
+    code: 'H',
+    name: 'Hastalık',
+    color: colors.error[500],
+    textColor: colors.white,
+    isWorking: false,
+    hours: 0,
+  },
 ];
 
 /**
@@ -54,13 +89,19 @@ const DEFAULT_CATEGORIES: ScheduleCategory[] = [
  * Falls back to 'anon' segments when the identity is not yet available so
  * the functions remain safe to call before auth is resolved.
  */
-function makeStorageKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+function makeStorageKey(
+  tenantId: string | null | undefined,
+  userId: string | null | undefined,
+): string {
   const t = tenantId || 'anon';
   const u = userId || 'anon';
   return `aqua-schedule-categories-${t}-${u}`;
 }
 
-function makeScheduleDataKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
+function makeScheduleDataKey(
+  tenantId: string | null | undefined,
+  userId: string | null | undefined,
+): string {
   const t = tenantId || 'anon';
   const u = userId || 'anon';
   return `aqua-schedule-data-${t}-${u}`;
@@ -70,11 +111,17 @@ function loadCategories(tenantId?: string | null, userId?: string | null): Sched
   try {
     const stored = localStorage.getItem(makeStorageKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_CATEGORIES;
 }
 
-function saveCategories(cats: ScheduleCategory[], tenantId?: string | null, userId?: string | null) {
+function saveCategories(
+  cats: ScheduleCategory[],
+  tenantId?: string | null,
+  userId?: string | null,
+) {
   localStorage.setItem(makeStorageKey(tenantId, userId), JSON.stringify(cats));
 }
 
@@ -86,7 +133,9 @@ function loadScheduleData(tenantId?: string | null, userId?: string | null): Sch
   try {
     const stored = localStorage.getItem(makeScheduleDataKey(tenantId, userId));
     if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return {};
 }
 
@@ -99,10 +148,28 @@ function saveScheduleData(data: ScheduleStore, tenantId?: string | null, userId?
 // =====================
 
 const DAY_NAMES_TR = ['Pzt', 'Sal', 'Car', 'Per', 'Cum', 'Cts', 'Paz'];
-const DAY_FULL_NAMES_TR = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+const DAY_FULL_NAMES_TR = [
+  'Pazartesi',
+  'Salı',
+  'Çarşamba',
+  'Perşembe',
+  'Cuma',
+  'Cumartesi',
+  'Pazar',
+];
 const MONTH_NAMES_TR = [
-  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+  'Ocak',
+  'Şubat',
+  'Mart',
+  'Nisan',
+  'Mayıs',
+  'Haziran',
+  'Temmuz',
+  'Ağustos',
+  'Eylül',
+  'Ekim',
+  'Kasım',
+  'Aralık',
 ];
 
 function getMonday(date: Date): Date {
@@ -166,7 +233,9 @@ export function WeeklySchedulePage() {
   const [currentDay, setCurrentDay] = useState(() => new Date());
   // SEC-007: load categories and schedule data from namespaced keys
   const [categories] = useState<ScheduleCategory[]>(() => loadCategories(tenantId, userId));
-  const [scheduleData, setScheduleData] = useState<ScheduleStore>(() => loadScheduleData(tenantId, userId));
+  const [scheduleData, setScheduleData] = useState<ScheduleStore>(() =>
+    loadScheduleData(tenantId, userId),
+  );
   const [dropdownCell, setDropdownCell] = useState<{ empId: string; dateStr: string } | null>(null);
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -177,12 +246,21 @@ export function WeeklySchedulePage() {
   const { data: employeesData, isLoading: loadingEmployees } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'scheduling-employees'),
     queryFn: () =>
-      graphqlRequest<{
-        employees: {
-          items: { id: string; firstName: string; lastName: string; position: string; department: string }[];
-          total: number;
-        };
-      }, unknown>(
+      graphqlRequest<
+        {
+          employees: {
+            items: {
+              id: string;
+              firstName: string;
+              lastName: string;
+              position: string;
+              department: string;
+            }[];
+            total: number;
+          };
+        },
+        unknown
+      >(
         gqlClient,
         `query GetSchedulingEmployees($filter: EmployeeFilterInput) {
           employees(filter: $filter) {
@@ -192,7 +270,7 @@ export function WeeklySchedulePage() {
         }`,
         {
           filter: { status: 'ACTIVE', limit: 1000, offset: 0 },
-        }
+        },
       ),
     select: (data) => data.employees,
     enabled: !!tenantId,
@@ -215,29 +293,35 @@ export function WeeklySchedulePage() {
   }, []);
 
   // Get cell value
-  const getCellValue = useCallback((empId: string, dateStr: string): string | undefined => {
-    const weekKey = getStoreKey(dateStr);
-    return scheduleData[weekKey]?.[empId]?.[dateStr];
-  }, [scheduleData, getStoreKey]);
+  const getCellValue = useCallback(
+    (empId: string, dateStr: string): string | undefined => {
+      const weekKey = getStoreKey(dateStr);
+      return scheduleData[weekKey]?.[empId]?.[dateStr];
+    },
+    [scheduleData, getStoreKey],
+  );
 
   // Set cell value
-  const setCellValue = useCallback((empId: string, dateStr: string, code: string | null) => {
-    setScheduleData((prev) => {
-      const weekKey = getStoreKey(dateStr);
-      const newData = { ...prev };
-      if (!newData[weekKey]) newData[weekKey] = {};
-      if (!newData[weekKey][empId]) newData[weekKey][empId] = {};
+  const setCellValue = useCallback(
+    (empId: string, dateStr: string, code: string | null) => {
+      setScheduleData((prev) => {
+        const weekKey = getStoreKey(dateStr);
+        const newData = { ...prev };
+        if (!newData[weekKey]) newData[weekKey] = {};
+        if (!newData[weekKey][empId]) newData[weekKey][empId] = {};
 
-      if (code === null) {
-        delete newData[weekKey][empId][dateStr];
-      } else {
-        newData[weekKey][empId][dateStr] = code;
-      }
-      return newData;
-    });
-    setHasUnsaved(true);
-    setDropdownCell(null);
-  }, [getStoreKey]);
+        if (code === null) {
+          delete newData[weekKey][empId][dateStr];
+        } else {
+          newData[weekKey][empId][dateStr] = code;
+        }
+        return newData;
+      });
+      setHasUnsaved(true);
+      setDropdownCell(null);
+    },
+    [getStoreKey],
+  );
 
   // Save locally (localStorage used as a draft buffer for offline-capable UX).
   // PERF-003 note: server-side persistence via saveSchedule mutation is wired
@@ -273,22 +357,25 @@ export function WeeklySchedulePage() {
   }, [viewMode, currentWeekStart, currentYear, currentMonth, currentDay]);
 
   // Compute totals for an employee
-  const getEmployeeTotals = useCallback((empId: string, dates: Date[]) => {
-    let workDays = 0;
-    let totalHours = 0;
-    for (const date of dates) {
-      const dateStr = formatDate(date);
-      const code = getCellValue(empId, dateStr);
-      if (code) {
-        const cat = categories.find((c) => c.code === code);
-        if (cat?.isWorking) {
-          workDays++;
-          totalHours += cat.hours;
+  const getEmployeeTotals = useCallback(
+    (empId: string, dates: Date[]) => {
+      let workDays = 0;
+      let totalHours = 0;
+      for (const date of dates) {
+        const dateStr = formatDate(date);
+        const code = getCellValue(empId, dateStr);
+        if (code) {
+          const cat = categories.find((c) => c.code === code);
+          if (cat?.isWorking) {
+            workDays++;
+            totalHours += cat.hours;
+          }
         }
       }
-    }
-    return { workDays, totalHours };
-  }, [getCellValue, categories]);
+      return { workDays, totalHours };
+    },
+    [getCellValue, categories],
+  );
 
   // Navigation handlers
   const navigatePrev = () => {
@@ -364,8 +451,15 @@ export function WeeklySchedulePage() {
       case 'weekly': {
         const end = new Date(currentWeekStart);
         end.setDate(end.getDate() + 6);
-        const startStr = currentWeekStart.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
-        const endStr = end.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+        const startStr = currentWeekStart.toLocaleDateString('tr-TR', {
+          day: 'numeric',
+          month: 'short',
+        });
+        const endStr = end.toLocaleDateString('tr-TR', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        });
         return `${startStr} - ${endStr}`;
       }
       case 'monthly':
@@ -420,72 +514,75 @@ export function WeeklySchedulePage() {
   }, [visibleDates, employees, getCellValue, categories]);
 
   // PERF-012: wrap renderCell in useCallback so it's stable between renders
-  const renderCell = useCallback((empId: string, date: Date) => {
-    const dateStr = formatDate(date);
-    const code = getCellValue(empId, dateStr);
-    const cat = code ? categories.find((c) => c.code === code) : null;
-    const isOpen = dropdownCell?.empId === empId && dropdownCell?.dateStr === dateStr;
-    const weekend = isWeekend(date);
+  const renderCell = useCallback(
+    (empId: string, date: Date) => {
+      const dateStr = formatDate(date);
+      const code = getCellValue(empId, dateStr);
+      const cat = code ? categories.find((c) => c.code === code) : null;
+      const isOpen = dropdownCell?.empId === empId && dropdownCell?.dateStr === dateStr;
+      const weekend = isWeekend(date);
 
-    return (
-      <td
-        key={dateStr}
-        className={cn(
-          'relative border border-gray-200 text-center cursor-pointer select-none transition-colors',
-          viewMode === 'monthly' ? 'p-0.5' : 'p-1',
-          weekend && !cat && 'bg-gray-50',
-        )}
-        onClick={() => setDropdownCell(isOpen ? null : { empId, dateStr })}
-      >
-        <div
+      return (
+        <td
+          key={dateStr}
           className={cn(
-            'rounded flex items-center justify-center font-semibold transition-all',
-            viewMode === 'monthly' ? 'h-6 w-full text-[10px]' : 'h-8 w-full text-xs',
-            cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100',
+            'relative border border-gray-200 text-center cursor-pointer select-none transition-colors',
+            viewMode === 'monthly' ? 'p-0.5' : 'p-1',
+            weekend && !cat && 'bg-gray-50',
           )}
-          style={cat ? { backgroundColor: cat.color, color: cat.textColor } : undefined}
-          title={cat ? `${cat.name} (${cat.hours}h)` : 'Tıklayarak ata'}
+          onClick={() => setDropdownCell(isOpen ? null : { empId, dateStr })}
         >
-          {cat ? cat.code : weekend ? '-' : '·'}
-        </div>
-
-        {/* Dropdown */}
-        {isOpen && (
           <div
-            ref={dropdownRef}
-            className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-1.5 min-w-[120px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="grid grid-cols-2 gap-1">
-              {categories.map((c) => (
-                <button
-                  key={c.code}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-80',
-                    code === c.code && 'ring-2 ring-offset-1 ring-gray-400',
-                  )}
-                  style={{ backgroundColor: c.color, color: c.textColor }}
-                  onClick={() => setCellValue(empId, dateStr, c.code)}
-                  title={`${c.name} - ${c.hours}h`}
-                >
-                  {c.code}
-                  <span className="font-normal text-[10px] opacity-80 truncate">{c.name}</span>
-                </button>
-              ))}
-            </div>
-            {code && (
-              <button
-                className="w-full mt-1.5 px-2 py-1 text-[10px] text-red-500 hover:bg-red-50 rounded transition-colors"
-                onClick={() => setCellValue(empId, dateStr, null)}
-              >
-                Temizle
-              </button>
+            className={cn(
+              'rounded flex items-center justify-center font-semibold transition-all',
+              viewMode === 'monthly' ? 'h-6 w-full text-[10px]' : 'h-8 w-full text-xs',
+              cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100',
             )}
+            style={cat ? { backgroundColor: cat.color, color: cat.textColor } : undefined}
+            title={cat ? `${cat.name} (${cat.hours}h)` : 'Tıklayarak ata'}
+          >
+            {cat ? cat.code : weekend ? '-' : '·'}
           </div>
-        )}
-      </td>
-    );
-  }, [dropdownCell, categories, getCellValue, setCellValue, viewMode]);
+
+          {/* Dropdown */}
+          {isOpen && (
+            <div
+              ref={dropdownRef}
+              className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-1.5 min-w-[120px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="grid grid-cols-2 gap-1">
+                {categories.map((c) => (
+                  <button
+                    key={c.code}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-80',
+                      code === c.code && 'ring-2 ring-offset-1 ring-gray-400',
+                    )}
+                    style={{ backgroundColor: c.color, color: c.textColor }}
+                    onClick={() => setCellValue(empId, dateStr, c.code)}
+                    title={`${c.name} - ${c.hours}h`}
+                  >
+                    {c.code}
+                    <span className="font-normal text-[10px] opacity-80 truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+              {code && (
+                <button
+                  className="w-full mt-1.5 px-2 py-1 text-[10px] text-red-500 hover:bg-red-50 rounded transition-colors"
+                  onClick={() => setCellValue(empId, dateStr, null)}
+                >
+                  Temizle
+                </button>
+              )}
+            </div>
+          )}
+        </td>
+      );
+    },
+    [dropdownCell, categories, getCellValue, setCellValue, viewMode],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -583,10 +680,7 @@ export function WeeklySchedulePage() {
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
               style={{ backgroundColor: cat.color + '20', color: cat.color }}
             >
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: cat.color }}
-              />
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
               <span className="font-bold">{cat.code}</span>
               <span className="opacity-70">{cat.name}</span>
               {cat.isWorking && <span className="opacity-50">({cat.hours}h)</span>}
@@ -597,10 +691,12 @@ export function WeeklySchedulePage() {
 
       {/* Main Table */}
       <div className="p-4">
-        <div className={cn(
-          'bg-white rounded-xl shadow-sm overflow-auto',
-          viewMode === 'monthly' ? 'max-h-[calc(100vh-220px)]' : '',
-        )}>
+        <div
+          className={cn(
+            'bg-white rounded-xl shadow-sm overflow-auto',
+            viewMode === 'monthly' ? 'max-h-[calc(100vh-220px)]' : '',
+          )}
+        >
           {loadingEmployees ? (
             <div className="p-12 text-center">
               <RefreshCw className="h-8 w-8 text-gray-300 animate-spin mx-auto mb-3" />
@@ -635,16 +731,24 @@ export function WeeklySchedulePage() {
                           isToday && 'bg-indigo-50',
                         )}
                       >
-                        <div className={cn(
-                          'text-[10px] font-semibold',
-                          isToday ? 'text-indigo-600' : weekend ? 'text-gray-400' : 'text-gray-700',
-                        )}>
+                        <div
+                          className={cn(
+                            'text-[10px] font-semibold',
+                            isToday
+                              ? 'text-indigo-600'
+                              : weekend
+                                ? 'text-gray-400'
+                                : 'text-gray-700',
+                          )}
+                        >
                           {header.top}
                         </div>
-                        <div className={cn(
-                          'text-[9px]',
-                          isToday ? 'text-indigo-500' : 'text-gray-400',
-                        )}>
+                        <div
+                          className={cn(
+                            'text-[9px]',
+                            isToday ? 'text-indigo-500' : 'text-gray-400',
+                          )}
+                        >
                           {header.bottom}
                         </div>
                       </th>
@@ -688,18 +792,22 @@ export function WeeklySchedulePage() {
                       {visibleDates.map((date) => renderCell(emp.id, date))}
                       {/* Totals */}
                       <td className="border border-gray-200 px-2 py-1 text-center bg-green-50">
-                        <span className={cn(
-                          'text-xs font-bold',
-                          totals.workDays > 0 ? 'text-green-700' : 'text-gray-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'text-xs font-bold',
+                            totals.workDays > 0 ? 'text-green-700' : 'text-gray-300',
+                          )}
+                        >
                           {totals.workDays}
                         </span>
                       </td>
                       <td className="border border-gray-200 px-2 py-1 text-center bg-green-50">
-                        <span className={cn(
-                          'text-xs font-bold',
-                          totals.totalHours > 0 ? 'text-green-700' : 'text-gray-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'text-xs font-bold',
+                            totals.totalHours > 0 ? 'text-green-700' : 'text-gray-300',
+                          )}
+                        >
                           {totals.totalHours}h
                         </span>
                       </td>
@@ -718,14 +826,13 @@ export function WeeklySchedulePage() {
                     // PERF-005: read from pre-computed memoized map
                     const count = dailyTotalsMap[dateStr] ?? 0;
                     return (
-                      <td
-                        key={dateStr}
-                        className="border border-gray-200 px-1 py-2 text-center"
-                      >
-                        <span className={cn(
-                          'text-[10px] font-bold',
-                          count > 0 ? 'text-indigo-600' : 'text-gray-300',
-                        )}>
+                      <td key={dateStr} className="border border-gray-200 px-1 py-2 text-center">
+                        <span
+                          className={cn(
+                            'text-[10px] font-bold',
+                            count > 0 ? 'text-indigo-600' : 'text-gray-300',
+                          )}
+                        >
                           {count}
                         </span>
                       </td>

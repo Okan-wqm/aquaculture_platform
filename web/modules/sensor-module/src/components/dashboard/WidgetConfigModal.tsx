@@ -6,7 +6,23 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Check, Gauge, TrendingUp, BarChart3, Table, Activity, ChevronDown, ChevronRight, Target, Grid, GitBranch, AreaChart, GitFork } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import {
+  X,
+  Check,
+  Gauge,
+  TrendingUp,
+  BarChart3,
+  Table,
+  Activity,
+  ChevronDown,
+  ChevronRight,
+  Target,
+  Grid,
+  GitBranch,
+  AreaChart,
+  GitFork,
+} from 'lucide-react';
 import {
   WidgetConfig,
   WidgetType,
@@ -39,10 +55,7 @@ interface WidgetConfigModalProps {
 // Widget Icon Component
 // ============================================================================
 
-const WidgetIcon: React.FC<{ type: WidgetType; size?: number }> = ({
-  type,
-  size = 24,
-}) => {
+const WidgetIcon: React.FC<{ type: WidgetType; size?: number }> = ({ type, size = 24 }) => {
   switch (type) {
     case 'gauge':
       return <Gauge size={size} />;
@@ -113,21 +126,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
   // Form state
   const [step, setStep] = useState<'type' | 'config'>('type');
   const [selectedProcessId, setSelectedProcessId] = useState<string | null>(
-    editingWidget?.processId || null
+    editingWidget?.processId || null,
   );
-  const [selectedType, setSelectedType] = useState<WidgetType | null>(
-    editingWidget?.type || null
-  );
+  const [selectedType, setSelectedType] = useState<WidgetType | null>(editingWidget?.type || null);
   const [title, setTitle] = useState(editingWidget?.title || '');
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(
-    new Set(editingWidget?.dataChannelIds || [])
+    new Set(editingWidget?.dataChannelIds || []),
   );
-  const [timeRange, setTimeRange] = useState<TimeRange>(
-    editingWidget?.timeRange || 'live'
-  );
-  const [refreshInterval, setRefreshInterval] = useState(
-    editingWidget?.refreshInterval || 10000
-  );
+  const [timeRange, setTimeRange] = useState<TimeRange>(editingWidget?.timeRange || 'live');
+  const [refreshInterval, setRefreshInterval] = useState(editingWidget?.refreshInterval || 10000);
   const [expandedSensors, setExpandedSensors] = useState<Set<string>>(new Set());
 
   // Y-axis configuration state
@@ -182,7 +189,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
       setRefreshInterval(editingWidget.refreshInterval);
       // Expand sensors that have selected channels
       if (editingWidget.selectedChannels) {
-        const sensorIds = new Set(editingWidget.selectedChannels.map(ch => ch.sensorId));
+        const sensorIds = new Set(editingWidget.selectedChannels.map((ch) => ch.sensorId));
         setExpandedSensors(sensorIds);
       }
       // Load Y-axis settings
@@ -237,7 +244,12 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
         next.delete(channel.id);
       } else {
         // For single-select widget types, only allow single channel
-        if (selectedType === 'gauge' || selectedType === 'radial-gauge' || selectedType === 'sparkline' || selectedType === 'stat-card') {
+        if (
+          selectedType === 'gauge' ||
+          selectedType === 'radial-gauge' ||
+          selectedType === 'sparkline' ||
+          selectedType === 'stat-card'
+        ) {
           next.clear();
         }
         next.add(channel.id);
@@ -270,11 +282,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
     const typeInfo = WIDGET_TYPES.find((t) => t.type === selectedType);
 
     // Build Y-axis config if enabled
-    const yAxisConfig: YAxisConfig | undefined = yAxisEnabled && supportsYAxis ? {
-      min: yAxisMin ? parseFloat(yAxisMin) : undefined,
-      max: yAxisMax ? parseFloat(yAxisMax) : undefined,
-      label: yAxisLabel || undefined,
-    } : undefined;
+    const yAxisConfig: YAxisConfig | undefined =
+      yAxisEnabled && supportsYAxis
+        ? {
+            min: yAxisMin ? parseFloat(yAxisMin) : undefined,
+            max: yAxisMax ? parseFloat(yAxisMax) : undefined,
+            label: yAxisLabel || undefined,
+          }
+        : undefined;
 
     const settings: WidgetSettings = {
       showLegend: true,
@@ -307,46 +322,32 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isSingleSelect = selectedType === 'gauge' || selectedType === 'radial-gauge' || selectedType === 'sparkline' || selectedType === 'stat-card';
+  const isSingleSelect =
+    selectedType === 'gauge' ||
+    selectedType === 'radial-gauge' ||
+    selectedType === 'sparkline' ||
+    selectedType === 'stat-card';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                {editingWidget ? 'Edit Widget' : 'Add Widget'}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {step === 'type'
-                  ? 'Select widget type'
-                  : 'Configure data channels'}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="p-6 overflow-y-auto max-h-[60vh]">
-            {step === 'type' ? (
-              /* Step 1: Widget Type Selection */
-              <div className="grid grid-cols-2 gap-4">
-                {WIDGET_TYPES.map((type) => (
-                  <button
-                    key={type.type}
-                    onClick={() => handleTypeSelect(type.type)}
-                    className={`
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      className="max-h-[90vh] overflow-hidden"
+      bodyClassName=""
+      title={editingWidget ? 'Edit Widget' : 'Add Widget'}
+      description={step === 'type' ? 'Select widget type' : 'Configure data channels'}
+    >
+      {/* Content */}
+      <div className="p-6 overflow-y-auto max-h-[60vh]">
+        {step === 'type' ? (
+          /* Step 1: Widget Type Selection */
+          <div className="grid grid-cols-2 gap-4">
+            {WIDGET_TYPES.map((type) => (
+              <button
+                key={type.type}
+                onClick={() => handleTypeSelect(type.type)}
+                className={`
                       flex items-start gap-4 p-4 border-2 rounded-lg text-left transition-all
                       ${
                         selectedType === type.type
@@ -354,9 +355,9 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                           : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                       }
                     `}
-                  >
-                    <div
-                      className={`
+              >
+                <div
+                  className={`
                         p-3 rounded-lg
                         ${
                           selectedType === type.type
@@ -364,347 +365,339 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             : 'bg-gray-100 text-gray-600'
                         }
                       `}
-                    >
-                      <WidgetIcon type={type.type} />
-                    </div>
-                    <div>
-                      <h3 className="font-medium text-gray-900">{type.label}</h3>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {type.description}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              /* Step 2: Widget Configuration */
-              <div className="space-y-6">
-                {/* Title */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Widget Title
-                  </label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Enter widget title"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                  />
+                >
+                  <WidgetIcon type={type.type} />
                 </div>
+                <div>
+                  <h3 className="font-medium text-gray-900">{type.label}</h3>
+                  <p className="text-sm text-gray-500 mt-1">{type.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          /* Step 2: Widget Configuration */
+          <div className="space-y-6">
+            {/* Title */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Widget Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Enter widget title"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+              />
+            </div>
 
-                {/* Process Selection (for process-view widget) */}
-                {isProcessView ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Process
-                    </label>
-                    {processesLoading ? (
-                      <div className="text-center py-8 text-gray-500">
-                        Loading processes...
-                      </div>
-                    ) : activeProcesses.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        No processes available
-                      </div>
-                    ) : (
-                      <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-                        {activeProcesses.map((process) => (
-                          <label
-                            key={process.id}
-                            className={`
+            {/* Process Selection (for process-view widget) */}
+            {isProcessView ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Process
+                </label>
+                {processesLoading ? (
+                  <div className="text-center py-8 text-gray-500">Loading processes...</div>
+                ) : activeProcesses.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">No processes available</div>
+                ) : (
+                  <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                    {activeProcesses.map((process) => (
+                      <label
+                        key={process.id}
+                        className={`
                               flex items-center gap-3 px-4 py-3 cursor-pointer
-                              ${selectedProcessId === process.id
-                                ? 'bg-cyan-50 border-l-2 border-cyan-500'
-                                : 'hover:bg-gray-50'
+                              ${
+                                selectedProcessId === process.id
+                                  ? 'bg-cyan-50 border-l-2 border-cyan-500'
+                                  : 'hover:bg-gray-50'
                               }
                             `}
-                          >
-                            <input
-                              type="radio"
-                              name="process"
-                              checked={selectedProcessId === process.id}
-                              onChange={() => {
-                                setSelectedProcessId(process.id);
-                                if (!title) setTitle(process.name);
-                              }}
-                              className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
-                            />
-                            <div className="flex-1">
-                              <p className="font-medium text-gray-900">{process.name}</p>
-                              {process.description && (
-                                <p className="text-sm text-gray-500 truncate">{process.description}</p>
-                              )}
-                            </div>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              process.status === 'active' ? 'bg-green-100 text-green-700' :
-                              process.status === 'draft' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-gray-100 text-gray-600'
-                            }`}>
-                              {process.status}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Data Channel Selection - Grouped by Sensor */
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Select Data Channel{' '}
-                      {isSingleSelect && (
-                        <span className="text-gray-500">(single selection)</span>
-                      )}
-                    </label>
-                    {channelsLoading ? (
-                    <div className="text-center py-8 text-gray-500">
-                      Loading data channels...
-                    </div>
-                  ) : channelsError ? (
-                    <div className="text-center py-8 text-red-500">
-                      Error: {channelsError}
-                    </div>
-                  ) : groupedBySensor.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      No data channels found
-                    </div>
-                  ) : (
-                    <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-                      {groupedBySensor.map((group) => (
-                        <div key={group.sensorId} className="border-b last:border-b-0">
-                          {/* Sensor Header (Collapsible) */}
-                          <button
-                            onClick={() => toggleSensorExpand(group.sensorId)}
-                            className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
-                          >
-                            {expandedSensors.has(group.sensorId) ? (
-                              <ChevronDown size={16} className="text-gray-500" />
-                            ) : (
-                              <ChevronRight size={16} className="text-gray-500" />
-                            )}
-                            <span className="font-medium text-gray-900">
-                              {group.sensorName}
-                            </span>
-                            <span className="text-xs text-gray-500 ml-auto">
-                              {group.channels.length} channels
-                            </span>
-                          </button>
-
-                          {/* Channels List */}
-                          {expandedSensors.has(group.sensorId) && (
-                            <div className="divide-y divide-gray-100">
-                              {group.channels.map((channel) => {
-                                // Check if channel is already used in another widget
-                                // Allow if it's part of the currently editing widget
-                                const isAlreadyUsed = usedChannelIds.has(channel.id) &&
-                                  !editingWidget?.dataChannelIds?.includes(channel.id);
-
-                                return (
-                                  <label
-                                    key={channel.id}
-                                    className={`
-                                      flex items-center gap-3 px-4 py-2 pl-10
-                                      ${isAlreadyUsed
-                                        ? 'opacity-50 cursor-not-allowed bg-gray-50'
-                                        : selectedChannelIds.has(channel.id)
-                                          ? 'bg-cyan-50 cursor-pointer'
-                                          : 'hover:bg-gray-50 cursor-pointer'
-                                      }
-                                    `}
-                                  >
-                                    <input
-                                      type={isSingleSelect ? 'radio' : 'checkbox'}
-                                      name="channel"
-                                      checked={selectedChannelIds.has(channel.id)}
-                                      disabled={isAlreadyUsed}
-                                      onChange={() => !isAlreadyUsed && handleChannelToggle(channel, group.sensorName)}
-                                      className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 disabled:opacity-50"
-                                    />
-                                    <div
-                                      className="w-3 h-3 rounded-full flex-shrink-0"
-                                      style={{
-                                        backgroundColor: getChannelColor(channel.channelKey),
-                                        opacity: isAlreadyUsed ? 0.5 : 1,
-                                      }}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <p className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-500' : 'text-gray-900'}`}>
-                                        {channel.displayLabel}
-                                      </p>
-                                      {isAlreadyUsed && (
-                                        <p className="text-xs text-amber-600">
-                                          Used in another widget
-                                        </p>
-                                      )}
-                                    </div>
-                                    <span className="text-xs text-gray-500 flex-shrink-0">
-                                      {channel.unit || '-'}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
+                      >
+                        <input
+                          type="radio"
+                          name="process"
+                          checked={selectedProcessId === process.id}
+                          onChange={() => {
+                            setSelectedProcessId(process.id);
+                            if (!title) setTitle(process.name);
+                          }}
+                          className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{process.name}</p>
+                          {process.description && (
+                            <p className="text-sm text-gray-500 truncate">{process.description}</p>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
-
-                    {/* Selected Channels Summary */}
-                    {selectedChannels.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {selectedChannels.map((ch) => (
-                          <span
-                            key={ch.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-cyan-100 text-cyan-800 text-xs rounded-full"
-                          >
-                            <span
-                              className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: getChannelColor(ch.channelKey) }}
-                            />
-                            {ch.displayLabel}
-                            <button
-                              onClick={() => handleChannelToggle(
-                                { id: ch.id, channelKey: ch.channelKey, displayLabel: ch.displayLabel } as DataChannel,
-                                ch.sensorName
-                              )}
-                              className="ml-1 hover:text-cyan-600"
-                            >
-                              <X size={12} />
-                            </button>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            process.status === 'active'
+                              ? 'bg-green-100 text-green-700'
+                              : process.status === 'draft'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {process.status}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Data Channel Selection - Grouped by Sensor */
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Data Channel{' '}
+                  {isSingleSelect && <span className="text-gray-500">(single selection)</span>}
+                </label>
+                {channelsLoading ? (
+                  <div className="text-center py-8 text-gray-500">Loading data channels...</div>
+                ) : channelsError ? (
+                  <div className="text-center py-8 text-red-500">Error: {channelsError}</div>
+                ) : groupedBySensor.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">No data channels found</div>
+                ) : (
+                  <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                    {groupedBySensor.map((group) => (
+                      <div key={group.sensorId} className="border-b last:border-b-0">
+                        {/* Sensor Header (Collapsible) */}
+                        <button
+                          onClick={() => toggleSensorExpand(group.sensorId)}
+                          className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
+                        >
+                          {expandedSensors.has(group.sensorId) ? (
+                            <ChevronDown size={16} className="text-gray-500" />
+                          ) : (
+                            <ChevronRight size={16} className="text-gray-500" />
+                          )}
+                          <span className="font-medium text-gray-900">{group.sensorName}</span>
+                          <span className="text-xs text-gray-500 ml-auto">
+                            {group.channels.length} channels
                           </span>
-                        ))}
+                        </button>
+
+                        {/* Channels List */}
+                        {expandedSensors.has(group.sensorId) && (
+                          <div className="divide-y divide-gray-100">
+                            {group.channels.map((channel) => {
+                              // Check if channel is already used in another widget
+                              // Allow if it's part of the currently editing widget
+                              const isAlreadyUsed =
+                                usedChannelIds.has(channel.id) &&
+                                !editingWidget?.dataChannelIds?.includes(channel.id);
+
+                              return (
+                                <label
+                                  key={channel.id}
+                                  className={`
+                                      flex items-center gap-3 px-4 py-2 pl-10
+                                      ${
+                                        isAlreadyUsed
+                                          ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                                          : selectedChannelIds.has(channel.id)
+                                            ? 'bg-cyan-50 cursor-pointer'
+                                            : 'hover:bg-gray-50 cursor-pointer'
+                                      }
+                                    `}
+                                >
+                                  <input
+                                    type={isSingleSelect ? 'radio' : 'checkbox'}
+                                    name="channel"
+                                    checked={selectedChannelIds.has(channel.id)}
+                                    disabled={isAlreadyUsed}
+                                    onChange={() =>
+                                      !isAlreadyUsed &&
+                                      handleChannelToggle(channel, group.sensorName)
+                                    }
+                                    className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 disabled:opacity-50"
+                                  />
+                                  <div
+                                    className="w-3 h-3 rounded-full flex-shrink-0"
+                                    style={{
+                                      backgroundColor: getChannelColor(channel.channelKey),
+                                      opacity: isAlreadyUsed ? 0.5 : 1,
+                                    }}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p
+                                      className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-500' : 'text-gray-900'}`}
+                                    >
+                                      {channel.displayLabel}
+                                    </p>
+                                    {isAlreadyUsed && (
+                                      <p className="text-xs text-amber-600">
+                                        Used in another widget
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-gray-500 flex-shrink-0">
+                                    {channel.unit || '-'}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
 
-                {/* Y-Axis Configuration (for chart types) */}
-                {supportsYAxis && (
-                  <div className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <label className="text-sm font-medium text-gray-700">
-                        Y-Axis Configuration
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={yAxisEnabled}
-                          onChange={(e) => setYAxisEnabled(e.target.checked)}
-                          className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
+                {/* Selected Channels Summary */}
+                {selectedChannels.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedChannels.map((ch) => (
+                      <span
+                        key={ch.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-cyan-100 text-cyan-800 text-xs rounded-full"
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: getChannelColor(ch.channelKey) }}
                         />
-                        <span className="text-gray-600">Custom Range</span>
-                      </label>
-                    </div>
-
-                    {yAxisEnabled && (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">
-                            Min Value
-                          </label>
-                          <input
-                            type="number"
-                            value={yAxisMin}
-                            onChange={(e) => setYAxisMin(e.target.value)}
-                            placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">
-                            Max Value
-                          </label>
-                          <input
-                            type="number"
-                            value={yAxisMax}
-                            onChange={(e) => setYAxisMax(e.target.value)}
-                            placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">
-                            Axis Label
-                          </label>
-                          <input
-                            type="text"
-                            value={yAxisLabel}
-                            onChange={(e) => setYAxisLabel(e.target.value)}
-                            placeholder="e.g., Temperature (°C)"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
-                        </div>
-                      </div>
-                    )}
+                        {ch.displayLabel}
+                        <button
+                          onClick={() =>
+                            handleChannelToggle(
+                              {
+                                id: ch.id,
+                                channelKey: ch.channelKey,
+                                displayLabel: ch.displayLabel,
+                              } as DataChannel,
+                              ch.sensorName,
+                            )
+                          }
+                          className="ml-1 hover:text-cyan-600"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
                   </div>
                 )}
-
-                {/* Time Range */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Time Range
-                    </label>
-                    <select
-                      value={timeRange}
-                      onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                    >
-                      {TIME_RANGES.map((range) => (
-                        <option key={range.value} value={range.value}>
-                          {range.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Refresh Interval
-                    </label>
-                    <select
-                      value={refreshInterval}
-                      onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                    >
-                      {REFRESH_INTERVALS.map((interval) => (
-                        <option key={interval.value} value={interval.value}>
-                          {interval.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
               </div>
             )}
-          </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
-            <div>
-              {step === 'config' && (
-                <button
-                  onClick={() => setStep('type')}
-                  className="text-sm text-gray-500 hover:text-gray-700"
+            {/* Y-Axis Configuration (for chart types) */}
+            {supportsYAxis && (
+              <div className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-gray-700">Y-Axis Configuration</label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={yAxisEnabled}
+                      onChange={(e) => setYAxisEnabled(e.target.checked)}
+                      className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
+                    />
+                    <span className="text-gray-600">Custom Range</span>
+                  </label>
+                </div>
+
+                {yAxisEnabled && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Min Value</label>
+                      <input
+                        type="number"
+                        value={yAxisMin}
+                        onChange={(e) => setYAxisMin(e.target.value)}
+                        placeholder="Auto"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Max Value</label>
+                      <input
+                        type="number"
+                        value={yAxisMax}
+                        onChange={(e) => setYAxisMax(e.target.value)}
+                        placeholder="Auto"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Axis Label</label>
+                      <input
+                        type="text"
+                        value={yAxisLabel}
+                        onChange={(e) => setYAxisLabel(e.target.value)}
+                        placeholder="e.g., Temperature (°C)"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Time Range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                 >
-                  Change widget type
-                </button>
-              )}
+                  {TIME_RANGES.map((range) => (
+                    <option key={range.value} value={range.value}>
+                      {range.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Refresh Interval
+                </label>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                >
+                  {REFRESH_INTERVALS.map((interval) => (
+                    <option key={interval.value} value={interval.value}>
+                      {interval.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              {step === 'config' && (
-                <button
-                  onClick={handleSave}
-                  disabled={!title || (isProcessView ? !selectedProcessId : selectedChannelIds.size === 0)}
-                  className={`
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
+        <div>
+          {step === 'config' && (
+            <button
+              onClick={() => setStep('type')}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Change widget type
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          {step === 'config' && (
+            <button
+              onClick={handleSave}
+              disabled={
+                !title || (isProcessView ? !selectedProcessId : selectedChannelIds.size === 0)
+              }
+              className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
                     ${
                       title && (isProcessView ? selectedProcessId : selectedChannelIds.size > 0)
@@ -712,16 +705,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     }
                   `}
-                >
-                  <Check size={16} />
-                  {editingWidget ? 'Update' : 'Add'}
-                </button>
-              )}
-            </div>
-          </div>
+            >
+              <Check size={16} />
+              {editingWidget ? 'Update' : 'Add'}
+            </button>
+          )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

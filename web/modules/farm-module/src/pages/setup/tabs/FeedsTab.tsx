@@ -3,7 +3,14 @@
  * Displays list of feeds with comprehensive feed management form
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  formatCurrency,
+  parseMoney,
+  DEFAULT_CURRENCY,
+  useConfirm,
+  useToast,
+} from '@aquaculture/shared-ui';
 import {
   useFeedList,
   useCreateFeed,
@@ -272,23 +279,25 @@ export const FeedsTab: React.FC = () => {
     setExpandedFeed(expandedFeed === feedId ? null : feedId);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name) {
-      alert('Please enter a name.');
+      toast({ title: 'Please enter a name.', variant: 'warning' });
       return;
     }
     if (!formData.code) {
-      alert('Please enter a code.');
+      toast({ title: 'Please enter a code.', variant: 'warning' });
       return;
     }
     if (!formData.type) {
-      alert('Please select a feed type.');
+      toast({ title: 'Please select a feed type.', variant: 'warning' });
       return;
     }
     if (!formData.siteId) {
-      alert('Please select a site.');
+      toast({ title: 'Please select a site.', variant: 'warning' });
       return;
     }
 
@@ -369,7 +378,7 @@ export const FeedsTab: React.FC = () => {
       setCalculatorWeight('');
     } catch (err) {
       console.error('Failed to save feed:', err);
-      alert('Failed to save feed. Please try again.');
+      toast({ title: 'Failed to save feed. Please try again.', variant: 'error' });
     }
   };
 
@@ -423,12 +432,19 @@ export const FeedsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this feed?')) {
+    if (
+      await confirm({
+        title: 'Delete this feed?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteFeedMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete feed:', err);
-        alert('Failed to delete feed. Please try again.');
+        toast({ title: 'Failed to delete feed. Please try again.', variant: 'error' });
       }
     }
   };
@@ -625,7 +641,10 @@ export const FeedsTab: React.FC = () => {
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Price</p>
                       <p className="text-lg font-semibold text-green-600">
-                        {formatCurrency(parseMoney(feed.pricePerKgDecimal ?? feed.unitPriceDecimal), DEFAULT_CURRENCY)}
+                        {formatCurrency(
+                          parseMoney(feed.pricePerKgDecimal ?? feed.unitPriceDecimal),
+                          DEFAULT_CURRENCY,
+                        )}
                       </p>
                     </div>
                     <svg

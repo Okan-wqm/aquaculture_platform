@@ -591,7 +591,13 @@ export function NewChatPage(): JSX.Element {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+              <div
+                className={clsx(
+                  'divide-y divide-gray-100 dark:divide-gray-800/50',
+                  isCreating && 'pointer-events-none opacity-60',
+                )}
+                aria-busy={isCreating}
+              >
                 {filteredUsers.map((u) => (
                   <UserRow
                     key={u.id}
@@ -609,15 +615,22 @@ export function NewChatPage(): JSX.Element {
         </>
       )}
 
-      {/* Loading overlay for channel creation */}
+      {/* Creation in flight — announced, not veiled: the list above is inert
+          while it runs and this is a live region. A full-screen veil is
+          invisible to assistive tech and blocks nothing it cannot see. */}
       {isCreating && !showGroupNameInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Creating conversation...
-            </p>
-          </div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-x-4 bottom-24 z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
+        >
+          <div
+            className="h-5 w-5 animate-spin rounded-full border-b-2 border-ocean-500"
+            aria-hidden="true"
+          />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Creating conversation...
+          </p>
         </div>
       )}
 

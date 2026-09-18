@@ -10,7 +10,7 @@
  */
 import React, { useState } from 'react';
 
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm } from '@aquaculture/shared-ui';
 
 import {
   FinanceCategory,
@@ -67,9 +67,18 @@ export const CategoriesTab: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleArchive = async (category: FinanceCategory): Promise<void> => {
     setErrorMessage(null);
-    if (!window.confirm(`Archive category "${category.name}"? Existing entries keep it as history.`)) {
+    if (
+      !(await confirm({
+        title: `Archive category "${category.name}"?`,
+        message: 'Existing entries keep it as history.',
+        confirmText: 'Archive',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    ) {
       return;
     }
     try {
@@ -80,60 +89,70 @@ export const CategoriesTab: React.FC = () => {
   };
 
   const canArchive = (category: FinanceCategory): boolean =>
-    canArchiveCat && category.isActive && !category.computedRule && !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
+    canArchiveCat &&
+    category.isActive &&
+    !category.computedRule &&
+    !(category.isSystem && category.code && DERIVED_CODES.has(category.code));
 
   return (
     <div className="space-y-6">
       {/* Create form — only for roles allowed to create categories */}
       {canCreate && (
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
-        <div className="flex-1 min-w-[200px]">
-          <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700">
-            New category name
-          </label>
-          <input
-            id="new-category-name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="e.g. Diesel fuel"
-          />
-        </div>
-        <div>
-          <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700">
-            Ledger
-          </label>
-          <select
-            id="new-category-scope"
-            value={newScope}
-            onChange={(e) => setNewScope(e.target.value as typeof newScope)}
-            className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="FARM_OPEX">Operational cost</option>
-            <option value="FARM_REVENUE">Revenue</option>
-          </select>
-        </div>
-        <button
-          type="submit"
-          disabled={createCategory.isPending || !newName.trim()}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+        <form
+          onSubmit={handleCreate}
+          className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow"
         >
-          Add category
-        </button>
-        <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600">
-          <input
-            type="checkbox"
-            checked={includeArchived}
-            onChange={(e) => setIncludeArchived(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          <span>Show archived</span>
-        </label>
-      </form>
+          <div className="flex-1 min-w-[200px]">
+            <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700">
+              New category name
+            </label>
+            <input
+              id="new-category-name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              placeholder="e.g. Diesel fuel"
+            />
+          </div>
+          <div>
+            <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700">
+              Ledger
+            </label>
+            <select
+              id="new-category-scope"
+              value={newScope}
+              onChange={(e) => setNewScope(e.target.value as typeof newScope)}
+              className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            >
+              <option value="FARM_OPEX">Operational cost</option>
+              <option value="FARM_REVENUE">Revenue</option>
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={createCategory.isPending || !newName.trim()}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            Add category
+          </button>
+          <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            <span>Show archived</span>
+          </label>
+        </form>
       )}
 
       {errorMessage && (
-        <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded-md bg-red-50 p-3 text-sm text-red-700"
+        >
           {errorMessage}
         </div>
       )}

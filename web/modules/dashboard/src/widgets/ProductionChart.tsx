@@ -6,16 +6,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card } from '@aquaculture/shared-ui';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { Card, chartChrome, colors } from '@aquaculture/shared-ui';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { TrendUpIcon } from '../components/icons';
 import { useHarvestStatistics } from '../hooks/useDashboardData';
@@ -28,14 +20,25 @@ export interface ProductionChartProps {
 
 // Month labels (Turkish abbreviations)
 const MONTH_LABELS = [
-  '', 'Oca', 'Sub', 'Mar', 'Nis', 'May', 'Haz',
-  'Tem', 'Agu', 'Eyl', 'Eki', 'Kas', 'Ara',
+  '',
+  'Oca',
+  'Sub',
+  'Mar',
+  'Nis',
+  'May',
+  'Haz',
+  'Tem',
+  'Agu',
+  'Eyl',
+  'Eki',
+  'Kas',
+  'Ara',
 ];
 
 // PERF-M1: tooltip style hoisted to module scope
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -124,19 +127,14 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
 
       <ResponsiveContainer width="100%" height={120}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-          <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke="#6b7280" />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} vertical={false} />
+          <XAxis dataKey="month" tick={{ fontSize: 10 }} stroke={chartChrome.axis} />
           <YAxis hide />
           <Tooltip
             contentStyle={tooltipStyle}
             formatter={(value: number) => [`${value} Ton`, 'Uretim']}
           />
-          <Bar
-            dataKey="uretim"
-            fill="#0073e6"
-            radius={[2, 2, 0, 0]}
-            maxBarSize={24}
-          />
+          <Bar dataKey="uretim" fill={colors.primary[500]} radius={[2, 2, 0, 0]} maxBarSize={24} />
         </BarChart>
       </ResponsiveContainer>
     </Card>

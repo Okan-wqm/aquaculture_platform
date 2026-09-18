@@ -6,15 +6,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatNumber } from '@aquaculture/shared-ui';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { Card, Badge, chartChrome, colors, formatNumber } from '@aquaculture/shared-ui';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useTodaysTasks,
   useStorageOverview,
@@ -56,7 +49,7 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -116,7 +109,12 @@ interface TaskStatsWidgetProps {
   refetch: () => void;
 }
 
-const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isError, refetch }) => {
+const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({
+  stats,
+  isLoading,
+  isError,
+  refetch,
+}) => {
   // Build simple chart data from stats.
   // Hook must run on every render (Rules of Hooks) — placed before the early
   // returns below; guarded against undefined `stats` (loading/empty states).
@@ -142,11 +140,13 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-medium text-gray-500">Gorev Ozeti</h3>
-          <p className="text-2xl font-bold text-gray-900">
-            {formatNumber(stats.totalToday)} gorev
-          </p>
+          <p className="text-2xl font-bold text-gray-900">{formatNumber(stats.totalToday)} gorev</p>
         </div>
-        <Badge variant={stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'}>
+        <Badge
+          variant={
+            stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'
+          }
+        >
           %{stats.completionRate.toFixed(0)} tamamlandı
         </Badge>
       </div>
@@ -171,10 +171,10 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#0073e6"
+            stroke={colors.primary[500]}
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 4, fill: '#0073e6' }}
+            activeDot={{ r: 4, fill: colors.primary[500] }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -251,7 +251,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
       <div className="grid grid-cols-2 gap-3">
         {entries.map(([key, value]) => {
           const range = waterQualityRanges[key];
-          const isWarning = range ? (value < range.min || value > range.max) : false;
+          const isWarning = range ? value < range.min || value > range.max : false;
           const progress = range
             ? Math.max(0, Math.min(((value - range.min) / (range.max - range.min)) * 100, 100))
             : 50;
@@ -310,7 +310,9 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
         <button
           type="button"
           className="text-xs text-primary-600 font-medium hover:underline"
-          onClick={() => { /* TODO: navigate to /tasks */ }}
+          onClick={() => {
+            /* TODO: navigate to /tasks */
+          }}
         >
           Tumunu Gor
         </button>
@@ -324,19 +326,21 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
                   task.status === 'COMPLETED'
                     ? 'bg-green-500'
                     : task.status === 'IN_PROGRESS'
-                    ? 'bg-yellow-500'
-                    : task.status === 'OVERDUE'
-                    ? 'bg-red-500'
-                    : 'bg-gray-300'
+                      ? 'bg-yellow-500'
+                      : task.status === 'OVERDUE'
+                        ? 'bg-red-500'
+                        : 'bg-gray-300'
                 }`}
               />
-              <span className={task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-700'}>
+              <span
+                className={
+                  task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-700'
+                }
+              >
                 {task.title}
               </span>
             </div>
-            <span className="text-gray-500 text-xs">
-              {task.dueTime ?? task.priority}
-            </span>
+            <span className="text-gray-500 text-xs">{task.dueTime ?? task.priority}</span>
           </div>
         ))}
       </div>
@@ -349,10 +353,12 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
 // ============================================================================
 
 interface StockWidgetProps {
-  overview: {
-    lowStockAlertCount: number;
-    lowStockAlerts: LowStockAlert[];
-  } | undefined;
+  overview:
+    | {
+        lowStockAlertCount: number;
+        lowStockAlerts: LowStockAlert[];
+      }
+    | undefined;
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
@@ -373,16 +379,13 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-gray-500">Stok Durumu</h3>
         <Badge variant={overview.lowStockAlertCount > 0 ? 'error' : 'success'}>
-          {overview.lowStockAlertCount > 0
-            ? `${overview.lowStockAlertCount} Kritik`
-            : 'Normal'}
+          {overview.lowStockAlertCount > 0 ? `${overview.lowStockAlertCount} Kritik` : 'Normal'}
         </Badge>
       </div>
       <div className="space-y-3">
         {displayAlerts.map((stock) => {
-          const percentage = stock.minStock > 0
-            ? (stock.currentQuantity / stock.minStock) * 100
-            : 0;
+          const percentage =
+            stock.minStock > 0 ? (stock.currentQuantity / stock.minStock) * 100 : 0;
           const isLow = percentage < 100;
 
           return (

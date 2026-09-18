@@ -7,13 +7,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
-import {
-  billingApi,
-  CustomPlan,
-  CustomPlanStatus,
-  PlanTier,
-} from '../services/adminApi';
+import { Card, Button, Badge, Input, Modal, useConfirm } from '@aquaculture/shared-ui';
+import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/adminApi';
 import type { PaginatedResult } from '../services/types/common';
 import { expectedTotalPages } from '@platform/pagination-contracts';
 
@@ -58,6 +53,7 @@ const STATUS_FILTERS: { value: CustomPlanStatus | 'all'; label: string }[] = [
 // ============================================================================
 
 const CustomPlansListPage: React.FC = () => {
+  const confirm = useConfirm();
   const navigate = useNavigate();
 
   const [plans, setPlans] = useState<readonly CustomPlan[]>([]);
@@ -147,6 +143,16 @@ const CustomPlansListPage: React.FC = () => {
     }
   };
 
+  const closeRejectModal = (): void => {
+    setRejectModal(null);
+    setRejectReason('');
+  };
+
+  const closeCloneModal = (): void => {
+    setCloneModal(null);
+    setCloneTenantId('');
+  };
+
   const handleReject = async () => {
     if (!rejectModal || !rejectReason.trim()) {
       setError('Please provide a rejection reason.');
@@ -204,7 +210,15 @@ const CustomPlansListPage: React.FC = () => {
   };
 
   const handleDelete = async (planId: string, planName: string) => {
-    if (!confirm(`Are you sure you want to delete the plan "${planName}"? This cannot be undone.`)) {
+    if (
+      !(await confirm({
+        title: `Delete plan "${planName}"?`,
+        message: 'This cannot be undone.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    ) {
       return;
     }
 
@@ -281,10 +295,7 @@ const CustomPlansListPage: React.FC = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           {error}
-          <button
-            onClick={() => setError(null)}
-            className="ml-4 text-red-500 hover:text-red-700"
-          >
+          <button onClick={() => setError(null)} className="ml-4 text-red-500 hover:text-red-700">
             Dismiss
           </button>
         </div>
@@ -317,7 +328,9 @@ const CustomPlansListPage: React.FC = () => {
               }`}
               onClick={() =>
                 setStatusFilter(
-                  statusFilter === statusItem.value ? 'all' : (statusItem.value as CustomPlanStatus)
+                  statusFilter === statusItem.value
+                    ? 'all'
+                    : (statusItem.value as CustomPlanStatus),
                 )
               }
             >
@@ -342,9 +355,7 @@ const CustomPlansListPage: React.FC = () => {
             <select
               className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as CustomPlanStatus | 'all')
-              }
+              onChange={(e) => setStatusFilter(e.target.value as CustomPlanStatus | 'all')}
             >
               {STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -414,16 +425,17 @@ const CustomPlansListPage: React.FC = () => {
 
                       {/* Tenant */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-mono text-gray-600 truncate max-w-[180px]" title={plan.tenantId}>
+                        <div
+                          className="text-sm font-mono text-gray-600 truncate max-w-[180px]"
+                          title={plan.tenantId}
+                        >
                           {plan.tenantId}
                         </div>
                       </td>
 
                       {/* Tier */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="info">
-                          {TIER_LABELS[plan.tier] || plan.tier}
-                        </Badge>
+                        <Badge variant="info">{TIER_LABELS[plan.tier] || plan.tier}</Badge>
                       </td>
 
                       {/* Monthly Total */}
@@ -441,7 +453,8 @@ const CustomPlansListPage: React.FC = () => {
                       {/* Modules */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-600">
-                          {plan.modules?.length || 0} module{(plan.modules?.length || 0) !== 1 ? 's' : ''}
+                          {plan.modules?.length || 0} module
+                          {(plan.modules?.length || 0) !== 1 ? 's' : ''}
                         </div>
                       </td>
 
@@ -457,14 +470,15 @@ const CustomPlansListPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
                         {plan.rejectionReason && plan.status === CustomPlanStatus.REJECTED && (
-                          <div className="text-xs text-red-500 mt-1 truncate max-w-[140px]" title={plan.rejectionReason}>
+                          <div
+                            className="text-xs text-red-500 mt-1 truncate max-w-[140px]"
+                            title={plan.rejectionReason}
+                          >
                             {plan.rejectionReason}
                           </div>
                         )}
                         {plan.approvedBy && plan.status === CustomPlanStatus.APPROVED && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            by {plan.approvedBy}
-                          </div>
+                          <div className="text-xs text-gray-400 mt-1">by {plan.approvedBy}</div>
                         )}
                       </td>
 
@@ -534,9 +548,7 @@ const CustomPlansListPage: React.FC = () => {
                             variant="outline"
                             size="sm"
                             disabled={isLoading}
-                            onClick={() =>
-                              setCloneModal({ planId: plan.id, planName: plan.name })
-                            }
+                            onClick={() => setCloneModal({ planId: plan.id, planName: plan.name })}
                           >
                             Clone
                           </Button>
@@ -592,36 +604,20 @@ const CustomPlansListPage: React.FC = () => {
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-2">Reject Plan</h3>
-            <p className="text-sm text-gray-500 mb-4">
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Plan"
+          description={
+            <>
               Rejecting: <span className="font-medium text-gray-700">{rejectModal.planName}</span>
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rejection Reason <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
-                  rows={3}
-                  placeholder="Explain why this plan is being rejected..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRejectModal(null);
-                  setRejectReason('');
-                }}
-              >
+            </>
+          }
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeRejectModal}>
                 Cancel
               </Button>
               <Button
@@ -631,44 +627,42 @@ const CustomPlansListPage: React.FC = () => {
               >
                 {actionLoading === rejectModal.planId ? 'Rejecting...' : 'Reject Plan'}
               </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Rejection Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
+                rows={3}
+                placeholder="Explain why this plan is being rejected..."
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
             </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
 
       {/* Clone Modal */}
       {cloneModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-2">Clone Plan</h3>
-            <p className="text-sm text-gray-500 mb-4">
+        <Modal
+          isOpen
+          onClose={closeCloneModal}
+          size="sm"
+          title="Clone Plan"
+          description={
+            <>
               Cloning: <span className="font-medium text-gray-700">{cloneModal.planName}</span>
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Target Tenant ID <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  placeholder="tenant-uuid"
-                  value={cloneTenantId}
-                  onChange={(e) => setCloneTenantId(e.target.value)}
-                />
-                <p className="mt-1 text-xs text-gray-400">
-                  The cloned plan will be created as a draft for this tenant.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCloneModal(null);
-                  setCloneTenantId('');
-                }}
-              >
+            </>
+          }
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeCloneModal}>
                 Cancel
               </Button>
               <Button
@@ -677,9 +671,25 @@ const CustomPlansListPage: React.FC = () => {
               >
                 {actionLoading === cloneModal.planId ? 'Cloning...' : 'Clone Plan'}
               </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Target Tenant ID <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="tenant-uuid"
+                value={cloneTenantId}
+                onChange={(e) => setCloneTenantId(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                The cloned plan will be created as a draft for this tenant.
+              </p>
             </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -6,8 +6,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { Plus, Edit, Trash2, Loader2, AlertCircle, Sparkles } from 'lucide-react';
-import { useChannelManagement, SensorDataChannel, CreateChannelInput, UpdateChannelInput } from '../../hooks/useChannelManagement';
+import {
+  useChannelManagement,
+  SensorDataChannel,
+  CreateChannelInput,
+  UpdateChannelInput,
+} from '../../hooks/useChannelManagement';
 import { ChannelEditorModal } from '../registration/ChannelEditorModal';
 import { AIDetectionPanel } from './AIDetectionPanel';
 import { DataChannelConfig, ChannelDataType } from '../../types/registration.types';
@@ -137,6 +143,7 @@ function getSourceBadge(source?: string) {
 // ============================================================================
 
 export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensorId }) => {
+  const confirm = useConfirm();
   const {
     channels,
     fetchLoading,
@@ -184,7 +191,15 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   // --- Delete Channel (L2: Turkish confirm, M6: specific error feedback) ---
   const handleDeleteChannel = useCallback(
     async (channelId: string, channelKey: string) => {
-      if (!window.confirm(`"${channelKey}" kanalini silmek istediginizden emin misiniz?`)) {
+      if (
+        !(await confirm({
+          title: `"${channelKey}" kanalını sil?`,
+          message: 'Kanal ve bağlı okuma eşlemesi kaldırılır.',
+          confirmText: 'Sil',
+          cancelText: 'Vazgeç',
+          variant: 'danger',
+        }))
+      ) {
         return;
       }
       setDeletingId(channelId);
@@ -195,7 +210,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       }
       setDeletingId(null);
     },
-    [deleteChannel],
+    [deleteChannel, confirm],
   );
 
   // ---- Loading skeleton ----

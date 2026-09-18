@@ -10,7 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Coffee, GripVertical, Check } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { useShifts } from '../../hooks/useAttendance';
 import { useOptionalSchedulingKeyboard } from './SchedulingKeyboardContext';
 
@@ -35,7 +35,7 @@ function DraggableShift({
   name,
   startTime,
   endTime,
-  colorCode = '#3B82F6',
+  colorCode = colors.info[500],
   isOffDay = false,
 }: DraggableShiftProps) {
   const keyboardCtx = useOptionalSchedulingKeyboard();
@@ -43,7 +43,7 @@ function DraggableShift({
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData(
       'application/json',
-      JSON.stringify({ shiftId: isOffDay ? null : shiftId, isOffDay })
+      JSON.stringify({ shiftId: isOffDay ? null : shiftId, isOffDay }),
     );
     e.dataTransfer.effectAllowed = 'copy';
   };
@@ -60,7 +60,7 @@ function DraggableShift({
         });
       }
     },
-    [keyboardCtx, shiftId, isOffDay, name]
+    [keyboardCtx, shiftId, isOffDay, name],
   );
 
   const handleClick = useCallback(() => {
@@ -95,7 +95,7 @@ function DraggableShift({
           'hover:bg-gray-200 active:cursor-grabbing',
           'transition-colors select-none',
           'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-          isSelected && 'ring-2 ring-indigo-500 bg-gray-200'
+          isSelected && 'ring-2 ring-indigo-500 bg-gray-200',
         )}
       >
         <GripVertical className="h-4 w-4 text-gray-400 flex-shrink-0" aria-hidden="true" />
@@ -126,7 +126,7 @@ function DraggableShift({
         'border hover:opacity-80 active:cursor-grabbing',
         'transition-colors select-none',
         'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-        isSelected && 'ring-2 ring-indigo-500'
+        isSelected && 'ring-2 ring-indigo-500',
       )}
       style={{
         backgroundColor: `${colorCode}15`,
@@ -140,19 +140,14 @@ function DraggableShift({
         aria-hidden="true"
       />
       <div className="flex-1 min-w-0">
-        <div
-          className="text-sm font-medium truncate"
-          style={{ color: colorCode }}
-        >
+        <div className="text-sm font-medium truncate" style={{ color: colorCode }}>
           {code}
         </div>
         <div className="text-xs text-gray-500">
           {startTime} - {endTime}
         </div>
       </div>
-      {isSelected && (
-        <Check className="h-4 w-4 text-indigo-600 flex-shrink-0" aria-hidden="true" />
-      )}
+      {isSelected && <Check className="h-4 w-4 text-indigo-600 flex-shrink-0" aria-hidden="true" />}
     </div>
   );
 }
@@ -166,22 +161,14 @@ export function ShiftPalette({ className, compact = false }: ShiftPaletteProps) 
       <div className={cn('space-y-2', className)} role="status" aria-busy="true">
         <span className="sr-only">Vardiyalar yukleniyor...</span>
         {[1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="h-14 bg-gray-100 rounded-lg animate-pulse"
-            aria-hidden="true"
-          />
+          <div key={i} className="h-14 bg-gray-100 rounded-lg animate-pulse" aria-hidden="true" />
         ))}
       </div>
     );
   }
 
   return (
-    <div
-      className={cn('space-y-2', className)}
-      role="toolbar"
-      aria-label="Vardiya secimi"
-    >
+    <div className={cn('space-y-2', className)} role="toolbar" aria-label="Vardiya secimi">
       {!compact && (
         <h4 className="text-sm font-medium text-gray-700 mb-3">
           Vardiyalar
@@ -191,8 +178,8 @@ export function ShiftPalette({ className, compact = false }: ShiftPaletteProps) 
 
       {/* Keyboard instructions for screen readers */}
       <p className="sr-only">
-        Vardiya secmek icin Enter veya Space tuslarina basin.
-        Secilen vardiyayi iptal etmek icin Escape tusuna basin.
+        Vardiya secmek icin Enter veya Space tuslarina basin. Secilen vardiyayi iptal etmek icin
+        Escape tusuna basin.
       </p>
 
       {/* Selection status indicator */}
@@ -201,22 +188,13 @@ export function ShiftPalette({ className, compact = false }: ShiftPaletteProps) 
           className="text-xs text-indigo-600 bg-indigo-50 rounded-md px-2 py-1 mb-2"
           role="status"
         >
-          <span className="font-medium">
-            {keyboardCtx.selectedShift.shiftName || 'Vardiya'}
-          </span>{' '}
+          <span className="font-medium">{keyboardCtx.selectedShift.shiftName || 'Vardiya'}</span>{' '}
           secili - takvime gidip Enter basin
         </div>
       )}
 
       {/* Off Day Option */}
-      <DraggableShift
-        shiftId=""
-        code="OFF"
-        name="Tatil"
-        startTime="-"
-        endTime="-"
-        isOffDay
-      />
+      <DraggableShift shiftId="" code="OFF" name="Tatil" startTime="-" endTime="-" isOffDay />
 
       {/* Active Shifts */}
       {shifts?.map((shift) => (

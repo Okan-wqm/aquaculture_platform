@@ -13,7 +13,6 @@ import {
   Plus,
   Eye,
   Check,
-  X,
   Clock,
   AlertTriangle,
   CheckCircle2,
@@ -27,6 +26,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -154,13 +154,16 @@ const EMPTY_REQUESTS: readonly DataRequest[] = [];
 const EMPTY_REPORTS: readonly ComplianceReport[] = [];
 const EMPTY_CHECKS: readonly ComplianceCheck[] = [];
 
-async function fetchDataRequests(params: {
-  page?: number;
-  limit?: number;
-  status?: string;
-  requestType?: string;
-  searchQuery?: string;
-}, signal?: AbortSignal): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
+async function fetchDataRequests(
+  params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    requestType?: string;
+    searchQuery?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -251,9 +254,8 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
       violation.description ?? violation.message,
       'Compliance violation',
     ),
-    recommendation: typeof violation.recommendation === 'string'
-      ? violation.recommendation
-      : undefined,
+    recommendation:
+      typeof violation.recommendation === 'string' ? violation.recommendation : undefined,
   }));
   // Reads the nested paths the persisted shape actually has, and routes every
   // rendered field through toPrimitiveString.
@@ -266,19 +268,20 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
   // applied the toPrimitiveString guard; this branch did not, so the object
   // reached JSX and crashed the Reports tab — on a report the monthly cron
   // guarantees exists.
-  const findings = resultFindings.length > 0
-    ? resultFindings.map((finding) => ({
-        category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
-        status: finding.status === 'non_compliant'
-          ? 'fail' as const
-          : finding.status === 'partial'
-            ? 'warning' as const
-            : 'pass' as const,
-        description: toPrimitiveString(finding.details, 'Compliance check'),
-        recommendation:
-          typeof finding.remediation === 'string' ? finding.remediation : undefined,
-      }))
-    : violationFindings;
+  const findings =
+    resultFindings.length > 0
+      ? resultFindings.map((finding) => ({
+          category: toPrimitiveString(finding.requirement?.requirement, 'Compliance check'),
+          status:
+            finding.status === 'non_compliant'
+              ? ('fail' as const)
+              : finding.status === 'partial'
+                ? ('warning' as const)
+                : ('pass' as const),
+          description: toPrimitiveString(finding.details, 'Compliance check'),
+          recommendation: typeof finding.remediation === 'string' ? finding.remediation : undefined,
+        }))
+      : violationFindings;
 
   return {
     id: report.id,
@@ -353,8 +356,7 @@ const REQUEST_TYPE_ICONS: Record<DataRequestType, React.ReactElement> = {
   rectification: <FileCheck className="w-4 h-4" />,
   restriction: <Lock className="w-4 h-4" />,
 };
-const getRequestTypeIcon = (type: DataRequestType): React.ReactElement =>
-  REQUEST_TYPE_ICONS[type];
+const getRequestTypeIcon = (type: DataRequestType): React.ReactElement => REQUEST_TYPE_ICONS[type];
 
 // GDPR's own wording lives HERE, on the label, rather than in a renamed value
 // the request had to be translated into and back out of.
@@ -419,163 +421,18 @@ const DataRequestDetailModal: React.FC<{
   actionError?: string | null;
 }> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Data Subject Request</h2>
-              <p className="text-sm text-gray-500 mt-1">ID: {request.id}</p>
-            </div>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-        </div>
-        <div className="p-6 space-y-6">
-          {/* Status Banner */}
-          {request.isOverdue && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              <div>
-                <p className="font-medium text-red-800">This request is overdue</p>
-                <p className="text-sm text-red-600">
-                  Due date was {formatDate(request.dueDate)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Request Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Request Type</span>
-              <div className="flex items-center gap-2 mt-1">
-                {getRequestTypeIcon(request.requestType)}
-                <span className="text-sm text-gray-900">
-                  {getRequestTypeLabel(request.requestType)}
-                </span>
-              </div>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span
-                className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
-              >
-                {request.status.replace('_', ' ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Submitted</span>
-              <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Due Date</span>
-              <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
-                {formatDate(request.dueDate)}
-              </p>
-            </div>
-          </div>
-
-          {/* Requester Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Requester Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterEmail}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.tenantName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {request.identityVerified ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                )}
-                <span className="text-sm text-gray-900">
-                  {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Description</span>
-            <p className="text-sm text-gray-900 mt-1">{request.description}</p>
-          </div>
-
-          {/* Data Categories */}
-          {request.dataCategories && request.dataCategories.length > 0 && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Data Categories</span>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {request.dataCategories.map((cat) => (
-                  <span
-                    key={cat}
-                    className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
-                  >
-                    {cat}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Assignment */}
-          {request.assignedTo && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Assigned To</span>
-              <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
-            </div>
-          )}
-
-          {/* Timeline */}
-          <div>
-            <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <Check className="w-4 h-4 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Request Submitted</p>
-                  <p className="text-xs text-gray-500">{formatDateTime(request.submittedAt)}</p>
-                </div>
-              </div>
-              {request.verifiedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Identity Verified</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.verifiedAt)}</p>
-                  </div>
-                </div>
-              )}
-              {request.completedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Request Completed</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.completedAt)}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="p-6 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Data Subject Request"
+      description={`ID: ${request.id}`}
+      showCloseButton={!actionLoading}
+      closeOnEscape={!actionLoading}
+      closeOnOverlayClick={!actionLoading}
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <div className="w-full">
           {/* SECURITY: Show error inline so admin can retry without losing context */}
           {actionError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
@@ -622,8 +479,150 @@ const DataRequestDetailModal: React.FC<{
             </div>
           </div>
         </div>
+      }
+    >
+      {/* Status Banner */}
+      {request.isOverdue && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <div>
+            <p className="font-medium text-red-800">This request is overdue</p>
+            <p className="text-sm text-red-600">Due date was {formatDate(request.dueDate)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Request Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">Request Type</span>
+          <div className="flex items-center gap-2 mt-1">
+            {getRequestTypeIcon(request.requestType)}
+            <span className="text-sm text-gray-900">
+              {getRequestTypeLabel(request.requestType)}
+            </span>
+          </div>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Status</span>
+          <span
+            className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
+          >
+            {request.status.replace('_', ' ')}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Submitted</span>
+          <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Due Date</span>
+          <p
+            className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
+          >
+            {formatDate(request.dueDate)}
+          </p>
+        </div>
       </div>
-    </div>
+
+      {/* Requester Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Requester Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.requesterName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.requesterEmail}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.tenantName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {request.identityVerified ? (
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            )}
+            <span className="text-sm text-gray-900">
+              {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <span className="text-sm font-medium text-gray-500">Description</span>
+        <p className="text-sm text-gray-900 mt-1">{request.description}</p>
+      </div>
+
+      {/* Data Categories */}
+      {request.dataCategories && request.dataCategories.length > 0 && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">Data Categories</span>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {request.dataCategories.map((cat) => (
+              <span
+                key={cat}
+                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
+              >
+                {cat}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Assignment */}
+      {request.assignedTo && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">Assigned To</span>
+          <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
+        </div>
+      )}
+
+      {/* Timeline */}
+      <div>
+        <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-4 h-4 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Request Submitted</p>
+              <p className="text-xs text-gray-500">{formatDateTime(request.submittedAt)}</p>
+            </div>
+          </div>
+          {request.verifiedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Identity Verified</p>
+                <p className="text-xs text-gray-500">{formatDateTime(request.verifiedAt)}</p>
+              </div>
+            </div>
+          )}
+          {request.completedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Request Completed</p>
+                <p className="text-xs text-gray-500">{formatDateTime(request.completedAt)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 };
 
@@ -805,7 +804,9 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {stats.pendingRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
@@ -816,7 +817,9 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {stats.inProgressRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
@@ -827,7 +830,9 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {stats.completedRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
@@ -838,7 +843,9 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests ?? UNAVAILABLE}</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {stats.overdueRequests ?? UNAVAILABLE}
+                </p>
               </div>
             </div>
           </div>
@@ -954,10 +961,15 @@ export const CompliancePage: React.FC = () => {
                   </tr>
                 ) : (
                   filteredRequests.map((request) => (
-                    <tr key={request.id} className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}>
+                    <tr
+                      key={request.id}
+                      className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}
+                    >
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{request.id}</div>
-                        <div className="text-xs text-gray-500">{formatDate(request.submittedAt)}</div>
+                        <div className="text-xs text-gray-500">
+                          {formatDate(request.submittedAt)}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-900">{request.requesterName}</div>
@@ -979,12 +991,12 @@ export const CompliancePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
+                        <div
+                          className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
+                        >
                           {formatDate(request.dueDate)}
                         </div>
-                        {request.isOverdue && (
-                          <div className="text-xs text-red-500">Overdue</div>
-                        )}
+                        {request.isOverdue && <div className="text-xs text-red-500">Overdue</div>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {request.assignedToName || '-'}
@@ -1022,10 +1034,7 @@ export const CompliancePage: React.FC = () => {
               </div>
             ) : (
               reports.map((report) => (
-                <div
-                  key={report.id}
-                  className="bg-white rounded-lg border border-gray-200 p-6"
-                >
+                <div key={report.id} className="bg-white rounded-lg border border-gray-200 p-6">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
@@ -1037,15 +1046,16 @@ export const CompliancePage: React.FC = () => {
                             report.overallScore >= 80
                               ? 'bg-green-100 text-green-800'
                               : report.overallScore >= 60
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-red-100 text-red-800'
                           }`}
                         >
                           Score: {report.overallScore}%
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 mt-1">
-                        Period: {formatDate(report.reportPeriodStart)} - {formatDate(report.reportPeriodEnd)}
+                        Period: {formatDate(report.reportPeriodStart)} -{' '}
+                        {formatDate(report.reportPeriodEnd)}
                       </p>
                     </div>
                     <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
@@ -1139,10 +1149,7 @@ export const CompliancePage: React.FC = () => {
               </div>
             ) : (
               checks.map((check) => (
-                <div
-                  key={check.id}
-                  className="bg-white rounded-lg border border-gray-200 p-4"
-                >
+                <div key={check.id} className="bg-white rounded-lg border border-gray-200 p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3">

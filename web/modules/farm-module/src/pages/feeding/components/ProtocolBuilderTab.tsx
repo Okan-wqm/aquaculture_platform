@@ -10,7 +10,7 @@
  * devam eder — bu sekme YALNIZ v2 modelini düzenler.
  */
 import React, { useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
 import {
   useFeedingProtocolsV2,
   useCreateFeedingProtocolV2,
@@ -180,7 +180,10 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
   };
 
   const setTemp = (ti: number, value: number) => {
-    onChange({ ...matrix, temperatures: matrix.temperatures.map((v, i) => (i === ti ? value : v)) });
+    onChange({
+      ...matrix,
+      temperatures: matrix.temperatures.map((v, i) => (i === ti ? value : v)),
+    });
   };
 
   const setWeight = (wi: number, value: number) => {
@@ -200,7 +203,8 @@ const FcrMatrixEditor: React.FC<FcrMatrixEditorProps> = ({ matrix, onChange }) =
   const addWeight = () => {
     if (matrix.weights.length >= 30) return;
     const last = matrix.weights[matrix.weights.length - 1] ?? 100;
-    const lastRow = matrix.fcrValues[matrix.fcrValues.length - 1] ?? matrix.temperatures.map(() => 1.2);
+    const lastRow =
+      matrix.fcrValues[matrix.fcrValues.length - 1] ?? matrix.temperatures.map(() => 1.2);
     onChange({
       ...matrix,
       weights: [...matrix.weights, last * 2],
@@ -453,7 +457,12 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
     };
 
   return (
-    <Modal isOpen onClose={onClose} title={protocol ? t('feedingV2.editProtocol') : t('feedingV2.newProtocol')} size="xl">
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={protocol ? t('feedingV2.editProtocol') : t('feedingV2.newProtocol')}
+      size="xl"
+    >
       <form onSubmit={handleSubmit} className="space-y-6 max-h-[75vh] overflow-y-auto p-1">
         {error && (
           <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 whitespace-pre-wrap">
@@ -474,7 +483,9 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">{t('feedingV2.species')}</label>
+            <label className="block text-sm font-medium text-gray-700">
+              {t('feedingV2.species')}
+            </label>
             <select
               value={form.speciesId}
               onChange={(e) => setForm((prev) => ({ ...prev, speciesId: e.target.value }))}
@@ -856,7 +867,9 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
                       fcrSource: e.target.value as ProtocolSettings['fcrSource'],
                     },
                     fcrMatrix:
-                      e.target.value === 'matrix' ? (prev.fcrMatrix ?? ensureMatrix()) : prev.fcrMatrix,
+                      e.target.value === 'matrix'
+                        ? (prev.fcrMatrix ?? ensureMatrix())
+                        : prev.fcrMatrix,
                   }))
                 }
                 className="mt-1 rounded-md border-gray-300 shadow-sm text-sm"
@@ -943,8 +956,15 @@ export const ProtocolBuilderTab: React.FC = () => {
 
   const protocols = data?.items ?? [];
 
+  const confirm = useConfirm();
   const handleArchive = async (protocol: FeedingProtocolV2) => {
-    if (!window.confirm(t('feedingV2.archiveConfirm', { name: protocol.name }))) return;
+    if (
+      !(await confirm({
+        title: t('feedingV2.archiveConfirm', { name: protocol.name }),
+        variant: 'warning',
+      }))
+    )
+      return;
     await archiveMutation.mutateAsync(protocol.id);
   };
 

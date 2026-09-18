@@ -9,6 +9,7 @@ import {
   DeleteConfirmationDialog,
   DeletePreviewData,
   AffectedItemGroup,
+  useToast,
 } from '@aquaculture/shared-ui';
 import {
   useSystemList,
@@ -203,6 +204,7 @@ export const SystemsTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const { toast } = useToast();
   const handleDelete = (system: System) => {
     setSystemToDelete(system);
     setDeleteDialogOpen(true);
@@ -215,7 +217,11 @@ export const SystemsTab: React.FC = () => {
       setDeleteDialogOpen(false);
       setSystemToDelete(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete system');
+      toast({
+        title: 'Failed to delete system',
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'error',
+      });
     }
   };
 
@@ -227,15 +233,15 @@ export const SystemsTab: React.FC = () => {
   const handleSave = async () => {
     if (!editingSystem) {
       if (!formData.name) {
-        alert('Please enter a name.');
+        toast({ title: 'Please enter a name.', variant: 'warning' });
         return;
       }
       if (!formData.code) {
-        alert('Please enter a code.');
+        toast({ title: 'Please enter a code.', variant: 'warning' });
         return;
       }
       if (!formData.siteId) {
-        alert('Please select a site.');
+        toast({ title: 'Please select a site.', variant: 'warning' });
         return;
       }
     }
@@ -274,7 +280,11 @@ export const SystemsTab: React.FC = () => {
       }
       setIsModalOpen(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save system');
+      toast({
+        title: 'Failed to save system',
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'error',
+      });
     }
   };
 

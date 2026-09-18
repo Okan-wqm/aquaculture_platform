@@ -2,7 +2,7 @@
  * Storage Locations Tab - CRUD for warehouse/silo/cold room locations
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
 import {
   useStorageLocationList,
   useCreateStorageLocation,
@@ -106,13 +106,22 @@ export const StorageLocationsTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this location?')) {
+    if (
+      await confirm({
+        title: 'Delete this location?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteLocationMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete location:', err);
-        alert('Failed to delete location.');
+        toast({ title: 'Failed to delete location.', variant: 'error' });
       }
     }
   };
@@ -120,11 +129,11 @@ export const StorageLocationsTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.code) {
-      alert('Name and code required.');
+      toast({ title: 'Name and code required.', variant: 'warning' });
       return;
     }
     if (!formData.siteId) {
-      alert('Please select a site.');
+      toast({ title: 'Please select a site.', variant: 'warning' });
       return;
     }
 
@@ -153,7 +162,7 @@ export const StorageLocationsTab: React.FC = () => {
       setIsModalOpen(false);
     } catch (err) {
       console.error('Failed to save location:', err);
-      alert('Failed to save location.');
+      toast({ title: 'Failed to save location.', variant: 'error' });
     }
   };
 

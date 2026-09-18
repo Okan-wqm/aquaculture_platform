@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
 import { useHrFinanceSummary } from '../hooks/useHrFinance';
+import { colors } from '@aquaculture/shared-ui';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
@@ -148,17 +149,20 @@ const HRAnalyticsPage: React.FC = () => {
                 <div key={dept.id} className="flex items-center gap-4">
                   <div
                     className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: dept.colorCode || '#6366f1' }}
+                    style={{ backgroundColor: dept.colorCode || colors.primary[500] }}
                   />
                   <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
                     {dept.name}
                   </span>
-                  <div className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700" style={{ height: 6 }}>
+                  <div
+                    className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700"
+                    style={{ height: 6 }}
+                  >
                     <div
                       className="h-full rounded-full"
                       style={{
                         width: `${widthPct}%`,
-                        backgroundColor: dept.colorCode || '#6366f1',
+                        backgroundColor: dept.colorCode || colors.primary[500],
                       }}
                     />
                   </div>
@@ -193,7 +197,9 @@ const HRAnalyticsPage: React.FC = () => {
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
         >
           <Clock className="mb-2 h-8 w-8 text-gray-400" />
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Certification Status</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Certification Status
+          </p>
         </Link>
       </div>
     </div>

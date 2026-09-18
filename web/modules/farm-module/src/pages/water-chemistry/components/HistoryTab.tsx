@@ -35,6 +35,7 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
+import { colors } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -60,15 +61,153 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 // ============================================================================
 
 const FALLBACK_COLUMNS: ParameterConfig[] = [
-  { id: 'fb-temp', code: 'temperature', name: 'Temp', unit: '\u00B0C', dataType: 'NUMBER', precision: 1, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#3b82f6', icon: null, displayOrder: 1, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-do', code: 'dissolvedOxygen', name: 'DO', unit: 'mg/L', dataType: 'NUMBER', precision: 1, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#22c55e', icon: null, displayOrder: 2, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-ph', code: 'pH', name: 'pH', unit: '', dataType: 'NUMBER', precision: 2, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#8b5cf6', icon: null, displayOrder: 3, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-nh3', code: 'ammonia', name: 'NH\u2083', unit: 'mg/L', dataType: 'NUMBER', precision: 3, group: 'NITROGEN_CYCLE', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#ef4444', icon: null, displayOrder: 4, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-no2', code: 'nitrite', name: 'NO\u2082', unit: 'mg/L', dataType: 'NUMBER', precision: 3, group: 'NITROGEN_CYCLE', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: '#f97316', icon: null, displayOrder: 5, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  {
+    id: 'fb-temp',
+    code: 'temperature',
+    name: 'Temp',
+    unit: '\u00B0C',
+    dataType: 'NUMBER',
+    precision: 1,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.info[500],
+    icon: null,
+    displayOrder: 1,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-do',
+    code: 'dissolvedOxygen',
+    name: 'DO',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 1,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.success[500],
+    icon: null,
+    displayOrder: 2,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-ph',
+    code: 'pH',
+    name: 'pH',
+    unit: '',
+    dataType: 'NUMBER',
+    precision: 2,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.primary[700],
+    icon: null,
+    displayOrder: 3,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-nh3',
+    code: 'ammonia',
+    name: 'NH\u2083',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 3,
+    group: 'NITROGEN_CYCLE',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.error[500],
+    icon: null,
+    displayOrder: 4,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'right',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-no2',
+    code: 'nitrite',
+    name: 'NO\u2082',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 3,
+    group: 'NITROGEN_CYCLE',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.accent[600],
+    icon: null,
+    displayOrder: 5,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'right',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
 ];
 
 /** Maps parameter codes to the fixed statistics API fields */
-const STAT_FIELD_MAP: Record<string, 'avgTemperature' | 'avgDO' | 'avgPH' | 'avgAmmonia' | 'avgNitrite'> = {
+const STAT_FIELD_MAP: Record<
+  string,
+  'avgTemperature' | 'avgDO' | 'avgPH' | 'avgAmmonia' | 'avgNitrite'
+> = {
   temperature: 'avgTemperature',
   dissolvedOxygen: 'avgDO',
   pH: 'avgPH',
@@ -173,22 +312,22 @@ export const HistoryTab: React.FC = () => {
 
   // Tank-level hooks (only active in tank mode)
   const tankStatsQuery = useWaterQualityStatistics(
-    viewMode === 'tank' ? (selectedTankId || null) : null,
+    viewMode === 'tank' ? selectedTankId || null : null,
     days,
   );
   const tankChartQuery = useWaterQualityChart(
-    viewMode === 'tank' ? (selectedTankId || null) : null,
+    viewMode === 'tank' ? selectedTankId || null : null,
     viewMode === 'tank' && selectedTankId ? fromDate : null,
     viewMode === 'tank' && selectedTankId ? toDate : null,
   );
 
   // System-level hooks (only active in system mode)
   const systemStatsQuery = useWaterQualityStatisticsBySystem(
-    viewMode === 'system' ? (selectedSystemId || null) : null,
+    viewMode === 'system' ? selectedSystemId || null : null,
     days,
   );
   const systemChartQuery = useWaterQualityChartBySystem(
-    viewMode === 'system' ? (selectedSystemId || null) : null,
+    viewMode === 'system' ? selectedSystemId || null : null,
     viewMode === 'system' && selectedSystemId ? fromDate : null,
     viewMode === 'system' && selectedSystemId ? toDate : null,
   );
@@ -197,21 +336,28 @@ export const HistoryTab: React.FC = () => {
   const statisticsQuery = viewMode === 'tank' ? tankStatsQuery : systemStatsQuery;
   const chartQuery = viewMode === 'tank' ? tankChartQuery : systemChartQuery;
 
-  const listFilters = useMemo<WaterQualityFilters>(() => ({
-    ...(viewMode === 'tank' ? { tankId: selectedTankId || undefined } : { systemId: selectedSystemId || undefined }),
-    status: (statusFilter as WaterQualityStatus) || undefined,
-    fromDate: fromDate.toISOString(),
-    toDate: toDate.toISOString(),
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-  }), [viewMode, selectedTankId, selectedSystemId, statusFilter, fromDate, toDate, page]);
+  const listFilters = useMemo<WaterQualityFilters>(
+    () => ({
+      ...(viewMode === 'tank'
+        ? { tankId: selectedTankId || undefined }
+        : { systemId: selectedSystemId || undefined }),
+      status: (statusFilter as WaterQualityStatus) || undefined,
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }),
+    [viewMode, selectedTankId, selectedSystemId, statusFilter, fromDate, toDate, page],
+  );
 
   const listQuery = useWaterQualityList(listFilters);
 
   // Tank name lookup
   const tankMap = useMemo(() => {
     const map: Record<string, string> = {};
-    tanks.forEach((t) => { map[t.id] = t.name || t.code; });
+    tanks.forEach((t) => {
+      map[t.id] = t.name || t.code;
+    });
     return map;
   }, [tanks]);
 
@@ -289,7 +435,10 @@ export const HistoryTab: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">View</label>
             <div className="flex rounded-md shadow-sm">
               <button
-                onClick={() => { setViewMode('tank'); setSelectedSystemId(''); }}
+                onClick={() => {
+                  setViewMode('tank');
+                  setSelectedSystemId('');
+                }}
                 className={`px-3 py-2 text-sm font-medium rounded-l-md border ${
                   viewMode === 'tank'
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -299,7 +448,10 @@ export const HistoryTab: React.FC = () => {
                 Tank
               </button>
               <button
-                onClick={() => { setViewMode('system'); setSelectedTankId(''); }}
+                onClick={() => {
+                  setViewMode('system');
+                  setSelectedTankId('');
+                }}
                 className={`px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
                   viewMode === 'system'
                     ? 'bg-blue-600 text-white border-blue-600'
@@ -324,18 +476,26 @@ export const HistoryTab: React.FC = () => {
               >
                 <option value="">All Tanks</option>
                 {tanks.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name || t.code}</option>
+                  <option key={t.id} value={t.id}>
+                    {t.name || t.code}
+                  </option>
                 ))}
               </select>
             ) : (
               <select
                 value={selectedSystemId}
-                onChange={(e) => { setSelectedSystemId(e.target.value); setPage(1); }}
+                onChange={(e) => {
+                  setSelectedSystemId(e.target.value);
+                  setPage(1);
+                }}
                 className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select System...</option>
                 {systems.map((s: { id: string; name: string; code?: string; type?: string }) => (
-                  <option key={s.id} value={s.id}>{s.name}{s.type ? ` (${s.type})` : ''}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.type ? ` (${s.type})` : ''}
+                  </option>
                 ))}
               </select>
             )}
@@ -379,7 +539,10 @@ export const HistoryTab: React.FC = () => {
                 <input
                   type="date"
                   value={customFrom}
-                  onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
+                  onChange={(e) => {
+                    setCustomFrom(e.target.value);
+                    setPage(1);
+                  }}
                   className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
@@ -388,7 +551,10 @@ export const HistoryTab: React.FC = () => {
                 <input
                   type="date"
                   value={customTo}
-                  onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
+                  onChange={(e) => {
+                    setCustomTo(e.target.value);
+                    setPage(1);
+                  }}
                   className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
@@ -404,7 +570,9 @@ export const HistoryTab: React.FC = () => {
               className="block w-full min-w-[140px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </div>
@@ -419,9 +587,7 @@ export const HistoryTab: React.FC = () => {
             const statValue = statField && stats ? stats[statField] : null;
             return (
               <div key={config.code} className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm font-medium text-gray-500">
-                  Avg {config.name}
-                </p>
+                <p className="text-sm font-medium text-gray-500">Avg {config.name}</p>
                 <p className="text-2xl font-semibold text-gray-900">
                   {statValue != null
                     ? `${statValue.toFixed(config.precision)} ${config.unit}`
@@ -432,9 +598,7 @@ export const HistoryTab: React.FC = () => {
           })}
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm font-medium text-gray-500">Measurements</p>
-            <p className="text-2xl font-semibold text-gray-900">
-              {stats?.measurementCount ?? 0}
-            </p>
+            <p className="text-2xl font-semibold text-gray-900">{stats?.measurementCount ?? 0}</p>
             <div className="flex items-center space-x-2 mt-1">
               {stats != null && stats.criticalCount > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
@@ -470,13 +634,31 @@ export const HistoryTab: React.FC = () => {
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis
                   yAxisId="left"
-                  label={leftAxisLabel ? { value: leftAxisLabel, angle: -90, position: 'insideLeft', style: { fontSize: 11 } } : undefined}
+                  label={
+                    leftAxisLabel
+                      ? {
+                          value: leftAxisLabel,
+                          angle: -90,
+                          position: 'insideLeft',
+                          style: { fontSize: 11 },
+                        }
+                      : undefined
+                  }
                 />
                 {hasRightAxis && (
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    label={rightAxisLabel ? { value: rightAxisLabel, angle: 90, position: 'insideRight', style: { fontSize: 11 } } : undefined}
+                    label={
+                      rightAxisLabel
+                        ? {
+                            value: rightAxisLabel,
+                            angle: 90,
+                            position: 'insideRight',
+                            style: { fontSize: 11 },
+                          }
+                        : undefined
+                    }
                   />
                 )}
                 <Tooltip />
@@ -518,21 +700,35 @@ export const HistoryTab: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tank</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tank
+                    </th>
                     {visibleConfigs.map((config: ParameterConfig) => (
-                      <th key={config.code} className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      <th
+                        key={config.code}
+                        className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase"
+                      >
                         {config.name} {config.unit ? `(${config.unit})` : ''}
                       </th>
                     ))}
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Source
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {listQuery.data?.items?.length === 0 && (
                     <tr>
-                      <td colSpan={visibleConfigs.length + 4} className="px-4 py-12 text-center text-gray-500">
+                      <td
+                        colSpan={visibleConfigs.length + 4}
+                        className="px-4 py-12 text-center text-gray-500"
+                      >
                         No water quality measurements found for the selected filters.
                       </td>
                     </tr>
@@ -543,18 +739,23 @@ export const HistoryTab: React.FC = () => {
                         {formatDate(m.measuredAt)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {m.tankId ? (tankMap[m.tankId] || m.tankId.slice(0, 8)) : '-'}
+                        {m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}
                       </td>
                       {visibleConfigs.map((config: ParameterConfig) => {
                         const val = resolveParameterValue(m, config.code);
                         return (
-                          <td key={config.code} className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
+                          <td
+                            key={config.code}
+                            className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900"
+                          >
                             {val != null ? Number(val).toFixed(config.precision) : '-'}
                           </td>
                         );
                       })}
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}
+                        >
                           {getStatusLabel(m.overallStatus)}
                         </span>
                       </td>

@@ -20,6 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
+import { colors } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -40,10 +41,7 @@ interface GrowthForecastChartProps {
   batches: readonly Batch[];
 }
 
-export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
-  batchId,
-  batches,
-}) => {
+export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchId, batches }) => {
   const [selectedBatchId, setSelectedBatchId] = useState<string>(batchId || batches[0]?.id || '');
   const [projectionDays, setProjectionDays] = useState<number>(30);
   const [customSGR, setCustomSGR] = useState<number | null>(null);
@@ -108,9 +106,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Batch Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Batch
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
             <select
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value)}
@@ -196,8 +192,15 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                 {simulationData.summary.endWeight.toFixed(0)}g
               </p>
               <p className="text-xs text-green-600">
-                +{(simulationData.summary.endWeight - simulationData.summary.startWeight).toFixed(0)}g
-                ({(((simulationData.summary.endWeight - simulationData.summary.startWeight) / simulationData.summary.startWeight) * 100).toFixed(0)}%)
+                +
+                {(simulationData.summary.endWeight - simulationData.summary.startWeight).toFixed(0)}
+                g (
+                {(
+                  ((simulationData.summary.endWeight - simulationData.summary.startWeight) /
+                    simulationData.summary.startWeight) *
+                  100
+                ).toFixed(0)}
+                %)
               </p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
@@ -206,7 +209,12 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                 {(simulationData.summary.endBiomass / 1000).toFixed(2)}t
               </p>
               <p className="text-xs text-green-600">
-                +{((simulationData.summary.endBiomass - simulationData.summary.startBiomass) / 1000).toFixed(2)}t
+                +
+                {(
+                  (simulationData.summary.endBiomass - simulationData.summary.startBiomass) /
+                  1000
+                ).toFixed(2)}
+                t
               </p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
@@ -237,15 +245,22 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
-                  <YAxis yAxisId="left" label={{ value: 'Weight (g)', angle: -90, position: 'insideLeft' }} />
-                  <YAxis yAxisId="right" orientation="right" label={{ value: 'Biomass (kg)', angle: 90, position: 'insideRight' }} />
+                  <YAxis
+                    yAxisId="left"
+                    label={{ value: 'Weight (g)', angle: -90, position: 'insideLeft' }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={{ value: 'Biomass (kg)', angle: 90, position: 'insideRight' }}
+                  />
                   <Tooltip />
                   <Legend />
                   <Line
                     yAxisId="left"
                     type="monotone"
                     dataKey="weight"
-                    stroke="#3B82F6"
+                    stroke={colors.info[500]}
                     name="Avg Weight (g)"
                     strokeWidth={2}
                   />
@@ -253,9 +268,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="right"
                     type="monotone"
                     dataKey="biomass"
-                    fill="#10B981"
+                    fill={colors.success[500]}
                     fillOpacity={0.3}
-                    stroke="#10B981"
+                    stroke={colors.success[500]}
                     name="Biomass (kg)"
                   />
                 </ComposedChart>
@@ -271,21 +286,28 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
-                  <YAxis yAxisId="left" label={{ value: 'Daily Feed (kg)', angle: -90, position: 'insideLeft' }} />
-                  <YAxis yAxisId="right" orientation="right" label={{ value: 'Cumulative (kg)', angle: 90, position: 'insideRight' }} />
+                  <YAxis
+                    yAxisId="left"
+                    label={{ value: 'Daily Feed (kg)', angle: -90, position: 'insideLeft' }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={{ value: 'Cumulative (kg)', angle: 90, position: 'insideRight' }}
+                  />
                   <Tooltip />
                   <Legend />
                   <Bar
                     yAxisId="left"
                     dataKey="dailyFeed"
-                    fill="#F59E0B"
+                    fill={colors.warning[500]}
                     name="Daily Feed (kg)"
                   />
                   <Line
                     yAxisId="right"
                     type="monotone"
                     dataKey="cumulativeFeed"
-                    stroke="#8B5CF6"
+                    stroke={colors.primary[700]}
                     name="Cumulative Feed (kg)"
                     strokeWidth={2}
                   />

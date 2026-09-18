@@ -16,12 +16,12 @@ import {
   Plus,
   Edit2,
   Trash2,
-  X,
   Archive,
   XCircle,
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -296,138 +296,133 @@ const AuditDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ entry, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Audit Entry Details</h2>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Audit Entry Details"
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Basic Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">ID</span>
+          <p className="text-sm text-gray-900 font-mono">{entry.id}</p>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">ID</span>
-              <p className="text-sm text-gray-900 font-mono">{entry.id}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Timestamp</span>
-              <p className="text-sm text-gray-900">{formatDate(entry.createdAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Action</span>
-              <span
-                className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
-              >
-                {entry.action}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
-              >
-                {getSeverityIcon(entry.severity)}
-                {entry.severity}
-              </span>
-            </div>
-          </div>
-
-          {/* Entity Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Entity Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">Type</span>
-                <p className="text-sm text-gray-900">{entry.entityType}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">ID</span>
-                <p className="text-sm text-gray-900 font-mono">{entry.entityId}</p>
-              </div>
-              {entry.entityName && (
-                <div className="col-span-2">
-                  <span className="text-xs text-gray-500">Name</span>
-                  <p className="text-sm text-gray-900">{entry.entityName}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* User Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">User</span>
-                <p className="text-sm text-gray-900">{entry.userName || 'System'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Email</span>
-                <p className="text-sm text-gray-900">{entry.userEmail || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Tenant</span>
-                <p className="text-sm text-gray-900">{entry.tenantName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">IP Address</span>
-                <p className="text-sm text-gray-900 font-mono">{entry.ipAddress || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Changes */}
-          {entry.changes && entry.changes.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Changes</h3>
-              <div className="space-y-2">
-                {entry.changes.map((change, idx) => (
-                  <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-sm font-medium text-gray-700">{change.field}</p>
-                    <div className="grid grid-cols-2 gap-4 mt-2">
-                      <div>
-                        <span className="text-xs text-red-600">Old:</span>
-                        <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.oldValue)}
-                        </pre>
-                      </div>
-                      <div>
-                        <span className="text-xs text-green-600">New:</span>
-                        <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.newValue)}
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Metadata */}
-          {entry.metadata && Object.keys(entry.metadata).length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Metadata</h3>
-              <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto">
-                {JSON.stringify(entry.metadata)}
-              </pre>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium text-gray-500">Timestamp</span>
+          <p className="text-sm text-gray-900">{formatDate(entry.createdAt)}</p>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        <div>
+          <span className="text-sm font-medium text-gray-500">Action</span>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
           >
-            Close
-          </button>
+            {entry.action}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Severity</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+          >
+            {getSeverityIcon(entry.severity)}
+            {entry.severity}
+          </span>
         </div>
       </div>
-    </div>
+
+      {/* Entity Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Entity Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500">Type</span>
+            <p className="text-sm text-gray-900">{entry.entityType}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">ID</span>
+            <p className="text-sm text-gray-900 font-mono">{entry.entityId}</p>
+          </div>
+          {entry.entityName && (
+            <div className="col-span-2">
+              <span className="text-xs text-gray-500">Name</span>
+              <p className="text-sm text-gray-900">{entry.entityName}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* User Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500">User</span>
+            <p className="text-sm text-gray-900">{entry.userName || 'System'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Email</span>
+            <p className="text-sm text-gray-900">{entry.userEmail || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Tenant</span>
+            <p className="text-sm text-gray-900">{entry.tenantName || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">IP Address</span>
+            <p className="text-sm text-gray-900 font-mono">{entry.ipAddress || 'N/A'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Changes */}
+      {entry.changes && entry.changes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Changes</h3>
+          <div className="space-y-2">
+            {entry.changes.map((change, idx) => (
+              <div key={idx} className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm font-medium text-gray-700">{change.field}</p>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <span className="text-xs text-red-600">Old:</span>
+                    <pre className="text-xs text-gray-600 mt-1 overflow-auto">
+                      {JSON.stringify(change.oldValue)}
+                    </pre>
+                  </div>
+                  <div>
+                    <span className="text-xs text-green-600">New:</span>
+                    <pre className="text-xs text-gray-600 mt-1 overflow-auto">
+                      {JSON.stringify(change.newValue)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Metadata */}
+      {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Metadata</h3>
+          <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto">
+            {JSON.stringify(entry.metadata)}
+          </pre>
+        </div>
+      )}
+    </Modal>
   );
 };
 

@@ -1,3 +1,5 @@
+import { colors } from '@aquaculture/shared-ui';
+
 export type PrintReportResult = 'popup' | 'iframe' | 'unavailable';
 
 export interface ReportChartSnapshot {
@@ -51,16 +53,19 @@ const TEXT_SVG_ATTRIBUTES = new Set([
 ]);
 
 const SVG_ELEMENT_ATTRIBUTES = new Map<string, Set<string>>([
-  ['svg', new Set([
-    'height',
-    'preserveaspectratio',
-    'viewbox',
-    'width',
-    'x',
-    'xmlns',
-    'xmlns:xlink',
-    'y',
-  ])],
+  [
+    'svg',
+    new Set([
+      'height',
+      'preserveaspectratio',
+      'viewbox',
+      'width',
+      'x',
+      'xmlns',
+      'xmlns:xlink',
+      'y',
+    ]),
+  ],
   ['g', new Set(['data-layer-id', 'data-testid'])],
   ['path', new Set(['clip-rule', 'd', 'fill-rule'])],
   ['line', new Set(['x1', 'x2', 'y1', 'y2'])],
@@ -72,29 +77,35 @@ const SVG_ELEMENT_ATTRIBUTES = new Map<string, Set<string>>([
   ['text', new Set(TEXT_SVG_ATTRIBUTES)],
   ['tspan', new Set(TEXT_SVG_ATTRIBUTES)],
   ['defs', new Set()],
-  ['lineargradient', new Set([
-    'gradienttransform',
-    'gradientunits',
-    'href',
-    'spreadmethod',
-    'x1',
-    'x2',
-    'xlink:href',
-    'y1',
-    'y2',
-  ])],
-  ['radialgradient', new Set([
-    'cx',
-    'cy',
-    'fx',
-    'fy',
-    'gradienttransform',
-    'gradientunits',
-    'href',
-    'r',
-    'spreadmethod',
-    'xlink:href',
-  ])],
+  [
+    'lineargradient',
+    new Set([
+      'gradienttransform',
+      'gradientunits',
+      'href',
+      'spreadmethod',
+      'x1',
+      'x2',
+      'xlink:href',
+      'y1',
+      'y2',
+    ]),
+  ],
+  [
+    'radialgradient',
+    new Set([
+      'cx',
+      'cy',
+      'fx',
+      'fy',
+      'gradienttransform',
+      'gradientunits',
+      'href',
+      'r',
+      'spreadmethod',
+      'xlink:href',
+    ]),
+  ],
   ['stop', new Set(['offset', 'stop-color', 'stop-opacity'])],
   ['clippath', new Set(['clippathunits'])],
   ['mask', new Set(['height', 'maskcontentunits', 'maskunits', 'width', 'x', 'y'])],
@@ -127,9 +138,11 @@ export function escapeHtml(value: string): string {
 
 function isSafeReference(value: string): boolean {
   const trimmed = value.trim();
-  return trimmed === ''
-    || /^#[-\w:.]+$/.test(trimmed)
-    || /^url\(\s*(['"]?)#[-\w:.]+\1\s*\)$/i.test(trimmed);
+  return (
+    trimmed === '' ||
+    /^#[-\w:.]+$/.test(trimmed) ||
+    /^url\(\s*(['"]?)#[-\w:.]+\1\s*\)$/i.test(trimmed)
+  );
 }
 
 function hasUnsafeCssReference(value: string): boolean {
@@ -173,11 +186,11 @@ function sanitizeSvgElement(node: Element): boolean {
     const value = attribute.value;
 
     if (
-      name.startsWith('on')
-      || name === 'style'
-      || !isAttributeAllowed(elementName, name)
-      || hasUnsafeProtocol(value)
-      || hasUnsafeCssReference(value)
+      name.startsWith('on') ||
+      name === 'style' ||
+      !isAttributeAllowed(elementName, name) ||
+      hasUnsafeProtocol(value) ||
+      hasUnsafeCssReference(value)
     ) {
       node.removeAttribute(attribute.name);
       continue;
@@ -243,13 +256,14 @@ export function collectWaterChemistryReportCharts(root: HTMLElement): {
 
   const deffeyesRoot = root.querySelector('[data-report-chart-id="deffeyes"]');
   const deffeyesSvgNode = deffeyesRoot?.querySelector('svg.recharts-surface');
-  const deffeyesChart = deffeyesRoot && deffeyesSvgNode instanceof SVGElement
-    ? {
-        title: deffeyesRoot.querySelector('h3')?.textContent ?? 'Water Quality Management Chart',
-        subtitle: deffeyesRoot.querySelector('p')?.textContent ?? '',
-        svg: sanitizeReportSvg(deffeyesSvgNode),
-      }
-    : null;
+  const deffeyesChart =
+    deffeyesRoot && deffeyesSvgNode instanceof SVGElement
+      ? {
+          title: deffeyesRoot.querySelector('h3')?.textContent ?? 'Water Quality Management Chart',
+          subtitle: deffeyesRoot.querySelector('p')?.textContent ?? '',
+          svg: sanitizeReportSvg(deffeyesSvgNode),
+        }
+      : null;
 
   return { charts, deffeyesChart };
 }
@@ -258,7 +272,9 @@ function chartHtml(chart: ReportChartSnapshot | null | undefined): string {
   if (!chart) return '';
   const safeSvg = sanitizeReportSvgMarkup(chart.svg);
   return `<div style="margin-bottom:2px"><strong style="font-size:11px">${escapeHtml(chart.title)}</strong>${
-    chart.subtitle ? `<br><span style="font-size:9px;color:#666">${escapeHtml(chart.subtitle)}</span>` : ''
+    chart.subtitle
+      ? `<br><span style="font-size:9px;color:#666">${escapeHtml(chart.subtitle)}</span>`
+      : ''
   }</div>${safeSvg}`;
 }
 
@@ -267,7 +283,7 @@ function tableHtml(rows: string[][], title: string): string {
       <div style="margin-bottom:8px">
         <div style="font-size:11px;font-weight:bold;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px">${escapeHtml(title)}</div>
         <table style="width:100%;border-collapse:collapse;font-size:10px">
-          ${rows.map(row => `<tr>${row.map((cell, index) => `<td style="padding:2px 6px;border:1px solid #ddd;${index % 2 === 0 ? 'background:#f9fafb;font-weight:500;width:18%' : 'width:32%'}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+          ${rows.map((row) => `<tr>${row.map((cell, index) => `<td style="padding:2px 6px;border:1px solid #ddd;${index % 2 === 0 ? `background:${colors.neutral[50]};font-weight:500;width:18%` : 'width:32%'}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
         </table>
       </div>`;
 }

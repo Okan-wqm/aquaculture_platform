@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { ConfirmModal, useAuth } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -24,7 +24,6 @@ import {
 } from '../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
-import { DeleteConfirmModal } from '../components/common';
 
 // ---------------------------------------------------------------------------
 // Types & helpers
@@ -305,7 +304,11 @@ const TenantUsers: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
-        <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#146f84' }} aria-hidden="true" />
+        <RefreshCw
+          className="w-8 h-8 animate-spin"
+          style={{ color: '#146f84' }}
+          aria-hidden="true"
+        />
         <span className="sr-only">Loading users…</span>
       </div>
     );
@@ -322,12 +325,7 @@ const TenantUsers: React.FC = () => {
 
       {/* Actions row */}
       <div className="sd-actions">
-        <button
-          onClick={handleRefresh}
-          className="sd-iconbtn"
-          title="Refresh"
-          aria-label="Refresh"
-        >
+        <button onClick={handleRefresh} className="sd-iconbtn" title="Refresh" aria-label="Refresh">
           <RefreshCw size={16} />
         </button>
         {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
@@ -353,9 +351,20 @@ const TenantUsers: React.FC = () => {
       {error && (
         <div className="sd-banner sd-banner--error" role="alert">
           <AlertCircle size={19} style={{ color: '#b04a28', flexShrink: 0 }} />
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>Failed to load users</p>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>
+            Failed to load users
+          </p>
           <p style={{ margin: 0, flex: 1, fontSize: 13.5, color: '#3d5c69' }}>{error}</p>
-          <button onClick={handleRefresh} className="sd-btn-ghost" style={{ padding: '6px 13px', fontSize: 12.5, color: '#8e3a1e', borderColor: 'rgba(176,74,40,.35)' }}>
+          <button
+            onClick={handleRefresh}
+            className="sd-btn-ghost"
+            style={{
+              padding: '6px 13px',
+              fontSize: 12.5,
+              color: '#8e3a1e',
+              borderColor: 'rgba(176,74,40,.35)',
+            }}
+          >
             Retry
           </button>
         </div>
@@ -451,44 +460,50 @@ const TenantUsers: React.FC = () => {
       />
 
       {deletingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={!!deletingUser}
           onClose={() => setDeletingUser(null)}
           onConfirm={handleConfirmDelete}
           title="Delete User"
           message={`Are you sure you want to delete "${deletingUser.name}"? This action cannot be undone.`}
-          warningMessage={deleteError ?? undefined}
+          warning={deleteError}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
           isLoading={isDeleting}
+          loadingText="Processing..."
         />
       )}
 
       {activatingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={activatingUser !== null}
           onClose={() => setActivatingUser(null)}
           onConfirm={handleConfirmActivate}
           title="Activate User"
           message={`Activate "${activatingUser.name}"? The user will be able to sign in again.`}
-          warningMessage={lifecycleModalError ?? undefined}
-          confirmLabel="Activate"
-          cancelLabel="Cancel"
+          warning={lifecycleModalError}
+          confirmText="Activate"
+          cancelText="Cancel"
           variant="warning"
           isLoading={activateUserMutation.isPending}
+          loadingText="Processing..."
         />
       )}
 
       {unlockingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={unlockingUser !== null}
           onClose={() => setUnlockingUser(null)}
           onConfirm={handleConfirmUnlock}
           title="Unlock User"
           message={`Unlock "${unlockingUser.name}"? This clears the failed-login lockout so the user can sign in immediately.`}
-          warningMessage={lifecycleModalError ?? undefined}
-          confirmLabel="Unlock"
-          cancelLabel="Cancel"
+          warning={lifecycleModalError}
+          confirmText="Unlock"
+          cancelText="Cancel"
           variant="warning"
           isLoading={unlockUserMutation.isPending}
+          loadingText="Processing..."
         />
       )}
 

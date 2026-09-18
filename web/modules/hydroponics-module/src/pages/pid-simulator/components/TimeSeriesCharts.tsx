@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { SimSnapshot } from '../simulation/types';
+import { chartChrome, colors } from '@aquaculture/shared-ui';
 
 interface TimeSeriesChartsProps {
   history: SimSnapshot[];
@@ -24,19 +25,27 @@ interface TimeSeriesChartsProps {
   dt: number;
 }
 
-const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({
+  title,
+  children,
+}) => (
   <div className="bg-white rounded-lg border border-gray-200 p-2">
-    <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{title}</h4>
-    <div style={{ height: 110 }}>
-      {children}
-    </div>
+    <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+      {title}
+    </h4>
+    <div style={{ height: 110 }}>{children}</div>
   </div>
 );
 
 const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
-  history, phMin, phMax, ecMin, ecMax, dt,
+  history,
+  phMin,
+  phMax,
+  ecMin,
+  ecMax,
+  dt,
 }) => {
-  const data = history.map(s => ({
+  const data = history.map((s) => ({
     t: parseFloat((s.tick * dt).toFixed(1)),
     pH: s.pH,
     eqPH: s.eqPH,
@@ -52,7 +61,7 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
   if (data.length === 0) {
     return (
       <div className="space-y-2">
-        {['pH', 'EC', 'Pumps', 'DIC / ALK'].map(t => (
+        {['pH', 'EC', 'Pumps', 'DIC / ALK'].map((t) => (
           <ChartWrapper key={t} title={t}>
             <div className="flex items-center justify-center h-full text-[11px] text-gray-400">
               No data - press START
@@ -72,13 +81,34 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
       <ChartWrapper title="pH">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 2, right: 5, left: -15, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-            <ReferenceArea y1={phMin} y2={phMax} fill="#16a34a" fillOpacity={0.1} strokeOpacity={0} />
+            <ReferenceArea
+              y1={phMin}
+              y2={phMax}
+              fill={colors.success[600]}
+              fillOpacity={0.1}
+              strokeOpacity={0}
+            />
             <Tooltip contentStyle={{ fontSize: 10 }} />
-            <Line dataKey="pH" name="pH" stroke="#2563eb" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            <Line dataKey="eqPH" name="eq pH" stroke="#a855f7" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            <Line
+              dataKey="pH"
+              name="pH"
+              stroke={colors.info[600]}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="eqPH"
+              name="eq pH"
+              stroke={colors.accent[400]}
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              dot={false}
+              isAnimationActive={false}
+            />
           </LineChart>
         </ResponsiveContainer>
       </ChartWrapper>
@@ -87,11 +117,23 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
       <ChartWrapper title="EC (mS/cm)">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 2, right: 5, left: -15, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-            <ReferenceArea y1={ecMin} y2={ecMax} fill="#16a34a" fillOpacity={0.1} strokeOpacity={0} />
-            <Line dataKey="EC" stroke="#ea580c" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <ReferenceArea
+              y1={ecMin}
+              y2={ecMax}
+              fill={colors.success[600]}
+              fillOpacity={0.1}
+              strokeOpacity={0}
+            />
+            <Line
+              dataKey="EC"
+              stroke={colors.warning[600]}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+            />
           </LineChart>
         </ResponsiveContainer>
       </ChartWrapper>
@@ -100,13 +142,37 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
       <ChartWrapper title="Pump Outputs (%)">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 2, right: 5, left: -15, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={[0, 100]} />
-            <Line dataKey="acid" stroke="#e11d48" strokeWidth={1} dot={false} isAnimationActive={false} />
-            <Line dataKey="base" stroke="#16a34a" strokeWidth={1} dot={false} isAnimationActive={false} />
-            <Line dataKey="nut" stroke="#ea580c" strokeWidth={1} dot={false} isAnimationActive={false} />
-            <Line dataKey="dil" stroke="#2563eb" strokeWidth={1} dot={false} isAnimationActive={false} />
+            <Line
+              dataKey="acid"
+              stroke={colors.error[500]}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="base"
+              stroke={colors.success[600]}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="nut"
+              stroke={colors.warning[600]}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="dil"
+              stroke={colors.info[600]}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
           </LineChart>
         </ResponsiveContainer>
       </ChartWrapper>
@@ -115,11 +181,25 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
       <ChartWrapper title="DIC / ALK">
         <ResponsiveContainer>
           <LineChart data={data} margin={{ top: 2, right: 5, left: -15, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="t" type="number" domain={[tMin, tMax]} tick={{ fontSize: 9 }} />
             <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-            <Line dataKey="DIC" stroke="#7c3aed" strokeWidth={1.5} dot={false} isAnimationActive={false} name="DIC" />
-            <Line dataKey="ALK" stroke="#0891b2" strokeWidth={1.5} dot={false} isAnimationActive={false} name="ALK" />
+            <Line
+              dataKey="DIC"
+              stroke={colors.primary[800]}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+              name="DIC"
+            />
+            <Line
+              dataKey="ALK"
+              stroke={colors.primary[600]}
+              strokeWidth={1.5}
+              dot={false}
+              isAnimationActive={false}
+              name="ALK"
+            />
           </LineChart>
         </ResponsiveContainer>
       </ChartWrapper>

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -22,7 +23,6 @@ import {
   Send,
   Edit3,
   Trash2,
-  X,
   Globe,
   Target,
   Users,
@@ -99,9 +99,12 @@ export const AnnouncementsPage: React.FC = () => {
     fetchStats();
   }, [fetchAnnouncements, fetchStats]);
 
-  const filteredAnnouncements = announcements.filter(ann => {
-    if (searchQuery && !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !ann.content.toLowerCase().includes(searchQuery.toLowerCase())) {
+  const filteredAnnouncements = announcements.filter((ann) => {
+    if (
+      searchQuery &&
+      !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !ann.content.toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -109,29 +112,42 @@ export const AnnouncementsPage: React.FC = () => {
 
   const getTypeIcon = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return <Info size={16} className="text-blue-500" />;
-      case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
-      case 'critical': return <AlertCircle size={16} className="text-red-500" />;
-      case 'maintenance': return <Wrench size={16} className="text-purple-500" />;
+      case 'info':
+        return <Info size={16} className="text-blue-500" />;
+      case 'warning':
+        return <AlertTriangle size={16} className="text-yellow-500" />;
+      case 'critical':
+        return <AlertCircle size={16} className="text-red-500" />;
+      case 'maintenance':
+        return <Wrench size={16} className="text-purple-500" />;
     }
   };
 
   const getTypeColor = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return 'bg-blue-100 text-blue-700';
-      case 'warning': return 'bg-yellow-100 text-yellow-700';
-      case 'critical': return 'bg-red-100 text-red-700';
-      case 'maintenance': return 'bg-purple-100 text-purple-700';
+      case 'info':
+        return 'bg-blue-100 text-blue-700';
+      case 'warning':
+        return 'bg-yellow-100 text-yellow-700';
+      case 'critical':
+        return 'bg-red-100 text-red-700';
+      case 'maintenance':
+        return 'bg-purple-100 text-purple-700';
     }
   };
 
   const getStatusColor = (status: AnnouncementStatus) => {
     switch (status) {
-      case 'draft': return 'bg-gray-100 text-gray-700';
-      case 'scheduled': return 'bg-blue-100 text-blue-700';
-      case 'published': return 'bg-green-100 text-green-700';
-      case 'expired': return 'bg-gray-100 text-gray-500';
-      case 'cancelled': return 'bg-red-100 text-red-700';
+      case 'draft':
+        return 'bg-gray-100 text-gray-700';
+      case 'scheduled':
+        return 'bg-blue-100 text-blue-700';
+      case 'published':
+        return 'bg-green-100 text-green-700';
+      case 'expired':
+        return 'bg-gray-100 text-gray-500';
+      case 'cancelled':
+        return 'bg-red-100 text-red-700';
     }
   };
 
@@ -177,7 +193,9 @@ export const AnnouncementsPage: React.FC = () => {
 
   const handleCreateAnnouncement = async (data: Partial<Announcement>) => {
     try {
-      await supportApi.createAnnouncement(data as Parameters<typeof supportApi.createAnnouncement>[0]);
+      await supportApi.createAnnouncement(
+        data as Parameters<typeof supportApi.createAnnouncement>[0],
+      );
       setShowCreateModal(false);
       fetchAnnouncements();
       fetchStats();
@@ -197,7 +215,10 @@ export const AnnouncementsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { fetchAnnouncements(); fetchStats(); }}
+              onClick={() => {
+                fetchAnnouncements();
+                fetchStats();
+              }}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -237,11 +258,15 @@ export const AnnouncementsPage: React.FC = () => {
             </div>
             <div className="bg-purple-50 rounded-lg p-3">
               <div className="text-sm text-purple-600">Total Views</div>
-              <div className="text-xl font-semibold text-purple-700">{(stats.totalViews ?? 0).toLocaleString()}</div>
+              <div className="text-xl font-semibold text-purple-700">
+                {(stats.totalViews ?? 0).toLocaleString()}
+              </div>
             </div>
             <div className="bg-indigo-50 rounded-lg p-3">
               <div className="text-sm text-indigo-600">Acknowledged</div>
-              <div className="text-xl font-semibold text-indigo-700">{(stats.totalAcknowledgments ?? 0).toLocaleString()}</div>
+              <div className="text-xl font-semibold text-indigo-700">
+                {(stats.totalAcknowledgments ?? 0).toLocaleString()}
+              </div>
             </div>
           </div>
         )}
@@ -326,10 +351,14 @@ export const AnnouncementsPage: React.FC = () => {
                           <h3 className="text-lg font-semibold text-gray-900">
                             {announcement.title}
                           </h3>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}
+                          >
                             {announcement.status}
                           </span>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}
+                          >
                             {announcement.type}
                           </span>
                         </div>
@@ -482,7 +511,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   const [scheduleType, setScheduleType] = useState<'now' | 'scheduled'>('now');
   const [publishAt, setPublishAt] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(announcement?.requiresAcknowledgment ?? false);
+  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(
+    announcement?.requiresAcknowledgment ?? false,
+  );
 
   const handleSubmit = () => {
     onSave({
@@ -497,175 +528,182 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">
-            {announcement ? 'Edit Announcement' : 'Create Announcement'}
-          </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter announcement title..."
-            />
-          </div>
-
-          {/* Content */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={5}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Enter announcement content..."
-            />
-          </div>
-
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
-            <div className="grid grid-cols-4 gap-3">
-              {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setType(t)}
-                  className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                    type === t
-                      ? t === 'info' ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : t === 'warning' ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
-                      : t === 'critical' ? 'bg-red-100 border-red-300 text-red-700'
-                      : 'bg-purple-100 border-purple-300 text-purple-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  {t === 'info' && <Info size={16} />}
-                  {t === 'warning' && <AlertTriangle size={16} />}
-                  {t === 'critical' && <AlertCircle size={16} />}
-                  {t === 'maintenance' && <Wrench size={16} />}
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Target */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Target Audience</label>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setIsGlobal(true)}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-                  isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Globe size={18} />
-                All Tenants
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsGlobal(false)}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-                  !isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Target size={18} />
-                Targeted
-              </button>
-            </div>
-          </div>
-
-          {/* Scheduling */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Publishing</label>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setScheduleType('now')}
-                className={`flex-1 px-4 py-2 rounded-lg border ${
-                  scheduleType === 'now' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Save as Draft
-              </button>
-              <button
-                type="button"
-                onClick={() => setScheduleType('scheduled')}
-                className={`flex-1 px-4 py-2 rounded-lg border ${
-                  scheduleType === 'scheduled' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Schedule
-              </button>
-            </div>
-            {scheduleType === 'scheduled' && (
-              <input
-                type="datetime-local"
-                value={publishAt}
-                onChange={(e) => setPublishAt(e.target.value)}
-                className="w-full mt-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            )}
-          </div>
-
-          {/* Expiry */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Expiry Date (Optional)
-            </label>
-            <input
-              type="datetime-local"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Options */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="requiresAck"
-              checked={requiresAcknowledgment}
-              onChange={(e) => setRequiresAcknowledgment(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-            />
-            <label htmlFor="requiresAck" className="text-sm text-gray-700">
-              Require acknowledgment from users
-            </label>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title={announcement ? 'Edit Announcement' : 'Create Announcement'}
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!title || !content}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {scheduleType === 'scheduled' ? 'Schedule' : 'Save Draft'}
           </button>
+        </>
+      }
+    >
+      {/* Title */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter announcement title..."
+        />
+      </div>
+
+      {/* Content */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Content</label>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={5}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          placeholder="Enter announcement content..."
+        />
+      </div>
+
+      {/* Type */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+        <div className="grid grid-cols-4 gap-3">
+          {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setType(t)}
+              className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+                type === t
+                  ? t === 'info'
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : t === 'warning'
+                      ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
+                      : t === 'critical'
+                        ? 'bg-red-100 border-red-300 text-red-700'
+                        : 'bg-purple-100 border-purple-300 text-purple-700'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {t === 'info' && <Info size={16} />}
+              {t === 'warning' && <AlertTriangle size={16} />}
+              {t === 'critical' && <AlertCircle size={16} />}
+              {t === 'maintenance' && <Wrench size={16} />}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
-    </div>
+
+      {/* Target */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Target Audience</label>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setIsGlobal(true)}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
+              isGlobal
+                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Globe size={18} />
+            All Tenants
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsGlobal(false)}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
+              !isGlobal
+                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Target size={18} />
+            Targeted
+          </button>
+        </div>
+      </div>
+
+      {/* Scheduling */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Publishing</label>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setScheduleType('now')}
+            className={`flex-1 px-4 py-2 rounded-lg border ${
+              scheduleType === 'now'
+                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Save as Draft
+          </button>
+          <button
+            type="button"
+            onClick={() => setScheduleType('scheduled')}
+            className={`flex-1 px-4 py-2 rounded-lg border ${
+              scheduleType === 'scheduled'
+                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Schedule
+          </button>
+        </div>
+        {scheduleType === 'scheduled' && (
+          <input
+            type="datetime-local"
+            value={publishAt}
+            onChange={(e) => setPublishAt(e.target.value)}
+            className="w-full mt-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+        )}
+      </div>
+
+      {/* Expiry */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Expiry Date (Optional)
+        </label>
+        <input
+          type="datetime-local"
+          value={expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {/* Options */}
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="requiresAck"
+          checked={requiresAcknowledgment}
+          onChange={(e) => setRequiresAcknowledgment(e.target.checked)}
+          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+        />
+        <label htmlFor="requiresAck" className="text-sm text-gray-700">
+          Require acknowledgment from users
+        </label>
+      </div>
+    </Modal>
   );
 };
 
@@ -678,13 +716,15 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   announcement,
   onClose,
 }) => {
-  const [acknowledgments, setAcknowledgments] = useState<Array<{
-    userId: string;
-    userName: string;
-    tenantId: string;
-    viewedAt: string;
-    acknowledgedAt: string | null;
-  }>>([]);
+  const [acknowledgments, setAcknowledgments] = useState<
+    Array<{
+      userId: string;
+      userName: string;
+      tenantId: string;
+      viewedAt: string;
+      acknowledgedAt: string | null;
+    }>
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -702,87 +742,87 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   }, [announcement.id]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">Announcement Statistics</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Announcement Statistics"
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Announcement Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="font-semibold text-gray-900">{announcement.title}</h3>
+        <p className="text-sm text-gray-600 mt-1">{announcement.content}</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-blue-50 rounded-lg p-4 text-center">
+          <Eye size={24} className="mx-auto text-blue-600 mb-2" />
+          <div className="text-2xl font-bold text-blue-700">{announcement.viewCount}</div>
+          <div className="text-sm text-blue-600">Total Views</div>
         </div>
-
-        <div className="p-6 space-y-6">
-          {/* Announcement Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="font-semibold text-gray-900">{announcement.title}</h3>
-            <p className="text-sm text-gray-600 mt-1">{announcement.content}</p>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 rounded-lg p-4 text-center">
-              <Eye size={24} className="mx-auto text-blue-600 mb-2" />
-              <div className="text-2xl font-bold text-blue-700">{announcement.viewCount}</div>
-              <div className="text-sm text-blue-600">Total Views</div>
+        {announcement.requiresAcknowledgment && (
+          <div className="bg-green-50 rounded-lg p-4 text-center">
+            <CheckCircle size={24} className="mx-auto text-green-600 mb-2" />
+            <div className="text-2xl font-bold text-green-700">
+              {announcement.acknowledgmentCount}
             </div>
-            {announcement.requiresAcknowledgment && (
-              <div className="bg-green-50 rounded-lg p-4 text-center">
-                <CheckCircle size={24} className="mx-auto text-green-600 mb-2" />
-                <div className="text-2xl font-bold text-green-700">{announcement.acknowledgmentCount}</div>
-                <div className="text-sm text-green-600">Acknowledged</div>
-              </div>
-            )}
+            <div className="text-sm text-green-600">Acknowledged</div>
           </div>
+        )}
+      </div>
 
-          {/* Acknowledgments List */}
-          {announcement.requiresAcknowledgment && (
-            <div>
-              <h4 className="font-medium text-gray-900 mb-3">Recent Activity</h4>
-              {loading ? (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="animate-spin text-blue-600" size={24} />
-                </div>
-              ) : acknowledgments.length > 0 ? (
-                <div className="space-y-2">
-                  {acknowledgments.map((ack) => (
-                    <div key={ack.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="font-medium text-gray-900">{ack.userName}</div>
-                        <div className="text-sm text-gray-500">Tenant: {ack.tenantId}</div>
-                      </div>
-                      <div className="text-right">
-                        {ack.acknowledgedAt ? (
-                          <span className="flex items-center gap-1 text-green-600 text-sm">
-                            <CheckCircle size={14} />
-                            Acknowledged
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-gray-500 text-sm">
-                            <Eye size={14} />
-                            Viewed only
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-4">No activity yet</p>
-              )}
+      {/* Acknowledgments List */}
+      {announcement.requiresAcknowledgment && (
+        <div>
+          <h4 className="font-medium text-gray-900 mb-3">Recent Activity</h4>
+          {loading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="animate-spin text-blue-600" size={24} />
             </div>
+          ) : acknowledgments.length > 0 ? (
+            <div className="space-y-2">
+              {acknowledgments.map((ack) => (
+                <div
+                  key={ack.userId}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900">{ack.userName}</div>
+                    <div className="text-sm text-gray-500">Tenant: {ack.tenantId}</div>
+                  </div>
+                  <div className="text-right">
+                    {ack.acknowledgedAt ? (
+                      <span className="flex items-center gap-1 text-green-600 text-sm">
+                        <CheckCircle size={14} />
+                        Acknowledged
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-gray-500 text-sm">
+                        <Eye size={14} />
+                        Viewed only
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-4">No activity yet</p>
           )}
         </div>
-
-        <div className="flex items-center justify-end px-6 py-4 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 };
 

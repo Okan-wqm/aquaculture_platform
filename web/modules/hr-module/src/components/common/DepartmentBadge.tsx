@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 
 interface DepartmentBadgeProps {
   name: string;
@@ -34,11 +34,11 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 
 function getContrastColor(hexColor: string): string {
   const rgb = hexToRgb(hexColor);
-  if (!rgb) return '#000000';
+  if (!rgb) return colors.black;
 
   // Calculate relative luminance
   const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
-  return luminance > 0.5 ? '#000000' : '#ffffff';
+  return luminance > 0.5 ? colors.black : colors.white;
 }
 
 export function DepartmentBadge({
@@ -49,7 +49,7 @@ export function DepartmentBadge({
   showCode = false,
   className,
 }: DepartmentBadgeProps) {
-  const bgColor = colorCode || '#6366f1';
+  const bgColor = colorCode || colors.primary[500];
   const textColor = getContrastColor(bgColor);
 
   return (
@@ -57,16 +57,14 @@ export function DepartmentBadge({
       className={cn(
         'inline-flex items-center gap-1 rounded-md font-medium',
         sizeStyles[size],
-        className
+        className,
       )}
       style={{
         backgroundColor: bgColor,
         color: textColor,
       }}
     >
-      {showCode && code && (
-        <span className="opacity-75">{code}</span>
-      )}
+      {showCode && code && <span className="opacity-75">{code}</span>}
       <span>{name}</span>
     </span>
   );

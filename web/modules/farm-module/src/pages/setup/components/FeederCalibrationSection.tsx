@@ -4,6 +4,7 @@
  * Only shown in edit mode (when equipmentId exists)
  */
 import React, { useState, useEffect } from 'react';
+import { useToast } from '@aquaculture/shared-ui';
 import {
   useFeederCalibrations,
   useSaveFeederCalibrations,
@@ -68,15 +69,16 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
     setIsDirty(true);
   };
 
-  const updateRow = (key: string, field: keyof FeederCalibrationItemInput, value: string | number) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r._key === key ? { ...r, [field]: value } : r,
-      ),
-    );
+  const updateRow = (
+    key: string,
+    field: keyof FeederCalibrationItemInput,
+    value: string | number,
+  ) => {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, [field]: value } : r)));
     setIsDirty(true);
   };
 
+  const { toast } = useToast();
   const handleSave = async () => {
     const items: FeederCalibrationItemInput[] = rows.map(({ _key, ...rest }) => ({
       ...rest,
@@ -92,16 +94,12 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       setIsDirty(false);
     } catch (err) {
       console.error('Failed to save calibrations:', err);
-      alert('Failed to save calibrations. Please try again.');
+      toast({ title: 'Failed to save calibrations. Please try again.', variant: 'error' });
     }
   };
 
   if (isLoading) {
-    return (
-      <div className="py-4 text-center text-sm text-gray-500">
-        Loading calibrations...
-      </div>
-    );
+    return <div className="py-4 text-center text-sm text-gray-500">Loading calibrations...</div>;
   }
 
   return (
@@ -121,18 +119,14 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
                   Feed Size (mm)
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Label
-                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Label</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
                   Dispensing (g/shot)
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
                   Silo Capacity (kg)
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Notes
-                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Notes</th>
                 <th className="px-3 py-2 w-10"></th>
               </tr>
             </thead>
@@ -199,8 +193,18 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
                       className="text-red-500 hover:text-red-700"
                       title="Remove row"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </td>

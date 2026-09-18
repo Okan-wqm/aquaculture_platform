@@ -21,9 +21,12 @@ const spies = vi.hoisted(() => ({
   tags: [] as unknown[],
 }));
 
-vi.mock('@aquaculture/shared-ui', async () => {
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const { useQuery } = await import('@tanstack/react-query');
+  const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
   return {
+    Modal: actual.Modal,
+    ConfirmModal: actual.ConfirmModal,
     useAuth: () => ({ tenantId: 'tenant-1', token: 't' }),
     createTenantQueryKey: (tenantId: string, ...rest: unknown[]) => ['tenant', tenantId, ...rest],
     // Faithful stub of the SSoT hook: tenant-prefixed key + the given fetcher
@@ -61,7 +64,13 @@ vi.mock('../../../config/api', () => ({
     }
     return {
       allDataChannels: [
-        { id: 'chan-5', sensorId: 'sensor-9', channelKey: 'do', displayLabel: 'Dissolved O2', unit: 'mg/L' },
+        {
+          id: 'chan-5',
+          sensorId: 'sensor-9',
+          channelKey: 'do',
+          displayLabel: 'Dissolved O2',
+          unit: 'mg/L',
+        },
       ],
     };
   }),
@@ -156,7 +165,9 @@ describe('TagRegistryPage (SENSOR-HIGH-048)', () => {
   });
 
   it('clears the live link when the sensor is unset', async () => {
-    spies.tags = [{ ...baseTag, source: { ...baseTag.source, sensorId: 'sensor-9', channelId: 'chan-5' } }];
+    spies.tags = [
+      { ...baseTag, source: { ...baseTag.source, sensorId: 'sensor-9', channelId: 'chan-5' } },
+    ];
     renderPage();
 
     fireEvent.click(screen.getByLabelText(`${baseTag.fqn} tag'ini düzenle`));

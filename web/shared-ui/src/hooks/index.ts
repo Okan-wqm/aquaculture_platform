@@ -4,10 +4,7 @@
 
 export { useAuth, useRequireAuth } from './useAuth';
 export { useTenant } from './useTenant';
-export {
-  useTenantScopedStorage,
-  TENANT_SCOPED_STORAGE_NAMESPACE,
-} from './useTenantScopedStorage';
+export { useTenantScopedStorage, TENANT_SCOPED_STORAGE_NAMESPACE } from './useTenantScopedStorage';
 export type { TenantScopedStorage } from './useTenantScopedStorage';
 export {
   useGraphQLQuery,
@@ -18,3 +15,6 @@ export {
 } from './useGraphQL';
 export { useToast, ToastContainer } from './useToast';
 export type { ToastOptions } from './useToast';
+export { useConfirm, usePrompt } from './useConfirm';
+export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './useConfirm';
+export { useClickOutside } from './useClickOutside';

@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -44,11 +45,34 @@ import {
 // Constants
 // ============================================================================
 
-const SEVERITY_CONFIG: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string; borderColor: string }> = {
-  EMERGENCY: { label: 'Acil', icon: AlertOctagon, color: 'bg-red-100 text-red-800 border-red-300', borderColor: 'border-l-red-600' },
-  CRITICAL: { label: 'Kritik', icon: AlertTriangle, color: 'bg-red-50 text-red-700 border-red-200', borderColor: 'border-l-red-500' },
-  WARNING: { label: 'Uyari', icon: Bell, color: 'bg-yellow-100 text-yellow-800 border-yellow-300', borderColor: 'border-l-yellow-500' },
-  INFO: { label: 'Bilgi', icon: Info, color: 'bg-blue-100 text-blue-800 border-blue-200', borderColor: 'border-l-blue-400' },
+const SEVERITY_CONFIG: Record<
+  string,
+  { label: string; icon: React.FC<{ className?: string }>; color: string; borderColor: string }
+> = {
+  EMERGENCY: {
+    label: 'Acil',
+    icon: AlertOctagon,
+    color: 'bg-red-100 text-red-800 border-red-300',
+    borderColor: 'border-l-red-600',
+  },
+  CRITICAL: {
+    label: 'Kritik',
+    icon: AlertTriangle,
+    color: 'bg-red-50 text-red-700 border-red-200',
+    borderColor: 'border-l-red-500',
+  },
+  WARNING: {
+    label: 'Uyari',
+    icon: Bell,
+    color: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+    borderColor: 'border-l-yellow-500',
+  },
+  INFO: {
+    label: 'Bilgi',
+    icon: Info,
+    color: 'bg-blue-100 text-blue-800 border-blue-200',
+    borderColor: 'border-l-blue-400',
+  },
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -66,8 +90,12 @@ const SOURCE_LABELS: Record<string, string> = {
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('tr-TR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -88,12 +116,42 @@ function timeAgo(dateStr: string): string {
 
 const AlarmStatsCards: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
   const cards = [
-    { label: 'Aktif', value: stats.totalActive, icon: AlertTriangle, color: 'text-red-600 bg-red-50 border-red-200' },
-    { label: 'Onaylanmamis', value: stats.totalUnacknowledged, icon: BellOff, color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
-    { label: 'Kritik', value: stats.criticalCount, icon: AlertOctagon, color: 'text-red-700 bg-red-50 border-red-300' },
-    { label: 'Acil', value: stats.emergencyCount, icon: Shield, color: 'text-red-800 bg-red-100 border-red-400' },
-    { label: 'Son 24 Saat', value: stats.last24HoursCount, icon: Clock, color: 'text-gray-600 bg-gray-50 border-gray-200' },
-    { label: 'Son 7 Gun', value: stats.last7DaysCount, icon: Clock, color: 'text-gray-500 bg-gray-50 border-gray-200' },
+    {
+      label: 'Aktif',
+      value: stats.totalActive,
+      icon: AlertTriangle,
+      color: 'text-red-600 bg-red-50 border-red-200',
+    },
+    {
+      label: 'Onaylanmamis',
+      value: stats.totalUnacknowledged,
+      icon: BellOff,
+      color: 'text-yellow-600 bg-yellow-50 border-yellow-200',
+    },
+    {
+      label: 'Kritik',
+      value: stats.criticalCount,
+      icon: AlertOctagon,
+      color: 'text-red-700 bg-red-50 border-red-300',
+    },
+    {
+      label: 'Acil',
+      value: stats.emergencyCount,
+      icon: Shield,
+      color: 'text-red-800 bg-red-100 border-red-400',
+    },
+    {
+      label: 'Son 24 Saat',
+      value: stats.last24HoursCount,
+      icon: Clock,
+      color: 'text-gray-600 bg-gray-50 border-gray-200',
+    },
+    {
+      label: 'Son 7 Gun',
+      value: stats.last7DaysCount,
+      icon: Clock,
+      color: 'text-gray-500 bg-gray-50 border-gray-200',
+    },
   ];
 
   return (
@@ -123,19 +181,17 @@ const AcknowledgeDialog: React.FC<{
   const [notes, setNotes] = useState('');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          maxLength={1000}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-          placeholder="Alarm hakkinda notlariniz..."
-        />
-        <div className="mt-4 flex gap-3">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title={title}
+      showCloseButton={!isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
             onClick={onClose}
             className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -150,9 +206,19 @@ const AcknowledgeDialog: React.FC<{
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             Onayla
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+        maxLength={1000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+        placeholder="Alarm hakkinda notlariniz..."
+      />
+    </Modal>
   );
 };
 
@@ -176,7 +242,8 @@ const PlcAlarmsPage: React.FC = () => {
     severity: (severityFilter as AlarmSeverity) || undefined,
     source: (sourceFilter as AlarmSource) || undefined,
     plcConnectionId: connectionFilter || undefined,
-    acknowledged: ackFilter === 'unacknowledged' ? false : ackFilter === 'acknowledged' ? true : undefined,
+    acknowledged:
+      ackFilter === 'unacknowledged' ? false : ackFilter === 'acknowledged' ? true : undefined,
   };
 
   const pagination: PlcPagination = { page, limit: 50, sortBy: 'timestamp', sortOrder: 'DESC' };
@@ -188,7 +255,9 @@ const PlcAlarmsPage: React.FC = () => {
 
   const connectionMap = useMemo(() => {
     const map: Record<string, string> = {};
-    connections?.forEach((c) => { map[c.id] = c.name; });
+    connections?.forEach((c) => {
+      map[c.id] = c.name;
+    });
     return map;
   }, [connections]);
 
@@ -209,22 +278,32 @@ const PlcAlarmsPage: React.FC = () => {
     });
   }, [alarms]);
 
-  const handleAcknowledgeSingle = useCallback(async (notes?: string) => {
-    if (!ackDialogSingle) return;
-    try {
-      await mutations.acknowledge.mutateAsync({ id: ackDialogSingle, notes });
-      setAckDialogSingle(null);
-    } catch (err) { console.error(err); }
-  }, [ackDialogSingle, mutations.acknowledge]);
+  const handleAcknowledgeSingle = useCallback(
+    async (notes?: string) => {
+      if (!ackDialogSingle) return;
+      try {
+        await mutations.acknowledge.mutateAsync({ id: ackDialogSingle, notes });
+        setAckDialogSingle(null);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [ackDialogSingle, mutations.acknowledge],
+  );
 
-  const handleBulkAcknowledge = useCallback(async (notes?: string) => {
-    if (selectedIds.size === 0) return;
-    try {
-      await mutations.bulkAcknowledge.mutateAsync({ alarmIds: Array.from(selectedIds), notes });
-      setSelectedIds(new Set());
-      setShowBulkAck(false);
-    } catch (err) { console.error(err); }
-  }, [selectedIds, mutations.bulkAcknowledge]);
+  const handleBulkAcknowledge = useCallback(
+    async (notes?: string) => {
+      if (selectedIds.size === 0) return;
+      try {
+        await mutations.bulkAcknowledge.mutateAsync({ alarmIds: Array.from(selectedIds), notes });
+        setSelectedIds(new Set());
+        setShowBulkAck(false);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [selectedIds, mutations.bulkAcknowledge],
+  );
 
   const unacknowledgedSelected = useMemo(() => {
     if (!alarms) return 0;
@@ -292,7 +371,9 @@ const PlcAlarmsPage: React.FC = () => {
         >
           <option value="">Tum Kaynaklar</option>
           {Object.entries(SOURCE_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
+            <option key={key} value={key}>
+              {label}
+            </option>
           ))}
         </select>
         <select
@@ -302,7 +383,9 @@ const PlcAlarmsPage: React.FC = () => {
         >
           <option value="">Tum Baglantilar</option>
           {connections?.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
         <div className="flex rounded-lg border border-gray-300 overflow-hidden">
@@ -357,14 +440,20 @@ const PlcAlarmsPage: React.FC = () => {
                     onChange={() => toggleSelect(alarm.id)}
                     className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                   />
-                  <SeverityIcon className={`mt-0.5 h-5 w-5 flex-shrink-0 ${alarm.severity === 'EMERGENCY' || alarm.severity === 'CRITICAL' ? 'text-red-500' : alarm.severity === 'WARNING' ? 'text-yellow-500' : 'text-blue-400'}`} />
+                  <SeverityIcon
+                    className={`mt-0.5 h-5 w-5 flex-shrink-0 ${alarm.severity === 'EMERGENCY' || alarm.severity === 'CRITICAL' ? 'text-red-500' : alarm.severity === 'WARNING' ? 'text-yellow-500' : 'text-blue-400'}`}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}
+                      >
                         {severityCfg.label}
                       </span>
                       <span className="text-xs font-mono text-gray-500">{alarm.alarmCode}</span>
-                      <span className="text-xs text-gray-400">{SOURCE_LABELS[alarm.source] || alarm.source}</span>
+                      <span className="text-xs text-gray-400">
+                        {SOURCE_LABELS[alarm.source] || alarm.source}
+                      </span>
                       {alarm.acknowledged && (
                         <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
                           <CheckCircle className="h-3 w-3" />
@@ -383,7 +472,10 @@ const PlcAlarmsPage: React.FC = () => {
                         {connectionMap[alarm.plcConnectionId] || alarm.plcConnectionId.slice(0, 8)}
                       </span>
                       {alarm.value != null && (
-                        <span>Deger: {alarm.value} {alarm.threshold != null ? `/ Esik: ${alarm.threshold}` : ''}</span>
+                        <span>
+                          Deger: {alarm.value}{' '}
+                          {alarm.threshold != null ? `/ Esik: ${alarm.threshold}` : ''}
+                        </span>
                       )}
                       {alarm.action && (
                         <span className="text-orange-600">Islem: {alarm.action}</span>
@@ -397,7 +489,8 @@ const PlcAlarmsPage: React.FC = () => {
                     )}
                     {alarm.acknowledged && alarm.acknowledgedAt && (
                       <div className="mt-1 text-xs text-gray-400">
-                        Onaylayan: {alarm.acknowledgedBy || '-'} - {formatDate(alarm.acknowledgedAt)}
+                        Onaylayan: {alarm.acknowledgedBy || '-'} -{' '}
+                        {formatDate(alarm.acknowledgedAt)}
                       </div>
                     )}
                   </div>
@@ -447,9 +540,7 @@ const PlcAlarmsPage: React.FC = () => {
               ? 'Filtrelerle eslesen alarm yok'
               : 'Alarm bulunamadi'}
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Aktif alarm bulunmamaktadir.
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Aktif alarm bulunmamaktadir.</p>
         </div>
       )}
 

@@ -311,6 +311,23 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // `tests/invariants/git-hook-binding.spec.ts` close that, so the next
   // missing trailer is refused at write time rather than discovered here.
   '9fb8efce', // fix(gates): restore the orphaned npm script and make the seam checkable
+  // 2026-09-18 design-system wave 1 (PR: design-system adoption). Both commits
+  // were pushed before their findings existed in the registry — the survey
+  // that produced FE-HIGH-065..079 was written in the same session, after the
+  // code — and the commit-msg hook was not bound in the session that wrote
+  // them. Amending a pushed commit is forbidden (force-push ban), so the two
+  // SHAs are allowlisted here and their findings are registered and named by
+  // the commit that adds this entry. Same route as 5334a47a / 4048a1cf above.
+  'aae401bc', // feat(web): ban browser dialogs; add useConfirm/usePrompt, Drawer, SW update banner (FE-HIGH-068)
+  'a74c6ee3', // feat(web): design-system adoption ratchet; 17 dialogs onto shared Modal (FE-HIGH-065/077, FE-MEDIUM-067)
+  // feat/ai-farm-specialists: its aquamobil AI-identity fix was raised on the
+  // branch as FE-HIGH-066 and named by that commit's trailer; main's
+  // design-system wave allocated FE-HIGH-066 (raw hex colours) before the
+  // branch landed, so the branch row was renumbered to FE-HIGH-069 when the
+  // registry was re-appended onto main's chain. The alias sidecar cannot
+  // carry it (FE-HIGH-066 is a LIVE id on main) and the pushed trailer cannot
+  // be amended (force-push ban) — the identical situation as 5334a47a above.
+  'd6eeb1cf', // fix(aquamobil): restore FAZ 2.4 server-authoritative AI identity (066 -> 069)
 ]);
 
 interface Commit {

@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
+import { ConfiguredBrowserRouter, ConfirmProvider } from '@aquaculture/shared-ui';
 import TenantAdminModule from './Module';
 import './styles.css';
 
@@ -22,8 +22,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ConfiguredBrowserRouter>
-        <TenantAdminModule />
+        <ConfirmProvider>
+          <TenantAdminModule />
+        </ConfirmProvider>
       </ConfiguredBrowserRouter>
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

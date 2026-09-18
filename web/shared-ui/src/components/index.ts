@@ -71,6 +71,10 @@ export type {
   AffectedItemSummary,
 } from './Modal';
 
+// Drawer
+export { Drawer } from './Drawer';
+export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
+
 // Alert & Badge
 export { Alert, Badge } from './Alert';
 export type { AlertProps, BadgeProps } from './Alert';

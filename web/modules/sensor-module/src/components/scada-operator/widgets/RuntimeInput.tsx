@@ -12,6 +12,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock, Loader2 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../../store/scada';
@@ -78,11 +79,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, []);
 
   /* ---- helpers ---- */
-  function formatValueForInput(
-    val: unknown,
-    type: InputType,
-    dec: number,
-  ): string {
+  function formatValueForInput(val: unknown, type: InputType, dec: number): string {
     if (val === null || val === undefined) return '';
     if (type === 'number') {
       const n = Number(val);
@@ -125,7 +122,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         // lastError from useTagWrite is displayed
       }
     },
-     
+
     [tagId, inputType, minVal, maxVal, writeTag, onCommand],
   );
 
@@ -151,15 +148,17 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     [handleCommit, currentTagValue, inputType, decimals],
   );
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setInputVal(e.target.value);
-      setIsDirty(true);
-      setWriteSuccess(false);
-      setValidationError(null);
-    },
-    [],
-  );
+  const closePinDialog = useCallback(() => {
+    setShowPinDialog(false);
+    setPinInput('');
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputVal(e.target.value);
+    setIsDirty(true);
+    setWriteSuccess(false);
+    setValidationError(null);
+  }, []);
 
   // SENSOR-CRITICAL-006: the PIN is verified SERVER-SIDE against the
   // package's salted hash — the client never sees or compares the secret
@@ -199,8 +198,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, [packageId, pinVerifying, pinInput, doWrite, inputVal]);
 
   /* ---- HTML input type ---- */
-  const htmlInputType =
-    inputType === 'datetime' ? 'datetime-local' : inputType;
+  const htmlInputType = inputType === 'datetime' ? 'datetime-local' : inputType;
 
   /* ---- quality indicator color ---- */
   const quality = tagChange?.quality ?? 'good';
@@ -245,10 +243,16 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
 
         {/* Status icons */}
         {isWriting && (
-          <Loader2 className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0" aria-label="Writing..." />
+          <Loader2
+            className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0"
+            aria-label="Writing..."
+          />
         )}
         {writeSuccess && !isWriting && (
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" aria-label="Write successful" />
+          <CheckCircle
+            className="w-4 h-4 text-green-500 flex-shrink-0"
+            aria-label="Write successful"
+          />
         )}
         {(lastError || validationError) && !isWriting && (
           <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" aria-label="Write error" />
@@ -288,54 +292,57 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
       )}
 
       {/* PIN dialog */}
-      {showPinDialog && (
-        <div
-          role="dialog"
-          aria-label="Enter PIN"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        >
-          <div className="bg-white rounded-lg shadow-xl p-6 w-72 flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-              <Lock className="w-5 h-5 text-gray-600" />
-              <h3 className="text-sm font-semibold text-gray-800">Enter PIN</h3>
-            </div>
-            <input
-              type="password"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
-              placeholder="PIN"
-              autoFocus
-              aria-label="PIN"
-              className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-            />
-            {pinError && (
-              <p className="text-xs text-red-600" role="alert">{pinError}</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPinDialog(false);
-                  setPinInput('');
-                }}
-                className="flex-1 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePinConfirm}
-                disabled={pinVerifying}
-                className="flex-1 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-              >
-                OK
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showPinDialog}
+        onClose={closePinDialog}
+        title={
+          <span className="flex items-center gap-2">
+            <Lock className="w-5 h-5 text-gray-600" aria-hidden="true" />
+            Enter PIN
+          </span>
+        }
+        size="sm"
+        closeOnEscape={!pinVerifying}
+        closeOnOverlayClick={!pinVerifying}
+        showCloseButton={!pinVerifying}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closePinDialog}
+              disabled={pinVerifying}
+              className="px-4 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePinConfirm}
+              disabled={pinVerifying}
+              className="px-4 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+            >
+              OK
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <input
+            type="password"
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
+            placeholder="PIN"
+            aria-label="PIN"
+            className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+          />
+          {pinError && (
+            <p className="text-xs text-red-600" role="alert">
+              {pinError}
+            </p>
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

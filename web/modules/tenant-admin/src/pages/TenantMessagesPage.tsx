@@ -12,7 +12,6 @@ import {
   Send,
   Search,
   Plus,
-  X,
   Paperclip,
   CheckCheck,
   Clock,
@@ -21,6 +20,7 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useMessageThreads,
@@ -49,7 +49,9 @@ const TenantMessagesPage: React.FC = () => {
 
   // TanStack Query hooks
   const { data: threads = [], isLoading: loading, error: threadsError } = useMessageThreads();
-  const { data: messages = [], isLoading: messagesLoading } = useThreadMessages(selectedThread?.id ?? null);
+  const { data: messages = [], isLoading: messagesLoading } = useThreadMessages(
+    selectedThread?.id ?? null,
+  );
   const sendMessageMutation = useSendMessage();
   const createThreadMutation = useCreateThread();
 
@@ -172,7 +174,10 @@ const TenantMessagesPage: React.FC = () => {
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Search conversations..."
@@ -226,31 +231,35 @@ const TenantMessagesPage: React.FC = () => {
               </div>
             ) : (
               filteredThreads.map((thread) => (
-              <div
-                key={thread.id}
-                onClick={() => setSelectedThread(thread)}
-                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  selectedThread?.id === thread.id ? 'bg-tenant-50 border-l-4 border-l-tenant-500' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 truncate">{thread.subject}</span>
-                      {thread.unreadCount > 0 && (
-                        <span className="px-1.5 py-0.5 bg-tenant-600 text-white text-xs rounded-full">
-                          {thread.unreadCount}
-                        </span>
-                      )}
+                <div
+                  key={thread.id}
+                  onClick={() => setSelectedThread(thread)}
+                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    selectedThread?.id === thread.id
+                      ? 'bg-tenant-50 border-l-4 border-l-tenant-500'
+                      : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900 truncate">{thread.subject}</span>
+                        {thread.unreadCount > 0 && (
+                          <span className="px-1.5 py-0.5 bg-tenant-600 text-white text-xs rounded-full">
+                            {thread.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500 truncate mt-1">
+                        {thread.lastMessage}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                        <Clock size={12} />
+                        <span>{formatTime(thread.lastMessageAt || thread.updatedAt)}</span>
+                        <span>·</span>
+                        <span>{thread.messageCount} messages</span>
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-500 truncate mt-1">{thread.lastMessage}</div>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-                      <Clock size={12} />
-                      <span>{formatTime(thread.lastMessageAt || thread.updatedAt)}</span>
-                      <span>·</span>
-                      <span>{thread.messageCount} messages</span>
-                    </div>
-                  </div>
                     <div className="flex flex-col items-end ml-2">
                       {thread.isClosed && (
                         <span className="text-xs text-gray-500 px-1.5 py-0.5 bg-gray-100 rounded">
@@ -258,19 +267,15 @@ const TenantMessagesPage: React.FC = () => {
                         </span>
                       )}
                     </div>
+                  </div>
                 </div>
-              </div>
               ))
             )}
           </div>
         </div>
 
         {/* Message Area */}
-        <div
-          className={`flex-1 flex-col bg-gray-50 ${
-            selectedThread ? 'flex' : 'hidden md:flex'
-          }`}
-        >
+        <div className={`flex-1 flex-col bg-gray-50 ${selectedThread ? 'flex' : 'hidden md:flex'}`}>
           {selectedThread ? (
             <>
               {/* Thread Header */}
@@ -286,15 +291,19 @@ const TenantMessagesPage: React.FC = () => {
                       <ArrowLeft size={20} />
                     </button>
                     <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold text-gray-900 truncate">{selectedThread.subject}</h2>
-                      {selectedThread.isClosed && (
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                          Closed
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-500">{selectedThread.messageCount} messages</p>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-semibold text-gray-900 truncate">
+                          {selectedThread.subject}
+                        </h2>
+                        {selectedThread.isClosed && (
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                            Closed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500">
+                        {selectedThread.messageCount} messages
+                      </p>
                     </div>
                   </div>
                   <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
@@ -316,48 +325,52 @@ const TenantMessagesPage: React.FC = () => {
                   </div>
                 ) : (
                   messages.map((message: Message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.senderType === 'tenant_admin' ? 'justify-end' : 'justify-start'}`}
-                  >
                     <div
-                      className={`max-w-2xl rounded-lg p-4 ${
-                        message.senderType === 'tenant_admin'
-                          ? 'bg-tenant-600 text-white'
-                          : 'bg-white border border-gray-200'
-                      }`}
+                      key={message.id}
+                      className={`flex ${message.senderType === 'tenant_admin' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`text-sm font-medium ${
-                            message.senderType === 'tenant_admin' ? 'text-tenant-100' : 'text-gray-700'
-                          }`}
-                        >
-                          {message.senderName}
-                        </span>
-                        <span
-                          className={`text-xs ${
-                            message.senderType === 'tenant_admin' ? 'text-tenant-200' : 'text-gray-500'
-                          }`}
-                        >
-                          {formatTime(message.createdAt)}
-                        </span>
-                      </div>
-                      {/* SEC-008: Use whitespace-pre-line (newlines only) not pre-wrap to avoid tab/space injection layout attacks */}
-                      <p className="text-sm whitespace-pre-line">{message.content}</p>
-
-                      {/* Read Status */}
-                      {message.senderType === 'tenant_admin' && (
-                        <div className="flex justify-end mt-2">
-                          {message.status === 'read' ? (
-                            <CheckCheck size={14} className="text-tenant-200" />
-                          ) : (
-                            <CheckCheck size={14} className="text-tenant-300 opacity-50" />
-                          )}
+                      <div
+                        className={`max-w-2xl rounded-lg p-4 ${
+                          message.senderType === 'tenant_admin'
+                            ? 'bg-tenant-600 text-white'
+                            : 'bg-white border border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={`text-sm font-medium ${
+                              message.senderType === 'tenant_admin'
+                                ? 'text-tenant-100'
+                                : 'text-gray-700'
+                            }`}
+                          >
+                            {message.senderName}
+                          </span>
+                          <span
+                            className={`text-xs ${
+                              message.senderType === 'tenant_admin'
+                                ? 'text-tenant-200'
+                                : 'text-gray-500'
+                            }`}
+                          >
+                            {formatTime(message.createdAt)}
+                          </span>
                         </div>
-                      )}
+                        {/* SEC-008: Use whitespace-pre-line (newlines only) not pre-wrap to avoid tab/space injection layout attacks */}
+                        <p className="text-sm whitespace-pre-line">{message.content}</p>
+
+                        {/* Read Status */}
+                        {message.senderType === 'tenant_admin' && (
+                          <div className="flex justify-end mt-2">
+                            {message.status === 'read' ? (
+                              <CheckCheck size={14} className="text-tenant-200" />
+                            ) : (
+                              <CheckCheck size={14} className="text-tenant-300 opacity-50" />
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
                   ))
                 )}
                 <div ref={messagesEndRef} />
@@ -410,7 +423,8 @@ const TenantMessagesPage: React.FC = () => {
               {selectedThread.isClosed && (
                 <div className="bg-gray-100 border-t border-gray-200 px-6 py-4 text-center">
                   <p className="text-sm text-gray-500">
-                    This conversation is closed. Start a new conversation if you need further assistance.
+                    This conversation is closed. Start a new conversation if you need further
+                    assistance.
                   </p>
                 </div>
               )}
@@ -471,48 +485,17 @@ const NewThreadModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
-              placeholder="Enter subject..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={5}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
-              placeholder="Describe your question or issue..."
-            />
-          </div>
-        </div>
-
-        {submitError && (
-          <div className="px-6 pb-2">
-            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              {submitError}
-            </div>
-          </div>
-        )}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title="New Conversation"
+      showCloseButton={!submitting}
+      closeOnEscape={!submitting}
+      closeOnOverlayClick={!submitting}
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -531,9 +514,37 @@ const NewThreadModal: React.FC<{
             )}
             {submitting ? 'Creating...' : 'Start Conversation'}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+          placeholder="Enter subject..."
+        />
       </div>
-    </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          rows={5}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
+          placeholder="Describe your question or issue..."
+        />
+      </div>
+      {submitError && (
+        <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+          <AlertCircle size={16} className="flex-shrink-0" />
+          {submitError}
+        </div>
+      )}
+    </Modal>
   );
 };
 

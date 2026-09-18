@@ -4,8 +4,10 @@
  * Portal, animasyon ve erişilebilirlik desteği
  */
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+
+import { useDialogBehavior } from './useDialogBehavior';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -16,10 +18,10 @@ export interface ModalProps {
   isOpen: boolean;
   /** Kapatma işleyicisi */
   onClose: () => void;
-  /** Modal başlığı */
-  title?: string;
+  /** Modal başlığı — ikonlu başlıklar için ReactNode da olabilir */
+  title?: React.ReactNode;
   /** Alt başlık veya açıklama */
-  description?: string;
+  description?: React.ReactNode;
   /** Modal boyutu */
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   /** Overlay tıklaması ile kapatma */
@@ -32,8 +34,14 @@ export interface ModalProps {
   footer?: React.ReactNode;
   /** Modal içeriği */
   children: React.ReactNode;
-  /** Ek CSS sınıfları */
+  /** Panele ek CSS sınıfları */
   className?: string;
+  /**
+   * Gövde sarmalayıcısının sınıfları (varsayılan `p-4`). Kendi iç düzenini
+   * (sekmeler, kaydırılan liste, yapışkan alt şerit) getiren içerik `''` ya da
+   * `flex-1 min-h-0 overflow-y-auto` gibi bir değer geçer.
+   */
+  bodyClassName?: string;
 }
 
 // ============================================================================
@@ -93,16 +101,12 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   children,
   className = '',
+  bodyClassName = 'p-4',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  const previousActiveElement = useRef<HTMLElement | null>(null);
-  // BUG-001/PERF-007: Store listener ref so removal always targets same identity
-  const listenerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
-  // Store latest props in refs so the stable listener can access current values
-  const closeOnEscapeRef = useRef(closeOnEscape);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { closeOnEscapeRef.current = closeOnEscape; }, [closeOnEscape]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  // Escape, odak tuzağı, scroll kilidi, odak geri verme — Drawer ile ortak
+  // davranış useDialogBehavior'da (BUG-001/PERF-007, BUG-005, FE-HIGH-017).
+  useDialogBehavior({ isOpen, onClose, closeOnEscape, containerRef: modalRef });
 
   // Overlay tıklaması
   const handleOverlayClick = useCallback(
@@ -111,77 +115,8 @@ export const Modal: React.FC<ModalProps> = ({
         onClose();
       }
     },
-    [closeOnOverlayClick, onClose]
+    [closeOnOverlayClick, onClose],
   );
-
-  // Focus trap helper: cycle focus within modal (BUG-005)
-  const trapFocus = useCallback((event: KeyboardEvent) => {
-    if (!modalRef.current) return;
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.key === 'Tab') {
-      if (event.shiftKey) {
-        if (document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    }
-  }, []);
-
-  // Modal açıldığında/kapandığında
-  useEffect(() => {
-    if (isOpen) {
-      // Önceki aktif elementi kaydet
-      previousActiveElement.current = document.activeElement as HTMLElement;
-
-      // Scroll'u engelle
-      document.body.style.overflow = 'hidden';
-
-      // BUG-001/PERF-007: Create stable listener using refs — avoids accumulating stale listeners
-      listenerRef.current = (event: KeyboardEvent) => {
-        if (event.key === 'Escape' && closeOnEscapeRef.current) {
-          onCloseRef.current();
-        }
-        trapFocus(event);
-      };
-      document.addEventListener('keydown', listenerRef.current);
-
-      // Modal'a focus
-      setTimeout(() => {
-        modalRef.current?.focus();
-      }, 0);
-    } else {
-      // Scroll'u geri aç
-      document.body.style.overflow = '';
-
-      // Remove by stable ref — guaranteed identity match
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-
-      // Önceki elemente focus
-      previousActiveElement.current?.focus();
-    }
-
-    return () => {
-      document.body.style.overflow = '';
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-    };
-  }, [isOpen, trapFocus]);
 
   // Modal kapalıysa render etme
   if (!isOpen) return null;
@@ -219,18 +154,12 @@ export const Modal: React.FC<ModalProps> = ({
           <div className="flex items-start justify-between p-4 border-b border-gray-200">
             <div>
               {title && (
-                <h2
-                  id="modal-title"
-                  className="text-lg font-semibold text-gray-900"
-                >
+                <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
                   {title}
                 </h2>
               )}
               {description && (
-                <p
-                  id="modal-description"
-                  className="mt-1 text-sm text-gray-500"
-                >
+                <p id="modal-description" className="mt-1 text-sm text-gray-500">
                   {description}
                 </p>
               )}
@@ -243,7 +172,12 @@ export const Modal: React.FC<ModalProps> = ({
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             )}
@@ -251,7 +185,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Body */}
-        <div className="p-4">{children}</div>
+        <div className={bodyClassName}>{children}</div>
 
         {/* Footer */}
         {footer && (
@@ -261,7 +195,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 };
 
@@ -292,6 +226,12 @@ export interface ConfirmModalProps {
   /** Onay butonu varyantı (alias for variant) */
   confirmVariant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
+  /**
+   * Mesajın altında `role="alert"` ile gösterilen uyarı ya da hata satırı —
+   * tipik olarak başarısız bir denemenin nedeni. Diyaloğun içinde kalır ki
+   * kullanıcı bağlamı kaybetmeden yeniden deneyebilsin.
+   */
+  warning?: React.ReactNode;
   /**
    * Yüksek-riskli aksiyonlar için yazı-ile-onay kapısı. Buraya
    * `"ONAYLIYORUM"` gibi bir metin verirsen, kullanıcı onay butonuna
@@ -341,6 +281,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
+  warning,
   loadingText = 'İşleniyor...',
   typedConfirmationLabel,
 }) => {
@@ -357,8 +298,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     }
   }, [isOpen]);
   const typedGatePassed =
-    !requireTypedConfirmation ||
-    typedConfirmation.trim() === requireTypedConfirmation.trim();
+    !requireTypedConfirmation || typedConfirmation.trim() === requireTypedConfirmation.trim();
 
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
@@ -377,31 +317,43 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   const icons = {
     danger: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+        />
       </svg>
     ),
     warning: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+        />
       </svg>
     ),
     info: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
       </svg>
     ),
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      size="sm"
-      showCloseButton={false}
-    >
+    <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="text-center">
         {/* İkon */}
-        <div className={`mx-auto w-12 h-12 flex items-center justify-center rounded-full ${iconColors[variant]}`}>
+        <div
+          className={`mx-auto w-12 h-12 flex items-center justify-center rounded-full ${iconColors[variant]}`}
+        >
           {icons[variant]}
         </div>
 
@@ -415,6 +367,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <p className="mt-2 text-sm text-gray-500">{message}</p>
         ) : (
           <div className="mt-2 text-sm text-gray-500">{message}</div>
+        )}
+
+        {warning && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-amber-100 bg-amber-50 p-3 text-left text-sm text-amber-700"
+          >
+            {warning}
+          </div>
         )}
 
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}

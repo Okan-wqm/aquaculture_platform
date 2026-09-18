@@ -21,7 +21,12 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const mockHasPermission = vi.fn();
 
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // The dialogs under test render through the real shared-ui Modal (portal,
+  // focus trap, Escape); only the auth/session seams are faked.
+  Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
+  // ROLE_COLORS / DEFAULT_ROLE_COLOR are theme tokens (FE-HIGH-066).
+  colors: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).colors,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },
@@ -44,11 +49,7 @@ vi.mock('../../utils/error-handling', () => ({
   logError: vi.fn(),
 }));
 
-const {
-  mockUseTenantRoles,
-  mockDeleteMutation,
-  mockIdleMutation,
-} = vi.hoisted(() => {
+const { mockUseTenantRoles, mockDeleteMutation, mockIdleMutation } = vi.hoisted(() => {
   const idle = () => ({
     mutate: vi.fn(),
     mutateAsync: vi.fn().mockResolvedValue(undefined),
@@ -166,9 +167,7 @@ describe('TenantRolesPage delete-role contract (RBAC-M8)', () => {
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Delete Technician role' }));
 
-    expect(
-      screen.getByText(/cannot be deleted while it is assigned to/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/cannot be deleted while it is assigned to/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Role' })).toBeDisabled();
   });
 
@@ -198,14 +197,14 @@ describe('TenantRolesPage delete-role contract (RBAC-M8)', () => {
       error: null,
       refetch: vi.fn(),
     });
-    mockDeleteMutation.error = { message: 'Cannot delete role "Technician" - 3 users are still assigned' };
+    mockDeleteMutation.error = {
+      message: 'Cannot delete role "Technician" - 3 users are still assigned',
+    };
 
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Delete Technician role' }));
 
-    expect(
-      screen.getByText(/3 users are still assigned/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/3 users are still assigned/i)).toBeInTheDocument();
   });
 
   it('resets a stale server rejection when reopening the dialog', async () => {

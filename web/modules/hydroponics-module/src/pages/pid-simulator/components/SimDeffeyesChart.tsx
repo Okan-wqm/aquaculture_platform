@@ -16,6 +16,7 @@ import {
 import { generatePHIsolines, PHIsoline } from '../engine/deffeyes-calc';
 import { HYDRO_REAGENTS, reagentDirectionLine } from '../engine/reagents';
 import { calcDicOfAlk } from '../engine/carbonate-chemistry';
+import { chartChrome, colors } from '@aquaculture/shared-ui';
 
 interface SimDeffeyesChartProps {
   pH: number;
@@ -36,11 +37,23 @@ const PulseCircle: React.FC<any> = (props) => {
   if (cx == null || cy == null) return null;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={8} fill="#2563eb" fillOpacity={0.25}>
+      <circle cx={cx} cy={cy} r={8} fill={colors.info[600]} fillOpacity={0.25}>
         <animate attributeName="r" values="6;10;6" dur="1.5s" repeatCount="indefinite" />
-        <animate attributeName="fill-opacity" values="0.3;0.1;0.3" dur="1.5s" repeatCount="indefinite" />
+        <animate
+          attributeName="fill-opacity"
+          values="0.3;0.1;0.3"
+          dur="1.5s"
+          repeatCount="indefinite"
+        />
       </circle>
-      <circle cx={cx} cy={cy} r={5} fill="#2563eb" stroke="#1d4ed8" strokeWidth={1.5} />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={5}
+        fill={colors.info[600]}
+        stroke={colors.info[700]}
+        strokeWidth={1.5}
+      />
     </g>
   );
 };
@@ -52,8 +65,22 @@ const CrossShape: React.FC<any> = (props) => {
   const s = 7;
   return (
     <g>
-      <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
-      <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
+      <line
+        x1={cx - s}
+        y1={cy - s}
+        x2={cx + s}
+        y2={cy + s}
+        stroke={colors.neutral[900]}
+        strokeWidth={2.5}
+      />
+      <line
+        x1={cx + s}
+        y1={cy - s}
+        x2={cx - s}
+        y2={cy + s}
+        stroke={colors.neutral[900]}
+        strokeWidth={2.5}
+      />
     </g>
   );
 };
@@ -64,33 +91,45 @@ function selectDisplayIsolines(isolines: PHIsoline[]) {
     majorPHs.add(parseFloat(pH.toFixed(2)));
   }
   return {
-    major: isolines.filter(iso => majorPHs.has(iso.pH)),
-    minor: isolines.filter(iso => !majorPHs.has(iso.pH)),
+    major: isolines.filter((iso) => majorPHs.has(iso.pH)),
+    minor: isolines.filter((iso) => !majorPHs.has(iso.pH)),
   };
 }
 
 const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
-  pH, ALK, targetPH, targetALK, tempC, salinity, trail,
+  pH,
+  ALK,
+  targetPH,
+  targetALK,
+  tempC,
+  salinity,
+  trail,
 }) => {
   const isolines = useMemo(() => generatePHIsolines(tempC, salinity, MAX_DIC), [tempC, salinity]);
   const { major, minor } = useMemo(() => selectDisplayIsolines(isolines), [isolines]);
 
-  const currentDIC = useMemo(() => calcDicOfAlk(ALK, pH, tempC, salinity), [ALK, pH, tempC, salinity]);
-  const targetDIC = useMemo(() => calcDicOfAlk(targetALK, targetPH, tempC, salinity), [targetALK, targetPH, tempC, salinity]);
+  const currentDIC = useMemo(
+    () => calcDicOfAlk(ALK, pH, tempC, salinity),
+    [ALK, pH, tempC, salinity],
+  );
+  const targetDIC = useMemo(
+    () => calcDicOfAlk(targetALK, targetPH, tempC, salinity),
+    [targetALK, targetPH, tempC, salinity],
+  );
 
   // Reagent direction lines from current point
   const reagentLines = useMemo(() => {
-    return HYDRO_REAGENTS.map(r => ({
+    return HYDRO_REAGENTS.map((r) => ({
       reagent: r,
       points: reagentDirectionLine(currentDIC, ALK, r, 2.5),
     }));
   }, [currentDIC, ALK]);
 
-  const visibleMajor = major.filter(iso => {
+  const visibleMajor = major.filter((iso) => {
     const last = iso.points[iso.points.length - 1];
     return last.AT > -1 && iso.points[0].AT < MAX_ALK + 1;
   });
-  const visibleMinor = minor.filter(iso => {
+  const visibleMinor = minor.filter((iso) => {
     const last = iso.points[iso.points.length - 1];
     return last.AT > -1 && iso.points[0].AT < MAX_ALK + 1;
   });
@@ -103,7 +142,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       <div style={{ height: 460 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ top: 5, right: 15, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis
               dataKey="CT"
               type="number"
@@ -120,11 +159,17 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
               allowDataOverflow
               tickCount={6}
               tick={{ fontSize: 10 }}
-              label={{ value: 'ALK (meq/L)', angle: -90, position: 'insideLeft', offset: 10, fontSize: 10 }}
+              label={{
+                value: 'ALK (meq/L)',
+                angle: -90,
+                position: 'insideLeft',
+                offset: 10,
+                fontSize: 10,
+              }}
             />
 
             {/* Minor pH isolines */}
-            {visibleMinor.map(iso => (
+            {visibleMinor.map((iso) => (
               <Line
                 key={`m-${iso.pH}`}
                 data={iso.points}
@@ -140,7 +185,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
             ))}
 
             {/* Major pH isolines with labels */}
-            {visibleMajor.map(iso => (
+            {visibleMajor.map((iso) => (
               <Line
                 key={`M-${iso.pH}`}
                 data={iso.points}
@@ -157,22 +202,23 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
             ))}
 
             {/* Target pH isoline (thick green dashed) */}
-            {visibleMajor.concat(visibleMinor).filter(iso =>
-              Math.abs(iso.pH - targetPH) < 0.13
-            ).map(iso => (
-              <Line
-                key={`tgt-${iso.pH}`}
-                data={iso.points}
-                dataKey="AT"
-                stroke="#16a34a"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                type="monotone"
-                legendType="none"
-                isAnimationActive={false}
-              />
-            ))}
+            {visibleMajor
+              .concat(visibleMinor)
+              .filter((iso) => Math.abs(iso.pH - targetPH) < 0.13)
+              .map((iso) => (
+                <Line
+                  key={`tgt-${iso.pH}`}
+                  data={iso.points}
+                  dataKey="AT"
+                  stroke={colors.success[600]}
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  dot={false}
+                  type="monotone"
+                  legendType="none"
+                  isAnimationActive={false}
+                />
+              ))}
 
             {/* Reagent direction lines */}
             {reagentLines.map(({ reagent, points }) => (
@@ -206,7 +252,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
                   <g>
                     {reagentLines.map(({ reagent, points }) => {
                       const visible = points.filter(
-                        p => p.CT >= 0 && p.CT <= MAX_DIC && p.AT >= 0 && p.AT <= MAX_ALK
+                        (p) => p.CT >= 0 && p.CT <= MAX_DIC && p.AT >= 0 && p.AT <= MAX_ALK,
                       );
                       if (visible.length < 2) return null;
                       const tip = visible[visible.length - 1];
@@ -239,7 +285,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
               <Line
                 data={trail}
                 dataKey="AT"
-                stroke="#93c5fd"
+                stroke={colors.primary[200]}
                 strokeWidth={1.5}
                 strokeOpacity={0.6}
                 dot={false}
@@ -273,7 +319,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
                           cx={cx}
                           cy={cy}
                           r={1.5}
-                          fill="#3b82f6"
+                          fill={colors.info[500]}
                           fillOpacity={opacity}
                         />
                       );
@@ -312,10 +358,10 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
 
                 return (
                   <g>
-                    {visibleMajor.map(iso => {
+                    {visibleMajor.map((iso) => {
                       // Place label at DIC = maxDIC * 0.85
                       const targetCT = MAX_DIC * 0.85;
-                      const pt = iso.points.find(p => p.CT >= targetCT);
+                      const pt = iso.points.find((p) => p.CT >= targetCT);
                       if (!pt || pt.AT < 0 || pt.AT > MAX_ALK) return null;
                       const x = xScale(pt.CT);
                       const y = yScale(pt.AT);
@@ -342,7 +388,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       </div>
       {/* Legend for reagent lines */}
       <div className="flex flex-wrap gap-3 mt-1 px-2 justify-center">
-        {HYDRO_REAGENTS.map(r => (
+        {HYDRO_REAGENTS.map((r) => (
           <span key={r.name} className="flex items-center gap-1 text-[10px] text-gray-600">
             <span className="inline-block w-3 h-0.5" style={{ backgroundColor: r.color }} />
             {r.formula}

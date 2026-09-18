@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import {
   LayoutDashboard,
   Workflow,
@@ -21,7 +22,11 @@ import {
   Upload,
 } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
-import { buildScreenTree, wouldCreateCycle, type ScreenTreeNode } from '../../store/scada/sceneUtils';
+import {
+  buildScreenTree,
+  wouldCreateCycle,
+  type ScreenTreeNode,
+} from '../../store/scada/sceneUtils';
 import type { ScreenType } from '../../store/scada/types';
 
 /* ------------------------------------------------------------------ */
@@ -164,7 +169,8 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
       </div>
 
       {/* Render children if expanded */}
-      {hasChildren && isExpanded &&
+      {hasChildren &&
+        isExpanded &&
         children.map((child) => (
           <TreeNodeRow
             key={child.screen.id}
@@ -185,8 +191,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
             onDragLeave={onDragLeave}
             onDrop={onDrop}
           />
-        ))
-      }
+        ))}
     </>
   );
 };
@@ -265,16 +270,7 @@ export const SceneTreePanel: React.FC = () => {
   }, []);
 
   // Close context menu on outside click
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [contextMenu]);
+  useClickOutside(contextMenuRef, () => setContextMenu(null), contextMenu !== null);
 
   const handleAddChildScreen = useCallback(
     (parentId: string) => {
@@ -405,29 +401,26 @@ export const SceneTreePanel: React.FC = () => {
     fileInputRef.current?.click();
   }, []);
 
-  const handleFileSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const json = JSON.parse(text);
-        const { importScreen } = await import('../../store/scada/screenIO');
-        const newScreen = importScreen(json);
-        // Use immer-powered set to push the imported screen into the store
-        useScadaPackageStore.setState((state) => {
-          state.screens.push(newScreen);
-          state.activeScreenId = newScreen.id;
-          state.isDirty = true;
-        });
-      } catch (err) {
-        console.error('Screen import failed:', err);
-      }
-      // Reset file input so re-selecting the same file triggers onChange
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    },
-    [],
-  );
+  const handleFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const { importScreen } = await import('../../store/scada/screenIO');
+      const newScreen = importScreen(json);
+      // Use immer-powered set to push the imported screen into the store
+      useScadaPackageStore.setState((state) => {
+        state.screens.push(newScreen);
+        state.activeScreenId = newScreen.id;
+        state.isDirty = true;
+      });
+    } catch (err) {
+      console.error('Screen import failed:', err);
+    }
+    // Reset file input so re-selecting the same file triggers onChange
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   const isLastScreen = screens.length <= 1;
 
@@ -510,55 +503,47 @@ export const SceneTreePanel: React.FC = () => {
 
       {/* Context Menu */}
       {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setContextMenu(null)}
-          />
-          <div
-            ref={contextMenuRef}
-            className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => handleAddChildScreen(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
           >
-            <button
-              onClick={() => handleAddChildScreen(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Add Child Screen
-            </button>
-            <button
-              onClick={() => handleRenameStart(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => handleDuplicate(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Duplicate
-            </button>
-            <button
-              onClick={() => handleExportScreen(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              <Download className="w-3 h-3" />
-              Export Screen
-            </button>
-            <hr className="my-1 border-gray-200" />
-            <button
-              onClick={() => handleDelete(contextMenu.screenId)}
-              disabled={isLastScreen}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
-                isLastScreen
-                  ? 'text-gray-500 cursor-not-allowed'
-                  : 'text-red-600 hover:bg-red-50'
-              }`}
-            >
-              Delete
-            </button>
-          </div>
-        </>
+            Add Child Screen
+          </button>
+          <button
+            onClick={() => handleRenameStart(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => handleDuplicate(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={() => handleExportScreen(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            <Download className="w-3 h-3" />
+            Export Screen
+          </button>
+          <hr className="my-1 border-gray-200" />
+          <button
+            onClick={() => handleDelete(contextMenu.screenId)}
+            disabled={isLastScreen}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
+              isLastScreen ? 'text-gray-500 cursor-not-allowed' : 'text-red-600 hover:bg-red-50'
+            }`}
+          >
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );

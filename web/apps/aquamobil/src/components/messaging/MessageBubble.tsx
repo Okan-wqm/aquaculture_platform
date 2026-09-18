@@ -29,6 +29,7 @@ import { useState, useCallback, useRef, useEffect, type ReactElement } from 'rea
 import { ReadReceipt } from './ReadReceipt';
 import { VoicePlayer } from './VoicePlayer';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import type { MessageContentType, MessageAttachment } from '@/types/messaging';
 import { isSafeUrl } from '@/utils/messaging-helpers';
 
@@ -274,16 +275,6 @@ export function MessageBubble({
     };
   }, []);
 
-  // Dismiss context menu on scroll
-  useEffect(() => {
-    if (!showMenu) return;
-    const handleScroll = (): void => setShowMenu(false);
-    window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll, { capture: true });
-    };
-  }, [showMenu]);
-
   const closeMenu = useCallback(() => setShowMenu(false), []);
 
   const handleAction = useCallback(
@@ -493,75 +484,77 @@ export function MessageBubble({
         </div>
       </div>
 
-      {/* Context menu overlay */}
-      {showMenu && (
-        <>
-          {/* Backdrop — native <button> so the dismiss target is keyboard
-              operable and focusable without extra key handlers. */}
-          <button
-            type="button"
-            className="fixed inset-0 z-40"
-            onClick={closeMenu}
-            onTouchStart={closeMenu}
-            aria-label="Dismiss menu"
+      {/* Long-press actions — a sheet, so the menu is never clipped or
+          mis-positioned by the virtualised list's transforms. */}
+      <BottomSheet isOpen={showMenu} onClose={closeMenu} title="Message" bodyClassName="px-2 pb-2">
+        {onReply && (
+          <ActionRow
+            icon={<Reply size={18} className="text-gray-500" />}
+            label="Reply"
+            onSelect={() => handleAction(onReply)}
           />
-          {/* Menu */}
-          <div
-            className={clsx(
-              'absolute z-50 bg-white dark:bg-gray-800 rounded-xl shadow-elevated border border-gray-100 dark:border-gray-700 overflow-hidden',
-              isOwn ? 'right-4 top-full mt-1' : 'left-4 top-full mt-1',
-            )}
-          >
-            {onReply && (
-              <button
-                onClick={() => handleAction(onReply)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Reply size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Reply</span>
-              </button>
-            )}
-            {onCopy && (
-              <button
-                onClick={() => handleAction(onCopy)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Copy size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Copy</span>
-              </button>
-            )}
-            {onForward && (
-              <button
-                onClick={() => handleAction(onForward)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Forward size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  Forward
-                </span>
-              </button>
-            )}
-            {onEdit && (
-              <button
-                onClick={() => handleAction(onEdit)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Pencil size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Edit</span>
-              </button>
-            )}
-            {onDelete && (
-              <button
-                onClick={() => handleAction(onDelete)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Trash2 size={16} className="text-red-500" />
-                <span className="text-sm font-medium text-red-600 dark:text-red-400">Delete</span>
-              </button>
-            )}
-          </div>
-        </>
-      )}
+        )}
+        {onCopy && (
+          <ActionRow
+            icon={<Copy size={18} className="text-gray-500" />}
+            label="Copy"
+            onSelect={() => handleAction(onCopy)}
+          />
+        )}
+        {onForward && (
+          <ActionRow
+            icon={<Forward size={18} className="text-gray-500" />}
+            label="Forward"
+            onSelect={() => handleAction(onForward)}
+          />
+        )}
+        {onEdit && (
+          <ActionRow
+            icon={<Pencil size={18} className="text-gray-500" />}
+            label="Edit"
+            onSelect={() => handleAction(onEdit)}
+          />
+        )}
+        {onDelete && (
+          <ActionRow
+            icon={<Trash2 size={18} className="text-red-500" />}
+            label="Delete"
+            tone="danger"
+            onSelect={() => handleAction(onDelete)}
+          />
+        )}
+      </BottomSheet>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Long-press action row
+// ---------------------------------------------------------------------------
+
+interface ActionRowProps {
+  icon: ReactElement;
+  label: string;
+  tone?: 'default' | 'danger';
+  onSelect: () => void;
+}
+
+function ActionRow({ icon, label, tone = 'default', onSelect }: ActionRowProps): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex min-h-[3rem] w-full items-center gap-3 rounded-xl px-4 text-left touch-feedback transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
+    >
+      {icon}
+      <span
+        className={clsx(
+          'text-sm font-medium',
+          tone === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100',
+        )}
+      >
+        {label}
+      </span>
+    </button>
   );
 }

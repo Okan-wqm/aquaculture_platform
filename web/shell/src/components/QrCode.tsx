@@ -1,8 +1,12 @@
 import React, { useMemo } from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 const ECC_LEVEL_L = 1;
 
-const VERSION_INFO: Record<number, { dataCodewords: number; eccCodewordsPerBlock: number; blocks: number }> = {
+const VERSION_INFO: Record<
+  number,
+  { dataCodewords: number; eccCodewordsPerBlock: number; blocks: number }
+> = {
   1: { dataCodewords: 19, eccCodewordsPerBlock: 7, blocks: 1 },
   2: { dataCodewords: 34, eccCodewordsPerBlock: 10, blocks: 1 },
   3: { dataCodewords: 55, eccCodewordsPerBlock: 15, blocks: 1 },
@@ -199,7 +203,11 @@ function drawFinder(matrix: Matrix, x: number, y: number): void {
         dx <= 6 &&
         dy >= 0 &&
         dy <= 6 &&
-        (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+        (dx === 0 ||
+          dx === 6 ||
+          dy === 0 ||
+          dy === 6 ||
+          (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
       setModule(matrix, xx, yy, isFinder, true);
     }
   }
@@ -230,9 +238,7 @@ function drawFunctionPatterns(matrix: Matrix, version: number): void {
   for (const x of centers) {
     for (const y of centers) {
       const overlapsFinder =
-        (x === 6 && y === 6) ||
-        (x === 6 && y === size - 7) ||
-        (x === size - 7 && y === 6);
+        (x === 6 && y === 6) || (x === 6 && y === size - 7) || (x === size - 7 && y === 6);
       if (!overlapsFinder) {
         drawAlignment(matrix, x, y);
       }
@@ -278,15 +284,24 @@ function drawCodewords(matrix: Matrix, codewords: number[]): void {
 
 function maskBit(mask: number, x: number, y: number): boolean {
   switch (mask) {
-    case 0: return (x + y) % 2 === 0;
-    case 1: return y % 2 === 0;
-    case 2: return x % 3 === 0;
-    case 3: return (x + y) % 3 === 0;
-    case 4: return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
-    case 5: return ((x * y) % 2) + ((x * y) % 3) === 0;
-    case 6: return (((x * y) % 2) + ((x * y) % 3)) % 2 === 0;
-    case 7: return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
-    default: return false;
+    case 0:
+      return (x + y) % 2 === 0;
+    case 1:
+      return y % 2 === 0;
+    case 2:
+      return x % 3 === 0;
+    case 3:
+      return (x + y) % 3 === 0;
+    case 4:
+      return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
+    case 5:
+      return ((x * y) % 2) + ((x * y) % 3) === 0;
+    case 6:
+      return (((x * y) % 2) + ((x * y) % 3)) % 2 === 0;
+    case 7:
+      return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
+    default:
+      return false;
   }
 }
 
@@ -369,7 +384,11 @@ function penalty(matrix: boolean[][]): number {
   for (let y = 0; y < size - 1; y++) {
     for (let x = 0; x < size - 1; x++) {
       const color = matrix[y]![x];
-      if (matrix[y]![x + 1] === color && matrix[y + 1]![x] === color && matrix[y + 1]![x + 1] === color) {
+      if (
+        matrix[y]![x + 1] === color &&
+        matrix[y + 1]![x] === color &&
+        matrix[y + 1]![x + 1] === color
+      ) {
         score += 3;
       }
     }
@@ -469,8 +488,8 @@ export const QrCode: React.FC<QrCodeProps> = ({ value, size = 192, className = '
       className={className}
       shapeRendering="crispEdges"
     >
-      <rect width={viewBoxSize} height={viewBoxSize} fill="#ffffff" />
-      <path d={path} fill="#111827" />
+      <rect width={viewBoxSize} height={viewBoxSize} fill={colors.white} />
+      <path d={path} fill={colors.neutral[900]} />
     </svg>
   );
 };

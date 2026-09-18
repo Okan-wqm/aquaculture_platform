@@ -68,6 +68,11 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       sql: `ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)`,
     },
     {
+      label: 'metrics_1min remove stale refresh policy',
+      phase: 'maintenance',
+      sql: `SELECT remove_continuous_aggregate_policy('metrics_1min', if_exists => TRUE)`,
+    },
+    {
       label: 'metrics_1min refresh policy',
       phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
@@ -115,6 +120,11 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       sql: `ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)`,
     },
     {
+      label: 'metrics_1hour remove stale refresh policy',
+      phase: 'maintenance',
+      sql: `SELECT remove_continuous_aggregate_policy('metrics_1hour', if_exists => TRUE)`,
+    },
+    {
       label: 'metrics_1hour refresh policy',
       phase: 'maintenance',
       sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
@@ -160,6 +170,11 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       label: 'metrics_1day real-time',
       phase: 'definition',
       sql: `ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)`,
+    },
+    {
+      label: 'metrics_1day remove stale refresh policy',
+      phase: 'maintenance',
+      sql: `SELECT remove_continuous_aggregate_policy('metrics_1day', if_exists => TRUE)`,
     },
     {
       label: 'metrics_1day refresh policy',

@@ -4,13 +4,12 @@
  * Displays a single tenant role as a card with its details,
  * including name, description, user count, and action buttons.
  *
- * SUDERRA restyle — sd-card primitives from the shell stylesheet; role color
- * still comes from the tenant's stored role.color (real data).
- *
  * @module components/roles/RoleCard
  */
 
 import React from 'react';
+
+import { DEFAULT_ROLE_COLOR } from '../../lib/constants';
 import { Shield, Edit, Trash2, Users, Star } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
 
@@ -48,10 +47,10 @@ export interface RoleBadgeProps {
 export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
   return (
     <span
-      className="sd-rolepill"
-      style={{ backgroundColor: `${role.color || '#6366F1'}22`, color: role.color || '#6366F1' }}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
+      style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
-      <Shield size={12} aria-hidden="true" />
+      <Shield className="w-3 h-3" aria-hidden="true" />
       {role.name}
     </span>
   );
@@ -65,7 +64,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  * Card component for displaying tenant role information
  *
  * Features:
- * - Color-coded role icon (tenant-configured color, real data)
+ * - Color-coded role icon
  * - System role and default role indicators
  * - Description with text truncation
  * - User count and priority level stats
@@ -80,45 +79,27 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  * />
  * ```
  */
-export const RoleCard: React.FC<RoleCardProps> = ({
-  role,
-  onEdit,
-  onDelete,
-}) => {
+export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) => {
   return (
-    <div className="sd-card" style={{ padding: '17px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-lg transition-shadow">
       {/* Role Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
           <div
-            style={{
-              display: 'grid',
-              placeItems: 'center',
-              width: 38,
-              height: 38,
-              borderRadius: 12,
-              backgroundColor: `${role.color || '#6366F1'}1e`,
-              flexShrink: 0,
-            }}
+            className="p-2.5 rounded-xl"
+            style={{ backgroundColor: `${role.color}20` }}
             aria-hidden="true"
           >
-            <Shield
-              size={17}
-              style={{ color: role.color || '#6366F1' }}
-            />
+            <Shield className="w-5 h-5" style={{ color: role.color || DEFAULT_ROLE_COLOR }} />
           </div>
-          <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 600, color: '#0a1f2b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {role.name}
-            </h3>
+          <div>
+            <h3 className="font-semibold text-gray-900">{role.name}</h3>
             {role.isSystem && (
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: '#92610a' }}>
-                System Role
-              </span>
+              <span className="text-xs text-amber-600 font-medium">System Role</span>
             )}
             {role.isDefault && !role.isSystem && (
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: '#166f5a', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Star size={11} aria-hidden="true" />
+              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                <Star className="w-3 h-3" aria-hidden="true" />
                 Default
               </span>
             )}
@@ -127,25 +108,25 @@ export const RoleCard: React.FC<RoleCardProps> = ({
 
         {/* Action Buttons - SEC-007: only rendered when callbacks provided */}
         {(onEdit || onDelete) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div className="flex items-center gap-1">
             {onEdit && (
               <button
                 onClick={() => onEdit(role)}
-                className="sd-iconbtn"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                 title="Edit role"
                 aria-label={`Edit ${role.name} role`}
               >
-                <Edit size={15} />
+                <Edit className="w-4 h-4" />
               </button>
             )}
             {onDelete && !role.isSystem && (
               <button
                 onClick={() => onDelete(role)}
-                className="sd-iconbtn sd-iconbtn--danger"
+                className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Delete role"
                 aria-label={`Delete ${role.name} role`}
               >
-                <Trash2 size={15} />
+                <Trash2 className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -154,31 +135,19 @@ export const RoleCard: React.FC<RoleCardProps> = ({
 
       {/* Description */}
       {role.description && (
-        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#5c7783', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {role.description}
-        </p>
+        <p className="text-sm text-gray-500 mb-4 line-clamp-2">{role.description}</p>
       )}
 
       {/* Stats */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          paddingTop: 11,
-          borderTop: '1px solid rgba(10,31,43,.08)',
-          fontSize: 12.5,
-          color: '#5c7783',
-        }}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Users size={14} aria-hidden="true" />
-          {role.userCount} users
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Shield size={14} aria-hidden="true" />
-          Level {role.level}
-        </span>
+      <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <Users className="w-4 h-4" aria-hidden="true" />
+          <span>{role.userCount} users</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <Shield className="w-4 h-4" aria-hidden="true" />
+          <span>Level {role.level}</span>
+        </div>
       </div>
     </div>
   );

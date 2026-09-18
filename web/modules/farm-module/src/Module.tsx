@@ -9,6 +9,7 @@ import './styles.css';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
+import { chartChrome, colors } from '@aquaculture/shared-ui';
 
 // PERF-HIGH-004: every page-level route is code-split with React.lazy so the
 // farm-module remote no longer ships all page code (the heavy 8-tab regulatory
@@ -54,7 +55,7 @@ const FarmModule: React.FC = () => {
           style={{
             padding: '2rem',
             textAlign: 'center',
-            color: 'var(--color-text-muted, #6b7280)',
+            color: `var(--color-text-muted, ${colors.gray[400]})`,
           }}
         >
           Laster…

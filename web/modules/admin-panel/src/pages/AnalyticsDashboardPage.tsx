@@ -6,7 +6,7 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button } from '@aquaculture/shared-ui';
+import { Card, Button, chartChrome, colors } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -76,11 +76,14 @@ interface SystemMetrics {
 }
 
 interface UsageMetrics {
-  moduleUsage: Record<string, {
-    activeUsers: number;
-    totalSessions: number;
-    avgSessionDuration: number;
-  }>;
+  moduleUsage: Record<
+    string,
+    {
+      activeUsers: number;
+      totalSessions: number;
+      avgSessionDuration: number;
+    }
+  >;
   featureAdoption: Record<string, number>;
   topFeatures: Array<{ feature: string; usage: number }>;
   peakHours: number[];
@@ -188,9 +191,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
             </p>
           )}
         </div>
-        <div className={`p-3 rounded-lg ${colorClasses[color] || colorClasses.blue}`}>
-          {icon}
-        </div>
+        <div className={`p-3 rounded-lg ${colorClasses[color] || colorClasses.blue}`}>{icon}</div>
       </div>
     </Card>
   );
@@ -206,20 +207,22 @@ interface MiniChartProps {
   color?: string;
 }
 
-const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82F6' }) => {
+const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = colors.info[500] }) => {
   if (data.length === 0) return null;
 
-  const values = data.map(d => d.value);
+  const values = data.map((d) => d.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const denominator = Math.max(data.length - 1, 1);
 
-  const points = data.map((d, i) => {
-    const x = (i / denominator) * 100;
-    const y = height - ((d.value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
+  const points = data
+    .map((d, i) => {
+      const x = (i / denominator) * 100;
+      const y = height - ((d.value - min) / range) * height;
+      return `${x},${y}`;
+    })
+    .join(' ');
 
   return (
     <svg width="100%" height={height} className="overflow-visible">
@@ -245,13 +248,19 @@ interface BarChartProps {
 }
 
 const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
-  const maxValue = Math.max(...data.map(d => d.value)) || 1;
+  const maxValue = Math.max(...data.map((d) => d.value)) || 1;
 
   return (
     <div className="flex items-end justify-around gap-2 h-full">
       {data.map((item, index) => {
         const height = (item.value / maxValue) * maxHeight;
-        const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500'];
+        const colors = [
+          'bg-blue-500',
+          'bg-green-500',
+          'bg-purple-500',
+          'bg-orange-500',
+          'bg-pink-500',
+        ];
         return (
           <div key={index} className="flex flex-col items-center flex-1">
             <div
@@ -299,30 +308,32 @@ const DonutChart: React.FC<DonutChartProps> = ({
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#E5E7EB"
+            stroke={chartChrome.grid}
             strokeWidth={strokeWidth}
           />
-        ) : data.map((item, index) => {
-          const percentage = item.value / total;
-          const strokeLength = circumference * percentage;
-          const offset = currentOffset;
-          currentOffset += strokeLength;
+        ) : (
+          data.map((item, index) => {
+            const percentage = item.value / total;
+            const strokeLength = circumference * percentage;
+            const offset = currentOffset;
+            currentOffset += strokeLength;
 
-          return (
-            <circle
-              key={index}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${strokeLength} ${circumference - strokeLength}`}
-              strokeDashoffset={-offset}
-              strokeLinecap="round"
-            />
-          );
-        })}
+            return (
+              <circle
+                key={index}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${strokeLength} ${circumference - strokeLength}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="round"
+              />
+            );
+          })
+        )}
       </svg>
       {(centerLabel || centerValue) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -353,9 +364,8 @@ const AnalyticsDashboardPage: React.FC = () => {
   // entry, forwards its `AbortSignal`, and reports its own failure.
   // ==========================================================================
 
-  const summaryQuery = useAdminQuery(
-    [...adminKeys.system.analytics(), 'summary'],
-    ({ signal }) => analyticsApi.getDashboardSummary(signal),
+  const summaryQuery = useAdminQuery([...adminKeys.system.analytics(), 'summary'], ({ signal }) =>
+    analyticsApi.getDashboardSummary(signal),
   );
 
   const servicesQuery = useAdminQuery(adminKeys.system.health(), ({ signal }) =>
@@ -455,7 +465,13 @@ const AnalyticsDashboardPage: React.FC = () => {
 
   /** An arrow only means something when there is a number behind it. */
   const trendOf = (change: number | null | undefined): 'up' | 'down' | 'stable' | undefined =>
-    change === null || change === undefined ? undefined : change > 0 ? 'up' : change < 0 ? 'down' : 'stable';
+    change === null || change === undefined
+      ? undefined
+      : change > 0
+        ? 'up'
+        : change < 0
+          ? 'down'
+          : 'stable';
 
   if (loading && data === null) {
     return (
@@ -494,9 +510,12 @@ const AnalyticsDashboardPage: React.FC = () => {
               </button>
             ))}
           </div>
-          <Button variant="secondary" onClick={() => {
-            void loadData();
-          }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void loadData();
+            }}
+          >
             Refresh
           </Button>
           <Link to={adminRoutes.analyticsReports}>
@@ -510,9 +529,12 @@ const AnalyticsDashboardPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={loadData} />
 
       {data.unavailable && data.unavailable.length > 0 && (
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800" role="status">
-          The server could not compute these sections, so their cards read
-          {' '}{UNKNOWN}: {data.unavailable.join(', ')}
+        <div
+          className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800"
+          role="status"
+        >
+          The server could not compute these sections, so their cards read {UNKNOWN}:{' '}
+          {data.unavailable.join(', ')}
         </div>
       )}
 
@@ -527,7 +549,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+              />
             </svg>
           }
         />
@@ -540,7 +567,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="green"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+              />
             </svg>
           }
         />
@@ -553,7 +585,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="purple"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           }
         />
@@ -565,7 +602,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
             </svg>
           }
         />
@@ -580,7 +622,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="indigo"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              />
             </svg>
           }
         />
@@ -593,7 +640,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="red"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"
+              />
             </svg>
           }
         />
@@ -604,7 +656,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           }
         />
@@ -615,7 +672,12 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
           }
         />
@@ -626,8 +688,8 @@ const AnalyticsDashboardPage: React.FC = () => {
         {/* Tenant Growth Chart */}
         <Card title="Tenant Growth">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
-            {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
+            <MiniChart data={tenantTrend} height={100} color={colors.info[500]} />
+            {(tenantTrend.length === 0 || tenantTrend.every((d) => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">No analytics data available yet</p>
               </div>
@@ -635,15 +697,17 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Bu ay: {formatNumber(tenants?.newThisMonth)}</span>
-            <span className="text-green-600 font-medium">{formatPercent(tenants?.growthRate, 1)}</span>
+            <span className="text-green-600 font-medium">
+              {formatPercent(tenants?.growthRate, 1)}
+            </span>
           </div>
         </Card>
 
         {/* Revenue Trend Chart */}
         <Card title="Revenue Trend">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
-            {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
+            <MiniChart data={revenueTrend} height={100} color={colors.primary[700]} />
+            {(revenueTrend.length === 0 || revenueTrend.every((d) => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">No analytics data available yet</p>
               </div>
@@ -651,14 +715,16 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">MRR: {formatCurrency(financial?.mrr)}</span>
-            <span className="text-green-600 font-medium">{formatPercent(financial?.revenueGrowthRate, 1)}</span>
+            <span className="text-green-600 font-medium">
+              {formatPercent(financial?.revenueGrowthRate, 1)}
+            </span>
           </div>
         </Card>
 
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={userTrend} height={100} color="#10B981" />
-            {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
+            <MiniChart data={userTrend} height={100} color={colors.success[500]} />
+            {(userTrend.length === 0 || userTrend.every((d) => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">Analytics not yet available</p>
               </div>
@@ -677,10 +743,18 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <DonutChart
               data={[
-                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: '#8B5CF6' },
-                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: '#10B981' },
-                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: '#3B82F6' },
-                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: '#F59E0B' },
+                {
+                  label: 'Enterprise',
+                  value: tenants?.byPlan?.enterprise || 0,
+                  color: colors.primary[700],
+                },
+                {
+                  label: 'Professional',
+                  value: tenants?.byPlan?.professional || 0,
+                  color: colors.success[500],
+                },
+                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: colors.info[500] },
+                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: colors.warning[500] },
               ]}
               centerValue={formatNumber(tenants?.total)}
               centerLabel="Total"
@@ -691,28 +765,36 @@ const AnalyticsDashboardPage: React.FC = () => {
                   <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
                   <span className="text-sm text-gray-600">Enterprise</span>
                 </div>
-                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.enterprise ?? 0) : null)}</span>
+                <span className="font-medium">
+                  {formatNumber(tenants ? (tenants.byPlan?.enterprise ?? 0) : null)}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
                   <span className="text-sm text-gray-600">Professional</span>
                 </div>
-                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.professional ?? 0) : null)}</span>
+                <span className="font-medium">
+                  {formatNumber(tenants ? (tenants.byPlan?.professional ?? 0) : null)}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
                   <span className="text-sm text-gray-600">Starter</span>
                 </div>
-                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.starter ?? 0) : null)}</span>
+                <span className="font-medium">
+                  {formatNumber(tenants ? (tenants.byPlan?.starter ?? 0) : null)}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
                   <span className="text-sm text-gray-600">Trial</span>
                 </div>
-                <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.trial ?? 0) : null)}</span>
+                <span className="font-medium">
+                  {formatNumber(tenants ? (tenants.byPlan?.trial ?? 0) : null)}
+                </span>
               </div>
             </div>
           </div>
@@ -732,15 +814,21 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}
+              </p>
               <p className="text-xs text-gray-500">Starter</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.professional ?? 0) : null)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatCurrency(financial ? (financial.byPlan?.professional ?? 0) : null)}
+              </p>
               <p className="text-xs text-gray-500">Professional</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.enterprise ?? 0) : null)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatCurrency(financial ? (financial.byPlan?.enterprise ?? 0) : null)}
+              </p>
               <p className="text-xs text-gray-500">Enterprise</p>
             </div>
           </div>
@@ -758,12 +846,18 @@ const AnalyticsDashboardPage: React.FC = () => {
           )}
           <div className="space-y-4">
             {Object.entries(usage?.moduleUsage ?? {}).map(([module, stats]) => {
-              const percentage = users && users.active > 0 ? Math.round((stats.activeUsers / users.active) * 100) : 0;
+              const percentage =
+                users && users.active > 0
+                  ? Math.round((stats.activeUsers / users.active) * 100)
+                  : 0;
               return (
                 <div key={module}>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm font-medium text-gray-700">
-                      {module.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                      {module
+                        .split('_')
+                        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                        .join(' ')}
                     </span>
                     <span className="text-sm text-gray-500">{stats.activeUsers} users</span>
                   </div>
@@ -813,19 +907,27 @@ const AnalyticsDashboardPage: React.FC = () => {
             <p className="text-xs text-gray-500 mt-1">Uptime</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatMs(system?.avgResponseTimeMs)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatMs(system?.avgResponseTimeMs)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Avg Response</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatPercent(system?.errorRate, 2)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatPercent(system?.errorRate, 2)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Error Rate</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatBytes(system?.usedStorageBytes)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatBytes(system?.usedStorageBytes)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Storage Used</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(system?.activeConnections)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(system?.activeConnections)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Active Connections</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">

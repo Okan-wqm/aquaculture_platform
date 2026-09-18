@@ -45,7 +45,7 @@ const AuthLayout: React.FC = () => {
     return (
       <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
         <div
-          className="animate-spin w-8 h-8 border-2 border-[#7fd6e1]/35 border-t-[#7fd6e1] rounded-full"
+          className="animate-spin w-8 h-8 border-2 border-primary-300/35 border-t-primary-300 rounded-full"
           role="status"
           aria-label="Loading authentication"
         />
@@ -95,10 +95,7 @@ const AuthChrome: React.FC = () => {
           <div className="industrial-auth-card-glow" />
 
           <div className="industrial-auth-card-header">
-            <div
-              className="industrial-auth-security-chip"
-              aria-label={t('auth.authorizedAccess')}
-            >
+            <div className="industrial-auth-security-chip" aria-label={t('auth.authorizedAccess')}>
               <span className="industrial-auth-security-dot" />
               access
             </div>

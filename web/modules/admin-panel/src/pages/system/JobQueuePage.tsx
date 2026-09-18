@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, useConfirm } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -46,6 +46,7 @@ const EMPTY_JOBS: readonly BackgroundJob[] = [];
 const EMPTY_QUEUES: JobQueue[] = [];
 
 export const JobQueuePage: React.FC = () => {
+  const confirm = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterQueue, setFilterQueue] = useState<string>('all');
@@ -94,10 +95,9 @@ export const JobQueuePage: React.FC = () => {
   // refetched.
   // ==========================================================================
 
-  const retryJob = useAdminMutation<BackgroundJob, string>(
-    (id) => systemSettingsApi.retryJob(id),
-    { invalidateKeys: [dashboardKey] },
-  );
+  const retryJob = useAdminMutation<BackgroundJob, string>((id) => systemSettingsApi.retryJob(id), {
+    invalidateKeys: [dashboardKey],
+  });
 
   const cancelJob = useAdminMutation<BackgroundJob, string>(
     (id) => systemSettingsApi.cancelJob(id),
@@ -136,7 +136,15 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handleCancelJob = async (job: BackgroundJob): Promise<void> => {
-    if (!confirm(`Are you sure you want to cancel "${job.name}"?`)) return;
+    if (
+      !(await confirm({
+        title: `Cancel job "${job.name}"?`,
+        confirmText: 'Cancel job',
+        cancelText: 'Keep',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await cancelJob.mutateAsync(job.id);
     } catch {
@@ -147,7 +155,15 @@ export const JobQueuePage: React.FC = () => {
   const handleRetryAllFailed = async (): Promise<void> => {
     const failedJobs = safeJobs.filter((job) => job.status === 'failed');
     if (failedJobs.length === 0) return;
-    if (!confirm(`Retry all ${failedJobs.length} failed jobs?`)) return;
+    if (
+      !(await confirm({
+        title: `Retry all ${failedJobs.length} failed jobs?`,
+        confirmText: 'Retry all',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
 
     for (const job of failedJobs) {
       await handleRetryJob(job);
@@ -174,7 +190,9 @@ export const JobQueuePage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  const getStatusBadge = (status: JobStatus): 'success' | 'default' | 'info' | 'warning' | 'error' => {
+  const getStatusBadge = (
+    status: JobStatus,
+  ): 'success' | 'default' | 'info' | 'warning' | 'error' => {
     const variants: Record<JobStatus, 'success' | 'default' | 'info' | 'warning' | 'error'> = {
       pending: 'default',
       scheduled: 'info',
@@ -249,13 +267,14 @@ export const JobQueuePage: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button
-            variant="secondary"
-            onClick={loadDashboard}
-            className="flex items-center gap-2"
-          >
+          <Button variant="secondary" onClick={loadDashboard} className="flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
             Refresh
           </Button>
@@ -408,9 +427,7 @@ export const JobQueuePage: React.FC = () => {
                             <span className="text-sm text-gray-600">{job.queueName}</span>
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant={getStatusBadge(job.status)}>
-                              {job.status}
-                            </Badge>
+                            <Badge variant={getStatusBadge(job.status)}>{job.status}</Badge>
                           </td>
                           <td className="px-6 py-4">
                             {job.progress ? (
@@ -433,7 +450,9 @@ export const JobQueuePage: React.FC = () => {
                                 )}
                               </div>
                             ) : job.durationMs ? (
-                              <span className="text-sm text-gray-600">{formatDuration(job.durationMs)}</span>
+                              <span className="text-sm text-gray-600">
+                                {formatDuration(job.durationMs)}
+                              </span>
                             ) : (
                               <span className="text-sm text-gray-500">-</span>
                             )}
@@ -445,11 +464,11 @@ export const JobQueuePage: React.FC = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="text-sm text-gray-600">
-                              {job.startedAt && (
-                                <div>{formatDateTime(job.startedAt)}</div>
-                              )}
+                              {job.startedAt && <div>{formatDateTime(job.startedAt)}</div>}
                               {job.completedAt && (
-                                <div className="text-gray-500">{formatDateTime(job.completedAt)}</div>
+                                <div className="text-gray-500">
+                                  {formatDateTime(job.completedAt)}
+                                </div>
                               )}
                               {!job.startedAt && !job.completedAt && (
                                 <span className="text-gray-500">-</span>
@@ -501,9 +520,7 @@ export const JobQueuePage: React.FC = () => {
                     ) : (
                       <Badge variant="success">Active</Badge>
                     )}
-                    <span className="text-sm text-gray-500">
-                      Concurrency: {queue.concurrency}
-                    </span>
+                    <span className="text-sm text-gray-500">Concurrency: {queue.concurrency}</span>
                   </div>
                 </div>
               </div>
@@ -589,7 +606,9 @@ export const JobQueuePage: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {safeJobs
-                  .filter((j: BackgroundJob) => j.jobType === 'scheduled' || j.jobType === 'recurring')
+                  .filter(
+                    (j: BackgroundJob) => j.jobType === 'scheduled' || j.jobType === 'recurring',
+                  )
                   .map((job: BackgroundJob) => (
                     <tr key={job.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
@@ -609,9 +628,7 @@ export const JobQueuePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <Badge variant={getStatusBadge(job.status)}>
-                          {job.status}
-                        </Badge>
+                        <Badge variant={getStatusBadge(job.status)}>{job.status}</Badge>
                       </td>
                     </tr>
                   ))}
@@ -620,7 +637,6 @@ export const JobQueuePage: React.FC = () => {
           </div>
         </Card>
       )}
-
     </div>
   );
 };

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Calendar, Sun, Thermometer, Anchor, Clock } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { useLeaveBalanceSummary } from '../../hooks';
 import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
 
@@ -18,7 +18,7 @@ import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
  * using it in an inline `style` prop.
  *
  * Accepts: #RGB, #RRGGBB, #RRGGBBAA (3, 6, or 8 hex digits).
- * Rejects any other value and falls back to `fallback` (default indigo).
+ * Rejects any other value and falls back to `fallback` (default: the primary token).
  *
  * Background: React's JSX does not sanitise CSS property values.  While
  * modern browsers block JS execution via `style`, a crafted colorCode such as
@@ -26,7 +26,10 @@ import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
  */
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?$/;
 
-export function sanitizeColor(value: string | null | undefined, fallback = '#6366f1'): string {
+export function sanitizeColor(
+  value: string | null | undefined,
+  fallback = colors.primary[500],
+): string {
   if (value && HEX_COLOR_RE.test(value)) return value;
   return fallback;
 }
@@ -120,7 +123,12 @@ export function LeaveBalanceWidget({
 
   if (isLoading) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-center py-8">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
         </div>
@@ -130,7 +138,12 @@ export function LeaveBalanceWidget({
 
   if (error || !data) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <p className="text-center text-sm text-gray-500">Failed to load leave balances</p>
       </div>
     );
@@ -138,9 +151,16 @@ export function LeaveBalanceWidget({
 
   if (variant === 'compact') {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Leave Balance</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Leave Balance
+          </span>
           <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {data.totalAvailable}
             <span className="text-sm font-normal text-gray-500"> / {data.totalEntitled}</span>
@@ -150,7 +170,7 @@ export function LeaveBalanceWidget({
           used={data.totalUsed}
           pending={data.totalPending}
           entitled={data.totalEntitled}
-          color="#6366f1"
+          color={colors.primary[500]}
         />
         <div className="mt-2 flex justify-between text-xs text-gray-500">
           <span>Used: {data.totalUsed}</span>
@@ -161,7 +181,12 @@ export function LeaveBalanceWidget({
   }
 
   return (
-    <div className={cn('rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800', className)}>
+    <div
+      className={cn(
+        'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800',
+        className,
+      )}
+    >
       <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 dark:text-white">Leave Balance {year}</h3>

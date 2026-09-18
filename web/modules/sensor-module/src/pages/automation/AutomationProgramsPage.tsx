@@ -35,7 +35,13 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  useConfirm,
+  usePrompt,
+} from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
   ProgramStatus,
@@ -112,13 +118,19 @@ const formatDate = (dateStr?: string): string => {
 // ============================================================================
 
 const StatusBadge: React.FC<{ status: ProgramStatus }> = ({ status }) => (
-  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(status)}`}>
+  <span
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(status)}`}
+  >
     {getStatusIcon(status)}
     {getStatusText(status)}
   </span>
 );
 
-const StatCard: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+const StatCard: React.FC<{ label: string; value: number; color: string }> = ({
+  label,
+  value,
+  color,
+}) => (
   <div className={`px-4 py-3 rounded-lg ${color}`}>
     <div className="text-2xl font-bold">{value}</div>
     <div className="text-sm opacity-80">{label}</div>
@@ -141,40 +153,47 @@ const ProgramCard: React.FC<{
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Workflow className="h-5 w-5 text-indigo-600" />
-          <span className="text-xs text-gray-500 font-mono">
-            {program.programCode}
-          </span>
+          <span className="text-xs text-gray-500 font-mono">{program.programCode}</span>
         </div>
         <div className="relative">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1 rounded hover:bg-gray-100"
-          >
+          <button onClick={() => setShowMenu(!showMenu)} className="p-1 rounded hover:bg-gray-100">
             <MoreVertical className="h-4 w-4 text-gray-500" />
           </button>
           {showMenu && (
             <div className="absolute right-0 top-8 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
               <button
-                onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}
+                onClick={() => {
+                  navigate(`/sensor/automation/${program.id}`);
+                  setShowMenu(false);
+                }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Edit className="h-4 w-4" /> Edit
               </button>
               <button
-                onClick={() => { onClone(); setShowMenu(false); }}
+                onClick={() => {
+                  onClone();
+                  setShowMenu(false);
+                }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Copy className="h-4 w-4" /> Clone
               </button>
               <button
-                onClick={() => { onArchive(); setShowMenu(false); }}
+                onClick={() => {
+                  onArchive();
+                  setShowMenu(false);
+                }}
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
               >
                 <Archive className="h-4 w-4" /> Archive
               </button>
               <hr className="my-1 border-gray-200" />
               <button
-                onClick={() => { onDelete(); setShowMenu(false); }}
+                onClick={() => {
+                  onDelete();
+                  setShowMenu(false);
+                }}
                 className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
               >
                 <Trash2 className="h-4 w-4" /> Delete
@@ -191,9 +210,7 @@ const ProgramCard: React.FC<{
       </Link>
 
       {program.description && (
-        <p className="text-sm text-gray-500 line-clamp-2 mb-3">
-          {program.description}
-        </p>
+        <p className="text-sm text-gray-500 line-clamp-2 mb-3">{program.description}</p>
       )}
 
       <div className="flex items-center gap-2 mb-3">
@@ -201,9 +218,7 @@ const ProgramCard: React.FC<{
         <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
           {getProgramTypeText(program.programType)}
         </span>
-        <span className="text-xs text-gray-500">
-          v{program.version}
-        </span>
+        <span className="text-xs text-gray-500">v{program.version}</span>
       </div>
 
       {/* Approve/Reject actions for pending programs */}
@@ -264,18 +279,10 @@ const ProgramRow: React.FC<{
       <td className="px-4 py-3">
         <StatusBadge status={program.status} />
       </td>
-      <td className="px-4 py-3 text-sm text-gray-500">
-        {getProgramTypeText(program.programType)}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">
-        v{program.version}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">
-        {program.stepCount ?? 0}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">
-        {formatDate(program.updatedAt)}
-      </td>
+      <td className="px-4 py-3 text-sm text-gray-500">{getProgramTypeText(program.programType)}</td>
+      <td className="px-4 py-3 text-sm text-gray-500">v{program.version}</td>
+      <td className="px-4 py-3 text-sm text-gray-500">{program.stepCount ?? 0}</td>
+      <td className="px-4 py-3 text-sm text-gray-500">{formatDate(program.updatedAt)}</td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1">
           {program.status === ProgramStatus.PENDING_REVIEW && (
@@ -287,11 +294,7 @@ const ProgramRow: React.FC<{
               >
                 <ThumbsUp className="h-4 w-4 text-green-600" />
               </button>
-              <button
-                onClick={onReject}
-                className="p-1.5 rounded hover:bg-red-100"
-                title="Reject"
-              >
+              <button onClick={onReject} className="p-1.5 rounded hover:bg-red-100" title="Reject">
                 <ThumbsDown className="h-4 w-4 text-red-500" />
               </button>
             </>
@@ -303,25 +306,13 @@ const ProgramRow: React.FC<{
           >
             <Edit className="h-4 w-4 text-gray-500" />
           </button>
-          <button
-            onClick={onClone}
-            className="p-1.5 rounded hover:bg-gray-100"
-            title="Clone"
-          >
+          <button onClick={onClone} className="p-1.5 rounded hover:bg-gray-100" title="Clone">
             <Copy className="h-4 w-4 text-gray-500" />
           </button>
-          <button
-            onClick={onArchive}
-            className="p-1.5 rounded hover:bg-gray-100"
-            title="Archive"
-          >
+          <button onClick={onArchive} className="p-1.5 rounded hover:bg-gray-100" title="Archive">
             <Archive className="h-4 w-4 text-gray-500" />
           </button>
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded hover:bg-red-100"
-            title="Delete"
-          >
+          <button onClick={onDelete} className="p-1.5 rounded hover:bg-red-100" title="Delete">
             <Trash2 className="h-4 w-4 text-red-500" />
           </button>
         </div>
@@ -335,6 +326,8 @@ const ProgramRow: React.FC<{
 // ============================================================================
 
 const AutomationProgramsPage: React.FC = () => {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { token, tenantId } = useAuth();
@@ -362,43 +355,58 @@ const AutomationProgramsPage: React.FC = () => {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'automationPrograms', statusFilter, typeFilter, page),
     queryFn: () =>
-      graphqlFetch<{ automationPrograms: AutomationProgram[]; automationProgramStats: ProgramStats }>(
-        AUTOMATION_PROGRAMS_QUERY,
-        {
-          ...(filterInput && { filter: filterInput }),
-          page,
-          limit,
-        }
-      ),
+      graphqlFetch<{
+        automationPrograms: AutomationProgram[];
+        automationProgramStats: ProgramStats;
+      }>(AUTOMATION_PROGRAMS_QUERY, {
+        ...(filterInput && { filter: filterInput }),
+        page,
+        limit,
+      }),
     enabled: !!token,
   });
 
   // Mutations
   const deleteMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(DELETE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      }),
   });
 
   const cloneMutation = useMutation({
     mutationFn: ({ id, newCode }: { id: string; newCode: string }) =>
       graphqlFetch(CLONE_PROGRAM_MUTATION, { id, newCode }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      }),
   });
 
   const archiveMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(ARCHIVE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      }),
   });
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      }),
   });
 
   const rejectMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       graphqlFetch(REJECT_PROGRAM_MUTATION, { id, reason }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      }),
   });
 
   // Filtered programs — guard against non-array responses
@@ -412,20 +420,32 @@ const AutomationProgramsPage: React.FC = () => {
       (p) =>
         p.programName.toLowerCase().includes(term) ||
         p.programCode.toLowerCase().includes(term) ||
-        p.description?.toLowerCase().includes(term)
+        p.description?.toLowerCase().includes(term),
     );
   }, [data?.automationPrograms, searchTerm]);
 
   const rawStats = data?.automationProgramStats;
-  const stats = rawStats ? {
-    total: rawStats.total,
-    byStatus: Array.isArray(rawStats.byStatus)
-      ? Object.fromEntries((rawStats.byStatus as Array<{ status: string; count: number }>).map(s => [s.status, s.count]))
-      : rawStats.byStatus,
-    byType: Array.isArray(rawStats.byType)
-      ? Object.fromEntries((rawStats.byType as Array<{ type: string; count: number }>).map(t => [t.type, t.count]))
-      : rawStats.byType,
-  } as ProgramStats : undefined;
+  const stats = rawStats
+    ? ({
+        total: rawStats.total,
+        byStatus: Array.isArray(rawStats.byStatus)
+          ? Object.fromEntries(
+              (rawStats.byStatus as Array<{ status: string; count: number }>).map((s) => [
+                s.status,
+                s.count,
+              ]),
+            )
+          : rawStats.byStatus,
+        byType: Array.isArray(rawStats.byType)
+          ? Object.fromEntries(
+              (rawStats.byType as Array<{ type: string; count: number }>).map((t) => [
+                t.type,
+                t.count,
+              ]),
+            )
+          : rawStats.byType,
+      } as ProgramStats)
+    : undefined;
 
   // Pagination
   const totalPrograms = stats?.total ?? 0;
@@ -438,8 +458,16 @@ const AutomationProgramsPage: React.FC = () => {
     cloneMutation.mutate({ id: program.id, newCode });
   };
 
-  const handleDelete = (program: AutomationProgram) => {
-    if (window.confirm(`Are you sure you want to delete "${program.programName}"?`)) {
+  const handleDelete = async (program: AutomationProgram): Promise<void> => {
+    if (
+      await confirm({
+        title: `Delete "${program.programName}"?`,
+        message: 'The program and its revision history are removed.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       deleteMutation.mutate(program.id);
     }
   };
@@ -448,14 +476,27 @@ const AutomationProgramsPage: React.FC = () => {
     archiveMutation.mutate(program.id);
   };
 
-  const handleApprove = (program: AutomationProgram) => {
-    if (window.confirm(`Are you sure you want to approve "${program.programName}"?`)) {
+  const handleApprove = async (program: AutomationProgram): Promise<void> => {
+    if (
+      await confirm({
+        title: `Approve "${program.programName}"?`,
+        message: 'An approved program can be deployed to edge devices.',
+        confirmText: 'Approve',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       approveMutation.mutate(program.id);
     }
   };
 
-  const handleReject = (program: AutomationProgram) => {
-    const reason = window.prompt(`Reason for rejecting "${program.programName}":`);
+  const handleReject = async (program: AutomationProgram): Promise<void> => {
+    const reason = await prompt({
+      title: `Reject "${program.programName}"`,
+      label: 'Reason for rejecting',
+      confirmText: 'Reject',
+      cancelText: 'Cancel',
+    });
     if (reason !== null && reason.trim()) {
       rejectMutation.mutate({ id: program.id, reason: reason.trim() });
     }
@@ -470,9 +511,7 @@ const AutomationProgramsPage: React.FC = () => {
             <Workflow className="h-6 w-6 text-indigo-600" />
             Automation Programs
           </h1>
-          <p className="text-gray-500 mt-1">
-            Manage IEC 61131-3 compliant automation programs
-          </p>
+          <p className="text-gray-500 mt-1">Manage IEC 61131-3 compliant automation programs</p>
         </div>
         <button
           onClick={() => navigate('/sensor/automation/new')}
@@ -487,10 +526,26 @@ const AutomationProgramsPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <StatCard label="Total" value={stats.total} color="bg-gray-100 text-gray-900" />
-          <StatCard label="Draft" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 text-gray-700" />
-          <StatCard label="Approved" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 text-blue-700" />
-          <StatCard label="Deployed" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 text-green-700" />
-          <StatCard label="Pending Review" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 text-yellow-700" />
+          <StatCard
+            label="Draft"
+            value={stats.byStatus?.draft ?? 0}
+            color="bg-gray-100 text-gray-700"
+          />
+          <StatCard
+            label="Approved"
+            value={stats.byStatus?.approved ?? 0}
+            color="bg-blue-100 text-blue-700"
+          />
+          <StatCard
+            label="Deployed"
+            value={stats.byStatus?.deployed ?? 0}
+            color="bg-green-100 text-green-700"
+          />
+          <StatCard
+            label="Pending Review"
+            value={stats.byStatus?.pending_review ?? 0}
+            color="bg-yellow-100 text-yellow-700"
+          />
         </div>
       )}
 
@@ -509,7 +564,10 @@ const AutomationProgramsPage: React.FC = () => {
 
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as ProgramStatus | ''); setPage(1); }}
+          onChange={(e) => {
+            setStatusFilter(e.target.value as ProgramStatus | '');
+            setPage(1);
+          }}
           className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
           <option value="">All Statuses</option>
@@ -522,7 +580,10 @@ const AutomationProgramsPage: React.FC = () => {
 
         <select
           value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value as ProgramType | ''); setPage(1); }}
+          onChange={(e) => {
+            setTypeFilter(e.target.value as ProgramType | '');
+            setPage(1);
+          }}
           className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
         >
           <option value="">All Types</option>
@@ -564,9 +625,7 @@ const AutomationProgramsPage: React.FC = () => {
       ) : isError ? (
         <div className="text-center py-12 bg-red-50 rounded-lg">
           <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Failed to load programs
-          </h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to load programs</h3>
           <p className="text-red-600 text-sm mb-4">
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>
@@ -581,12 +640,8 @@ const AutomationProgramsPage: React.FC = () => {
       ) : filteredPrograms.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
           <Workflow className="h-12 w-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
-            No programs found
-          </h3>
-          <p className="text-gray-500 mb-4">
-            Create a new automation program
-          </p>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No programs found</h3>
+          <p className="text-gray-500 mb-4">Create a new automation program</p>
           <button
             onClick={() => navigate('/sensor/automation/new')}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -603,9 +658,9 @@ const AutomationProgramsPage: React.FC = () => {
               program={program}
               onClone={() => handleClone(program)}
               onArchive={() => handleArchive(program)}
-              onDelete={() => handleDelete(program)}
-              onApprove={() => handleApprove(program)}
-              onReject={() => handleReject(program)}
+              onDelete={() => void handleDelete(program)}
+              onApprove={() => void handleApprove(program)}
+              onReject={() => void handleReject(program)}
             />
           ))}
         </div>
@@ -614,13 +669,27 @@ const AutomationProgramsPage: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Program</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Steps</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Program
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Version
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Steps
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Updated
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -630,9 +699,9 @@ const AutomationProgramsPage: React.FC = () => {
                   program={program}
                   onClone={() => handleClone(program)}
                   onArchive={() => handleArchive(program)}
-                  onDelete={() => handleDelete(program)}
-                  onApprove={() => handleApprove(program)}
-                  onReject={() => handleReject(program)}
+                  onDelete={() => void handleDelete(program)}
+                  onApprove={() => void handleApprove(program)}
+                  onReject={() => void handleReject(program)}
                 />
               ))}
             </tbody>

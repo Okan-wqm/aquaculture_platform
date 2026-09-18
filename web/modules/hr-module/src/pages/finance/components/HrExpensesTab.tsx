@@ -2,7 +2,7 @@
  * HR Expenses tab — manual HR expense ledger (training, recruitment,
  * PPE, travel, custom) with dynamic category management.
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, useConfirm } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 import {
@@ -27,14 +27,26 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
   const createCategory = useCreateHrFinanceCategory();
   const archiveCategory = useArchiveHrFinanceCategory();
   const deleteEntry = useDeleteHrFinanceEntry();
+  const confirm = useConfirm();
+
+  const handleDeleteEntry = async (id: string): Promise<void> => {
+    if (
+      !(await confirm({
+        title: 'Delete this HR expense?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    )
+      return;
+    deleteEntry.mutate(id);
+  };
 
   const [modal, setModal] = useState<{ open: boolean; entry?: HrFinanceEntry }>({ open: false });
   const [newCategory, setNewCategory] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const categoryName = new Map(
-    (categoriesQuery.data ?? []).map((c) => [c.id, c.name] as const),
-  );
+  const categoryName = new Map((categoriesQuery.data ?? []).map((c) => [c.id, c.name] as const));
 
   const canArchive = (c: HrFinanceCategory): boolean => c.isActive && !c.computedRule;
 
@@ -57,7 +69,10 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <form onSubmit={handleCreateCategory} className="flex items-end gap-2">
             <div>
-              <label htmlFor="hr-new-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="hr-new-category"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 New expense category
               </label>
               <input
@@ -96,7 +111,9 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
             >
               {c.name}
               {c.computedRule && (
-                <span className="text-purple-600 dark:text-purple-300">{c.computedRule.percent}%</span>
+                <span className="text-purple-600 dark:text-purple-300">
+                  {c.computedRule.percent}%
+                </span>
               )}
               {canArchive(c) && (
                 <button
@@ -130,14 +147,20 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
           <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-700 dark:bg-gray-800">
             {entriesQuery.isLoading && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td
+                  colSpan={5}
+                  className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400"
+                >
                   Loading expenses…
                 </td>
               </tr>
             )}
             {!entriesQuery.isLoading && (entriesQuery.data ?? []).length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td
+                  colSpan={5}
+                  className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400"
+                >
                   No HR expenses booked this year
                 </td>
               </tr>
@@ -165,9 +188,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
                       Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm('Delete this HR expense?')) deleteEntry.mutate(entry.id);
-                      }}
+                      onClick={() => void handleDeleteEntry(entry.id)}
                       className="font-medium text-red-600 hover:text-red-800 dark:text-red-400"
                     >
                       Delete
@@ -180,7 +201,9 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
         </table>
       </div>
 
-      {modal.open && <HrExpenseFormModal entry={modal.entry} onClose={() => setModal({ open: false })} />}
+      {modal.open && (
+        <HrExpenseFormModal entry={modal.entry} onClose={() => setModal({ open: false })} />
+      )}
     </div>
   );
 };

@@ -12,7 +12,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -43,11 +48,23 @@ import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 import { setTags as setEditorTags } from '../../components/unified-editor/StCompletionProvider';
 import SimulationPanel from '../../simulation/SimulationPanel';
 import VariableSyncPanel from '../../components/automation/VariableSyncPanel';
-import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
-import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
+import DeployTargetSelector, {
+  DeployTarget,
+} from '../../components/automation/DeployTargetSelector';
+import {
+  useEdgeDevices,
+  useEdgeDevice,
+  DeviceLifecycleState,
+  getDeviceModelText,
+} from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
-import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
+import {
+  ProgramStatus,
+  ProgramType,
+  getStatusColor,
+  getStatusText,
+} from '../../utils/automation.utils';
 import {
   extractIoVariables,
   analyzeBindings,
@@ -166,7 +183,6 @@ interface ProgramTransition {
   priority?: number;
 }
 
-
 // ============================================================================
 // Components
 // ============================================================================
@@ -194,9 +210,7 @@ const TabButton: React.FC<{
       {icon}
       <span>{label}</span>
       {count !== undefined && (
-        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">
-          {count}
-        </span>
+        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">{count}</span>
       )}
     </button>
     {disabled && disabledTooltip && (
@@ -214,22 +228,21 @@ const StepCard: React.FC<{
   <div className="bg-white rounded-lg border border-gray-200 p-4">
     <div className="flex items-start justify-between">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-        }`}>
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${
+            step.stepType === 'initial'
+              ? 'bg-green-100 text-green-700'
+              : 'bg-gray-100 text-gray-700'
+          }`}
+        >
           {step.stepOrder}
         </div>
         <div>
           <h4 className="font-medium text-gray-900">{step.stepName}</h4>
-          {step.description && (
-            <p className="text-sm text-gray-500">{step.description}</p>
-          )}
+          {step.description && <p className="text-sm text-gray-500">{step.description}</p>}
         </div>
       </div>
-      <button
-        onClick={onRemove}
-        className="p-1.5 rounded hover:bg-red-100 text-red-500"
-      >
+      <button onClick={onRemove} className="p-1.5 rounded hover:bg-red-100 text-red-500">
         <Trash2 className="h-4 w-4" />
       </button>
     </div>
@@ -262,10 +275,7 @@ const VariableRow: React.FC<{
     </td>
     <td className="px-4 py-3 text-sm text-gray-500">{variable.description || '-'}</td>
     <td className="px-4 py-3">
-      <button
-        onClick={onRemove}
-        className="p-1.5 rounded hover:bg-red-100 text-red-500"
-      >
+      <button onClick={onRemove} className="p-1.5 rounded hover:bg-red-100 text-red-500">
         <Trash2 className="h-4 w-4" />
       </button>
     </td>
@@ -317,8 +327,8 @@ const IoTagAnalysisPanel: React.FC<{
         <div className="flex items-center gap-2 text-gray-500 text-sm">
           <Unlink className="h-4 w-4" />
           <span>
-            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code.
-            I/O variables are required for binding to physical device tags.
+            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code. I/O variables are
+            required for binding to physical device tags.
           </span>
         </div>
       </div>
@@ -336,9 +346,7 @@ const IoTagAnalysisPanel: React.FC<{
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-indigo-600" />
-            <span className="text-sm font-medium text-gray-700">
-              I/O Tag Analysis
-            </span>
+            <span className="text-sm font-medium text-gray-700">I/O Tag Analysis</span>
           </div>
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700">
@@ -353,7 +361,9 @@ const IoTagAnalysisPanel: React.FC<{
               </span>
             )}
             <span className="mx-1 text-gray-500">|</span>
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+            <span
+              className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}
+            >
               <Link2 className="h-3 w-3" />
               {boundCount} Bound
             </span>
@@ -400,8 +410,8 @@ const IoTagAnalysisPanel: React.FC<{
                 {unboundCount} I/O variables are not bound to a physical tag
               </p>
               <p className="text-xs mt-0.5">
-                These variables need to be bound to a device I/O tag to access hardware.
-                You can bind each one to a tag from the Variables tab below.
+                These variables need to be bound to a device I/O tag to access hardware. You can
+                bind each one to a tag from the Variables tab below.
               </p>
             </div>
           </div>
@@ -413,9 +423,7 @@ const IoTagAnalysisPanel: React.FC<{
         <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-3">
           <div className="flex items-start gap-2 mb-2">
             <Zap className="h-4 w-4 text-indigo-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-indigo-700 font-medium">
-              Auto-Binding Suggestions
-            </div>
+            <div className="text-sm text-indigo-700 font-medium">Auto-Binding Suggestions</div>
           </div>
           <div className="space-y-1">
             {suggestions.map((s) => (
@@ -427,15 +435,23 @@ const IoTagAnalysisPanel: React.FC<{
                   <span className="font-mono font-medium text-gray-900">{s.variableName}</span>
                   <span className="text-gray-500">&#8594;</span>
                   <span className="font-mono text-indigo-700">{s.suggestedTag.tagName}</span>
-                  <span className="text-gray-500">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
+                  <span className="text-gray-500">
+                    ({s.suggestedTag.ioType} {s.suggestedTag.dataType})
+                  </span>
                   {s.matchType === 'exact' && (
-                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">Exact Match</span>
+                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">
+                      Exact Match
+                    </span>
                   )}
                   {s.matchType === 'normalized' && (
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">Similar</span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">
+                      Similar
+                    </span>
                   )}
                   {s.matchType === 'partial' && (
-                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]">Partial</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]">
+                      Partial
+                    </span>
                   )}
                 </div>
                 <button
@@ -455,12 +471,24 @@ const IoTagAnalysisPanel: React.FC<{
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Variable</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Direction</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Bound Tag</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Line</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Variable
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Type
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Direction
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Status
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Bound Tag
+              </th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                Line
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -469,7 +497,9 @@ const IoTagAnalysisPanel: React.FC<{
                 <td className="px-4 py-2 font-mono text-sm text-gray-900">{b.name}</td>
                 <td className="px-4 py-2 text-xs text-gray-600">{b.dataType}</td>
                 <td className="px-4 py-2">
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}>
+                  <span
+                    className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}
+                  >
                     {directionLabel[b.direction] || b.direction}
                   </span>
                 </td>
@@ -498,14 +528,19 @@ const IoTagAnalysisPanel: React.FC<{
       {/* Warnings list */}
       {bindings.some((b) => b.warning) && (
         <div className="space-y-1">
-          {bindings.filter((b) => b.warning).map((b) => (
-            <div key={`warn-${b.name}-${b.line}`} className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5">
-              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-              <span>
-                <span className="font-mono font-medium">{b.name}</span>: {b.warning}
-              </span>
-            </div>
-          ))}
+          {bindings
+            .filter((b) => b.warning)
+            .map((b) => (
+              <div
+                key={`warn-${b.name}-${b.line}`}
+                className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5"
+              >
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-mono font-medium">{b.name}</span>: {b.warning}
+                </span>
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -524,7 +559,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<
+    'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'
+  >('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
@@ -541,17 +578,38 @@ const AutomationProgramEditorPage: React.FC = () => {
   }>({});
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
-  const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
+  const [newStep, setNewStep] = useState({
+    stepName: '',
+    stepCode: '',
+    stepOrder: 1,
+    stepType: 'normal',
+  });
   // Variable form state -- ioTagName/ioConfigId are only populated when scope is INPUT/OUTPUT/IN_OUT
-  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+  const [newVariable, setNewVariable] = useState({
+    varName: '',
+    dataType: 'BOOL',
+    initialValue: '',
+    scope: 'LOCAL',
+    ioTagName: '',
+    ioConfigId: '',
+  });
   // Tracks which device the user selected in the I/O picker (separate from deploy device)
   const [ioDeviceId, setIoDeviceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<{ added: number; removed: number; updated: number; unchanged: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    added: number;
+    removed: number;
+    updated: number;
+    unchanged: number;
+  } | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const closeRejectModal = (): void => {
+    setShowRejectModal(false);
+    setRejectReason('');
+  };
   const [showAddTransition, setShowAddTransition] = useState(false);
   const [newTransition, setNewTransition] = useState({
     transitionCode: '',
@@ -601,7 +659,9 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: io.description,
       })),
     );
-    return () => { setEditorTags([]); };
+    return () => {
+      setEditorTags([]);
+    };
   }, [ioDeviceId, ioTags]);
 
   // Query
@@ -660,7 +720,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       showSuccess('Program created successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      });
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`, { replace: true });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to create program'),
@@ -671,7 +733,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
       showSuccess('Program updated successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to save program'),
   });
@@ -680,7 +744,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW_MUTATION, { id: programId }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to submit for review'),
   });
@@ -690,9 +756,16 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_STEP_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddStep(false);
-      setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
+      setNewStep({
+        stepName: '',
+        stepCode: '',
+        stepOrder: (data?.programSteps?.length ?? 0) + 1,
+        stepType: 'normal',
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add step'),
   });
@@ -701,7 +774,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_STEP_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete step'),
   });
@@ -711,9 +786,18 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_VARIABLE_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddVariable(false);
-      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+      setNewVariable({
+        varName: '',
+        dataType: 'BOOL',
+        initialValue: '',
+        scope: 'LOCAL',
+        ioTagName: '',
+        ioConfigId: '',
+      });
       setIoDeviceId('');
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add variable'),
@@ -723,21 +807,32 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete variable'),
   });
 
   const syncVariablesMutation = useMutation({
-    mutationFn: (input: { programId: string; variables: { varName: string; dataType: string; initialValue?: string; scope: string }[] }) =>
-      graphqlFetch<{ syncProgramVariables: { added: number; removed: number; updated: number; unchanged: number } }>(
-        SYNC_PROGRAM_VARIABLES_MUTATION,
-        { input },
-      ),
+    mutationFn: (input: {
+      programId: string;
+      variables: { varName: string; dataType: string; initialValue?: string; scope: string }[];
+    }) =>
+      graphqlFetch<{
+        syncProgramVariables: {
+          added: number;
+          removed: number;
+          updated: number;
+          unchanged: number;
+        };
+      }>(SYNC_PROGRAM_VARIABLES_MUTATION, { input }),
     onSuccess: (result) => {
       setErrorMessage(null);
       setSyncResult(result.syncProgramVariables);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       // Auto-clear sync result after 5 seconds
       setTimeout(() => setSyncResult(null), 5000);
     },
@@ -746,17 +841,23 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const deployMutation = useMutation({
     mutationFn: (input: { programId: string; deviceId: string }) =>
-      graphqlFetch<{ deployProgram: { success: boolean; programId: string; deviceId: string; error?: string } }>(
-        DEPLOY_PROGRAM_MUTATION,
-        { input },
-      ),
+      graphqlFetch<{
+        deployProgram: { success: boolean; programId: string; deviceId: string; error?: string };
+      }>(DEPLOY_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       if (result.deployProgram.success) {
         showSuccess('Deployment started successfully');
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory') });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory'),
+        });
       } else {
-        handleMutationError(new Error(result.deployProgram.error || 'Unknown error'), 'Deployment failed');
+        handleMutationError(
+          new Error(result.deployProgram.error || 'Unknown error'),
+          'Deployment failed',
+        );
       }
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to start deployment'),
@@ -766,18 +867,23 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
     onSuccess: () => {
       showSuccess('Program approved');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to approve program'),
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string) => graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
+    mutationFn: (reason: string) =>
+      graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
     onSuccess: () => {
       showSuccess('Program rejected');
       setShowRejectModal(false);
       setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to reject program'),
   });
@@ -787,9 +893,17 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_TRANSITION_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddTransition(false);
-      setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
+      setNewTransition({
+        transitionCode: '',
+        fromStepId: '',
+        toStepId: '',
+        conditionExpression: '',
+        priority: 1,
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add transition'),
   });
@@ -798,7 +912,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_TRANSITION_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete transition'),
   });
@@ -807,10 +923,15 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { data: deploymentHistoryData } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'deploymentHistory', selectedDeviceId),
     queryFn: () =>
-      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasNextPage: boolean; hasPreviousPage: boolean; totalPages: number } }>(
-        DEPLOYMENT_HISTORY_QUERY,
-        { deviceId: selectedDeviceId, page: 1, limit: 10 },
-      ),
+      graphqlFetch<{
+        deploymentHistory: {
+          items: DeploymentRecord[];
+          total: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
+          totalPages: number;
+        };
+      }>(DEPLOYMENT_HISTORY_QUERY, { deviceId: selectedDeviceId, page: 1, limit: 10 }),
     enabled: !isNew && !!selectedDeviceId && activeTab === 'deploy',
   });
   const deploymentHistory = deploymentHistoryData?.deploymentHistory?.items ?? [];
@@ -900,7 +1021,13 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   const handleAddTransition = () => {
-    if (!isNew && programId && newTransition.fromStepId && newTransition.toStepId && newTransition.conditionExpression) {
+    if (
+      !isNew &&
+      programId &&
+      newTransition.fromStepId &&
+      newTransition.toStepId &&
+      newTransition.conditionExpression
+    ) {
       addTransitionMutation.mutate({ ...newTransition, programId });
     }
   };
@@ -911,10 +1038,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const transitions = data?.programTransitions || [];
 
   // ── I/O Tag Analysis ──────────────────────────────────────────────────
-  const tagAnalysis: TagExtractionResult = useMemo(
-    () => extractIoVariables(stCode),
-    [stCode],
-  );
+  const tagAnalysis: TagExtractionResult = useMemo(() => extractIoVariables(stCode), [stCode]);
 
   const ioBindings: IoVariableWithBinding[] = useMemo(
     () => analyzeBindings(tagAnalysis.ioVariables, variables),
@@ -932,10 +1056,11 @@ const AutomationProgramEditorPage: React.FC = () => {
   }, [ioTags]);
 
   const unboundVars = useMemo(
-    () => tagAnalysis.ioVariables.filter((v) => {
-      const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
-      return binding && binding.status !== 'bound';
-    }),
+    () =>
+      tagAnalysis.ioVariables.filter((v) => {
+        const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
+        return binding && binding.status !== 'bound';
+      }),
     [tagAnalysis.ioVariables, ioBindings],
   );
 
@@ -946,12 +1071,16 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const handleApplySuggestion = (variableName: string, tag: DeviceTag) => {
     if (!programId || isNew) return;
-    const existingVar = variables.find((v) => v.varName.toLowerCase() === variableName.toLowerCase());
+    const existingVar = variables.find(
+      (v) => v.varName.toLowerCase() === variableName.toLowerCase(),
+    );
     const extracted = tagAnalysis.ioVariables.find((v) => v.name === variableName);
     if (!extracted) return;
 
     if (existingVar) {
-      setSuccessMessage(`Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`);
+      setSuccessMessage(
+        `Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`,
+      );
     } else {
       const scopeMap: Record<string, string> = { input: 'INPUT', output: 'OUTPUT', inout: 'INOUT' };
       const scope = scopeMap[extracted.direction] || 'INPUT';
@@ -989,7 +1118,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   // Bulk sync all detected variables with the backend in a single call
-  const handleSyncAllVariables = (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => {
+  const handleSyncAllVariables = (
+    variables: { varName: string; dataType: string; initialValue?: string; scope: string }[],
+  ) => {
     if (!isNew && programId) {
       const sanitized = variables.map((v) => ({
         varName: v.varName,
@@ -1013,7 +1144,10 @@ const AutomationProgramEditorPage: React.FC = () => {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Error Toast */}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between" role="alert">
+        <div
+          className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between"
+          role="alert"
+        >
           <div className="flex items-center gap-2 text-red-700">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{errorMessage}</span>
@@ -1030,7 +1164,10 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Success Toast */}
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between" role="status">
+        <div
+          className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between"
+          role="status"
+        >
           <div className="flex items-center gap-2 text-green-700">
             <CheckCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{successMessage}</span>
@@ -1047,27 +1184,20 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Reject Modal */}
       {showRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Reject Program</h3>
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Program"
+          showCloseButton={!rejectMutation.isPending}
+          closeOnEscape={!rejectMutation.isPending}
+          closeOnOverlayClick={!rejectMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <XCircle className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Enter rejection reason..."
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+                type="button"
+                onClick={closeRejectModal}
                 className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
               >
                 Cancel
@@ -1077,21 +1207,28 @@ const AutomationProgramEditorPage: React.FC = () => {
                 disabled={!rejectReason.trim() || rejectMutation.isPending}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
+                {rejectMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-1" />
+                ) : null}
                 Reject
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <textarea
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Enter rejection reason..."
+            rows={4}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
+          />
+        </Modal>
       )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/sensor/automation"
-            className="p-2 rounded-lg hover:bg-gray-100"
-          >
+          <Link to="/sensor/automation" className="p-2 rounded-lg hover:bg-gray-100">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
@@ -1147,7 +1284,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             disabled={createMutation.isPending || updateMutation.isPending}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
-            {(createMutation.isPending || updateMutation.isPending) ? (
+            {createMutation.isPending || updateMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Save className="h-4 w-4" />
@@ -1173,14 +1310,22 @@ const AutomationProgramEditorPage: React.FC = () => {
       {program && (
         <div className="mb-6">
           <div className="flex items-center justify-between">
-            {([
-              { key: ProgramStatus.DRAFT, label: 'Draft' },
-              { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
-              { key: ProgramStatus.APPROVED, label: 'Approved' },
-              { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
-              { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
-            ] as const).map((step, index, arr) => {
-              const statusOrder = [ProgramStatus.DRAFT, ProgramStatus.PENDING_REVIEW, ProgramStatus.APPROVED, ProgramStatus.DEPLOYING, ProgramStatus.DEPLOYED];
+            {(
+              [
+                { key: ProgramStatus.DRAFT, label: 'Draft' },
+                { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
+                { key: ProgramStatus.APPROVED, label: 'Approved' },
+                { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
+                { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
+              ] as const
+            ).map((step, index, arr) => {
+              const statusOrder = [
+                ProgramStatus.DRAFT,
+                ProgramStatus.PENDING_REVIEW,
+                ProgramStatus.APPROVED,
+                ProgramStatus.DEPLOYING,
+                ProgramStatus.DEPLOYED,
+              ];
               const currentIndex = statusOrder.indexOf(program.status);
               const stepIndex = statusOrder.indexOf(step.key);
               const isCompleted = stepIndex < currentIndex;
@@ -1234,9 +1379,11 @@ const AutomationProgramEditorPage: React.FC = () => {
           active={activeTab === 'variables'}
           onClick={() => setActiveTab('variables')}
           icon={
-            ioBindings.some((b) => b.status === 'unbound')
-              ? <AlertCircle className="h-4 w-4 text-amber-500" />
-              : <Variable className="h-4 w-4" />
+            ioBindings.some((b) => b.status === 'unbound') ? (
+              <AlertCircle className="h-4 w-4 text-amber-500" />
+            ) : (
+              <Variable className="h-4 w-4" />
+            )
           }
           label="Variables"
           count={isNew ? undefined : variables.length}
@@ -1270,9 +1417,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Program Code *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Program Code *</label>
               <input
                 type="text"
                 value={formData.programCode}
@@ -1283,9 +1428,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Program Name *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Program Name *</label>
               <input
                 type="text"
                 value={formData.name}
@@ -1295,17 +1438,13 @@ const AutomationProgramEditorPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Program Type
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Program Type</label>
               <div className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-700">
                 Structured Text (ST)
               </div>
             </div>
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -1416,7 +1555,9 @@ const AutomationProgramEditorPage: React.FC = () => {
                   <h4 className="text-sm font-medium text-blue-700 mb-3">I/O Tag Binding</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Edge Device</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Edge Device
+                      </label>
                       <select
                         value={ioDeviceId}
                         onChange={(e) => {
@@ -1428,13 +1569,16 @@ const AutomationProgramEditorPage: React.FC = () => {
                         <option value="">Select device...</option>
                         {allActiveDevices.map((device: EdgeDevice) => (
                           <option key={device.id} value={device.id}>
-                            {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                            {device.deviceName} ({device.deviceCode}) -{' '}
+                            {getDeviceModelText(device.deviceModel)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">I/O Tag</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        I/O Tag
+                      </label>
                       <select
                         value={newVariable.ioConfigId}
                         onChange={(e) => {
@@ -1446,7 +1590,8 @@ const AutomationProgramEditorPage: React.FC = () => {
                               ...newVariable,
                               ioConfigId: selectedTag.id,
                               ioTagName: selectedTag.tagName,
-                              dataType: IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                              dataType:
+                                IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
                             });
                           } else {
                             setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
@@ -1455,7 +1600,13 @@ const AutomationProgramEditorPage: React.FC = () => {
                         disabled={!ioDeviceId || ioTags.length === 0}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm disabled:bg-gray-100"
                       >
-                        <option value="">{!ioDeviceId ? 'Select device first...' : ioTags.length === 0 ? 'No I/O tags found' : 'Select tag...'}</option>
+                        <option value="">
+                          {!ioDeviceId
+                            ? 'Select device first...'
+                            : ioTags.length === 0
+                              ? 'No I/O tags found'
+                              : 'Select tag...'}
+                        </option>
                         {ioTags.map((tag) => (
                           <option key={tag.id} value={tag.id}>
                             {tag.tagName} ({tag.ioType} - {tag.dataType})
@@ -1468,8 +1619,10 @@ const AutomationProgramEditorPage: React.FC = () => {
                   </div>
                   {newVariable.ioTagName && (
                     <div className="mt-2 text-xs text-blue-600">
-                      Bound tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
-                      {' | Data type auto-set: '}<span className="font-medium">{newVariable.dataType}</span>
+                      Bound tag:{' '}
+                      <span className="font-mono font-medium">{newVariable.ioTagName}</span>
+                      {' | Data type auto-set: '}
+                      <span className="font-medium">{newVariable.dataType}</span>
                     </div>
                   )}
                 </div>
@@ -1499,12 +1652,24 @@ const AutomationProgramEditorPage: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scope</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">I/O Tag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Name
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Type
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Value
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Scope
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    I/O Tag
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Description
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
                 </tr>
               </thead>
@@ -1540,10 +1705,16 @@ const AutomationProgramEditorPage: React.FC = () => {
                 <Zap className="h-3.5 w-3.5" />
                 I/O Variables:
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{tagAnalysis.inputCount} Input</span>
-              <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{tagAnalysis.outputCount} Output</span>
+              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
+                {tagAnalysis.inputCount} Input
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">
+                {tagAnalysis.outputCount} Output
+              </span>
               {tagAnalysis.inoutCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">{tagAnalysis.inoutCount} In/Out</span>
+                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
+                  {tagAnalysis.inoutCount} In/Out
+                </span>
               )}
               {ioBindings.filter((b) => b.status === 'unbound').length > 0 && (
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
@@ -1551,12 +1722,13 @@ const AutomationProgramEditorPage: React.FC = () => {
                   {ioBindings.filter((b) => b.status === 'unbound').length} unbound tags
                 </span>
               )}
-              {ioBindings.filter((b) => b.status === 'unbound').length === 0 && tagAnalysis.ioVariables.length > 0 && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 text-green-700">
-                  <CheckCircle className="h-3 w-3" />
-                  All tags bound
-                </span>
-              )}
+              {ioBindings.filter((b) => b.status === 'unbound').length === 0 &&
+                tagAnalysis.ioVariables.length > 0 && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 text-green-700">
+                    <CheckCircle className="h-3 w-3" />
+                    All tags bound
+                  </span>
+                )}
             </div>
           )}
           <StEditorPanel
@@ -1587,9 +1759,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         <div className="space-y-6">
           {/* Deploy Target Selection */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
-              Target Platform
-            </h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-4">Target Platform</h3>
             <DeployTargetSelector
               value={deployTarget}
               onChange={setDeployTarget}
@@ -1600,9 +1770,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
           {/* Edge Device Selector */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
-              Select Edge Device
-            </h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-4">Select Edge Device</h3>
             {onlineDevices.length === 0 ? (
               <div className="text-center py-4 text-gray-500 text-sm">
                 <WifiOff className="h-8 w-8 mx-auto text-gray-500 mb-2" />
@@ -1617,29 +1785,30 @@ const AutomationProgramEditorPage: React.FC = () => {
                 <option value="">Select device...</option>
                 {onlineDevices.map((device: EdgeDevice) => (
                   <option key={device.id} value={device.id}>
-                    {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                    {device.deviceName} ({device.deviceCode}) -{' '}
+                    {getDeviceModelText(device.deviceModel)}
                     {device.isOnline ? ' [Online]' : ' [Offline]'}
                   </option>
                 ))}
               </select>
             )}
-            {selectedDeviceId && onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
-              <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
-                <Wifi className="h-4 w-4" />
-                <span>
-                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Online
-                </span>
-              </div>
-            )}
+            {selectedDeviceId &&
+              onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
+                  <Wifi className="h-4 w-4" />
+                  <span>
+                    {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} -
+                    Online
+                  </span>
+                </div>
+              )}
           </div>
 
           {/* Deploy Action */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="text-center py-4">
               <Server className="h-12 w-12 mx-auto text-gray-500 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Deploy to Edge Device
-              </h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Deploy to Edge Device</h3>
               <p className="text-gray-500 mb-4 text-sm">
                 {program?.status === ProgramStatus.APPROVED
                   ? `Will deploy to ${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} target`
@@ -1667,9 +1836,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 </p>
               )}
               {program?.status === ProgramStatus.APPROVED && !selectedDeviceId && (
-                <p className="mt-2 text-xs text-amber-600">
-                  Please select an edge device.
-                </p>
+                <p className="mt-2 text-xs text-amber-600">Please select an edge device.</p>
               )}
             </div>
           </div>
@@ -1678,24 +1845,30 @@ const AutomationProgramEditorPage: React.FC = () => {
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <div className="flex items-center gap-2 mb-4">
               <History className="h-4 w-4 text-gray-500" />
-              <h3 className="text-sm font-medium text-gray-700">
-                Deployment History
-              </h3>
+              <h3 className="text-sm font-medium text-gray-700">Deployment History</h3>
             </div>
             {deploymentHistory.length === 0 ? (
-              <div className="text-center py-6 text-gray-500 text-sm">
-                No deployments yet
-              </div>
+              <div className="text-center py-6 text-gray-500 text-sm">No deployments yet</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Deployed By</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Command ID</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Status
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Version
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Deployed By
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Date
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Command ID
+                      </th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
                     </tr>
                   </thead>
@@ -1711,14 +1884,20 @@ const AutomationProgramEditorPage: React.FC = () => {
                       return (
                         <tr key={dep.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2">
-                            <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}
+                            >
                               {dep.status}
                             </span>
                           </td>
                           <td className="px-3 py-2 text-sm">v{dep.version}</td>
                           <td className="px-3 py-2 text-sm text-gray-600">{dep.deployedBy}</td>
-                          <td className="px-3 py-2 text-sm text-gray-500">{new Date(dep.deployedAt).toLocaleString('en-US')}</td>
-                          <td className="px-3 py-2 text-xs font-mono text-gray-500">{dep.commandId || '-'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500">
+                            {new Date(dep.deployedAt).toLocaleString('en-US')}
+                          </td>
+                          <td className="px-3 py-2 text-xs font-mono text-gray-500">
+                            {dep.commandId || '-'}
+                          </td>
                           <td className="px-3 py-2">
                             {idx === 0 && dep.status === 'success' && (
                               <button
@@ -1737,11 +1916,12 @@ const AutomationProgramEditorPage: React.FC = () => {
                 </table>
               </div>
             )}
-            {deploymentHistory.length > 0 && deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
-              <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
-                Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
-              </div>
-            )}
+            {deploymentHistory.length > 0 &&
+              deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
+                <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+                  Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
+                </div>
+              )}
           </div>
         </div>
       )}

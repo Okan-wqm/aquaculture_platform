@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -33,6 +34,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 const ProcessListPage: React.FC = () => {
+  const confirm = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -63,65 +65,82 @@ const ProcessListPage: React.FC = () => {
   };
 
   // Handle duplicate process
-  const handleDuplicate = useCallback(async (process: Process) => {
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const newName = `${process.name} (Copy)`;
-      const result = await duplicateProcess(process.id, newName);
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to duplicate:', result.message);
+  const handleDuplicate = useCallback(
+    async (process: Process) => {
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const newName = `${process.name} (Copy)`;
+        const result = await duplicateProcess(process.id, newName);
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to duplicate:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to duplicate process:', err);
+      } finally {
+        setActionLoading(null);
       }
-    } catch (err) {
-      console.error('Failed to duplicate process:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [duplicateProcess, refetch]);
+    },
+    [duplicateProcess, refetch],
+  );
 
   // Handle delete process
-  const handleDelete = useCallback(async (process: Process) => {
-    if (!window.confirm(`Are you sure you want to delete "${process.name}"?`)) {
-      return;
-    }
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const result = await deleteProcess(process.id);
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to delete:', result.message);
+  const handleDelete = useCallback(
+    async (process: Process) => {
+      if (
+        !(await confirm({
+          title: `Delete "${process.name}"?`,
+          message: 'The process and its diagram are removed.',
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          variant: 'danger',
+        }))
+      ) {
+        return;
       }
-    } catch (err) {
-      console.error('Failed to delete process:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [deleteProcess, refetch]);
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const result = await deleteProcess(process.id);
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to delete:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to delete process:', err);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [deleteProcess, refetch, confirm],
+  );
 
   // Handle status change (activate/pause)
-  const handleStatusChange = useCallback(async (process: Process, newStatus: 'active' | 'inactive') => {
-    setActionLoading(process.id);
-    setActiveDropdown(null);
-    try {
-      const result = await updateProcess({
-        processId: process.id,
-        status: newStatus,
-      });
-      if (result.success) {
-        refetch();
-      } else {
-        console.error('Failed to update status:', result.message);
+  const handleStatusChange = useCallback(
+    async (process: Process, newStatus: 'active' | 'inactive') => {
+      setActionLoading(process.id);
+      setActiveDropdown(null);
+      try {
+        const result = await updateProcess({
+          processId: process.id,
+          status: newStatus,
+        });
+        if (result.success) {
+          refetch();
+        } else {
+          console.error('Failed to update status:', result.message);
+        }
+      } catch (err) {
+        console.error('Failed to update process status:', err);
+      } finally {
+        setActionLoading(null);
       }
-    } catch (err) {
-      console.error('Failed to update process status:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [updateProcess, refetch]);
+    },
+    [updateProcess, refetch],
+  );
 
   // Loading state
   if (loading) {
@@ -164,9 +183,7 @@ const ProcessListPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Process Diagrams</h1>
-          <p className="text-gray-500 mt-1">
-            Create and manage equipment connection diagrams
-          </p>
+          <p className="text-gray-500 mt-1">Create and manage equipment connection diagrams</p>
         </div>
         <div className="flex gap-3">
           <button
@@ -275,10 +292,7 @@ const ProcessListPage: React.FC = () => {
                 return (
                   <tr key={process.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
-                      <Link
-                        to={`/sensor/unified-editor/${process.id}`}
-                        className="block"
-                      >
+                      <Link to={`/sensor/unified-editor/${process.id}`} className="block">
                         <div className="font-medium text-gray-900 hover:text-blue-600">
                           {process.name}
                         </div>

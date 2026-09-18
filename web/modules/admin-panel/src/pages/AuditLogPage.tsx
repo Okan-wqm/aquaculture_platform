@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Badge, Table, Modal } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
@@ -159,7 +159,9 @@ const formatRelativeTime = (dateStr: string): string => {
   return formatDateTime(dateStr);
 };
 
-const getActionBadgeVariant = (action: string): 'success' | 'info' | 'error' | 'warning' | 'default' => {
+const getActionBadgeVariant = (
+  action: string,
+): 'success' | 'info' | 'error' | 'warning' | 'default' => {
   const variants: Record<string, 'success' | 'info' | 'error' | 'warning' | 'default'> = {
     CREATE: 'success',
     UPDATE: 'info',
@@ -221,10 +223,17 @@ interface StatsCardProps {
   valueColor?: string;
 }
 
-const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle, valueColor = 'text-gray-900' }) => (
+const StatsCard: React.FC<StatsCardProps> = ({
+  title,
+  value,
+  subtitle,
+  valueColor = 'text-gray-900',
+}) => (
   <Card className="p-4">
     <p className="text-sm text-gray-500">{title}</p>
-    <p className={`text-2xl font-bold ${valueColor}`}>{typeof value === 'number' ? value.toLocaleString() : value}</p>
+    <p className={`text-2xl font-bold ${valueColor}`}>
+      {typeof value === 'number' ? value.toLocaleString() : value}
+    </p>
     {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
   </Card>
 );
@@ -235,62 +244,50 @@ interface LogDetailModalProps {
 }
 
 const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-    <Card className="w-full max-w-2xl max-h-[90vh] overflow-auto">
-      <div className="p-6">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Log Details</h2>
-            <p className="text-sm text-gray-500">ID: {log.id}</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </Button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <DetailField label="Date" value={formatDateTime(log.createdAt)} />
-            <DetailField label="Action">
-              <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>
-            </DetailField>
-            <DetailField label="Entity Type" value={log.entityType} />
-            <DetailField label="Entity ID" value={log.entityId} mono />
-            <DetailField label="User" value={log.performedByEmail} subtitle={log.performedBy} />
-            <DetailField label="Severity">
-              <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
-            </DetailField>
-            <DetailField label="IP Address" value={log.ipAddress} mono />
-            <DetailField label="Tenant ID" value={log.tenantId || '-'} mono />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500">User Agent</label>
-            <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded break-all">
-              {log.userAgent || '-'}
-            </p>
-          </div>
-
-          {log.details && Object.keys(log.details).length > 0 && (
-            <div>
-              {/* `details` is the column (audit.entity.ts). The hand-written
-                  type called it `metadata`, so this block never rendered. */}
-              <label className="text-xs text-gray-500">Details</label>
-              <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.details, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button onClick={onClose}>Close</Button>
-        </div>
+  <Modal
+    isOpen
+    onClose={onClose}
+    size="lg"
+    title="Log Details"
+    description={`ID: ${log.id}`}
+    bodyClassName="p-6"
+    footer={<Button onClick={onClose}>Close</Button>}
+  >
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <DetailField label="Date" value={formatDateTime(log.createdAt)} />
+        <DetailField label="Action">
+          <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>
+        </DetailField>
+        <DetailField label="Entity Type" value={log.entityType} />
+        <DetailField label="Entity ID" value={log.entityId} mono />
+        <DetailField label="User" value={log.performedByEmail} subtitle={log.performedBy} />
+        <DetailField label="Severity">
+          <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
+        </DetailField>
+        <DetailField label="IP Address" value={log.ipAddress} mono />
+        <DetailField label="Tenant ID" value={log.tenantId || '-'} mono />
       </div>
-    </Card>
-  </div>
+
+      <div>
+        <label className="text-xs text-gray-500">User Agent</label>
+        <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded break-all">
+          {log.userAgent || '-'}
+        </p>
+      </div>
+
+      {log.details && Object.keys(log.details).length > 0 && (
+        <div>
+          {/* `details` is the column (audit.entity.ts). The hand-written
+              type called it `metadata`, so this block never rendered. */}
+          <label className="text-xs text-gray-500">Details</label>
+          <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
+            {JSON.stringify(log.details, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  </Modal>
 );
 
 interface DetailFieldProps {
@@ -323,18 +320,13 @@ const AuditLogPage: React.FC = () => {
   const [exportError, setExportError] = useState<string | null>(null);
 
   // Filters with URL sync and debounce for search
-  const {
-    filters,
-    debouncedFilters,
-    setFilter,
-    resetFilters,
-    hasActiveFilters,
-  } = useFilters<AuditFilters>({
-    initialFilters: INITIAL_FILTERS,
-    syncUrl: true,
-    debounceDelay: 300,
-    debounceKeys: ['search'],
-  });
+  const { filters, debouncedFilters, setFilter, resetFilters, hasActiveFilters } =
+    useFilters<AuditFilters>({
+      initialFilters: INITIAL_FILTERS,
+      syncUrl: true,
+      debounceDelay: 300,
+      debounceKeys: ['search'],
+    });
 
   // Pagination
   const pagination = usePagination({
@@ -444,72 +436,82 @@ const AuditLogPage: React.FC = () => {
   };
 
   // Table columns
-  const columns: TableColumn<AuditLog>[] = useMemo(() => [
-    {
-      key: 'createdAt',
-      header: 'Date',
-      sortable: true,
-      render: (log) => (
-        <div>
-          <span className="text-sm text-gray-900">{formatRelativeTime(log.createdAt)}</span>
-          <p className="text-xs text-gray-500">{formatDateTime(log.createdAt)}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'action',
-      header: 'Action',
-      sortable: true,
-      render: (log) => <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>,
-    },
-    {
-      key: 'entityType',
-      header: 'Entity',
-      sortable: true,
-      render: (log) => (
-        <div>
-          <p className="font-medium text-gray-900">{log.entityType}</p>
-          <p className="text-xs text-gray-500 truncate max-w-[120px]">ID: {log.entityId}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'performedByEmail',
-      header: 'User',
-      sortable: true,
-      render: (log) => (
-        <div className="max-w-[180px]">
-          <p className="text-sm text-gray-900 truncate">{log.performedByEmail}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'severity',
-      header: 'Severity',
-      sortable: true,
-      render: (log) => <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>,
-    },
-    {
-      key: 'ipAddress',
-      header: 'IP',
-      render: (log) => <code className="text-xs bg-gray-100 px-2 py-1 rounded">{log.ipAddress}</code>,
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (log) => (
-        <Button size="sm" variant="ghost" onClick={() => setSelectedLog(log)}>
-          Details
-        </Button>
-      ),
-    },
-  ], []);
+  const columns: TableColumn<AuditLog>[] = useMemo(
+    () => [
+      {
+        key: 'createdAt',
+        header: 'Date',
+        sortable: true,
+        render: (log) => (
+          <div>
+            <span className="text-sm text-gray-900">{formatRelativeTime(log.createdAt)}</span>
+            <p className="text-xs text-gray-500">{formatDateTime(log.createdAt)}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'action',
+        header: 'Action',
+        sortable: true,
+        render: (log) => <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>,
+      },
+      {
+        key: 'entityType',
+        header: 'Entity',
+        sortable: true,
+        render: (log) => (
+          <div>
+            <p className="font-medium text-gray-900">{log.entityType}</p>
+            <p className="text-xs text-gray-500 truncate max-w-[120px]">ID: {log.entityId}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'performedByEmail',
+        header: 'User',
+        sortable: true,
+        render: (log) => (
+          <div className="max-w-[180px]">
+            <p className="text-sm text-gray-900 truncate">{log.performedByEmail}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'severity',
+        header: 'Severity',
+        sortable: true,
+        render: (log) => (
+          <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
+        ),
+      },
+      {
+        key: 'ipAddress',
+        header: 'IP',
+        render: (log) => (
+          <code className="text-xs bg-gray-100 px-2 py-1 rounded">{log.ipAddress}</code>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (log) => (
+          <Button size="sm" variant="ghost" onClick={() => setSelectedLog(log)}>
+            Details
+          </Button>
+        ),
+      },
+    ],
+    [],
+  );
 
   // Tenant options for filter
-  const tenantOptions = useMemo(() => [
-    { value: '', label: 'All Tenants' },
-    ...(tenants?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
-  ], [tenants]);
+  const tenantOptions = useMemo(
+    () => [
+      { value: '', label: 'All Tenants' },
+      ...(tenants?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    ],
+    [tenants],
+  );
 
   return (
     <div className="space-y-6">
@@ -518,19 +520,30 @@ const AuditLogPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
           <p className="mt-1 text-sm text-gray-500">
-            System activity logs {pagination.total > 0 && `(${pagination.total.toLocaleString()} records)`}
+            System activity logs{' '}
+            {pagination.total > 0 && `(${pagination.total.toLocaleString()} records)`}
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
           <Button variant="outline" onClick={refresh} disabled={loading}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
             Refresh
           </Button>
           <Button variant="outline" onClick={handleExport}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
             </svg>
             Export
           </Button>
@@ -541,9 +554,16 @@ const AuditLogPage: React.FC = () => {
       {exportError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
           <span className="text-red-700 text-sm">{exportError}</span>
-          <button onClick={() => setExportError(null)} className="text-red-400 hover:text-red-600 ml-4">
+          <button
+            onClick={() => setExportError(null)}
+            className="text-red-400 hover:text-red-600 ml-4"
+          >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
@@ -553,19 +573,27 @@ const AuditLogPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatsCard title="Total Logs" value={stats.totalLogs ?? 0} />
-          <StatsCard title="Last 24 Hours" value={stats.last24Hours ?? 0} valueColor="text-blue-600" />
+          <StatsCard
+            title="Last 24 Hours"
+            value={stats.last24Hours ?? 0}
+            valueColor="text-blue-600"
+          />
           <StatsCard
             title="Critical Events"
             value={
               Array.isArray(stats.bySeverity)
-                ? stats.bySeverity.find((s) => s.severity === 'critical')?.count ?? 0
+                ? (stats.bySeverity.find((s) => s.severity === 'critical')?.count ?? 0)
                 : 0
             }
             valueColor="text-red-600"
           />
           <StatsCard
             title="Most Active User"
-            value={Array.isArray(stats.topUsers) && stats.topUsers[0]?.email ? stats.topUsers[0].email : '-'}
+            value={
+              Array.isArray(stats.topUsers) && stats.topUsers[0]?.email
+                ? stats.topUsers[0].email
+                : '-'
+            }
             subtitle={`${Array.isArray(stats.topUsers) && stats.topUsers[0]?.count ? stats.topUsers[0].count : 0} actions`}
           />
         </div>
@@ -580,8 +608,18 @@ const AuditLogPage: React.FC = () => {
               value={filters.search}
               onChange={(e) => setFilter('search', e.target.value)}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
                 </svg>
               }
             />
@@ -671,7 +709,8 @@ const AuditLogPage: React.FC = () => {
           {pagination.totalPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
-                Page {pagination.page} of {pagination.totalPages} ({pagination.total.toLocaleString()} records)
+                Page {pagination.page} of {pagination.totalPages} (
+                {pagination.total.toLocaleString()} records)
               </p>
               <div className="flex gap-2">
                 <Button
@@ -697,9 +736,7 @@ const AuditLogPage: React.FC = () => {
       )}
 
       {/* Detail Modal */}
-      {selectedLog && (
-        <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
-      )}
+      {selectedLog && <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />}
     </div>
   );
 };

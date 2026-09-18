@@ -6,7 +6,15 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import {
+  Card,
+  KpiCard,
+  useAuth,
+  getTenantId,
+  tenantScopedStorageKey,
+  chartChrome,
+  colors,
+} from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -35,7 +43,7 @@ import type { ChartVisibility } from '../../tanks/components';
 
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -44,13 +52,13 @@ const tooltipStyle = {
 // ============================================================================
 
 const STATUS_COLORS: Record<string, string> = {
-  operational: '#22c55e',
-  active: '#22c55e',
-  maintenance: '#f59e0b',
-  fallow: '#94a3b8',
-  quarantine: '#ef4444',
-  inactive: '#6b7280',
-  empty: '#d1d5db',
+  operational: colors.success[500],
+  active: colors.success[500],
+  maintenance: colors.warning[500],
+  fallow: colors.neutral[400],
+  quarantine: colors.error[500],
+  inactive: colors.gray[400],
+  empty: colors.neutral[300],
 };
 
 // ============================================================================
@@ -91,19 +99,20 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   }, [tankData, totalTanks]);
 
   const avgMortalityRate = useMemo(() => {
-    const tanksWithRate = tankData.filter(t => t.mortalityRate != null);
+    const tanksWithRate = tankData.filter((t) => t.mortalityRate != null);
     if (tanksWithRate.length === 0) return null;
     const sum = tanksWithRate.reduce((acc, t) => acc + (t.mortalityRate ?? 0), 0);
     return Math.round((sum / tanksWithRate.length) * 10) / 10;
   }, [tankData]);
 
   // Biomass by tank -- top 10 sorted descending
-  const biomassByTank = useMemo(() =>
-    tankData
-      .filter(t => (t.biomass ?? 0) > 0)
-      .sort((a, b) => (b.biomass ?? 0) - (a.biomass ?? 0))
-      .slice(0, 10)
-      .map(t => ({ tank: t.name, biomass: Math.round((t.biomass ?? 0) * 10) / 10 })),
+  const biomassByTank = useMemo(
+    () =>
+      tankData
+        .filter((t) => (t.biomass ?? 0) > 0)
+        .sort((a, b) => (b.biomass ?? 0) - (a.biomass ?? 0))
+        .slice(0, 10)
+        .map((t) => ({ tank: t.name, biomass: Math.round((t.biomass ?? 0) * 10) / 10 })),
     [tankData],
   );
 
@@ -117,7 +126,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     return Array.from(statusMap.entries()).map(([name, value]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
-      color: STATUS_COLORS[name] || '#6b7280',
+      color: STATUS_COLORS[name] || colors.gray[400],
     }));
   }, [tankData]);
 
@@ -131,9 +140,18 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   // every read/write below no-op — no shared 'default' bucket, so no cross-tenant bleed.
   const { tenantId: authTenantId } = useAuth();
   const tenantId = authTenantId ?? getTenantId();
-  const timeRangeKey = useMemo(() => tenantScopedStorageKey('tanks-chart-time-range', tenantId), [tenantId]);
-  const visibilityKey = useMemo(() => tenantScopedStorageKey('tanks-chart-visibility', tenantId), [tenantId]);
-  const selectedIdsKey = useMemo(() => tenantScopedStorageKey('tanks-chart-selected-ids', tenantId), [tenantId]);
+  const timeRangeKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-time-range', tenantId),
+    [tenantId],
+  );
+  const visibilityKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-visibility', tenantId),
+    [tenantId],
+  );
+  const selectedIdsKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-selected-ids', tenantId),
+    [tenantId],
+  );
 
   // ============================================================================
   // CHART SETTINGS STATE
@@ -161,9 +179,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             defaultChartVisibility,
             Object.fromEntries(
               Object.entries(parsed as Record<string, unknown>).filter(
-                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
-              )
-            )
+                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype',
+              ),
+            ),
           );
           return safe as ChartVisibility;
         }
@@ -183,18 +201,23 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       const saved = selectedIdsKey ? localStorage.getItem(selectedIdsKey) : null;
       if (saved) {
         let parsedIds: unknown;
-        try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
-        const savedIds = Array.isArray(parsedIds) && parsedIds.every(x => typeof x === 'string')
-          ? (parsedIds as string[])
-          : [];
-        const validIds = savedIds.filter(id => tankData.some(t => t.id === id));
+        try {
+          parsedIds = JSON.parse(saved);
+        } catch {
+          parsedIds = null;
+        }
+        const savedIds =
+          Array.isArray(parsedIds) && parsedIds.every((x) => typeof x === 'string')
+            ? (parsedIds as string[])
+            : [];
+        const validIds = savedIds.filter((id) => tankData.some((t) => t.id === id));
         if (validIds.length > 0) {
           setChartSelectedTankIds(validIds);
         } else {
-          setChartSelectedTankIds(tankData.map(t => t.id));
+          setChartSelectedTankIds(tankData.map((t) => t.id));
         }
       } else {
-        setChartSelectedTankIds(tankData.map(t => t.id));
+        setChartSelectedTankIds(tankData.map((t) => t.id));
       }
     }
   }, [tankData, selectedIdsKey]);
@@ -217,11 +240,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     <div className="space-y-6">
       {/* KPI Row -- derived from real tankData */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Total Tanks"
-          value={totalTanks}
-          variant="primary"
-        />
+        <KpiCard title="Total Tanks" value={totalTanks} variant="primary" />
         <KpiCard
           title="Avg. Biomass"
           value={totalTanks > 0 ? `${avgBiomass} kg` : 'N/A'}
@@ -229,7 +248,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         />
         <KpiCard
           title="Active Tanks"
-          value={tankData.filter(t => t.isActive).length}
+          value={tankData.filter((t) => t.isActive).length}
           variant="info"
         />
         <KpiCard
@@ -251,11 +270,16 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             {biomassByTank.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={biomassByTank} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" stroke="#6b7280" />
-                  <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                  <XAxis type="number" stroke={chartChrome.axis} />
+                  <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="biomass" name="Biomass (kg)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                  <Bar
+                    dataKey="biomass"
+                    name="Biomass (kg)"
+                    fill={colors.primary[500]}
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

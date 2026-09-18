@@ -1278,6 +1278,19 @@ def wrap_managed_claude_in_sandbox(
       (37 s against 2.7 s for the same one-turn run, measured the same day).
       A login carried by ``CLAUDE_CODE_OAUTH_TOKEN`` needs no file; nothing
       is bound then.
+
+      ARIA-HIGH-157 — that one file is bound WRITABLE, not read-only. The
+      managed login is an OAuth session: when its access token has expired
+      the CLI refreshes it, and the provider rotates the refresh token as it
+      does. Read-only, the CLI could obtain the new pair and not persist it
+      — the run failed with "OAuth session expired and could not be
+      refreshed", the host's copy now named a refresh token the provider had
+      already retired, and every later run on the host, sandboxed or not,
+      failed the same way until an operator logged in again (the first
+      production executor drain, 2026-09-18 16:44Z: one attempt, then the
+      runbook's own smoke on the host: "could not be refreshed"). The agent
+      already reads this file; writing it adds nothing it could not already
+      exfiltrate, and lets the refresh land where the next spawn reads it.
     """
     workspace = Path(workspace_root).resolve(strict=True)
     binary = Path(executable).resolve(strict=True)
@@ -1297,7 +1310,7 @@ def wrap_managed_claude_in_sandbox(
     if managed_login_dir is not None:
         credentials = Path(managed_login_dir) / CLAUDE_LOGIN_CREDENTIALS_FILENAME
         if credentials.is_file():
-            mounts.extend(["--ro-bind", str(credentials.resolve(strict=True)),
+            mounts.extend(["--bind", str(credentials.resolve(strict=True)),
                            f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
     return command[:separator] + mounts + command[separator:]
 

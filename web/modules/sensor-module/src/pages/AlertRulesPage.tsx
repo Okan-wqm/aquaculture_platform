@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { ConfirmModal } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -49,7 +50,11 @@ import {
 const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string }[] = [
   { value: 'critical', label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200' },
   { value: 'high', label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200' },
-  { value: 'warning', label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  {
+    value: 'warning',
+    label: 'Uyarı',
+    className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  },
   { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
   { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
   { value: 'info', label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200' },
@@ -128,7 +133,9 @@ const EMPTY_FORM: RuleFormData = {
 const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_OPTIONS.find((s) => s.value === severity) || SEVERITY_OPTIONS[3];
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+    >
       {config.label}
     </span>
   );
@@ -148,9 +155,7 @@ const ConditionEditor: React.FC<{
   onChange: (conditions: AlertCondition[]) => void;
 }> = ({ conditions, onChange }) => {
   const updateCondition = (index: number, field: keyof AlertCondition, value: unknown) => {
-    const updated = conditions.map((c, i) =>
-      i === index ? { ...c, [field]: value } : c,
-    );
+    const updated = conditions.map((c, i) => (i === index ? { ...c, [field]: value } : c));
     onChange(updated);
   };
 
@@ -180,10 +185,7 @@ const ConditionEditor: React.FC<{
       </div>
 
       {conditions.map((condition, index) => (
-        <div
-          key={index}
-          className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3"
-        >
+        <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-gray-500">Koşul #{index + 1}</span>
             {conditions.length > 1 && (
@@ -219,7 +221,9 @@ const ConditionEditor: React.FC<{
               <label className="block text-xs text-gray-500 mb-1">Operator</label>
               <select
                 value={condition.operator}
-                onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
+                onChange={(e) =>
+                  updateCondition(index, 'operator', e.target.value as AlertOperator)
+                }
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {OPERATOR_OPTIONS.map((o) => (
@@ -237,7 +241,9 @@ const ConditionEditor: React.FC<{
                 type="number"
                 step="any"
                 value={condition.threshold}
-                onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)
+                }
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
@@ -247,7 +253,9 @@ const ConditionEditor: React.FC<{
               <label className="block text-xs text-gray-500 mb-1">Önem Derecesi</label>
               <select
                 value={condition.severity}
-                onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
+                onChange={(e) =>
+                  updateCondition(index, 'severity', e.target.value as AlertSeverity)
+                }
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {SEVERITY_OPTIONS.map((s) => (
@@ -404,9 +412,7 @@ const RuleForm: React.FC<{
 
         {/* Recipients */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Alıcılar
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Alıcılar</label>
           <input
             type="text"
             value={form.recipients}
@@ -469,37 +475,23 @@ const DeleteDialog: React.FC<{
   isPending: boolean;
 }> = ({ ruleName, onConfirm, onCancel, isPending }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex items-center justify-center w-10 h-10 bg-red-100 rounded-full">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900">Kuralı Sil</h3>
-        </div>
-        <p className="text-gray-600 mb-6">
-          <strong>"{ruleName}"</strong> alarm kuralini silmek istediginizden emin misiniz?
-          Bu işlem geri alınamaz.
-        </p>
-        <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={onCancel}
-            disabled={isPending}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            İptal
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-          >
-            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-            Evet, Sil
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      isOpen
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="Kuralı Sil"
+      message={
+        <>
+          <strong>"{ruleName}"</strong> alarm kuralini silmek istediginizden emin misiniz? Bu işlem
+          geri alınamaz.
+        </>
+      }
+      confirmText="Evet, Sil"
+      cancelText="İptal"
+      variant="danger"
+      isLoading={isPending}
+      loadingText="Siliniyor..."
+    />
   );
 };
 
@@ -547,18 +539,14 @@ const RuleCard: React.FC<{
               {rule.isActive ? 'Aktif' : 'Pasif'}
             </span>
           </div>
-          {rule.description && (
-            <p className="text-sm text-gray-500 mb-2">{rule.description}</p>
-          )}
+          {rule.description && <p className="text-sm text-gray-500 mb-2">{rule.description}</p>}
 
           {/* Summary row */}
           <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
             <span>{rule.conditions.length} kosul</span>
             {rule.cooldownMinutes > 0 && <span>Bekleme: {rule.cooldownMinutes} dk</span>}
             {rule.notificationChannels && rule.notificationChannels.length > 0 && (
-              <span>
-                Kanallar: {rule.notificationChannels.join(', ')}
-              </span>
+              <span>Kanallar: {rule.notificationChannels.join(', ')}</span>
             )}
             {rule.farmId && (
               <span className="text-xs font-mono">Farm: {rule.farmId.slice(0, 8)}...</span>
@@ -573,9 +561,7 @@ const RuleCard: React.FC<{
             disabled={isToggling}
             title={rule.isActive ? 'Pasif yap' : 'Aktif yap'}
             className={`p-2 rounded-lg transition-colors ${
-              rule.isActive
-                ? 'text-green-600 hover:bg-green-50'
-                : 'text-gray-400 hover:bg-gray-100'
+              rule.isActive ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'
             } disabled:opacity-50`}
           >
             {isToggling ? (
@@ -703,7 +689,10 @@ const AlertRulesPage: React.FC = () => {
         notificationChannels:
           formData.notificationChannels.length > 0 ? formData.notificationChannels : undefined,
         recipients: formData.recipients.trim()
-          ? formData.recipients.split(',').map((r) => r.trim()).filter(Boolean)
+          ? formData.recipients
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean)
           : undefined,
         cooldownMinutes: formData.cooldownMinutes,
       };
@@ -726,7 +715,10 @@ const AlertRulesPage: React.FC = () => {
         notificationChannels:
           formData.notificationChannels.length > 0 ? formData.notificationChannels : undefined,
         recipients: formData.recipients.trim()
-          ? formData.recipients.split(',').map((r) => r.trim()).filter(Boolean)
+          ? formData.recipients
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean)
           : undefined,
         cooldownMinutes: formData.cooldownMinutes,
       };
@@ -816,7 +808,8 @@ const AlertRulesPage: React.FC = () => {
             {ruleList.length} kural tanımlı
             {ruleList.filter((r) => r.isActive).length > 0 && (
               <span className="text-green-600 font-medium">
-                {' '}({ruleList.filter((r) => r.isActive).length} aktif)
+                {' '}
+                ({ruleList.filter((r) => r.isActive).length} aktif)
               </span>
             )}
           </p>
@@ -898,7 +891,10 @@ const AlertRulesPage: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-700">{(error as Error).message}</p>
-          <button onClick={() => refetch()} className="ml-auto text-sm text-red-600 hover:underline">
+          <button
+            onClick={() => refetch()}
+            className="ml-auto text-sm text-red-600 hover:underline"
+          >
             Tekrar Dene
           </button>
         </div>
@@ -908,19 +904,25 @@ const AlertRulesPage: React.FC = () => {
       {createMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Oluşturma hatası: {(createMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">
+            Oluşturma hatası: {(createMutation.error as Error).message}
+          </p>
         </div>
       )}
       {updateMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Güncelleme hatası: {(updateMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">
+            Güncelleme hatası: {(updateMutation.error as Error).message}
+          </p>
         </div>
       )}
       {deleteMutation.error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Silme hatası: {(deleteMutation.error as Error).message}</p>
+          <p className="text-sm text-red-700">
+            Silme hatası: {(deleteMutation.error as Error).message}
+          </p>
         </div>
       )}
 

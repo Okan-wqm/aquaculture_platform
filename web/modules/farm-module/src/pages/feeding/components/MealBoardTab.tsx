@@ -11,7 +11,7 @@
  * komut olduğundan zarf ZORUNLUDUR (C-17) — hook zarfı üretir.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
@@ -89,8 +89,10 @@ function timeOf(iso: string): string {
 
 function actualTotalOf(plan: FeedingDayPlanView): number {
   const meals = plan.meals ?? [];
-  return meals.reduce((acc, meal) => acc + Number(meal.actualKg || 0), 0) +
-    Number(plan.unplannedActualKg || 0);
+  return (
+    meals.reduce((acc, meal) => acc + Number(meal.actualKg || 0), 0) +
+    Number(plan.unplannedActualKg || 0)
+  );
 }
 
 // ============================================================================
@@ -147,10 +149,7 @@ export function MealBoardTab(): React.ReactElement {
   }, [protocols]);
 
   // D-5 pano şeridi: aktif ataması olup bu tarih için planı olmayan üniteler.
-  const plannedUnitIds = useMemo(
-    () => new Set((plans ?? []).map((plan) => plan.unitId)),
-    [plans],
-  );
+  const plannedUnitIds = useMemo(() => new Set((plans ?? []).map((plan) => plan.unitId)), [plans]);
   const unplannedAssignments = useMemo(
     () =>
       (assignments?.items ?? []).filter(
@@ -205,8 +204,14 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  const confirm = useConfirm();
   const onRegenerate = async (plan: FeedingDayPlanView): Promise<void> => {
-    if (!window.confirm(t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }))) {
+    if (
+      !(await confirm({
+        title: t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }),
+        variant: 'warning',
+      }))
+    ) {
       return;
     }
     setActionError(null);
@@ -350,7 +355,8 @@ export function MealBoardTab(): React.ReactElement {
                 </span>
                 {Number(plan.unplannedActualKg) > 0 && (
                   <span className="text-amber-700">
-                    {t('feedingV2.mealBoard.unplanned')}: {Number(plan.unplannedActualKg).toFixed(2)} kg
+                    {t('feedingV2.mealBoard.unplanned')}:{' '}
+                    {Number(plan.unplannedActualKg).toFixed(2)} kg
                   </span>
                 )}
                 {canRegenerate && (
@@ -388,7 +394,9 @@ export function MealBoardTab(): React.ReactElement {
                 </span>
               </span>
               {snapshot.usingDefaultTemperature ? (
-                <span className="text-amber-700">{t('feedingV2.mealBoard.defaultTempWarning')}</span>
+                <span className="text-amber-700">
+                  {t('feedingV2.mealBoard.defaultTempWarning')}
+                </span>
               ) : (
                 <span>
                   {snapshot.waterTempC?.toFixed(1)}°C ({snapshot.temperatureSource})
@@ -469,7 +477,10 @@ export function MealBoardTab(): React.ReactElement {
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-600">
                         {(meal.pours ?? []).map((pour) => (
-                          <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
+                          <span
+                            key={pour.pourIndex}
+                            className="mr-2 inline-flex items-center gap-1"
+                          >
                             {pour.kg} kg
                             {canCorrect && meal.status !== 'CANCELLED' && (
                               <button

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Modal } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -35,7 +35,9 @@ const SubscriptionManagementPage: React.FC = () => {
   const limit = 20;
 
   // Modals
-  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(null);
+  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(
+    null,
+  );
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -66,6 +68,18 @@ const SubscriptionManagementPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const closeCancelModal = (): void => {
+    setShowCancelModal(false);
+    setSelectedSubscription(null);
+    setCancelReason('');
+  };
+
+  const closeExtendTrialModal = (): void => {
+    setShowExtendTrialModal(false);
+    setSelectedSubscription(null);
+    setTrialDays(7);
   };
 
   const handleCancelSubscription = async () => {
@@ -114,7 +128,10 @@ const SubscriptionManagementPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: SubscriptionStatus) => {
-    const variants: Record<SubscriptionStatus, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
+    const variants: Record<
+      SubscriptionStatus,
+      'success' | 'warning' | 'error' | 'info' | 'default'
+    > = {
       [SubscriptionStatus.ACTIVE]: 'success',
       [SubscriptionStatus.TRIAL]: 'info',
       [SubscriptionStatus.PAST_DUE]: 'warning',
@@ -173,16 +190,12 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(stats.mrr)}
             </div>
-            <div className="text-xs text-gray-500">
-              ARR: {formatCurrency(stats.arr)}
-            </div>
+            <div className="text-xs text-gray-500">ARR: {formatCurrency(stats.arr)}</div>
           </Card>
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500">Total Subscriptions</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
-              {stats.totalSubscriptions}
-            </div>
+            <div className="mt-1 text-2xl font-bold text-gray-900">{stats.totalSubscriptions}</div>
             <div className="text-xs text-gray-500">
               Active: {stats.byStatus[SubscriptionStatus.ACTIVE] || 0}
             </div>
@@ -200,9 +213,7 @@ const SubscriptionManagementPage: React.FC = () => {
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500">Attention Needed</div>
-            <div className="mt-1 text-2xl font-bold text-red-600">
-              {stats.pastDueCount}
-            </div>
+            <div className="mt-1 text-2xl font-bold text-red-600">{stats.pastDueCount}</div>
             <div className="text-xs text-gray-500">
               Expiring this month: {stats.expiringThisMonth}
             </div>
@@ -216,10 +227,7 @@ const SubscriptionManagementPage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Subscription Status Breakdown</h3>
           <div className="flex flex-wrap gap-4">
             {Object.entries(stats.byStatus).map(([status, count]) => (
-              <div
-                key={status}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg"
-              >
+              <div key={status} className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg">
                 {getStatusBadge(status as SubscriptionStatus)}
                 <span className="font-semibold">{count}</span>
               </div>
@@ -321,9 +329,7 @@ const SubscriptionManagementPage: React.FC = () => {
                       <div className="font-medium">{sub.planName}</div>
                       <div className="text-sm text-gray-500">{sub.planTier}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(sub.status)}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(sub.status)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
                       <div className="text-sm text-gray-500">{sub.billingCycle}</div>
@@ -413,86 +419,75 @@ const SubscriptionManagementPage: React.FC = () => {
 
       {/* Cancel Modal */}
       {showCancelModal && selectedSubscription && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Cancel Subscription</h3>
-            <p className="text-gray-600 mb-4">
-              Are you sure you want to cancel the subscription for{' '}
-              <strong>{selectedSubscription.tenantName}</strong>?
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cancellation Reason
-              </label>
-              <textarea
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                rows={3}
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Enter the reason for cancellation..."
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowCancelModal(false);
-                  setSelectedSubscription(null);
-                  setCancelReason('');
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeCancelModal}
+          size="sm"
+          title="Cancel Subscription"
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeCancelModal}>
                 Cancel
               </Button>
-              <Button
-                variant="danger"
-                onClick={handleCancelSubscription}
-                disabled={!cancelReason}
-              >
+              <Button variant="danger" onClick={handleCancelSubscription} disabled={!cancelReason}>
                 Confirm Cancellation
               </Button>
-            </div>
-          </Card>
-        </div>
+            </>
+          }
+        >
+          <p className="text-gray-600 mb-4">
+            Are you sure you want to cancel the subscription for{' '}
+            <strong>{selectedSubscription.tenantName}</strong>?
+          </p>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cancellation Reason
+            </label>
+            <textarea
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              rows={3}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Enter the reason for cancellation..."
+            />
+          </div>
+        </Modal>
       )}
 
       {/* Extend Trial Modal */}
       {showExtendTrialModal && selectedSubscription && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Extend Trial Period</h3>
-            <p className="text-gray-600 mb-4">
-              Extend the trial period for{' '}
-              <strong>{selectedSubscription.tenantName}</strong>
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Additional Days
-              </label>
-              <Input
-                type="number"
-                min={1}
-                max={90}
-                value={trialDays}
-                onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowExtendTrialModal(false);
-                  setSelectedSubscription(null);
-                  setTrialDays(7);
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeExtendTrialModal}
+          size="sm"
+          title="Extend Trial Period"
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeExtendTrialModal}>
                 Cancel
               </Button>
               <Button onClick={handleExtendTrial} disabled={trialDays <= 0}>
                 Extend Trial
               </Button>
-            </div>
-          </Card>
-        </div>
+            </>
+          }
+        >
+          <p className="text-gray-600 mb-4">
+            Extend the trial period for <strong>{selectedSubscription.tenantName}</strong>
+          </p>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Additional Days</label>
+            <Input
+              type="number"
+              min={1}
+              max={90}
+              value={trialDays}
+              onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
+            />
+          </div>
+        </Modal>
       )}
     </div>
   );

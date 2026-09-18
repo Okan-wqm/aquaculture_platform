@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -35,6 +36,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 const ScadaPackageListPage: React.FC = () => {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -73,7 +75,15 @@ const ScadaPackageListPage: React.FC = () => {
 
   const handleDelete = useCallback(
     async (pkg: ScadaPackage) => {
-      if (!window.confirm(`Are you sure you want to delete this package "${pkg.name}"?`)) {
+      if (
+        !(await confirm({
+          title: `Delete package "${pkg.name}"?`,
+          message: 'Its screens and deployments history are removed.',
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          variant: 'danger',
+        }))
+      ) {
         return;
       }
       setActiveDropdown(null);
@@ -84,7 +94,7 @@ const ScadaPackageListPage: React.FC = () => {
         console.error('Failed to delete package:', err);
       }
     },
-    [deleteMutation, refetch],
+    [deleteMutation, refetch, confirm],
   );
 
   // Loading state
@@ -128,9 +138,7 @@ const ScadaPackageListPage: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">SCADA Packages</h1>
-          <p className="text-gray-500 mt-1">
-            Deployable SCADA HMI packages for edge devices
-          </p>
+          <p className="text-gray-500 mt-1">Deployable SCADA HMI packages for edge devices</p>
         </div>
         <div className="flex gap-3">
           <button
@@ -231,10 +239,7 @@ const ScadaPackageListPage: React.FC = () => {
                 return (
                   <tr key={pkg.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
-                      <Link
-                        to={`/sensor/scada-builder/${pkg.id}`}
-                        className="block"
-                      >
+                      <Link to={`/sensor/scada-builder/${pkg.id}`} className="block">
                         <div className="font-medium text-gray-900 hover:text-purple-600">
                           {pkg.name}
                         </div>
@@ -243,9 +248,7 @@ const ScadaPackageListPage: React.FC = () => {
                         </div>
                       </Link>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      v{pkg.version}
-                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">v{pkg.version}</td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
@@ -253,9 +256,7 @@ const ScadaPackageListPage: React.FC = () => {
                         {config.label}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {screenCount} screens
-                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">{screenCount} screens</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-1 text-sm text-gray-500">
                         <Clock className="w-4 h-4" />

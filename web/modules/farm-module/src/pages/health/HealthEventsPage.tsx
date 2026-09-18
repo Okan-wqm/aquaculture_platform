@@ -12,6 +12,7 @@ import {
   Badge,
   Spinner,
   Alert,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   Activity,
@@ -210,12 +211,16 @@ export const HealthEventsPage: React.FC = () => {
   // Treatment modal state
   const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
   const [treatmentData, setTreatmentData] = useState<TreatmentFormData>(defaultTreatmentData);
-  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(null);
+  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Quarantine modal state
   const [isQuarantineModalOpen, setIsQuarantineModalOpen] = useState(false);
   const [quarantineTankId, setQuarantineTankId] = useState('');
-  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(null);
+  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Resolution modal state
   const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
@@ -247,7 +252,7 @@ export const HealthEventsPage: React.FC = () => {
         item.title.toLowerCase().includes(term) ||
         item.description?.toLowerCase().includes(term) ||
         item.diseaseName?.toLowerCase().includes(term) ||
-        item.notes?.toLowerCase().includes(term)
+        item.notes?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -332,8 +337,16 @@ export const HealthEventsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this health event?')) {
+    if (
+      await confirm({
+        title: 'Delete this health event?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -387,7 +400,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndTreatment = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the treatment?')) {
+    if (
+      await confirm({
+        title: 'End the treatment?',
+        confirmText: 'End treatment',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endTreatmentMutation.mutateAsync({ id: event.id });
         refetch();
@@ -424,7 +444,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndQuarantine = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the quarantine?')) {
+    if (
+      await confirm({
+        title: 'End the quarantine?',
+        confirmText: 'End quarantine',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endQuarantineMutation.mutateAsync(event.id);
         refetch();
@@ -530,10 +557,7 @@ export const HealthEventsPage: React.FC = () => {
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Retry', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Retry', onClick: () => refetch() }}>
           Couldn&apos;t refresh health events — showing the last loaded data.
         </Alert>
       )}
@@ -635,8 +659,16 @@ export const HealthEventsPage: React.FC = () => {
               <Filter className="w-4 h-4" />
               Filters
             </Button>
-            {(filter.status || filter.severity || filter.eventType || filter.fromDate || filter.toDate) && (
-              <Button variant="secondary" onClick={clearFilters} className="flex items-center gap-2">
+            {(filter.status ||
+              filter.severity ||
+              filter.eventType ||
+              filter.fromDate ||
+              filter.toDate) && (
+              <Button
+                variant="secondary"
+                onClick={clearFilters}
+                className="flex items-center gap-2"
+              >
                 <X className="w-4 h-4" />
                 Clear
               </Button>
@@ -789,8 +821,7 @@ export const HealthEventsPage: React.FC = () => {
                               className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
                               title="Quarantined"
                             >
-                              <Shield className="w-3 h-3 mr-1" />
-                              Q
+                              <Shield className="w-3 h-3 mr-1" />Q
                             </span>
                           )}
                           {item.labConfirmed && (
@@ -901,9 +932,7 @@ export const HealthEventsPage: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() =>
-                  setFilter({ ...filter, limit: (filter.limit || 50) + 50 })
-                }
+                onClick={() => setFilter({ ...filter, limit: (filter.limit || 50) + 50 })}
               >
                 Load More
               </Button>
@@ -1032,9 +1061,7 @@ export const HealthEventsPage: React.FC = () => {
                 type="checkbox"
                 id="followUpRequired"
                 checked={formData.followUpRequired}
-                onChange={(e) =>
-                  setFormData({ ...formData, followUpRequired: e.target.checked })
-                }
+                onChange={(e) => setFormData({ ...formData, followUpRequired: e.target.checked })}
                 className="rounded border-gray-300"
               />
               <label htmlFor="followUpRequired" className="text-sm text-gray-700">
@@ -1054,13 +1081,8 @@ export const HealthEventsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Saving...'
-                : 'Save'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </form>
@@ -1113,9 +1135,7 @@ export const HealthEventsPage: React.FC = () => {
             <Input
               label="Dosage Unit"
               value={treatmentData.dosageUnit}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })}
               placeholder="mg/L, mg/kg, etc."
             />
           </div>
@@ -1124,27 +1144,21 @@ export const HealthEventsPage: React.FC = () => {
               label="Start Date"
               type="date"
               value={treatmentData.startDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, startDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, startDate: e.target.value })}
               required
             />
             <Input
               label="End Date (optional)"
               type="date"
               value={treatmentData.endDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, endDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, endDate: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="Frequency"
               value={treatmentData.frequency}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, frequency: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, frequency: e.target.value })}
               placeholder="1x daily, every 12h, etc."
             />
             <Input
@@ -1163,9 +1177,7 @@ export const HealthEventsPage: React.FC = () => {
           <Input
             label="Instructions"
             value={treatmentData.instructions}
-            onChange={(e) =>
-              setTreatmentData({ ...treatmentData, instructions: e.target.value })
-            }
+            onChange={(e) => setTreatmentData({ ...treatmentData, instructions: e.target.value })}
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsTreatmentModalOpen(false)}>

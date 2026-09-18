@@ -101,10 +101,7 @@ export type {
   MessagingWsEventName,
   MessagingWsDirectEventName,
 } from './types/messaging-ws';
-export {
-  MESSAGING_WS_EVENT_NAMES,
-  MESSAGING_WS_DIRECT_EVENT_NAMES,
-} from './types/messaging-ws';
+export { MESSAGING_WS_EVENT_NAMES, MESSAGING_WS_DIRECT_EVENT_NAMES } from './types/messaging-ws';
 
 // ============================================================================
 // Brand SSoT
@@ -204,6 +201,9 @@ export {
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
+export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';
+export { useClickOutside } from './hooks/useClickOutside';
+export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './hooks/useConfirm';
 
 // ============================================================================
 // Error-message helpers (Scope C PR-0a)

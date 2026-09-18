@@ -13,7 +13,13 @@ import {
   type UseQueryResult,
   type UseMutationResult,
 } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+import {
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  getTenantId,
+} from '@aquaculture/shared-ui';
+
+import { DEFAULT_ROLE_COLOR } from '../lib/constants';
 import {
   getTenantRoles,
   getTenantRole,
@@ -163,8 +169,7 @@ export const roleKeys = {
   list: (filters?: Record<string, unknown>) =>
     createTenantQueryKey(getTenantId(), 'tenant-roles', 'list', filters),
   details: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail'),
-  detail: (roleId: string) =>
-    createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail', roleId),
+  detail: (roleId: string) => createTenantQueryKey(getTenantId(), 'tenant-roles', 'detail', roleId),
   default: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'default'),
   categories: () => createTenantQueryKey(getTenantId(), 'tenant-roles', 'categories'),
   // Invalidation prefixes (filters) — match every stored key under the segment
@@ -232,7 +237,8 @@ export function usePermissionCategories(): UsePermissionCategoriesResult {
 /**
  * Generate an optimistic ID for creates
  */
-const generateTempId = (): string => `temp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+const generateTempId = (): string =>
+  `temp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
 /**
  * Hook to create a new tenant role with optimistic update
@@ -256,7 +262,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         id: generateTempId(),
         name: input.name,
         description: input.description ?? undefined,
-        color: input.color ?? '#6366F1',
+        color: input.color ?? DEFAULT_ROLE_COLOR,
         icon: input.icon ?? 'shield',
         level: input.level ?? 50,
         isSystem: false,
@@ -265,7 +271,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         permissions: {
           id: generateTempId(),
           roleId: generateTempId(),
-          panelPermissions: input.panelPermissions as PanelPermissions || {},
+          panelPermissions: (input.panelPermissions as PanelPermissions) || {},
           resourcePermissions: [],
         },
         createdAt: new Date().toISOString(),
@@ -287,10 +293,8 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         // Also update previous default role in list to no longer be default
         queryClient.setQueryData<TenantRole[]>(roleKeys.lists(), (old = []) =>
           old.map((role) =>
-            role.isDefault && role.id !== optimisticRole.id
-              ? { ...role, isDefault: false }
-              : role
-          )
+            role.isDefault && role.id !== optimisticRole.id ? { ...role, isDefault: false } : role,
+          ),
         );
       }
 
@@ -318,9 +322,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
     onSuccess: (newRole) => {
       // Update the list with real data
       queryClient.setQueryData<TenantRole[]>(roleKeys.lists(), (old = []) =>
-        old.map((role) =>
-          role.id.startsWith('temp-') ? newRole : role
-        )
+        old.map((role) => (role.id.startsWith('temp-') ? newRole : role)),
       );
       // Add the real role to detail cache
       queryClient.setQueryData(roleKeys.detail(newRole.id), newRole);
@@ -363,10 +365,10 @@ export function useUpdateTenantRole() {
               ...role,
               ...input,
               permissions: input.panelPermissions
-                ? {
+                ? ({
                     ...role.permissions,
                     panelPermissions: input.panelPermissions,
-                  } as TenantRolePermissions
+                  } as TenantRolePermissions)
                 : role.permissions,
               updatedAt: new Date().toISOString(),
             };
@@ -376,7 +378,7 @@ export function useUpdateTenantRole() {
             return { ...role, isDefault: false };
           }
           return role;
-        })
+        }),
       );
 
       // Update the detail cache
@@ -385,10 +387,10 @@ export function useUpdateTenantRole() {
           ...previousRole,
           ...input,
           permissions: input.panelPermissions
-            ? {
+            ? ({
                 ...previousRole.permissions,
                 panelPermissions: input.panelPermissions,
-              } as TenantRolePermissions
+              } as TenantRolePermissions)
             : previousRole.permissions,
           updatedAt: new Date().toISOString(),
         });
@@ -431,7 +433,7 @@ export function useUpdateTenantRole() {
     onSuccess: (updatedRole) => {
       // Update roles list with real data
       queryClient.setQueryData<TenantRole[]>(roleKeys.lists(), (old = []) =>
-        old.map((role) => (role.id === updatedRole.id ? updatedRole : role))
+        old.map((role) => (role.id === updatedRole.id ? updatedRole : role)),
       );
       // Update detail cache
       queryClient.setQueryData(roleKeys.detail(updatedRole.id), updatedRole);
@@ -471,7 +473,7 @@ export function useDeleteTenantRole() {
 
       // Optimistically remove from list
       queryClient.setQueryData<TenantRole[]>(roleKeys.lists(), (old = []) =>
-        old.filter((role) => role.id !== roleId)
+        old.filter((role) => role.id !== roleId),
       );
 
       // Remove from detail cache

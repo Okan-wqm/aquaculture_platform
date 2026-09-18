@@ -298,13 +298,7 @@ describe('FuxaAutoConfigPanel', () => {
 
   it('renders empty message when no variables', () => {
     const onChange = vi.fn();
-    render(
-      <FuxaAutoConfigPanel
-        variables={[]}
-        values={{}}
-        onChange={onChange}
-      />,
-    );
+    render(<FuxaAutoConfigPanel variables={[]} values={{}} onChange={onChange} />);
 
     expect(screen.getByText(/no configurable variables/i)).toBeDefined();
   });
@@ -358,9 +352,7 @@ describe('FuxaWidgetBrowser', () => {
   /* ================================================================ */
 
   it('renders category tree when open', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     const categoryTree = screen.getByTestId('fuxa-category-tree');
     expect(categoryTree).toBeDefined();
@@ -385,9 +377,7 @@ describe('FuxaWidgetBrowser', () => {
   /* ================================================================ */
 
   it('filters widgets by name when searching', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     const searchInput = screen.getByTestId('fuxa-search-input') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'Centrifugal' } });
@@ -407,9 +397,7 @@ describe('FuxaWidgetBrowser', () => {
   /* ================================================================ */
 
   it('filters widgets by tags when searching', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     const searchInput = screen.getByTestId('fuxa-search-input') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'valve' } });
@@ -421,9 +409,7 @@ describe('FuxaWidgetBrowser', () => {
   });
 
   it('shows empty state for no matches', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     const searchInput = screen.getByTestId('fuxa-search-input') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'xyznonexistent123' } });
@@ -436,9 +422,7 @@ describe('FuxaWidgetBrowser', () => {
   /* ================================================================ */
 
   it('shows detail panel when a widget is selected', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     // Click on the centrifugal pump card
     const card = screen.getByTestId('fuxa-widget-card-pe-pump-centrifugal');
@@ -455,9 +439,7 @@ describe('FuxaWidgetBrowser', () => {
   });
 
   it('calls onSelect and onClose when "Add to Canvas" is clicked', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     // Select a widget first
     const card = screen.getByTestId('fuxa-widget-card-pe-pump-centrifugal');
@@ -475,18 +457,14 @@ describe('FuxaWidgetBrowser', () => {
   });
 
   it('closes on Escape key', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('filters by category when category is selected', () => {
-    render(
-      <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
-    );
+    render(<FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />);
 
     // Click on the "Basic" category button in the category tree sidebar.
     // Use getAllByText because the category name appears in both the sidebar
@@ -499,9 +477,7 @@ describe('FuxaWidgetBrowser', () => {
     const cards = grid.querySelectorAll('[data-testid^="fuxa-widget-card-"]');
 
     // Only Basic widgets should be visible
-    const basicCount = FUXA_WIDGET_CATALOG.filter(
-      (e) => e.category === 'Basic',
-    ).length;
+    const basicCount = FUXA_WIDGET_CATALOG.filter((e) => e.category === 'Basic').length;
     expect(cards.length).toBe(basicCount);
   });
 });

@@ -7,7 +7,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
+import { ConfiguredBrowserRouter, ConfirmProvider } from '@aquaculture/shared-ui';
 import AdminPanelModule from './Module';
 import './styles.css';
 
@@ -18,9 +18,11 @@ if (root) {
     <React.StrictMode>
       <ConfiguredBrowserRouter>
         <div className="min-h-screen bg-gray-50 p-6">
-          <AdminPanelModule />
+          <ConfirmProvider>
+            <AdminPanelModule />
+          </ConfirmProvider>
         </div>
       </ConfiguredBrowserRouter>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 }

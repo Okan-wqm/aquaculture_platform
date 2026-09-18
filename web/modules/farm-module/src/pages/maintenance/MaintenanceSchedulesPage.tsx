@@ -3,16 +3,7 @@
  * Displays and manages preventive maintenance schedules with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert } from '@aquaculture/shared-ui';
 import {
   useMaintenanceSchedules,
   useCreateMaintenanceSchedule,
@@ -32,7 +23,7 @@ import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
 import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
 import UpdateMeterReadingButton from './components/UpdateMeterReadingButton';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -124,8 +115,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
 
   // Bakım Kapanışı (completeMaintenance) modal state — separate from the
   // edit modal because the surfaces don't overlap in semantics.
-  const [completingSchedule, setCompletingSchedule] =
-    useState<MaintenanceSchedule | null>(null);
+  const [completingSchedule, setCompletingSchedule] = useState<MaintenanceSchedule | null>(null);
   const canCompleteMaintenance = useCanMutate('completeMaintenance');
 
   // API hooks
@@ -145,7 +135,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       (item) =>
         item.name.toLowerCase().includes(term) ||
         item.scheduleCode.toLowerCase().includes(term) ||
-        item.description?.toLowerCase().includes(term)
+        item.description?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -228,8 +218,17 @@ export const MaintenanceSchedulesPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu bakım planını silmek istediğinizden emin misiniz?')) {
+    if (
+      await confirm({
+        title: 'Bakım planını sil?',
+        message: 'Plana bağlı gelecek görevler de kaldırılır.',
+        confirmText: 'Sil',
+        cancelText: 'Vazgeç',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -297,10 +296,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetch() }}>
           Bakım planları yenilenemedi — son yüklenen veriler gösteriliyor.
         </Alert>
       )}
@@ -397,9 +393,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                   filteredItems.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {item.scheduleCode}
-                        </div>
+                        <div className="text-sm font-medium text-gray-900">{item.scheduleCode}</div>
                         <div className="text-sm text-gray-500">{item.name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -416,7 +410,9 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`text-sm ${
-                            isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500'
+                            isOverdue(item.nextDueDate)
+                              ? 'text-red-600 font-medium'
+                              : 'text-gray-500'
                           }`}
                         >
                           {formatDate(item.nextDueDate)}
@@ -628,13 +624,8 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               İptal
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Kaydediliyor...'
-                : 'Kaydet'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </div>
         </form>

@@ -6,7 +6,16 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
+import {
+  AuthProvider,
+  TenantProvider,
+  ConfiguredBrowserRouter,
+  I18nProvider,
+  ToastProvider,
+  ConfirmProvider,
+  registerLogoutCleanup,
+  refetchWhenBackendHealthy,
+} from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -87,20 +96,43 @@ const shouldRetryQuery = (failureCount: number, error: unknown): boolean => {
  *   STANDARD  (120s) — lists, dashboards, aggregations
  *   REFERENCE (600s) — species list, farm config, equipment types, i18n
  */
-const REALTIME_PREFIXES = ['sensors', 'batches', 'tanks', 'alarms', 'feeding', 'mortalityRecords', 'batchOperations', 'harvestRecords'];
-const REFERENCE_PREFIXES = ['species', 'config', 'equipmentTypes', 'farmConfig', 'i18n', 'permissions', 'roles', 'modules'];
+const REALTIME_PREFIXES = [
+  'sensors',
+  'batches',
+  'tanks',
+  'alarms',
+  'feeding',
+  'mortalityRecords',
+  'batchOperations',
+  'harvestRecords',
+];
+const REFERENCE_PREFIXES = [
+  'species',
+  'config',
+  'equipmentTypes',
+  'farmConfig',
+  'i18n',
+  'permissions',
+  'roles',
+  'modules',
+];
 
 function resolveStaleTime(query: { queryKey: readonly unknown[] }): number {
   // Walk the query key to find the first string segment after the tenant prefix.
   // Tenant-scoped keys look like ['tenant', tenantId, 'domain', ...].
   const segments = query.queryKey;
-  const domainSegment = typeof segments[0] === 'string' && segments[0] === 'tenant'
-    ? (typeof segments[2] === 'string' ? segments[2] : '')
-    : (typeof segments[0] === 'string' ? segments[0] : '');
+  const domainSegment =
+    typeof segments[0] === 'string' && segments[0] === 'tenant'
+      ? typeof segments[2] === 'string'
+        ? segments[2]
+        : ''
+      : typeof segments[0] === 'string'
+        ? segments[0]
+        : '';
 
-  if (REALTIME_PREFIXES.includes(domainSegment)) return 30_000;      // 30 seconds
-  if (REFERENCE_PREFIXES.includes(domainSegment)) return 600_000;    // 10 minutes
-  return 120_000;                                                     // 2 minutes default
+  if (REALTIME_PREFIXES.includes(domainSegment)) return 30_000; // 30 seconds
+  if (REFERENCE_PREFIXES.includes(domainSegment)) return 600_000; // 10 minutes
+  return 120_000; // 2 minutes default
 }
 
 const queryClient = new QueryClient({
@@ -161,12 +193,16 @@ ReactDOM.createRoot(root).render(
                   manually-mounted container, so farm-module's 30+ toast()
                   calls rendered nowhere at all. */}
               <ToastProvider>
-                <App />
+                {/* Onay/istem diyaloğu da aynı ilkeyle tek yerde çizilir:
+                    useConfirm()/usePrompt() her remote'tan buraya düşer. */}
+                <ConfirmProvider>
+                  <App />
+                </ConfirmProvider>
               </ToastProvider>
             </TenantProvider>
           </AuthProvider>
         </ConfiguredBrowserRouter>
       </QueryClientProvider>
     </I18nProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

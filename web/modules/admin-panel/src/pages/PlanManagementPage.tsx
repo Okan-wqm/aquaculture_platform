@@ -5,12 +5,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
-import {
-  billingApi,
-  PlanCyclePrice,
-  PlanDefinition,
-} from '../services/adminApi';
+import { Card, Button, Badge, Input, Modal, useConfirm } from '@aquaculture/shared-ui';
+import { billingApi, PlanCyclePrice, PlanDefinition } from '../services/adminApi';
 import { formatCurrencyAmount } from '../utils/money';
 
 /**
@@ -45,6 +41,7 @@ const CYCLE_LABELS: Readonly<Record<PlanCyclePrice['billingCycle'], string>> = {
 // ============================================================================
 
 const PlanManagementPage: React.FC = () => {
+  const confirm = useConfirm();
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,8 +67,22 @@ const PlanManagementPage: React.FC = () => {
     }
   };
 
+  const closeDetails = (): void => {
+    setShowDetails(false);
+    setSelectedPlan(null);
+  };
+
   const handleDeprecatePlan = async (planId: string) => {
-    if (!confirm('Are you sure you want to deprecate this plan?')) return;
+    if (
+      !(await confirm({
+        title: 'Deprecate this plan?',
+        message: 'Tenants on it keep their subscription; new sign-ups can no longer pick it.',
+        confirmText: 'Deprecate',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
 
     try {
       await billingApi.deprecatePlan(planId);
@@ -128,11 +139,22 @@ const PlanManagementPage: React.FC = () => {
       {/* Pricing Info */}
       <Card className="p-4 bg-blue-50 border-blue-200">
         <div className="flex items-center gap-3">
-          <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-5 h-5 text-blue-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <span className="text-sm text-blue-800">
-            Her plan <strong>satildigi her donem icin ayri</strong> fiyatlandirilir. Modul bazli fiyatlandirma aktiftir.
+            Her plan <strong>satildigi her donem icin ayri</strong> fiyatlandirilir. Modul bazli
+            fiyatlandirma aktiftir.
           </span>
         </div>
       </Card>
@@ -155,7 +177,9 @@ const PlanManagementPage: React.FC = () => {
 
             {/* Plan Header */}
             <div className="text-center mb-4">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTierColor(plan.tier)}`}>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold ${getTierColor(plan.tier)}`}
+              >
                 {plan.tier.toUpperCase()}
               </span>
               <h3 className="mt-3 text-xl font-bold text-gray-900">{plan.name}</h3>
@@ -171,9 +195,7 @@ const PlanManagementPage: React.FC = () => {
                     <div className="text-3xl font-bold text-gray-900">
                       {formatCurrencyAmount(price.basePrice, plan.currency)}
                     </div>
-                    <div className="text-sm text-gray-500">
-                      {CYCLE_LABELS[price.billingCycle]}
-                    </div>
+                    <div className="text-sm text-gray-500">{CYCLE_LABELS[price.billingCycle]}</div>
                   </>
                 ) : (
                   <div className="text-sm text-gray-500">Fiyatlandirilmamis</div>
@@ -207,8 +229,18 @@ const PlanManagementPage: React.FC = () => {
               <ul className="space-y-1 text-sm">
                 {plan.features.coreFeatures.slice(0, 3).map((feature, idx) => (
                   <li key={idx} className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <svg
+                      className="w-4 h-4 text-green-500"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                     {feature}
                   </li>
@@ -250,11 +282,7 @@ const PlanManagementPage: React.FC = () => {
                   Details
                 </Button>
                 {plan.isActive && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => handleDeprecatePlan(plan.id)}
-                  >
+                  <Button variant="danger" size="sm" onClick={() => handleDeprecatePlan(plan.id)}>
                     Deprecate
                   </Button>
                 )}
@@ -266,209 +294,224 @@ const PlanManagementPage: React.FC = () => {
 
       {/* Plan Details Modal */}
       {showDetails && selectedPlan && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
-          <Card className="w-full max-w-3xl m-4 p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-2xl font-bold">{selectedPlan.name}</h2>
-                <p className="text-gray-500">{selectedPlan.description}</p>
+        <Modal
+          isOpen
+          onClose={closeDetails}
+          size="xl"
+          title={selectedPlan.name}
+          description={selectedPlan.description}
+          bodyClassName="p-6"
+        >
+          {/* Every cycle the plan is actually sold on — not a fixed four */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Fiyatlandirma</h3>
+            {selectedPlan.cyclePrices.length === 0 ? (
+              <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
+                Bu plan icin fiyat tanimlanmamis.
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowDetails(false);
-                  setSelectedPlan(null);
-                }}
-              >
-                Close
-              </Button>
-            </div>
-
-            {/* Every cycle the plan is actually sold on — not a fixed four */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Fiyatlandirma</h3>
-              {selectedPlan.cyclePrices.length === 0 ? (
-                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
-                  Bu plan icin fiyat tanimlanmamis.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {selectedPlan.cyclePrices.map((price) => (
-                    <div
-                      key={price.billingCycle}
-                      className="p-4 bg-blue-50 rounded-lg border border-blue-200"
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <div className="text-sm text-gray-500 mb-1">
-                            {CYCLE_LABELS[price.billingCycle]} — Temel Fiyat
-                          </div>
-                          <div className="text-2xl font-bold text-blue-600">
-                            {formatCurrencyAmount(price.basePrice, selectedPlan.currency)}
-                          </div>
+            ) : (
+              <div className="space-y-4">
+                {selectedPlan.cyclePrices.map((price) => (
+                  <div
+                    key={price.billingCycle}
+                    className="p-4 bg-blue-50 rounded-lg border border-blue-200"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-sm text-gray-500 mb-1">
+                          {CYCLE_LABELS[price.billingCycle]} — Temel Fiyat
                         </div>
-                        {Number(price.discountPercent) > 0 && (
-                          <Badge variant="success">%{price.discountPercent} indirim</Badge>
-                        )}
+                        <div className="text-2xl font-bold text-blue-600">
+                          {formatCurrencyAmount(price.basePrice, selectedPlan.currency)}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="p-3 bg-white rounded-lg">
-                          <div className="text-xs text-gray-500 mb-1">Per User</div>
-                          <div className="font-bold">
-                            {formatCurrencyAmount(price.perUserPrice, selectedPlan.currency)}
-                          </div>
+                      {Number(price.discountPercent) > 0 && (
+                        <Badge variant="success">%{price.discountPercent} indirim</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="p-3 bg-white rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Per User</div>
+                        <div className="font-bold">
+                          {formatCurrencyAmount(price.perUserPrice, selectedPlan.currency)}
                         </div>
-                        <div className="p-3 bg-white rounded-lg">
-                          <div className="text-xs text-gray-500 mb-1">Per Farm</div>
-                          <div className="font-bold">
-                            {formatCurrencyAmount(price.perFarmPrice, selectedPlan.currency)}
-                          </div>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Per Farm</div>
+                        <div className="font-bold">
+                          {formatCurrencyAmount(price.perFarmPrice, selectedPlan.currency)}
                         </div>
-                        <div className="p-3 bg-white rounded-lg">
-                          <div className="text-xs text-gray-500 mb-1">Per Module</div>
-                          <div className="font-bold">
-                            {formatCurrencyAmount(price.perModulePrice, selectedPlan.currency)}
-                          </div>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Per Module</div>
+                        <div className="font-bold">
+                          {formatCurrencyAmount(price.perModulePrice, selectedPlan.currency)}
                         </div>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Priced add-ons — rows in billing.plan_add_ons, not feature strings */}
+          {selectedPlan.addOns.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3">Ek Paketler</h3>
+              <div className="space-y-2">
+                {selectedPlan.addOns.map((addOn) => (
+                  <div
+                    key={addOn.code}
+                    className="p-3 bg-gray-50 rounded-lg flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-medium">{addOn.name}</div>
+                      {addOn.description && (
+                        <div className="text-xs text-gray-500">{addOn.description}</div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold">
+                        {formatCurrencyAmount(addOn.price, selectedPlan.currency)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {CYCLE_LABELS[addOn.billingCycle]}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Limits */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Limits</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Object.entries(selectedPlan.limits).map(([key, value]) => {
+                if (typeof value === 'boolean') return null;
+                return (
+                  <div key={key} className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">
+                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                    </div>
+                    <div className="font-bold">{formatLimitValue(value as number)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Boolean Features */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Features</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {Object.entries(selectedPlan.limits)
+                .filter(([_, value]) => typeof value === 'boolean')
+                .map(([key, value]) => (
+                  <div
+                    key={key}
+                    className={`p-2 rounded-lg flex items-center gap-2 ${
+                      value ? 'bg-green-50' : 'bg-gray-50'
+                    }`}
+                  >
+                    {value ? (
+                      <svg
+                        className="w-4 h-4 text-green-500"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-4 h-4 text-gray-500"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    )}
+                    <span className={`text-sm ${value ? 'text-green-800' : 'text-gray-500'}`}>
+                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* All Features */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Feature Categories</h3>
+            <div className="space-y-4">
+              {selectedPlan.features.coreFeatures.length > 0 && (
+                <div>
+                  <div className="text-sm font-medium text-gray-500 mb-2">Core Features</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPlan.features.coreFeatures.map((feature, idx) => (
+                      <Badge key={idx} variant="default">
+                        {feature}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedPlan.features.advancedFeatures.length > 0 && (
+                <div>
+                  <div className="text-sm font-medium text-gray-500 mb-2">Advanced Features</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPlan.features.advancedFeatures.map((feature, idx) => (
+                      <Badge key={idx} variant="info">
+                        {feature}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedPlan.features.premiumFeatures.length > 0 && (
+                <div>
+                  <div className="text-sm font-medium text-gray-500 mb-2">Premium Features</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPlan.features.premiumFeatures.map((feature, idx) => (
+                      <Badge key={idx} variant="warning">
+                        {feature}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Priced add-ons — rows in billing.plan_add_ons, not feature strings */}
-            {selectedPlan.addOns.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3">Ek Paketler</h3>
-                <div className="space-y-2">
-                  {selectedPlan.addOns.map((addOn) => (
-                    <div
-                      key={addOn.code}
-                      className="p-3 bg-gray-50 rounded-lg flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="font-medium">{addOn.name}</div>
-                        {addOn.description && (
-                          <div className="text-xs text-gray-500">{addOn.description}</div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold">
-                          {formatCurrencyAmount(addOn.price, selectedPlan.currency)}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {CYCLE_LABELS[addOn.billingCycle]}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+          {/* Metadata */}
+          <div className="border-t pt-4 text-sm text-gray-500">
+            <div className="flex gap-6">
+              <div>
+                <span className="font-medium">Plan Code:</span> {selectedPlan.code}
               </div>
-            )}
-
-            {/* Limits */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Limits</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {Object.entries(selectedPlan.limits).map(([key, value]) => {
-                  if (typeof value === 'boolean') return null;
-                  return (
-                    <div key={key} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="text-xs text-gray-500 mb-1">
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                      </div>
-                      <div className="font-bold">{formatLimitValue(value as number)}</div>
-                    </div>
-                  );
-                })}
+              <div>
+                <span className="font-medium">Trial Days:</span> {selectedPlan.trialDays || 0}
+              </div>
+              <div>
+                <span className="font-medium">Grace Period:</span>{' '}
+                {selectedPlan.gracePeriodDays || 0} days
               </div>
             </div>
-
-            {/* Boolean Features */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Features</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {Object.entries(selectedPlan.limits)
-                  .filter(([_, value]) => typeof value === 'boolean')
-                  .map(([key, value]) => (
-                    <div
-                      key={key}
-                      className={`p-2 rounded-lg flex items-center gap-2 ${
-                        value ? 'bg-green-50' : 'bg-gray-50'
-                      }`}
-                    >
-                      {value ? (
-                        <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                      <span className={`text-sm ${value ? 'text-green-800' : 'text-gray-500'}`}>
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-
-            {/* All Features */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Feature Categories</h3>
-              <div className="space-y-4">
-                {selectedPlan.features.coreFeatures.length > 0 && (
-                  <div>
-                    <div className="text-sm font-medium text-gray-500 mb-2">Core Features</div>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPlan.features.coreFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="default">{feature}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {selectedPlan.features.advancedFeatures.length > 0 && (
-                  <div>
-                    <div className="text-sm font-medium text-gray-500 mb-2">Advanced Features</div>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPlan.features.advancedFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="info">{feature}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {selectedPlan.features.premiumFeatures.length > 0 && (
-                  <div>
-                    <div className="text-sm font-medium text-gray-500 mb-2">Premium Features</div>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPlan.features.premiumFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="warning">{feature}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Metadata */}
-            <div className="border-t pt-4 text-sm text-gray-500">
-              <div className="flex gap-6">
-                <div>
-                  <span className="font-medium">Plan Code:</span> {selectedPlan.code}
-                </div>
-                <div>
-                  <span className="font-medium">Trial Days:</span> {selectedPlan.trialDays || 0}
-                </div>
-                <div>
-                  <span className="font-medium">Grace Period:</span> {selectedPlan.gracePeriodDays || 0} days
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

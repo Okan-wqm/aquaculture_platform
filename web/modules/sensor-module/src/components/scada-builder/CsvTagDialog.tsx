@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Download, Upload, X, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Download, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
 
@@ -224,15 +225,12 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
   }, [activeScreen, activeScreenId, importData, updateWidget, onClose]);
 
   // Reset state when switching tabs
-  const handleTabChange = useCallback(
-    (newTab: 'export' | 'import') => {
-      setTab(newTab);
-      setImportData([]);
-      setImportError(null);
-      setApplySuccess(null);
-    },
-    [],
-  );
+  const handleTabChange = useCallback((newTab: 'export' | 'import') => {
+    setTab(newTab);
+    setImportData([]);
+    setImportError(null);
+    setApplySuccess(null);
+  }, []);
 
   if (!open) return null;
 
@@ -240,225 +238,207 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
   const importPreviewRows = importData.length > 1 ? importData.slice(0, 11) : []; // header + 10 rows max
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      size="lg"
+      className="max-h-[85vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={
+        <span className="flex items-center gap-2">
+          <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
+          CSV Tag Import / Export
+        </span>
+      }
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="csv-dialog-title"
-        className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 id="csv-dialog-title" className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
-            CSV Tag Import / Export
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close"
-            title="Close"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+      {/* Tab Bar */}
+      <div className="flex border-b border-gray-200" role="tablist" aria-label="CSV operations">
+        <button
+          role="tab"
+          aria-selected={tab === 'export'}
+          aria-controls="csv-tab-export"
+          id="csv-tab-btn-export"
+          onClick={() => handleTabChange('export')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'export'
+              ? 'border-cyan-600 text-cyan-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Download className="w-4 h-4" />
+          Export
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'import'}
+          aria-controls="csv-tab-import"
+          id="csv-tab-btn-import"
+          onClick={() => handleTabChange('import')}
+          className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'import'
+              ? 'border-cyan-600 text-cyan-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          Import
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Screen info */}
+        <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+          <p className="text-sm text-gray-500">Active Screen</p>
+          <p className="font-medium text-gray-900">{activeScreen?.name ?? 'No screen selected'}</p>
         </div>
 
-        {/* Tab Bar */}
-        <div className="flex border-b border-gray-200" role="tablist" aria-label="CSV operations">
-          <button
-            role="tab"
-            aria-selected={tab === 'export'}
-            aria-controls="csv-tab-export"
-            id="csv-tab-btn-export"
-            onClick={() => handleTabChange('export')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'export'
-                ? 'border-cyan-600 text-cyan-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === 'import'}
-            aria-controls="csv-tab-import"
-            id="csv-tab-btn-import"
-            onClick={() => handleTabChange('import')}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'import'
-                ? 'border-cyan-600 text-cyan-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Upload className="w-4 h-4" />
-            Import
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Screen info */}
-          <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <p className="text-sm text-gray-500">Active Screen</p>
-            <p className="font-medium text-gray-900">
-              {activeScreen?.name ?? 'No screen selected'}
-            </p>
-          </div>
-
-          {/* ---- EXPORT TAB ---- */}
-          {tab === 'export' && (
-            <div role="tabpanel" id="csv-tab-export" aria-labelledby="csv-tab-btn-export">
-              {exportRows.length === 0 ? (
-                <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
-                  No widgets with tag bindings found on this screen.
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm text-gray-600">
-                    {exportRows.length} widget(s) with tag bindings.
-                    {exportRows.length > 10 && ' Showing first 10 rows.'}
-                  </p>
-                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50 text-left text-gray-600">
-                          <th className="px-3 py-2 font-medium">Widget ID</th>
-                          <th className="px-3 py-2 font-medium">Type</th>
-                          <th className="px-3 py-2 font-medium">Tag Name</th>
-                          <th className="px-3 py-2 font-medium">Label</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {previewExportRows.map((row) => (
-                          <tr key={row.widgetId} className="text-gray-700">
-                            <td className="px-3 py-2 font-mono text-xs truncate max-w-[160px]">
-                              {row.widgetId}
-                            </td>
-                            <td className="px-3 py-2">{row.widgetType}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{row.tagName}</td>
-                            <td className="px-3 py-2">{row.label}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ---- IMPORT TAB ---- */}
-          {tab === 'import' && (
-            <div role="tabpanel" id="csv-tab-import" aria-labelledby="csv-tab-btn-import">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Select CSV File
-                </label>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 cursor-pointer"
-                />
+        {/* ---- EXPORT TAB ---- */}
+        {tab === 'export' && (
+          <div role="tabpanel" id="csv-tab-export" aria-labelledby="csv-tab-btn-export">
+            {exportRows.length === 0 ? (
+              <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
+                No widgets with tag bindings found on this screen.
               </div>
-
-              {/* Error */}
-              {importError && (
-                <div className="p-3 rounded-lg flex items-start gap-2 bg-red-50 text-red-700 border border-red-200">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span className="text-sm">{importError}</span>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600">
+                  {exportRows.length} widget(s) with tag bindings.
+                  {exportRows.length > 10 && ' Showing first 10 rows.'}
+                </p>
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-left text-gray-600">
+                        <th className="px-3 py-2 font-medium">Widget ID</th>
+                        <th className="px-3 py-2 font-medium">Type</th>
+                        <th className="px-3 py-2 font-medium">Tag Name</th>
+                        <th className="px-3 py-2 font-medium">Label</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {previewExportRows.map((row) => (
+                        <tr key={row.widgetId} className="text-gray-700">
+                          <td className="px-3 py-2 font-mono text-xs truncate max-w-[160px]">
+                            {row.widgetId}
+                          </td>
+                          <td className="px-3 py-2">{row.widgetType}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.tagName}</td>
+                          <td className="px-3 py-2">{row.label}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+              </>
+            )}
+          </div>
+        )}
 
-              {/* Success */}
-              {applySuccess !== null && (
-                <div className="p-3 rounded-lg flex items-center gap-2 bg-green-50 text-green-700 border border-green-200">
-                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm font-medium">
-                    Applied {applySuccess} tag binding(s) successfully.
-                  </span>
-                </div>
-              )}
+        {/* ---- IMPORT TAB ---- */}
+        {tab === 'import' && (
+          <div role="tabpanel" id="csv-tab-import" aria-labelledby="csv-tab-btn-import">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Select CSV File
+              </label>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileSelect}
+                className="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 cursor-pointer"
+              />
+            </div>
 
-              {/* Import preview table */}
-              {importPreviewRows.length > 0 && (
-                <>
-                  <p className="text-sm text-gray-600">
-                    Preview ({importData.length - 1} data row(s)).
-                    {importData.length > 11 && ' Showing first 10.'}
-                  </p>
-                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50 text-left text-gray-600">
-                          {importPreviewRows[0].map((col, idx) => (
-                            <th key={idx} className="px-3 py-2 font-medium">
-                              {col}
-                            </th>
+            {/* Error */}
+            {importError && (
+              <div className="p-3 rounded-lg flex items-start gap-2 bg-red-50 text-red-700 border border-red-200">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span className="text-sm">{importError}</span>
+              </div>
+            )}
+
+            {/* Success */}
+            {applySuccess !== null && (
+              <div className="p-3 rounded-lg flex items-center gap-2 bg-green-50 text-green-700 border border-green-200">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                <span className="text-sm font-medium">
+                  Applied {applySuccess} tag binding(s) successfully.
+                </span>
+              </div>
+            )}
+
+            {/* Import preview table */}
+            {importPreviewRows.length > 0 && (
+              <>
+                <p className="text-sm text-gray-600">
+                  Preview ({importData.length - 1} data row(s)).
+                  {importData.length > 11 && ' Showing first 10.'}
+                </p>
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-left text-gray-600">
+                        {importPreviewRows[0].map((col, idx) => (
+                          <th key={idx} className="px-3 py-2 font-medium">
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {importPreviewRows.slice(1).map((row, rowIdx) => (
+                        <tr key={rowIdx} className="text-gray-700">
+                          {row.map((cell, cellIdx) => (
+                            <td
+                              key={cellIdx}
+                              className="px-3 py-2 truncate max-w-[160px] font-mono text-xs"
+                            >
+                              {cell}
+                            </td>
                           ))}
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {importPreviewRows.slice(1).map((row, rowIdx) => (
-                          <tr key={rowIdx} className="text-gray-700">
-                            {row.map((cell, cellIdx) => (
-                              <td
-                                key={cellIdx}
-                                className="px-3 py-2 truncate max-w-[160px] font-mono text-xs"
-                              >
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
-          >
-            Close
-          </button>
-
-          {tab === 'export' && exportRows.length > 0 && (
-            <button
-              onClick={handleExport}
-              className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Download CSV
-            </button>
-          )}
-
-          {tab === 'import' && importData.length >= 2 && (
-            <button
-              onClick={handleApplyImport}
-              className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Apply
-            </button>
-          )}
-        </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+        <button
+          onClick={onClose}
+          className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+        >
+          Close
+        </button>
+
+        {tab === 'export' && exportRows.length > 0 && (
+          <button
+            onClick={handleExport}
+            className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download CSV
+          </button>
+        )}
+
+        {tab === 'import' && importData.length >= 2 && (
+          <button
+            onClick={handleApplyImport}
+            className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
+          >
+            <Upload className="w-4 h-4" />
+            Apply
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 };
 

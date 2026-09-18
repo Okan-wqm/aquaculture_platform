@@ -5,17 +5,51 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
-  X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio,
-  Wifi, RotateCcw, Cpu, ToggleLeft, ToggleRight, Zap, AlertTriangle,
-  Play, Square, AlertCircle,
+  X,
+  Settings,
+  Link2,
+  Trash2,
+  Info,
+  Unlink,
+  Edit3,
+  Activity,
+  Radio,
+  Wifi,
+  RotateCcw,
+  Cpu,
+  ToggleLeft,
+  ToggleRight,
+  Zap,
+  AlertTriangle,
+  Play,
+  Square,
+  AlertCircle,
 } from 'lucide-react';
-import { useProcessStore, EquipmentNodeData, SensorNodeData, SensorWidgetNodeData, IoBinding } from '../../../store/processStore';
-import { CONNECTION_TYPES, getConnectionTypeConfig, normalizeConnectionType, ConnectionType } from '../../../config/connectionTypes';
+import {
+  useProcessStore,
+  EquipmentNodeData,
+  SensorNodeData,
+  SensorWidgetNodeData,
+  IoBinding,
+} from '../../../store/processStore';
+import {
+  CONNECTION_TYPES,
+  getConnectionTypeConfig,
+  normalizeConnectionType,
+  ConnectionType,
+} from '../../../config/connectionTypes';
 import { getEquipmentIcon } from '../../equipment-icons';
 import { useAttachableEquipment, AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { useLinkableSensors, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
-import { useEdgeDevices, useEdgeDevice, useSetDigitalOutput, IoType, DeviceLifecycleState } from '../../../hooks/useEdgeDevices';
+import {
+  useEdgeDevices,
+  useEdgeDevice,
+  useSetDigitalOutput,
+  IoType,
+  DeviceLifecycleState,
+} from '../../../hooks/useEdgeDevices';
 import { EquipmentLinkDialog } from '../dialogs/EquipmentLinkDialog';
 import { SensorConfigDialog } from '../dialogs/SensorConfigDialog';
 
@@ -37,7 +71,8 @@ export const PropertiesPanel: React.FC = () => {
 
   // Equipment linking state
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
-  const [selectedEquipmentForLink, setSelectedEquipmentForLink] = useState<AttachableEquipment | null>(null);
+  const [selectedEquipmentForLink, setSelectedEquipmentForLink] =
+    useState<AttachableEquipment | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
 
@@ -50,7 +85,7 @@ export const PropertiesPanel: React.FC = () => {
   // Device seçilince o device'ın I/O tag listesi yüklenir.
   // -----------------------------------------------------------------------
   const [selectedEdgeDeviceId, setSelectedEdgeDeviceId] = useState<string | null>(
-    selectedNode?.data?.edgeDeviceId || null
+    selectedNode?.data?.edgeDeviceId || null,
   );
 
   // FIX: selectedEdgeDeviceId senkronizasyonu — selectedNode değiştiğinde
@@ -80,14 +115,18 @@ export const PropertiesPanel: React.FC = () => {
 
   // Edge device listesini çek — decommissioned cihazları filtrele
   // Decommissioned cihazlar artık aktif değil, dropdown'da gösterilmemeli
-  const { data: edgeDevicesData, isLoading: isEdgeDevicesLoading, error: edgeDevicesError } = useEdgeDevices({ limit: 100 });
+  const {
+    data: edgeDevicesData,
+    isLoading: isEdgeDevicesLoading,
+    error: edgeDevicesError,
+  } = useEdgeDevices({ limit: 100 });
   const edgeDevices = (edgeDevicesData?.items || []).filter(
-    (d) => d.lifecycleState !== DeviceLifecycleState.DECOMMISSIONED
+    (d) => d.lifecycleState !== DeviceLifecycleState.DECOMMISSIONED,
   );
 
   // Seçili device'ın detaylarını çek (I/O config dahil)
   const { data: selectedDeviceDetail, isLoading: isDeviceDetailLoading } = useEdgeDevice(
-    selectedEdgeDeviceId || selectedNode?.data?.edgeDeviceId || ''
+    selectedEdgeDeviceId || selectedNode?.data?.edgeDeviceId || '',
   );
 
   // Fetch attachable equipment
@@ -169,20 +208,23 @@ export const PropertiesPanel: React.FC = () => {
   // Device seçildiğinde node data'ya edgeDeviceId/Code kaydeder.
   // Böylece node fiziksel bir cihaza bağlanmış olur.
   // -----------------------------------------------------------------------
-  const handleEdgeDeviceSelect = useCallback((deviceId: string) => {
-    if (!selectedNode) return;
-    const device = edgeDevices.find((d) => d.id === deviceId);
-    if (!device) return;
+  const handleEdgeDeviceSelect = useCallback(
+    (deviceId: string) => {
+      if (!selectedNode) return;
+      const device = edgeDevices.find((d) => d.id === deviceId);
+      if (!device) return;
 
-    setSelectedEdgeDeviceId(deviceId);
-    // Node data'ya edge device bilgilerini kaydet
-    updateNodeData(selectedNode.id, {
-      edgeDeviceId: device.id,
-      edgeDeviceCode: device.deviceCode,
-      // Device değiştiğinde eski I/O binding'leri temizle
-      ioBindings: [],
-    });
-  }, [selectedNode, edgeDevices, updateNodeData]);
+      setSelectedEdgeDeviceId(deviceId);
+      // Node data'ya edge device bilgilerini kaydet
+      updateNodeData(selectedNode.id, {
+        edgeDeviceId: device.id,
+        edgeDeviceCode: device.deviceCode,
+        // Device değiştiğinde eski I/O binding'leri temizle
+        ioBindings: [],
+      });
+    },
+    [selectedNode, edgeDevices, updateNodeData],
+  );
 
   // Edge device bağlantısını kaldır
   const handleEdgeDeviceUnlink = useCallback(() => {
@@ -200,40 +242,49 @@ export const PropertiesPanel: React.FC = () => {
   // Bir I/O tag'i node'a bağlar veya çıkarır.
   // ioBindings array'i node data'da tutulur.
   // -----------------------------------------------------------------------
-  const handleIoTagToggle = useCallback((ioConfig: { id: string; tagName: string; ioType: string; dataType: string }) => {
-    if (!selectedNode) return;
-    const currentBindings: IoBinding[] = selectedNode.data.ioBindings || [];
-    const exists = currentBindings.some((b) => b.ioConfigId === ioConfig.id);
+  const handleIoTagToggle = useCallback(
+    (ioConfig: { id: string; tagName: string; ioType: string; dataType: string }) => {
+      if (!selectedNode) return;
+      const currentBindings: IoBinding[] = selectedNode.data.ioBindings || [];
+      const exists = currentBindings.some((b) => b.ioConfigId === ioConfig.id);
 
-    let newBindings: IoBinding[];
-    if (exists) {
-      // Binding'i kaldır
-      newBindings = currentBindings.filter((b) => b.ioConfigId !== ioConfig.id);
-    } else {
-      // Yeni binding ekle
-      newBindings = [...currentBindings, {
-        ioConfigId: ioConfig.id,
-        tagName: ioConfig.tagName,
-        ioType: ioConfig.ioType as IoBinding['ioType'],
-        dataType: ioConfig.dataType as IoBinding['dataType'],
-      }];
-    }
+      let newBindings: IoBinding[];
+      if (exists) {
+        // Binding'i kaldır
+        newBindings = currentBindings.filter((b) => b.ioConfigId !== ioConfig.id);
+      } else {
+        // Yeni binding ekle
+        newBindings = [
+          ...currentBindings,
+          {
+            ioConfigId: ioConfig.id,
+            tagName: ioConfig.tagName,
+            ioType: ioConfig.ioType as IoBinding['ioType'],
+            dataType: ioConfig.dataType as IoBinding['dataType'],
+          },
+        ];
+      }
 
-    updateNodeData(selectedNode.id, { ioBindings: newBindings });
-  }, [selectedNode, updateNodeData]);
+      updateNodeData(selectedNode.id, { ioBindings: newBindings });
+    },
+    [selectedNode, updateNodeData],
+  );
 
   // -----------------------------------------------------------------------
   // DO (Digital Output) Toggle Handler (Kemik Yapı — Faz C)
   // Onay dialogu açar, onaylandığında setDigitalOutput mutation çağırır.
   // Güvenlik: her DO değişikliği kullanıcı onayı gerektirir.
   // -----------------------------------------------------------------------
-  const handleDoToggleRequest = useCallback((tagName: string, ioConfigId: string, newValue: boolean) => {
-    // edgeDeviceId'yi dialog state'inde yakala — closure üzerinden değil
-    const edgeDeviceId = selectedNode?.data?.edgeDeviceId;
-    if (!edgeDeviceId) return;
-    setDoToggleError(null); // Önceki hatayı temizle
-    setDoConfirmDialog({ isOpen: true, tagName, ioConfigId, newValue, edgeDeviceId });
-  }, [selectedNode?.data?.edgeDeviceId]);
+  const handleDoToggleRequest = useCallback(
+    (tagName: string, ioConfigId: string, newValue: boolean) => {
+      // edgeDeviceId'yi dialog state'inde yakala — closure üzerinden değil
+      const edgeDeviceId = selectedNode?.data?.edgeDeviceId;
+      if (!edgeDeviceId) return;
+      setDoToggleError(null); // Önceki hatayı temizle
+      setDoConfirmDialog({ isOpen: true, tagName, ioConfigId, newValue, edgeDeviceId });
+    },
+    [selectedNode?.data?.edgeDeviceId],
+  );
 
   const handleDoToggleConfirm = useCallback(async () => {
     if (!doConfirmDialog) return;
@@ -283,17 +334,16 @@ export const PropertiesPanel: React.FC = () => {
 
   // Node selected
   if (selectedNode) {
-    const Icon = getEquipmentIcon(selectedNode.data.equipmentType || selectedNode.type || 'default');
+    const Icon = getEquipmentIcon(
+      selectedNode.data.equipmentType || selectedNode.type || 'default',
+    );
 
     return (
       <div className="properties-panel w-72 bg-white border-l border-gray-200 flex flex-col h-full">
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Equipment</h3>
-          <button
-            onClick={() => selectNode(null)}
-            className="p-1 hover:bg-gray-100 rounded"
-          >
+          <button onClick={() => selectNode(null)} className="p-1 hover:bg-gray-100 rounded">
             <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
@@ -310,7 +360,9 @@ export const PropertiesPanel: React.FC = () => {
                 {selectedNode.data.equipmentName || selectedNode.data.label || 'New Node'}
               </h4>
               <p className="text-sm text-gray-500">
-                {selectedNode.data.equipmentCode || (selectedNode.data.equipmentType?.replace(/-|_/g, ' ')) || 'Template Node'}
+                {selectedNode.data.equipmentCode ||
+                  selectedNode.data.equipmentType?.replace(/-|_/g, ' ') ||
+                  'Template Node'}
               </p>
             </div>
           </div>
@@ -338,13 +390,16 @@ export const PropertiesPanel: React.FC = () => {
             {selectedNode.data.status && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-gray-500 w-20">Status:</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  selectedNode.data.status === 'operational' || selectedNode.data.status === 'active'
-                    ? 'bg-green-100 text-green-700'
-                    : selectedNode.data.status === 'maintenance'
-                    ? 'bg-yellow-100 text-yellow-700'
-                    : 'bg-gray-100 text-gray-700'
-                }`}>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    selectedNode.data.status === 'operational' ||
+                    selectedNode.data.status === 'active'
+                      ? 'bg-green-100 text-green-700'
+                      : selectedNode.data.status === 'maintenance'
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
                   {selectedNode.data.status.charAt(0).toUpperCase() +
                     selectedNode.data.status.slice(1).replace('_', ' ')}
                 </span>
@@ -358,26 +413,29 @@ export const PropertiesPanel: React.FC = () => {
           </div>
 
           {/* Specifications */}
-          {selectedNode.data.specifications && Object.keys(selectedNode.data.specifications).length > 0 && (
-            <div className="pt-3 border-t border-gray-200">
-              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-                <Info className="w-4 h-4" />
-                Specifications
-              </h5>
-              <div className="space-y-2 text-sm">
-                {Object.entries(selectedNode.data.specifications).slice(0, 5).map(([key, value]) => (
-                  <div key={key} className="flex items-start gap-2">
-                    <span className="text-gray-500 capitalize min-w-[80px]">
-                      {key.replace(/([A-Z])/g, ' $1').trim()}:
-                    </span>
-                    <span className="text-gray-900">
-                      {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                    </span>
-                  </div>
-                ))}
+          {selectedNode.data.specifications &&
+            Object.keys(selectedNode.data.specifications).length > 0 && (
+              <div className="pt-3 border-t border-gray-200">
+                <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Info className="w-4 h-4" />
+                  Specifications
+                </h5>
+                <div className="space-y-2 text-sm">
+                  {Object.entries(selectedNode.data.specifications)
+                    .slice(0, 5)
+                    .map(([key, value]) => (
+                      <div key={key} className="flex items-start gap-2">
+                        <span className="text-gray-500 capitalize min-w-[80px]">
+                          {key.replace(/([A-Z])/g, ' $1').trim()}:
+                        </span>
+                        <span className="text-gray-900">
+                          {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Equipment Linking Section */}
           <div className="pt-3 border-t border-gray-200">
@@ -458,7 +516,8 @@ export const PropertiesPanel: React.FC = () => {
                 </select>
                 {unlinkedEquipment.length === 0 && (
                   <p className="text-xs text-gray-500 mt-2">
-                    No linkable equipment found. Enable "Show in Sensor Module" in equipment settings.
+                    No linkable equipment found. Enable "Show in Sensor Module" in equipment
+                    settings.
                   </p>
                 )}
               </div>
@@ -549,7 +608,11 @@ export const PropertiesPanel: React.FC = () => {
                       <input
                         type="number"
                         min="1"
-                        placeholder={(selectedNode.data as SensorWidgetNodeData).mode === 'onChange' ? '10' : '5'}
+                        placeholder={
+                          (selectedNode.data as SensorWidgetNodeData).mode === 'onChange'
+                            ? '10'
+                            : '5'
+                        }
                         value={(selectedNode.data as SensorWidgetNodeData).pollInterval || ''}
                         onChange={(e) =>
                           updateNodeData(selectedNode.id, {
@@ -568,7 +631,11 @@ export const PropertiesPanel: React.FC = () => {
                   <input
                     type="text"
                     placeholder="Temperature"
-                    value={(selectedNode.data as SensorWidgetNodeData).widgetName || (selectedNode.data as SensorWidgetNodeData).label || ''}
+                    value={
+                      (selectedNode.data as SensorWidgetNodeData).widgetName ||
+                      (selectedNode.data as SensorWidgetNodeData).label ||
+                      ''
+                    }
                     onChange={(e) =>
                       updateNodeData(selectedNode.id, {
                         widgetName: e.target.value,
@@ -586,9 +653,7 @@ export const PropertiesPanel: React.FC = () => {
                       type="text"
                       placeholder="°C"
                       value={(selectedNode.data as SensorWidgetNodeData).unit || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, { unit: e.target.value })
-                      }
+                      onChange={(e) => updateNodeData(selectedNode.id, { unit: e.target.value })}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
@@ -717,11 +782,13 @@ export const PropertiesPanel: React.FC = () => {
                       </span>
                     </div>
                   )}
-                  {(selectedNode.data.minValue !== undefined || selectedNode.data.maxValue !== undefined) && (
+                  {(selectedNode.data.minValue !== undefined ||
+                    selectedNode.data.maxValue !== undefined) && (
                     <div className="flex items-center gap-2">
                       <span className="text-gray-500 w-16">Range:</span>
                       <span className="text-gray-900">
-                        {selectedNode.data.minValue} - {selectedNode.data.maxValue} {selectedNode.data.displayUnit || ''}
+                        {selectedNode.data.minValue} - {selectedNode.data.maxValue}{' '}
+                        {selectedNode.data.displayUnit || ''}
                       </span>
                     </div>
                   )}
@@ -759,44 +826,49 @@ export const PropertiesPanel: React.FC = () => {
           Device seçildiğinde o device'ın I/O tag listesi görünür.
           Tag'ler checkbox ile node'a bind edilir.
           =============================================================== */}
-          <div className="pt-3 border-t border-gray-200">
-            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-              <Cpu className="w-4 h-4" />
-              Edge Device Binding
-            </h5>
+        <div className="pt-3 border-t border-gray-200">
+          <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+            <Cpu className="w-4 h-4" />
+            Edge Device Binding
+          </h5>
 
-            {selectedNode.data.edgeDeviceId ? (
-              // Bağlı durumu — device bilgisi + unlink butonu
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-2 bg-indigo-50 rounded-lg border border-indigo-200">
-                  <div>
-                    <span className="text-sm text-indigo-700 font-medium">
-                      {edgeDevices.find((d) => d.id === selectedNode.data.edgeDeviceId)?.deviceName
-                        || selectedNode.data.edgeDeviceCode || 'Connected'}
-                    </span>
-                    <p className="text-xs text-indigo-500">{selectedNode.data.edgeDeviceCode}</p>
-                  </div>
-                  <button
-                    onClick={handleEdgeDeviceUnlink}
-                    className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
-                  >
-                    <Unlink className="w-3 h-3" />
-                    Unbind
-                  </button>
+          {selectedNode.data.edgeDeviceId ? (
+            // Bağlı durumu — device bilgisi + unlink butonu
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-2 bg-indigo-50 rounded-lg border border-indigo-200">
+                <div>
+                  <span className="text-sm text-indigo-700 font-medium">
+                    {edgeDevices.find((d) => d.id === selectedNode.data.edgeDeviceId)?.deviceName ||
+                      selectedNode.data.edgeDeviceCode ||
+                      'Connected'}
+                  </span>
+                  <p className="text-xs text-indigo-500">{selectedNode.data.edgeDeviceCode}</p>
                 </div>
+                <button
+                  onClick={handleEdgeDeviceUnlink}
+                  className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                >
+                  <Unlink className="w-3 h-3" />
+                  Unbind
+                </button>
+              </div>
 
-                {/* -------------------------------------------------------
+              {/* -------------------------------------------------------
                   I/O Tag Listesi (Faz A devamı)
                   Device'ın tüm I/O tag'lerini checkbox ile göster.
                   Seçilenler node'un ioBindings array'ine eklenir.
                   ------------------------------------------------------- */}
-                {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.length > 0 && (
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">I/O Tags — bind to node:</label>
-                    <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-                      {selectedDeviceDetail.ioConfig.filter((io) => io.isActive).map((io) => {
+              {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.length > 0 && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    I/O Tags — bind to node:
+                  </label>
+                  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                    {selectedDeviceDetail.ioConfig
+                      .filter((io) => io.isActive)
+                      .map((io) => {
                         const isBound = (selectedNode.data.ioBindings || []).some(
-                          (b: IoBinding) => b.ioConfigId === io.id
+                          (b: IoBinding) => b.ioConfigId === io.id,
                         );
                         return (
                           <label
@@ -808,20 +880,27 @@ export const PropertiesPanel: React.FC = () => {
                             <input
                               type="checkbox"
                               checked={isBound}
-                              onChange={() => handleIoTagToggle({
-                                id: io.id,
-                                tagName: io.tagName,
-                                ioType: io.ioType,
-                                dataType: io.dataType,
-                              })}
+                              onChange={() =>
+                                handleIoTagToggle({
+                                  id: io.id,
+                                  tagName: io.tagName,
+                                  ioType: io.ioType,
+                                  dataType: io.dataType,
+                                })
+                              }
                               className="text-indigo-600 rounded focus:ring-indigo-500"
                             />
-                            <span className={`inline-block w-6 text-center text-[10px] font-bold rounded px-1 ${
-                              io.ioType === 'DI' ? 'bg-green-100 text-green-700' :
-                              io.ioType === 'DO' ? 'bg-orange-100 text-orange-700' :
-                              io.ioType === 'AI' ? 'bg-blue-100 text-blue-700' :
-                              'bg-purple-100 text-purple-700'
-                            }`}>
+                            <span
+                              className={`inline-block w-6 text-center text-[10px] font-bold rounded px-1 ${
+                                io.ioType === 'DI'
+                                  ? 'bg-green-100 text-green-700'
+                                  : io.ioType === 'DO'
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : io.ioType === 'AI'
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-purple-100 text-purple-700'
+                              }`}
+                            >
                               {io.ioType}
                             </span>
                             <span className="flex-1 truncate text-gray-700">{io.tagName}</span>
@@ -831,151 +910,157 @@ export const PropertiesPanel: React.FC = () => {
                           </label>
                         );
                       })}
-                    </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.filter((io) => io.isActive).length === 0 && (
+              {selectedDeviceDetail?.ioConfig &&
+                selectedDeviceDetail.ioConfig.filter((io) => io.isActive).length === 0 && (
                   <p className="text-xs text-gray-500">
                     No active I/O tags on this device. Configure I/O in device settings.
                   </p>
                 )}
-              </div>
-            ) : (
-              // Bağlanmamış durumu — device dropdown
-              <div className="space-y-2">
-                {isEdgeDevicesLoading ? (
-                  <p className="text-xs text-gray-500 animate-pulse">Loading devices...</p>
-                ) : edgeDevicesError ? (
-                  <p className="text-xs text-red-500">Failed to load devices</p>
-                ) : (
-                  <>
-                    <select
-                      onChange={(e) => {
-                        if (e.target.value) handleEdgeDeviceSelect(e.target.value);
-                      }}
-                      value=""
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                    >
-                      <option value="">Select Edge Device...</option>
-                      {edgeDevices.map((device) => (
-                        <option key={device.id} value={device.id}>
-                          {device.deviceName} ({device.deviceCode})
-                          {device.isOnline ? ' ●' : ' ○'}
-                        </option>
-                      ))}
-                    </select>
-                    {edgeDevices.length === 0 && (
-                      <p className="text-xs text-gray-500">
-                        No edge devices registered. Add devices in Edge Device Management.
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            // Bağlanmamış durumu — device dropdown
+            <div className="space-y-2">
+              {isEdgeDevicesLoading ? (
+                <p className="text-xs text-gray-500 animate-pulse">Loading devices...</p>
+              ) : edgeDevicesError ? (
+                <p className="text-xs text-red-500">Failed to load devices</p>
+              ) : (
+                <>
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) handleEdgeDeviceSelect(e.target.value);
+                    }}
+                    value=""
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                  >
+                    <option value="">Select Edge Device...</option>
+                    {edgeDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.deviceName} ({device.deviceCode}){device.isOnline ? ' ●' : ' ○'}
+                      </option>
+                    ))}
+                  </select>
+                  {edgeDevices.length === 0 && (
+                    <p className="text-xs text-gray-500">
+                      No edge devices registered. Add devices in Edge Device Management.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-          {/* ===============================================================
+        {/* ===============================================================
             Control Section (Kemik Yapı — Faz C)
             Bağlı I/O tag'leri için kontrol butonları:
             - DO tag'leri → ON/OFF toggle switch
             - VFD bağlı ise → Start/Stop + hız slider
             Her DO değişikliği onay dialogu gerektirir (güvenlik).
             =============================================================== */}
-          {selectedNode.data.ioBindings && selectedNode.data.ioBindings.length > 0 && (
-            <div className="pt-3 border-t border-gray-200">
-              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
-                <Zap className="w-4 h-4" />
-                Output Controls
-              </h5>
+        {selectedNode.data.ioBindings && selectedNode.data.ioBindings.length > 0 && (
+          <div className="pt-3 border-t border-gray-200">
+            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+              <Zap className="w-4 h-4" />
+              Output Controls
+            </h5>
 
-              {/* DO toggle hata mesajı — kullanıcıya inline gösterim
+            {/* DO toggle hata mesajı — kullanıcıya inline gösterim
                   Console.error yerine UI'da gösterilir, 5 saniye sonra otomatik kaybolur */}
-              {doToggleError && (
-                <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 mb-2">
-                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-medium">Output command failed</p>
-                    <p className="mt-0.5">{doToggleError}</p>
-                  </div>
-                  <button
-                    onClick={() => setDoToggleError(null)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+            {doToggleError && (
+              <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 mb-2">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium">Output command failed</p>
+                  <p className="mt-0.5">{doToggleError}</p>
                 </div>
-              )}
-
-              <div className="space-y-2">
-                {/* DO tag'leri için ON/OFF toggle butonları */}
-                {selectedNode.data.ioBindings
-                  .filter((b: IoBinding) => b.ioType === 'DO')
-                  .map((binding: IoBinding) => (
-                    <div
-                      key={binding.ioConfigId}
-                      className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-orange-100 text-orange-700">
-                          DO
-                        </span>
-                        <span className="text-sm text-gray-700">{binding.tagName}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {/* OFF butonu */}
-                        <button
-                          onClick={() => handleDoToggleRequest(binding.tagName, binding.ioConfigId, false)}
-                          className="px-2 py-1 text-xs rounded transition-colors bg-red-100 text-red-700 hover:bg-red-200"
-                          title={`${binding.tagName} OFF`}
-                        >
-                          <Square className="w-3 h-3 inline mr-0.5" />
-                          OFF
-                        </button>
-                        {/* ON butonu */}
-                        <button
-                          onClick={() => handleDoToggleRequest(binding.tagName, binding.ioConfigId, true)}
-                          className="px-2 py-1 text-xs rounded transition-colors bg-green-100 text-green-700 hover:bg-green-200"
-                          title={`${binding.tagName} ON`}
-                        >
-                          <Play className="w-3 h-3 inline mr-0.5" />
-                          ON
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                {/* AI/AO tag'leri bilgi gösterimi (sadece okunur) */}
-                {selectedNode.data.ioBindings
-                  .filter((b: IoBinding) => b.ioType === 'AI' || b.ioType === 'AO')
-                  .length > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Analog tags are read-only in process editor.
-                  </p>
-                )}
+                <button
+                  onClick={() => setDoToggleError(null)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
+            )}
+
+            <div className="space-y-2">
+              {/* DO tag'leri için ON/OFF toggle butonları */}
+              {selectedNode.data.ioBindings
+                .filter((b: IoBinding) => b.ioType === 'DO')
+                .map((binding: IoBinding) => (
+                  <div
+                    key={binding.ioConfigId}
+                    className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-orange-100 text-orange-700">
+                        DO
+                      </span>
+                      <span className="text-sm text-gray-700">{binding.tagName}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {/* OFF butonu */}
+                      <button
+                        onClick={() =>
+                          handleDoToggleRequest(binding.tagName, binding.ioConfigId, false)
+                        }
+                        className="px-2 py-1 text-xs rounded transition-colors bg-red-100 text-red-700 hover:bg-red-200"
+                        title={`${binding.tagName} OFF`}
+                      >
+                        <Square className="w-3 h-3 inline mr-0.5" />
+                        OFF
+                      </button>
+                      {/* ON butonu */}
+                      <button
+                        onClick={() =>
+                          handleDoToggleRequest(binding.tagName, binding.ioConfigId, true)
+                        }
+                        className="px-2 py-1 text-xs rounded transition-colors bg-green-100 text-green-700 hover:bg-green-200"
+                        title={`${binding.tagName} ON`}
+                      >
+                        <Play className="w-3 h-3 inline mr-0.5" />
+                        ON
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+              {/* AI/AO tag'leri bilgi gösterimi (sadece okunur) */}
+              {selectedNode.data.ioBindings.filter(
+                (b: IoBinding) => b.ioType === 'AI' || b.ioType === 'AO',
+              ).length > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Analog tags are read-only in process editor.
+                </p>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
         {/* DO Toggle Onay Dialogu (Kemik Yapı — Faz C — Güvenlik)
             Kullanıcı bir DO tag'ini ON/OFF yapmak istediğinde
             onay dialogu gösterilir. Yanlışlıkla aktüatör çalıştırmayı önler. */}
         {doConfirmDialog?.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setDoConfirmDialog(null)} />
-            <div className="relative bg-white rounded-lg shadow-xl p-6 w-80">
-              <div className="flex items-center gap-2 mb-3">
+          <Modal
+            isOpen
+            onClose={() => setDoConfirmDialog(null)}
+            size="sm"
+            showCloseButton={!setDigitalOutput.isPending}
+            closeOnEscape={!setDigitalOutput.isPending}
+            closeOnOverlayClick={!setDigitalOutput.isPending}
+            title={
+              <span className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <h4 className="font-semibold text-gray-900">Output Control</h4>
-              </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
-                <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
-                  {doConfirmDialog.newValue ? 'ON' : 'OFF'}
-                </strong>?
-              </p>
-              <div className="flex justify-end gap-2">
+                <span>Output Control</span>
+              </span>
+            }
+            bodyClassName="p-6"
+            footer={
+              <>
                 <button
                   onClick={() => setDoConfirmDialog(null)}
                   className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
@@ -993,9 +1078,17 @@ export const PropertiesPanel: React.FC = () => {
                 >
                   {setDigitalOutput.isPending ? 'Sending...' : 'Confirm'}
                 </button>
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          >
+            <p className="text-sm text-gray-600 mb-4">
+              Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
+              <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
+                {doConfirmDialog.newValue ? 'ON' : 'OFF'}
+              </strong>
+              ?
+            </p>
+          </Modal>
         )}
 
         {/* Equipment Link Dialog */}
@@ -1036,7 +1129,9 @@ export const PropertiesPanel: React.FC = () => {
   // Edge selected
   if (selectedEdge) {
     // Get normalized connection type for backwards compatibility
-    const currentConnectionType = normalizeConnectionType(selectedEdge.data?.connectionType || 'process-pipe');
+    const currentConnectionType = normalizeConnectionType(
+      selectedEdge.data?.connectionType || 'process-pipe',
+    );
     const currentConfig = getConnectionTypeConfig(currentConnectionType);
 
     return (
@@ -1044,10 +1139,7 @@ export const PropertiesPanel: React.FC = () => {
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Connection</h3>
-          <button
-            onClick={() => selectEdge(null)}
-            className="p-1 hover:bg-gray-100 rounded"
-          >
+          <button onClick={() => selectEdge(null)} className="p-1 hover:bg-gray-100 rounded">
             <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
@@ -1059,7 +1151,10 @@ export const PropertiesPanel: React.FC = () => {
             <div className="p-2 bg-white rounded-lg shadow-sm">
               <svg width="32" height="16" className="flex-shrink-0">
                 <line
-                  x1="4" y1="8" x2="28" y2="8"
+                  x1="4"
+                  y1="8"
+                  x2="28"
+                  y2="8"
                   stroke={currentConfig.color}
                   strokeWidth={currentConfig.strokeWidth}
                   strokeDasharray={currentConfig.strokeDasharray}
@@ -1082,9 +1177,7 @@ export const PropertiesPanel: React.FC = () => {
               {CONNECTION_TYPES.map((type) => (
                 <button
                   key={type.id}
-                  onClick={() =>
-                    updateEdgeData(selectedEdge.id, { connectionType: type.id })
-                  }
+                  onClick={() => updateEdgeData(selectedEdge.id, { connectionType: type.id })}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
                     currentConnectionType === type.id
                       ? 'border-blue-500 bg-blue-50'
@@ -1094,7 +1187,10 @@ export const PropertiesPanel: React.FC = () => {
                   {/* SVG Line Preview */}
                   <svg width="32" height="12" className="flex-shrink-0">
                     <line
-                      x1="2" y1="6" x2="30" y2="6"
+                      x1="2"
+                      y1="6"
+                      x2="30"
+                      y2="6"
                       stroke={type.color}
                       strokeWidth={type.strokeWidth}
                       strokeDasharray={type.strokeDasharray}
@@ -1126,7 +1222,9 @@ export const PropertiesPanel: React.FC = () => {
           </div>
 
           {/* Flow Rate (for pipe/steam/hydraulic connections) */}
-          {(currentConnectionType === 'process-pipe' || currentConnectionType === 'steam' || currentConnectionType === 'hydraulic') && (
+          {(currentConnectionType === 'process-pipe' ||
+            currentConnectionType === 'steam' ||
+            currentConnectionType === 'hydraulic') && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Flow Rate (optional)
@@ -1145,9 +1243,7 @@ export const PropertiesPanel: React.FC = () => {
                 />
                 <select
                   value={selectedEdge.data?.flowUnit || 'L/min'}
-                  onChange={(e) =>
-                    updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })
-                  }
+                  onChange={(e) => updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })}
                   className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="L/min">L/min</option>

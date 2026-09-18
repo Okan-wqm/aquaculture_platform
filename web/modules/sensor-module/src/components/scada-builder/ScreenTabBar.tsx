@@ -4,7 +4,8 @@
  * Shows tabs per screen, add screen dropdown, right-click context menu.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
+import { useConfirm, useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -41,6 +42,7 @@ function getScreenIcon(iconName: string): React.ReactNode {
 }
 
 const ScreenTabBar: React.FC = () => {
+  const confirm = useConfirm();
   const screens = useScadaPackageStore((s) => s.screens);
   const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
   const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
@@ -51,7 +53,9 @@ const ScreenTabBar: React.FC = () => {
   const setDefaultScreen = useScadaPackageStore((s) => s.setDefaultScreen);
 
   const [showAddDropdown, setShowAddDropdown] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; screenId: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; screenId: string } | null>(
+    null,
+  );
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
@@ -59,27 +63,23 @@ const ScreenTabBar: React.FC = () => {
 
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (showAddDropdown && addBtnRef.current && !addBtnRef.current.parentElement?.contains(e.target as Node)) {
-        setShowAddDropdown(false);
-      }
-      if (contextMenu && contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showAddDropdown, contextMenu]);
+  // Close the add-screen menu and the context menu on outside click. The
+  // add menu is fixed-positioned but rendered inside its button group, so
+  // DOM containment (not geometry) decides what counts as "inside".
+  useClickOutside(addMenuRef, () => setShowAddDropdown(false), showAddDropdown);
+  useClickOutside(contextMenuRef, () => setContextMenu(null), contextMenu !== null);
 
-  const handleAddScreen = useCallback((type: ScreenType) => {
-    const label = SCREEN_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
-    addScreen(type, label);
-    setShowAddDropdown(false);
-  }, [addScreen]);
+  const handleAddScreen = useCallback(
+    (type: ScreenType) => {
+      const label = SCREEN_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
+      addScreen(type, label);
+      setShowAddDropdown(false);
+    },
+    [addScreen],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent, screenId: string) => {
     e.preventDefault();
@@ -96,46 +96,70 @@ const ScreenTabBar: React.FC = () => {
     setContextMenu(null);
   }, []);
 
-  const handleRenameSubmit = useCallback((id: string) => {
-    if (renameValue.trim()) {
-      updateScreen(id, { name: renameValue.trim() });
-    }
-    setRenamingId(null);
-  }, [renameValue, updateScreen]);
+  const handleRenameSubmit = useCallback(
+    (id: string) => {
+      if (renameValue.trim()) {
+        updateScreen(id, { name: renameValue.trim() });
+      }
+      setRenamingId(null);
+    },
+    [renameValue, updateScreen],
+  );
 
-  const handleDuplicate = useCallback((screenId: string) => {
-    duplicateScreen(screenId);
-    setContextMenu(null);
-  }, [duplicateScreen]);
+  const handleDuplicate = useCallback(
+    (screenId: string) => {
+      duplicateScreen(screenId);
+      setContextMenu(null);
+    },
+    [duplicateScreen],
+  );
 
-  const handleDelete = useCallback((screenId: string) => {
-    if (!window.confirm('Are you sure you want to delete this screen?')) return;
-    removeScreen(screenId);
-    setContextMenu(null);
-  }, [removeScreen]);
+  const handleDelete = useCallback(
+    async (screenId: string): Promise<void> => {
+      if (
+        !(await confirm({
+          title: 'Delete this screen?',
+          message: 'Widgets placed on it are removed with it.',
+          confirmText: 'Delete',
+          cancelText: 'Cancel',
+          variant: 'danger',
+        }))
+      )
+        return;
+      removeScreen(screenId);
+      setContextMenu(null);
+    },
+    [removeScreen, confirm],
+  );
 
-  const handleSetDefault = useCallback((screenId: string) => {
-    setDefaultScreen(screenId);
-    setContextMenu(null);
-  }, [setDefaultScreen]);
+  const handleSetDefault = useCallback(
+    (screenId: string) => {
+      setDefaultScreen(screenId);
+      setContextMenu(null);
+    },
+    [setDefaultScreen],
+  );
 
-  const handleReorder = useCallback((dragId: string, dropId: string) => {
-    const state = useScadaPackageStore.getState();
-    const screensCopy = [...state.screens];
-    const dragIdx = screensCopy.findIndex((s) => s.id === dragId);
-    const dropIdx = screensCopy.findIndex((s) => s.id === dropId);
-    if (dragIdx === -1 || dropIdx === -1) return;
+  const handleReorder = useCallback(
+    (dragId: string, dropId: string) => {
+      const state = useScadaPackageStore.getState();
+      const screensCopy = [...state.screens];
+      const dragIdx = screensCopy.findIndex((s) => s.id === dragId);
+      const dropIdx = screensCopy.findIndex((s) => s.id === dropId);
+      if (dragIdx === -1 || dropIdx === -1) return;
 
-    // Remove dragged screen and insert before drop target
-    const [dragged] = screensCopy.splice(dragIdx, 1);
-    const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
-    screensCopy.splice(insertIdx, 0, dragged);
+      // Remove dragged screen and insert before drop target
+      const [dragged] = screensCopy.splice(dragIdx, 1);
+      const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
+      screensCopy.splice(insertIdx, 0, dragged);
 
-    // Update sortOrder for all screens
-    screensCopy.forEach((screen, idx) => {
-      updateScreen(screen.id, { sortOrder: idx });
-    });
-  }, [updateScreen]);
+      // Update sortOrder for all screens
+      screensCopy.forEach((screen, idx) => {
+        updateScreen(screen.id, { sortOrder: idx });
+      });
+    },
+    [updateScreen],
+  );
 
   const isLastScreen = screens.length <= 1;
 
@@ -207,15 +231,13 @@ const ScreenTabBar: React.FC = () => {
           >
             {getScreenIcon(screen.icon)}
             <span>{screen.name}</span>
-            {screen.isDefault && (
-              <Star className="w-3 h-3 text-yellow-500 fill-yellow-400" />
-            )}
+            {screen.isDefault && <Star className="w-3 h-3 text-yellow-500 fill-yellow-400" />}
           </button>
         );
       })}
 
       {/* Add / Remove Screen Buttons */}
-      <div className="relative flex items-center gap-0.5">
+      <div className="relative flex items-center gap-0.5" ref={addMenuRef}>
         <button
           ref={addBtnRef}
           onClick={() => {
@@ -232,7 +254,9 @@ const ScreenTabBar: React.FC = () => {
           <Plus className="w-4 h-4" />
         </button>
         <button
-          onClick={() => activeScreenId && handleDelete(activeScreenId)}
+          onClick={() => {
+            if (activeScreenId) void handleDelete(activeScreenId);
+          }}
           disabled={isLastScreen}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             isLastScreen
@@ -246,77 +270,63 @@ const ScreenTabBar: React.FC = () => {
         </button>
 
         {showAddDropdown && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowAddDropdown(false)}
-            />
-            <div
-              className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
-              style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
-            >
-              {SCREEN_TYPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.type}
-                  onClick={() => handleAddScreen(opt.type)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  {opt.icon}
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </>
+          <div
+            className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+            style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
+          >
+            {SCREEN_TYPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.type}
+                onClick={() => handleAddScreen(opt.type)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                {opt.icon}
+                {opt.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
       {/* Context Menu */}
       {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setContextMenu(null)}
-          />
-          <div
-            ref={contextMenuRef}
-            className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => {
+              const screen = screens.find((s) => s.id === contextMenu.screenId);
+              if (screen) handleRenameStart(screen);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
-            <button
-              onClick={() => {
-                const screen = screens.find((s) => s.id === contextMenu.screenId);
-                if (screen) handleRenameStart(screen);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => handleDuplicate(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Duplicate
-            </button>
-            <button
-              onClick={() => handleSetDefault(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Set as Default
-            </button>
-            <hr className="my-1 border-gray-200" />
-            <button
-              onClick={() => handleDelete(contextMenu.screenId)}
-              disabled={isLastScreen}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
-                isLastScreen
-                  ? 'text-gray-500 cursor-not-allowed'
-                  : 'text-red-600 hover:bg-red-50'
-              }`}
-            >
-              Delete
-            </button>
-          </div>
-        </>
+            Rename
+          </button>
+          <button
+            onClick={() => handleDuplicate(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={() => handleSetDefault(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Set as Default
+          </button>
+          <hr className="my-1 border-gray-200" />
+          <button
+            onClick={() => void handleDelete(contextMenu.screenId)}
+            disabled={isLastScreen}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
+              isLastScreen ? 'text-gray-500 cursor-not-allowed' : 'text-red-600 hover:bg-red-50'
+            }`}
+          >
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );

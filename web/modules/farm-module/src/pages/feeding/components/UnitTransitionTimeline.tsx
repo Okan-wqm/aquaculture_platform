@@ -8,11 +8,18 @@
  * yana "A şimdi → B'ye geçiş; B X gün yeter" hikâyesini anlatır.
  */
 import React from 'react';
-import { useI18n } from '@aquaculture/shared-ui';
+import { useI18n, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import type { ProtocolFeedForecastView } from '../../../hooks/useProtocolFeeding';
 
-const SEGMENT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
+const SEGMENT_COLORS = [
+  colors.info[600],
+  colors.success[600],
+  colors.warning[600],
+  colors.error[600],
+  colors.primary[800],
+  colors.primary[600],
+];
 
 interface Props {
   forecast: ProtocolFeedForecastView;
@@ -30,9 +37,7 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
 
   if (forecast.perUnit.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-8 text-center">
-        {t('feedingV2.forecast.noUnits')}
-      </p>
+      <p className="text-sm text-gray-500 py-8 text-center">{t('feedingV2.forecast.noUnits')}</p>
     );
   }
 

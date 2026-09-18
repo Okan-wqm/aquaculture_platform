@@ -1660,3 +1660,35 @@ check-changed` (managed files changed since the base; `ci-full.yml`) plus the fo
   of the proxies, both refusals by name, the room row on the plan and the apply gate probing
   before the suite) and `test_enterprise_plan_012d_015` (the contained gate blocks without an
   observed room, opens with one, blocks on a failed probe).
+
+## ARIA-MEDIUM-151 — the runner's sandbox was verified as root, and root is the one user it works for
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-10-02
+- **Evidence (capability-probe run 35321850013, 2026-09-18 07:56Z, the first with a managed
+  login on the rebuilt runner):** the envelope held (`hook_consulted: true`,
+  `curl_succeeded: false`) and the same log ended `sandbox_backend=none`. As `gharunner` on the
+  droplet, `_bwrap_probe_argv()` exits 1 — `bwrap: loopback: Failed RTM_NEWADDR: Operation not
+permitted` — and `_git_containment_probe_reason()` is
+  `git_in_sandbox_failed:rc=1:bwrap: setting up uid map: Permission denied`; as root both pass,
+  which is how every ring-4 run in this review ran. The host is Ubuntu 24.04 with
+  `kernel.apparmor_restrict_unprivileged_userns=1`: a binary without an AppArmor profile cannot
+  create a user namespace unprivileged, and no profile named `/usr/bin/bwrap`.
+  `scripts/aria/provision_runner.sh` reads `unprivileged_userns_clone` (1) and
+  `max_user_namespaces` (126968), never that knob, and runs its "final authority"
+  `sandbox_backend()` probe as the root that applies the script — so it printed a verified
+  backend on a host where the user the lanes run as had none. The runbook's step 1 had the same
+  blind spot, and its verification expected `sandbox_backend=bubblewrap`, a spelling the
+  accessor never prints.
+- **Rule:** a capability is verified as the user who needs it; root's verdict on a namespace
+  check is the trap, not the proof.
+- **What is now true (2026-09-18):** the host carries `/etc/apparmor.d/bwrap` — Ubuntu's own
+  shape for flatpak, podman and lxc (`flags=(unconfined)`, `userns,` and nothing else, so it
+  confines nothing and grants one binary one capability); loaded, `sandbox_backend()` as
+  `gharunner` returns `bwrap` and the git containment probe returns no reason. The profile
+  lives in the repository (`scripts/aria/apparmor/bwrap`); the provision script reads the
+  AppArmor knob, installs the profile when the knob is 1 and the file is absent (dry-run
+  reports the drift), checks the namespace capability as an unprivileged user through
+  `setpriv` (so the verdict does not wait for the runner user to exist), and runs the kernel
+  accessor as `$RUNNER_USER` — waiting by name when the user does not exist or cannot read
+  the checkout, never substituting root. The runbook carries the knob, the profile and the
+  runner-user probe, and expects the accessor's own spelling.

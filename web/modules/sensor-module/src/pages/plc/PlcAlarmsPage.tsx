@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -123,19 +124,17 @@ const AcknowledgeDialog: React.FC<{
   const [notes, setNotes] = useState('');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">{title}</h3>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          maxLength={1000}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-          placeholder="Alarm hakkinda notlariniz..."
-        />
-        <div className="mt-4 flex gap-3">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title={title}
+      showCloseButton={!isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
             onClick={onClose}
             className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -150,9 +149,19 @@ const AcknowledgeDialog: React.FC<{
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             Onayla
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={3}
+        maxLength={1000}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+        placeholder="Alarm hakkinda notlariniz..."
+      />
+    </Modal>
   );
 };
 

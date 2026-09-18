@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Alert } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Alert, Modal } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -180,6 +180,16 @@ const ModulePricingPage: React.FC = () => {
     Object.fromEntries(rows.map((row) => [row.tier, row.multiplier])) as TierMultipliers;
 
   // Open edit modal
+  const closeDetails = (): void => {
+    setShowDetails(false);
+    setSelectedPricing(null);
+  };
+
+  const closeEdit = (): void => {
+    setShowEdit(false);
+    setEditForm(null);
+  };
+
   const handleEdit = (pricing: ModulePricingWithModule) => {
     setEditForm({
       id: pricing.id,
@@ -477,269 +487,238 @@ const ModulePricingPage: React.FC = () => {
 
       {/* Details Modal */}
       {showDetails && selectedPricing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
-          <Card className="w-full max-w-2xl m-4 p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-3">
-                <div className="text-4xl">{getModuleIcon(selectedPricing.moduleIcon)}</div>
-                <div>
-                  <h2 className="text-2xl font-bold">{selectedPricing.moduleName}</h2>
-                  <p className="text-gray-500">{selectedPricing.moduleDescription}</p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowDetails(false);
-                  setSelectedPricing(null);
-                }}
-              >
-                Close
-              </Button>
-            </div>
-
-            {/* All Pricing Metrics */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Pricing Metrics</h3>
-              <div className="space-y-3">
-                {(selectedPricing.metrics ?? []).map((metric) => (
-                  <div
-                    key={metric.metricType}
-                    className={`p-4 rounded-lg ${
-                      isBasePrice(metric.metricType)
-                        ? 'bg-indigo-50 border border-indigo-200'
-                        : 'bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
-                        {metric.description && (
-                          <div className="text-sm text-gray-500">{metric.description}</div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-lg">{formatCurrency(Number(metric.price))}</div>
-                        {!isBasePrice(metric.metricType) && (
-                          <div className="text-xs text-gray-500">per unit/mo</div>
-                        )}
-                      </div>
+        <Modal
+          isOpen
+          onClose={closeDetails}
+          size="lg"
+          title={
+            <span className="flex items-center gap-3">
+              <span className="text-4xl">{getModuleIcon(selectedPricing.moduleIcon)}</span>
+              <span>{selectedPricing.moduleName}</span>
+            </span>
+          }
+          description={selectedPricing.moduleDescription}
+          bodyClassName="p-6"
+          footer={
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowDetails(false);
+                handleEdit(selectedPricing);
+              }}
+            >
+              Edit Pricing
+            </Button>
+          }
+        >
+          {/* All Pricing Metrics */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Pricing Metrics</h3>
+            <div className="space-y-3">
+              {(selectedPricing.metrics ?? []).map((metric) => (
+                <div
+                  key={metric.metricType}
+                  className={`p-4 rounded-lg ${
+                    isBasePrice(metric.metricType)
+                      ? 'bg-indigo-50 border border-indigo-200'
+                      : 'bg-gray-50'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
+                      {metric.description && (
+                        <div className="text-sm text-gray-500">{metric.description}</div>
+                      )}
                     </div>
-                    {metric.includedQuantity && metric.includedQuantity > 0 && (
-                      <div className="mt-2 text-sm text-green-600">
-                        {metric.includedQuantity} included free
-                      </div>
-                    )}
+                    <div className="text-right">
+                      <div className="font-bold text-lg">{formatCurrency(Number(metric.price))}</div>
+                      {!isBasePrice(metric.metricType) && (
+                        <div className="text-xs text-gray-500">per unit/mo</div>
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
+                  {metric.includedQuantity && metric.includedQuantity > 0 && (
+                    <div className="mt-2 text-sm text-green-600">
+                      {metric.includedQuantity} included free
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+          </div>
 
-            {/* Tier Multipliers */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
-              <div className="grid grid-cols-5 gap-2">
-                {Object.entries(toTierMultiplierForm(selectedPricing.tierMultipliers ?? [])).map(([tier, multiplier]) => (
-                  <div key={tier} className="p-3 bg-gray-50 rounded-lg text-center">
-                    <div className="text-xs text-gray-500 uppercase mb-1">{tier}</div>
-                    <div className="font-bold">{`${Number(multiplier ?? '1') * 100}%`}</div>
-                    {Number(multiplier ?? '1') < 1 && (
-                      <div className="text-xs text-green-600">
-                        {Math.round((1 - Number(multiplier)) * 100)}% off
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          {/* Tier Multipliers */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
+            <div className="grid grid-cols-5 gap-2">
+              {Object.entries(toTierMultiplierForm(selectedPricing.tierMultipliers ?? [])).map(([tier, multiplier]) => (
+                <div key={tier} className="p-3 bg-gray-50 rounded-lg text-center">
+                  <div className="text-xs text-gray-500 uppercase mb-1">{tier}</div>
+                  <div className="font-bold">{`${Number(multiplier ?? '1') * 100}%`}</div>
+                  {Number(multiplier ?? '1') < 1 && (
+                    <div className="text-xs text-green-600">
+                      {Math.round((1 - Number(multiplier)) * 100)}% off
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+          </div>
 
-            {/* Metadata */}
-            <div className="border-t pt-4 text-sm text-gray-500 space-y-2">
-              <div className="flex justify-between">
-                <span>Pricing ID:</span>
-                <span className="font-mono text-xs">{selectedPricing.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Module Code:</span>
-                <span className="font-mono">{selectedPricing.moduleCode}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Effective From:</span>
-                <span>{new Date(selectedPricing.effectiveFrom).toLocaleDateString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Version:</span>
-                <span>{selectedPricing.version}</span>
-              </div>
+          {/* Metadata */}
+          <div className="border-t pt-4 text-sm text-gray-500 space-y-2">
+            <div className="flex justify-between">
+              <span>Pricing ID:</span>
+              <span className="font-mono text-xs">{selectedPricing.id}</span>
             </div>
-
-            {/* Edit Button */}
-            <div className="mt-6 flex justify-end">
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setShowDetails(false);
-                  handleEdit(selectedPricing);
-                }}
-              >
-                Edit Pricing
-              </Button>
+            <div className="flex justify-between">
+              <span>Module Code:</span>
+              <span className="font-mono">{selectedPricing.moduleCode}</span>
             </div>
-          </Card>
-        </div>
+            <div className="flex justify-between">
+              <span>Effective From:</span>
+              <span>{new Date(selectedPricing.effectiveFrom).toLocaleDateString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Version:</span>
+              <span>{selectedPricing.version}</span>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Edit Modal */}
       {showEdit && editForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
-          <Card className="w-full max-w-3xl m-4 p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-2xl font-bold">Edit Module Pricing</h2>
-                <p className="text-gray-500">{editForm.moduleName} ({editForm.moduleCode})</p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowEdit(false);
-                  setEditForm(null);
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeEdit}
+          size="xl"
+          title="Edit Module Pricing"
+          description={`${editForm.moduleName} (${editForm.moduleCode})`}
+          showCloseButton={!saving}
+          closeOnEscape={!saving}
+          closeOnOverlayClick={!saving}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeEdit}>
                 Cancel
               </Button>
-            </div>
-
-            {/* Pricing Metrics */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Pricing Metrics</h3>
-              <div className="space-y-4">
-                {editForm.pricingMetrics.map((metric) => (
-                  <div
-                    key={metric.metricType}
-                    className={`p-4 rounded-lg border ${
-                      isBasePrice(metric.metricType)
-                        ? 'bg-indigo-50 border-indigo-200'
-                        : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
-                      {!isBasePrice(metric.metricType) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveMetric(metric.metricType)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm text-gray-600 mb-1">Price (USD)</label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={metric.price}
-                          onChange={(e) => handleMetricPriceChange(metric.metricType, e.target.value)}
-                        />
-                      </div>
-                      {!isBasePrice(metric.metricType) && (
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">Included Free</label>
-                          <Input
-                            type="number"
-                            min="0"
-                            value={metric.includedQuantity || 0}
-                            onChange={(e) => handleMetricIncludedChange(metric.metricType, e.target.value)}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Add New Metric */}
-              {getAvailableMetrics().length > 0 && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Add Metric</label>
-                  <div className="flex flex-wrap gap-2">
-                    {getAvailableMetrics().map((type) => (
-                      <Button
-                        key={type}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleAddMetric(type)}
-                      >
-                        + {getMetricLabel(type)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Tier Multipliers */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
-              <p className="text-sm text-gray-500 mb-3">
-                Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 = free
-              </p>
-              <div className="grid grid-cols-5 gap-3">
-                {Object.entries(editForm.tierMultipliers).map(([tier, multiplier]) => (
-                  <div key={tier}>
-                    <label className="block text-xs text-gray-500 uppercase mb-1">{tier}</label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="2"
-                      value={multiplier}
-                      onChange={(e) => handleTierMultiplierChange(tier, e.target.value)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-              <textarea
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                rows={3}
-                value={editForm.notes}
-                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                placeholder="Add any notes about this pricing configuration..."
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex justify-end gap-3 border-t pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowEdit(false);
-                  setEditForm(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={saving}
-              >
+              <Button variant="primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
+            </>
+          }
+        >
+          {/* Pricing Metrics */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Pricing Metrics</h3>
+            <div className="space-y-4">
+              {editForm.pricingMetrics.map((metric) => (
+                <div
+                  key={metric.metricType}
+                  className={`p-4 rounded-lg border ${
+                    isBasePrice(metric.metricType)
+                      ? 'bg-indigo-50 border-indigo-200'
+                      : 'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
+                    {!isBasePrice(metric.metricType) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveMetric(metric.metricType)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">Price (USD)</label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={metric.price}
+                        onChange={(e) => handleMetricPriceChange(metric.metricType, e.target.value)}
+                      />
+                    </div>
+                    {!isBasePrice(metric.metricType) && (
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Included Free</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={metric.includedQuantity || 0}
+                          onChange={(e) => handleMetricIncludedChange(metric.metricType, e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          </Card>
-        </div>
+
+            {/* Add New Metric */}
+            {getAvailableMetrics().length > 0 && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Add Metric</label>
+                <div className="flex flex-wrap gap-2">
+                  {getAvailableMetrics().map((type) => (
+                    <Button
+                      key={type}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAddMetric(type)}
+                    >
+                      + {getMetricLabel(type)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tier Multipliers */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
+            <p className="text-sm text-gray-500 mb-3">
+              Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 = free
+            </p>
+            <div className="grid grid-cols-5 gap-3">
+              {Object.entries(editForm.tierMultipliers).map(([tier, multiplier]) => (
+                <div key={tier}>
+                  <label className="block text-xs text-gray-500 uppercase mb-1">{tier}</label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                    value={multiplier}
+                    onChange={(e) => handleTierMultiplierChange(tier, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+            <textarea
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              rows={3}
+              value={editForm.notes}
+              onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+              placeholder="Add any notes about this pricing configuration..."
+            />
+          </div>
+        </Modal>
       )}
     </div>
   );

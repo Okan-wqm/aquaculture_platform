@@ -3,7 +3,8 @@
  * Appears on the SCADA canvas for controlling edge creation and editing.
  */
 
-import React, { type JSX, useState } from 'react';
+import React, { type JSX, useState, useRef } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 
@@ -57,6 +58,8 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
   hasSelectedEdge,
 }) => {
   const [showConnectionTypes, setShowConnectionTypes] = useState(false);
+  const connectionTypesRef = useRef<HTMLDivElement>(null);
+  useClickOutside(connectionTypesRef, () => setShowConnectionTypes(false), showConnectionTypes);
 
   const activeConnection = CONNECTION_TYPES.find((c) => c.id === selectedConnectionType) || CONNECTION_TYPES[0];
 
@@ -88,7 +91,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
       </div>
 
       {/* Connection Type Selector */}
-      <div className="relative">
+      <div className="relative" ref={connectionTypesRef}>
         <div className="flex flex-col gap-0.5">
           <span className="text-[9px] text-gray-500 font-medium leading-none px-0.5">Connection Type</span>
           <button
@@ -112,11 +115,6 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
         </div>
 
         {showConnectionTypes && (
-          <>
-            <div
-              className="fixed inset-0 z-30"
-              onClick={() => setShowConnectionTypes(false)}
-            />
           <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-40">
             {/* Process Lines */}
             <div className="px-3 pt-1.5 pb-0.5">
@@ -176,7 +174,6 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               </button>
             ))}
           </div>
-          </>
         )}
       </div>
 

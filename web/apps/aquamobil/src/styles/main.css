@@ -130,6 +130,17 @@ body {
   animation: slide-up 0.4s ease-out;
 }
 
+/* WHY: Backdrop fade for BottomSheet — the scrim eases in behind the rising
+   sheet instead of snapping to 40% black; paired with slide-up above. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
 /* WHY: Bounce-once animation for success checkmarks — a single bounce draws attention
    to the success state without the infinite looping that causes visual fatigue. */
 @keyframes bounce-once {

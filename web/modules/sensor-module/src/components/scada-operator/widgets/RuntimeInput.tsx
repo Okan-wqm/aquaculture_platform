@@ -12,6 +12,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock, Loader2 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../../store/scada';
@@ -151,6 +152,11 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     [handleCommit, currentTagValue, inputType, decimals],
   );
 
+  const closePinDialog = useCallback(() => {
+    setShowPinDialog(false);
+    setPinInput('');
+  }, []);
+
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setInputVal(e.target.value);
@@ -288,54 +294,55 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
       )}
 
       {/* PIN dialog */}
-      {showPinDialog && (
-        <div
-          role="dialog"
-          aria-label="Enter PIN"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        >
-          <div className="bg-white rounded-lg shadow-xl p-6 w-72 flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-              <Lock className="w-5 h-5 text-gray-600" />
-              <h3 className="text-sm font-semibold text-gray-800">Enter PIN</h3>
-            </div>
-            <input
-              type="password"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
-              placeholder="PIN"
-              autoFocus
-              aria-label="PIN"
-              className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-            />
-            {pinError && (
-              <p className="text-xs text-red-600" role="alert">{pinError}</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPinDialog(false);
-                  setPinInput('');
-                }}
-                className="flex-1 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePinConfirm}
-                disabled={pinVerifying}
-                className="flex-1 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-              >
-                OK
-              </button>
-            </div>
-          </div>
+      <Modal
+        isOpen={showPinDialog}
+        onClose={closePinDialog}
+        title={
+          <span className="flex items-center gap-2">
+            <Lock className="w-5 h-5 text-gray-600" aria-hidden="true" />
+            Enter PIN
+          </span>
+        }
+        size="sm"
+        closeOnEscape={!pinVerifying}
+        closeOnOverlayClick={!pinVerifying}
+        showCloseButton={!pinVerifying}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={closePinDialog}
+              disabled={pinVerifying}
+              className="px-4 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePinConfirm}
+              disabled={pinVerifying}
+              className="px-4 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+            >
+              OK
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <input
+            type="password"
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
+            placeholder="PIN"
+            aria-label="PIN"
+            className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+          />
+          {pinError && (
+            <p className="text-xs text-red-600" role="alert">{pinError}</p>
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

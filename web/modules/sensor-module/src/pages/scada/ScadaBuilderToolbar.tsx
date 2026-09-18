@@ -6,7 +6,8 @@
  * mode segment control, deploy dropdown.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -93,6 +94,14 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
   const [showDeployMenu, setShowDeployMenu] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const templatePanelRef = useRef<HTMLDivElement>(null);
+  const deployMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(deviceDropdownRef, () => setShowDeviceDropdown(false), showDeviceDropdown);
+  useClickOutside(searchPanelRef, () => setShowSearch(false), showSearch);
+  useClickOutside(templatePanelRef, () => setShowTemplates(false), showTemplates);
+  useClickOutside(deployMenuRef, () => setShowDeployMenu(false), showDeployMenu);
 
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
@@ -133,7 +142,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
         {/* Target Device Selector */}
         <div className="h-5 w-px bg-gray-300" />
-        <div className="relative">
+        <div className="relative" ref={deviceDropdownRef}>
           <button
             onClick={() => setShowDeviceDropdown(!showDeviceDropdown)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100"
@@ -155,48 +164,42 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           </button>
 
           {showDeviceDropdown && (
-            <>
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setShowDeviceDropdown(false)}
-              />
-              <div className="absolute left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1 max-h-64 overflow-y-auto">
+            <div className="absolute left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1 max-h-64 overflow-y-auto">
+              <button
+                onClick={() => {
+                  onTargetDeviceChange(null);
+                  setShowDeviceDropdown(false);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
+              >
+                No Device
+              </button>
+              {devices.map((device) => (
                 <button
+                  key={device.id}
                   onClick={() => {
-                    onTargetDeviceChange(null);
+                    onTargetDeviceChange(device.id);
                     setShowDeviceDropdown(false);
                   }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
+                    targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
+                  }`}
                 >
-                  No Device
+                  <span className="truncate">{device.deviceName}</span>
+                  <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    <span className="text-xs text-gray-500">{device.deviceCode}</span>
+                    {device.isOnline ? (
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-gray-300" />
+                    )}
+                  </span>
                 </button>
-                {devices.map((device) => (
-                  <button
-                    key={device.id}
-                    onClick={() => {
-                      onTargetDeviceChange(device.id);
-                      setShowDeviceDropdown(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                      targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
-                    }`}
-                  >
-                    <span className="truncate">{device.deviceName}</span>
-                    <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                      <span className="text-xs text-gray-500">{device.deviceCode}</span>
-                      {device.isOnline ? (
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                      ) : (
-                        <span className="w-2 h-2 rounded-full bg-gray-300" />
-                      )}
-                    </span>
-                  </button>
-                ))}
-                {devices.length === 0 && (
-                  <p className="px-3 py-2 text-xs text-gray-500">No edge devices found</p>
-                )}
-              </div>
-            </>
+              ))}
+              {devices.length === 0 && (
+                <p className="px-3 py-2 text-xs text-gray-500">No edge devices found</p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -205,7 +208,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
       <div className="flex items-center gap-2">
         <UndoRedoToolbar />
         {/* Widget Search */}
-        <div className="relative">
+        <div className="relative" ref={searchPanelRef}>
           <button
             onClick={() => setShowSearch(!showSearch)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
@@ -219,17 +222,14 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             Search
           </button>
           {showSearch && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setShowSearch(false)} />
-              <div className="absolute right-0 mt-1 z-40">
-                <WidgetSearchPanel />
-              </div>
-            </>
+            <div className="absolute right-0 mt-1 z-40">
+              <WidgetSearchPanel />
+            </div>
           )}
         </div>
 
         {/* Widget Templates */}
-        <div className="relative">
+        <div className="relative" ref={templatePanelRef}>
           <button
             onClick={() => setShowTemplates(!showTemplates)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
@@ -243,12 +243,9 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             Templates
           </button>
           {showTemplates && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setShowTemplates(false)} />
-              <div className="absolute right-0 mt-1 z-40">
-                <WidgetTemplatePanel />
-              </div>
-            </>
+            <div className="absolute right-0 mt-1 z-40">
+              <WidgetTemplatePanel />
+            </div>
           )}
         </div>
 
@@ -349,7 +346,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           </button>
         </div>
 
-        <div className="relative">
+        <div className="relative" ref={deployMenuRef}>
           <button
             onClick={() => setShowDeployMenu(!showDeployMenu)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
@@ -358,29 +355,23 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             <ChevronDown className="w-3.5 h-3.5" />
           </button>
           {showDeployMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-30"
+            <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
+              <button
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setShowDeployMenu(false);
+                  onDeployClick();
+                }}
+              >
+                Deploy to Edge Device
+              </button>
+              <button
+                className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                 onClick={() => setShowDeployMenu(false)}
-              />
-              <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  onClick={() => {
-                    setShowDeployMenu(false);
-                    onDeployClick();
-                  }}
-                >
-                  Deploy to Edge Device
-                </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  onClick={() => setShowDeployMenu(false)}
-                >
-                  Publish to Cloud
-                </button>
-              </div>
-            </>
+              >
+                Publish to Cloud
+              </button>
+            </div>
           )}
         </div>
       </div>

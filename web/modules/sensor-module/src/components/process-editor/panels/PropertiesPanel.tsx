@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio,
   Wifi, RotateCcw, Cpu, ToggleLeft, ToggleRight, Zap, AlertTriangle,
@@ -962,20 +963,22 @@ export const PropertiesPanel: React.FC = () => {
             Kullanıcı bir DO tag'ini ON/OFF yapmak istediğinde
             onay dialogu gösterilir. Yanlışlıkla aktüatör çalıştırmayı önler. */}
         {doConfirmDialog?.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setDoConfirmDialog(null)} />
-            <div className="relative bg-white rounded-lg shadow-xl p-6 w-80">
-              <div className="flex items-center gap-2 mb-3">
+          <Modal
+            isOpen
+            onClose={() => setDoConfirmDialog(null)}
+            size="sm"
+            showCloseButton={!setDigitalOutput.isPending}
+            closeOnEscape={!setDigitalOutput.isPending}
+            closeOnOverlayClick={!setDigitalOutput.isPending}
+            title={
+              <span className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <h4 className="font-semibold text-gray-900">Output Control</h4>
-              </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
-                <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
-                  {doConfirmDialog.newValue ? 'ON' : 'OFF'}
-                </strong>?
-              </p>
-              <div className="flex justify-end gap-2">
+                <span>Output Control</span>
+              </span>
+            }
+            bodyClassName="p-6"
+            footer={
+              <>
                 <button
                   onClick={() => setDoConfirmDialog(null)}
                   className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
@@ -993,9 +996,16 @@ export const PropertiesPanel: React.FC = () => {
                 >
                   {setDigitalOutput.isPending ? 'Sending...' : 'Confirm'}
                 </button>
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          >
+            <p className="text-sm text-gray-600 mb-4">
+              Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
+              <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
+                {doConfirmDialog.newValue ? 'ON' : 'OFF'}
+              </strong>?
+            </p>
+          </Modal>
         )}
 
         {/* Equipment Link Dialog */}

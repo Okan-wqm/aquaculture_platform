@@ -4,9 +4,9 @@
  * Shows a list of the user's channels with search/filter, a preview
  * of the message being forwarded, and a confirm action.
  *
- * WHY modal over bottom sheet: Forwarding requires selecting from a
- * potentially long channel list. A full modal provides more space for
- * search and scrolling than a bottom sheet.
+ * WHY a full-size sheet: forwarding requires selecting from a potentially
+ * long channel list, so the sheet takes the whole viewport (BottomSheet
+ * size="full") to give search and scrolling room.
  *
  * @see ADR-012 section 5.5 (Message Forwarding)
  */
@@ -14,9 +14,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import type { LucideIcon } from 'lucide-react';
-import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
+import { Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
 import { useState, useCallback, useMemo, type ReactElement } from 'react';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { IconButton } from '@/components/ui/IconButton';
 import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
@@ -138,8 +140,6 @@ export function ForwardModal({
     forwardMutation.mutate(selectedChannelId);
   }, [selectedChannelId, forwardMutation]);
 
-  if (!visible) return null;
-
   const isForwarding = forwardMutation.isPending;
   const preview = message.content
     ? message.content.length > 80
@@ -152,37 +152,28 @@ export function ForwardModal({
         : 'File';
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-        <button
-          onClick={onClose}
-          disabled={isForwarding}
-          className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-          aria-label="Close"
-        >
-          <X size={22} className="text-gray-600 dark:text-gray-300" />
-        </button>
-        <div className="flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Forward Message
-          </h2>
-        </div>
-        <button
+    <BottomSheet
+      isOpen={visible}
+      onClose={onClose}
+      title="Forward Message"
+      size="full"
+      isBusy={isForwarding}
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0"
+      action={
+        <IconButton
+          aria-label="Forward"
+          size="lg"
           onClick={handleForward}
           disabled={!selectedChannelId || isForwarding}
           className={clsx(
-            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-            selectedChannelId && !isForwarding
-              ? 'bg-ocean-600 hover:bg-ocean-700'
-              : 'bg-ocean-600/50 opacity-50 cursor-not-allowed',
+            'text-white',
+            selectedChannelId && !isForwarding ? 'bg-ocean-600 hover:bg-ocean-700' : 'bg-ocean-600/50',
           )}
-          aria-label="Forward"
         >
-          <Forward size={20} className="text-white" />
-        </button>
-      </div>
-
+          <Forward size={20} />
+        </IconButton>
+      }
+    >
       {/* Message preview */}
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
         <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
@@ -295,6 +286,6 @@ export function ForwardModal({
           </p>
         </div>
       )}
-    </div>
+    </BottomSheet>
   );
 }

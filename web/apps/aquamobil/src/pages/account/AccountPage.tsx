@@ -17,6 +17,7 @@ import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
@@ -110,77 +111,6 @@ function formatRelativeTime(isoString: string | null): string {
 /**
  * Retrieve the last sync timestamp from localStorage.
  */
-
-// ============================================================================
-// Confirmation Dialog Sub-component
-// ============================================================================
-
-interface ConfirmDialogProps {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  confirmColor?: string;
-  // MT-MEDIUM-050: onConfirm may be async (the logout path awaits a device wipe);
-  // a rejection is surfaced to the caller, which sets `errorMessage` below.
-  onConfirm: () => void | Promise<void>;
-  onCancel: () => void;
-  /** Error surfaced inside the dialog when a confirm action fails. */
-  errorMessage?: string | null;
-}
-
-function ConfirmDialog({
-  title,
-  message,
-  confirmLabel,
-  confirmColor = 'bg-red-600',
-  onConfirm,
-  onCancel,
-  errorMessage,
-}: ConfirmDialogProps): JSX.Element {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
-      {/* Backdrop — click (or keyboard activation) dismisses the dialog. A real
-          <button> is keyboard-operable (Enter/Space) and focusable for free. */}
-      <button
-        type="button"
-        aria-label="Close dialog"
-        className="absolute inset-0 bg-black/50"
-        onClick={onCancel}
-      />
-      {/* Dialog */}
-      <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-xl max-w-sm w-full p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{message}</p>
-        {/* MT-MEDIUM-050: a failed device wipe is shown here so the user is never
-            told the logout succeeded while plaintext-recoverable data remains. */}
-        {errorMessage && (
-          <p className="text-sm text-red-600 dark:text-red-400 mb-4" role="alert">
-            {errorMessage}
-          </p>
-        )}
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium text-sm transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            // WHY void-wrap: onConfirm may be async (logout awaits a device
-            // wipe). The DOM onClick handler must return void, not a Promise —
-            // the caller owns the rejection (MT-MEDIUM-050 surfaces it).
-            onClick={() => {
-              void onConfirm();
-            }}
-            className={`flex-1 py-2.5 rounded-xl ${confirmColor} text-white font-medium text-sm transition-colors`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // Section Menu Item Sub-component
@@ -771,37 +701,33 @@ export function AccountPage(): JSX.Element {
           ================================================================ */}
 
       {/* Logout confirmation */}
-      {showLogoutDialog && (
-        <ConfirmDialog
-          title="Log Out"
-          message="Are you sure you want to log out?"
-          confirmLabel="Log Out"
-          confirmColor="bg-red-600"
-          onConfirm={handleLogout}
-          onCancel={() => {
-            setLogoutError(null);
-            setShowLogoutDialog(false);
-          }}
-          errorMessage={logoutError}
-        />
-      )}
+      <ConfirmSheet
+        isOpen={showLogoutDialog}
+        title="Log Out"
+        message="Are you sure you want to log out?"
+        confirmLabel="Log Out"
+        onConfirm={handleLogout}
+        onCancel={() => {
+          setLogoutError(null);
+          setShowLogoutDialog(false);
+        }}
+        errorMessage={logoutError}
+      />
 
       {/* Clear queue confirmation — surfaces the pending count so the user
           understands the data loss before committing */}
-      {showClearQueueDialog && (
-        <ConfirmDialog
-          title="Clear Offline Queue"
-          message={`You have ${pendingCount} unsynced operation${pendingCount !== 1 ? 's' : ''}. Clearing will permanently delete them.`}
-          confirmLabel="Clear Queue"
-          confirmColor="bg-red-600"
-          onConfirm={handleClearQueue}
-          onCancel={() => {
-            setClearQueueError(null);
-            setShowClearQueueDialog(false);
-          }}
-          errorMessage={clearQueueError}
-        />
-      )}
+      <ConfirmSheet
+        isOpen={showClearQueueDialog}
+        title="Clear Offline Queue"
+        message={`You have ${pendingCount} unsynced operation${pendingCount !== 1 ? 's' : ''}. Clearing will permanently delete them.`}
+        confirmLabel="Clear Queue"
+        onConfirm={handleClearQueue}
+        onCancel={() => {
+          setClearQueueError(null);
+          setShowClearQueueDialog(false);
+        }}
+        errorMessage={clearQueueError}
+      />
     </div>
   );
 }

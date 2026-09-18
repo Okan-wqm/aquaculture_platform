@@ -6,7 +6,7 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors } from '@aquaculture/shared-ui';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -50,7 +50,7 @@ export const EMPTY_FORM: ConfigFormData = {
   warningMax: '',
   criticalMin: '',
   criticalMax: '',
-  chartColor: '#3B82F6',
+  chartColor: colors.info[500],
   chartAxisGroup: 'left',
   isVisible: true,
   isRequired: false,
@@ -273,7 +273,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
               name="chartColor"
               value={formData.chartColor}
               onChange={handleChange}
-              placeholder="#3B82F6"
+              placeholder={colors.info[500]}
               className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
             <div
@@ -282,7 +282,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
             />
             <input
               type="color"
-              value={formData.chartColor || '#3B82F6'}
+              value={formData.chartColor || colors.info[500]}
               onChange={(e) => setFormData((prev) => ({ ...prev, chartColor: e.target.value }))}
               className="w-8 h-8 p-0 border-0 cursor-pointer"
             />

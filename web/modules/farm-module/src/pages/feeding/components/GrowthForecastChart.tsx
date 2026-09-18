@@ -20,6 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
+import { colors } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -245,7 +246,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="left"
                     type="monotone"
                     dataKey="weight"
-                    stroke="#3B82F6"
+                    stroke={colors.info[500]}
                     name="Avg Weight (g)"
                     strokeWidth={2}
                   />
@@ -253,9 +254,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="right"
                     type="monotone"
                     dataKey="biomass"
-                    fill="#10B981"
+                    fill={colors.success[500]}
                     fillOpacity={0.3}
-                    stroke="#10B981"
+                    stroke={colors.success[500]}
                     name="Biomass (kg)"
                   />
                 </ComposedChart>
@@ -278,14 +279,14 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                   <Bar
                     yAxisId="left"
                     dataKey="dailyFeed"
-                    fill="#F59E0B"
+                    fill={colors.warning[500]}
                     name="Daily Feed (kg)"
                   />
                   <Line
                     yAxisId="right"
                     type="monotone"
                     dataKey="cumulativeFeed"
-                    stroke="#8B5CF6"
+                    stroke={colors.primary[700]}
                     name="Cumulative Feed (kg)"
                     strokeWidth={2}
                   />

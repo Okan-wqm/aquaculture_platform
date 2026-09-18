@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Modal } from '@aquaculture/shared-ui';
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
@@ -313,6 +314,16 @@ const InvoicesPage: React.FC = () => {
     showToast(`Exported ${invoices.length} invoices`, 'success');
   };
 
+  const closeMarkPaidModal = (): void => {
+    setShowMarkPaidModal(false);
+    setMarkPaidAmount('');
+  };
+
+  const closeVoidModal = (): void => {
+    setShowVoidModal(false);
+    setVoidReason('');
+  };
+
   const openMarkPaidModal = (): void => {
     if (selectedInvoice) {
       setMarkPaidAmount(String(selectedInvoice.amountDue));
@@ -561,71 +572,18 @@ const InvoicesPage: React.FC = () => {
 
       {/* Invoice Detail Modal */}
       {selectedInvoice && !showMarkPaidModal && !showVoidModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">{selectedInvoice.invoiceNumber}</h2>
-                <button
-                  onClick={() => setSelectedInvoice(null)}
-                  className="text-gray-500 hover:text-gray-600"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Tenant</span>
-                <span className="text-sm font-medium text-gray-900">{selectedInvoice.tenantName || 'Unknown'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Email</span>
-                <span className="text-sm text-gray-900">{selectedInvoice.tenantEmail || '-'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Status</span>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 text-gray-700'}`}>
-                  {statusLabels[selectedInvoice.status] || selectedInvoice.status}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Issue Date</span>
-                <span className="text-sm text-gray-900">{formatDate(selectedInvoice.issueDate)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Due Date</span>
-                <span className="text-sm text-gray-900">{formatDate(selectedInvoice.dueDate)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">Period</span>
-                <span className="text-sm text-gray-900">
-                  {formatDate(selectedInvoice.periodStart)} - {formatDate(selectedInvoice.periodEnd)}
-                </span>
-              </div>
-
-              <div className="border-t border-gray-200 pt-4 mt-4">
-                <div className="flex justify-between py-2">
-                  <span className="text-sm text-gray-600">Subtotal</span>
-                  <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}</span>
-                </div>
-                <div className="flex justify-between py-2">
-                  <span className="text-sm text-gray-600">Amount Paid</span>
-                  <span className="text-sm font-medium text-green-600">{formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}</span>
-                </div>
-                <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
-                  <span className="text-sm font-semibold text-gray-900">Amount Due</span>
-                  <span className="text-sm font-bold text-gray-900">{formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
-                </div>
-              </div>
-            </div>
-            <div className="p-6 border-t border-gray-200 space-y-3">
-              {/* Primary Actions */}
-              <div className="flex gap-3">
+        <Modal
+          isOpen
+          onClose={() => setSelectedInvoice(null)}
+          size="md"
+          title={selectedInvoice.invoiceNumber}
+          bodyClassName="p-6 space-y-4"
+          footer={
+            (canMarkPaid || canVoid) && (
+              <>
                 {canMarkPaid && (
                   <button
+                    type="button"
                     onClick={openMarkPaidModal}
                     className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
                   >
@@ -634,57 +592,91 @@ const InvoicesPage: React.FC = () => {
                 )}
                 {canVoid && (
                   <button
+                    type="button"
                     onClick={openVoidModal}
                     className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
                   >
                     Void Invoice
                   </button>
                 )}
-              </div>
+              </>
+            )
+          }
+        >
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Tenant</span>
+            <span className="text-sm font-medium text-gray-900">{selectedInvoice.tenantName || 'Unknown'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Email</span>
+            <span className="text-sm text-gray-900">{selectedInvoice.tenantEmail || '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Status</span>
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 text-gray-700'}`}>
+              {statusLabels[selectedInvoice.status] || selectedInvoice.status}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Issue Date</span>
+            <span className="text-sm text-gray-900">{formatDate(selectedInvoice.issueDate)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Due Date</span>
+            <span className="text-sm text-gray-900">{formatDate(selectedInvoice.dueDate)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sm text-gray-500">Period</span>
+            <span className="text-sm text-gray-900">
+              {formatDate(selectedInvoice.periodStart)} - {formatDate(selectedInvoice.periodEnd)}
+            </span>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <div className="flex justify-between py-2">
+              <span className="text-sm text-gray-600">Subtotal</span>
+              <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}</span>
+            </div>
+            <div className="flex justify-between py-2">
+              <span className="text-sm text-gray-600">Amount Paid</span>
+              <span className="text-sm font-medium text-green-600">{formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}</span>
+            </div>
+            <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
+              <span className="text-sm font-semibold text-gray-900">Amount Due</span>
+              <span className="text-sm font-bold text-gray-900">{formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Mark as Paid Modal */}
       {showMarkPaidModal && selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Mark Invoice as Paid</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
-              </p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Amount Due: {formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max={selectedInvoice.amountDue}
-                    value={markPaidAmount}
-                    onChange={(e) => setMarkPaidAmount(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
-                    placeholder="Enter payment amount"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="p-6 border-t border-gray-200 flex gap-3">
+        <Modal
+          isOpen
+          onClose={closeMarkPaidModal}
+          size="sm"
+          title="Mark Invoice as Paid"
+          description={
+            <>
+              {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
+            </>
+          }
+          showCloseButton={!markPaidLoading}
+          closeOnEscape={!markPaidLoading}
+          closeOnOverlayClick={!markPaidLoading}
+          bodyClassName="p-6 space-y-4"
+          footer={
+            <>
               <button
-                onClick={() => { setShowMarkPaidModal(false); setMarkPaidAmount(''); }}
+                type="button"
+                onClick={closeMarkPaidModal}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={markPaidLoading}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => {
                   void handleMarkAsPaid();
                 }}
@@ -693,50 +685,58 @@ const InvoicesPage: React.FC = () => {
               >
                 {markPaidLoading ? 'Processing...' : 'Confirm Payment'}
               </button>
+            </>
+          }
+        >
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Amount Due: {formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={selectedInvoice.amountDue}
+                value={markPaidAmount}
+                onChange={(e) => setMarkPaidAmount(e.target.value)}
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
+                placeholder="Enter payment amount"
+              />
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Void Invoice Modal */}
       {showVoidModal && selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Void Invoice</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
-              </p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-700">
-                  This action cannot be undone. The invoice will be permanently voided.
-                </p>
-              </div>
-              <div>
-                <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 mb-1">
-                  Reason for voiding
-                </label>
-                <textarea
-                  id="invoice-void-reason"
-                  value={voidReason}
-                  onChange={(e) => setVoidReason(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
-                  placeholder="Enter reason for voiding this invoice..."
-                />
-              </div>
-            </div>
-            <div className="p-6 border-t border-gray-200 flex gap-3">
+        <Modal
+          isOpen
+          onClose={closeVoidModal}
+          size="sm"
+          title="Void Invoice"
+          description={
+            <>
+              {selectedInvoice.invoiceNumber} - {selectedInvoice.tenantName}
+            </>
+          }
+          showCloseButton={!voidLoading}
+          closeOnEscape={!voidLoading}
+          closeOnOverlayClick={!voidLoading}
+          bodyClassName="p-6 space-y-4"
+          footer={
+            <>
               <button
-                onClick={() => { setShowVoidModal(false); setVoidReason(''); }}
+                type="button"
+                onClick={closeVoidModal}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={voidLoading}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => {
                   void handleVoidInvoice();
                 }}
@@ -745,9 +745,28 @@ const InvoicesPage: React.FC = () => {
               >
                 {voidLoading ? 'Processing...' : 'Void Invoice'}
               </button>
-            </div>
+            </>
+          }
+        >
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-700">
+              This action cannot be undone. The invoice will be permanently voided.
+            </p>
           </div>
-        </div>
+          <div>
+            <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 mb-1">
+              Reason for voiding
+            </label>
+            <textarea
+              id="invoice-void-reason"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
+              placeholder="Enter reason for voiding this invoice..."
+            />
+          </div>
+        </Modal>
       )}
 
       {/* Create Invoice Modal -- extracted to separate component for maintainability */}

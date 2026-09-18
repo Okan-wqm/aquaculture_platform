@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useConfirm } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -36,7 +36,6 @@ import {
   Power,
   Plus,
   Pencil,
-  X,
   Upload,
   Search,
   Copy,
@@ -456,16 +455,6 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     }
   }, [editConfig, isOpen]);
 
-  // Escape tuşu ile kapatma — modal accessibility best practice
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onClose]);
-
   // Compute the filtered Modbus function codes based on current IO type,
   // plus the current selection if it is incompatible (backward compat for legacy configs).
   // Declared before the `!isOpen` early return so the hook call order stays
@@ -550,331 +539,315 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     }
   };
 
-  /** Backdrop'a tıklama ile modal kapatma */
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
   const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden disabled:bg-gray-50 disabled:text-gray-500';
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-label={isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="lg"
+      title={isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
+      showCloseButton={!isSubmitting}
+      closeOnEscape={!isSubmitting}
+      closeOnOverlayClick={!isSubmitting}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-lg"
-            aria-label="Kapat"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Validation / mutation error banner */}
+        {(validationError || submitError) && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+            <span className="text-sm text-red-800">{validationError || submitError}</span>
+          </div>
+        )}
+
+        {/* Basic Fields */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Tag Adi *</label>
+            <input
+              className={inputCls}
+              value={form.tagName}
+              onChange={(e) => set('tagName', e.target.value.toUpperCase())}
+              required
+              disabled={isEdit}
+              placeholder="TANK_LEVEL_01"
+              pattern="[A-Z][A-Z0-9_]{1,63}"
+              title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Açıklama</label>
+            <input
+              className={inputCls}
+              value={form.description}
+              onChange={(e) => set('description', e.target.value)}
+              placeholder="Tank seviye sensoru"
+            />
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Validation / mutation error banner */}
-          {(validationError || submitError) && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-              <span className="text-sm text-red-800">{validationError || submitError}</span>
-            </div>
-          )}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>I/O Tipi *</label>
+            <select
+              className={inputCls}
+              value={form.ioType}
+              onChange={(e) => set('ioType', e.target.value as IoType)}
+              disabled={isEdit}
+            >
+              <option value={IoType.DI}>Digital Input (DI)</option>
+              <option value={IoType.DO}>Digital Output (DO)</option>
+              <option value={IoType.AI}>Analog Input (AI)</option>
+              <option value={IoType.AO}>Analog Output (AO)</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Veri Tipi *</label>
+            <select
+              className={inputCls}
+              value={form.dataType}
+              onChange={(e) => set('dataType', e.target.value as IoDataType)}
+              disabled={isEdit}
+            >
+              {Object.values(IoDataType).map((dt) => (
+                <option key={dt} value={dt}>{dt}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-          {/* Basic Fields */}
+        {/* Module Address / Channel — immutable after creation (hardware binding) */}
+        {!isEdit && (
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Tag Adi *</label>
+              <label className={labelCls}>Modul Adresi *</label>
               <input
+                type="number"
                 className={inputCls}
-                value={form.tagName}
-                onChange={(e) => set('tagName', e.target.value.toUpperCase())}
+                value={form.moduleAddress}
+                onChange={(e) => set('moduleAddress', e.target.value)}
                 required
-                disabled={isEdit}
-                placeholder="TANK_LEVEL_01"
-                pattern="[A-Z][A-Z0-9_]{1,63}"
-                title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
+                min={0}
               />
             </div>
             <div>
-              <label className={labelCls}>Açıklama</label>
+              <label className={labelCls}>Kanal *</label>
               <input
+                type="number"
                 className={inputCls}
-                value={form.description}
-                onChange={(e) => set('description', e.target.value)}
-                placeholder="Tank seviye sensoru"
+                value={form.channel}
+                onChange={(e) => set('channel', e.target.value)}
+                required
+                min={0}
               />
             </div>
           </div>
+        )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>I/O Tipi *</label>
-              <select
-                className={inputCls}
-                value={form.ioType}
-                onChange={(e) => set('ioType', e.target.value as IoType)}
-                disabled={isEdit}
-              >
-                <option value={IoType.DI}>Digital Input (DI)</option>
-                <option value={IoType.DO}>Digital Output (DO)</option>
-                <option value={IoType.AI}>Analog Input (AI)</option>
-                <option value={IoType.AO}>Analog Output (AO)</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Veri Tipi *</label>
-              <select
-                className={inputCls}
-                value={form.dataType}
-                onChange={(e) => set('dataType', e.target.value as IoDataType)}
-                disabled={isEdit}
-              >
-                {Object.values(IoDataType).map((dt) => (
-                  <option key={dt} value={dt}>{dt}</option>
-                ))}
-              </select>
+        {/* Protocol Selection — immutable after creation (hardware binding) */}
+        {!isEdit && (
+          <div>
+            <label className={labelCls}>Protokol</label>
+            <div className="flex gap-3 mt-1">
+              {(['modbus', 'gpio', 'manual'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => set('protocolMode', p)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    form.protocolMode === p
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {p === 'modbus' ? 'Modbus' : p === 'gpio' ? 'GPIO' : 'Manuel'}
+                </button>
+              ))}
             </div>
           </div>
+        )}
 
-          {/* Module Address / Channel — immutable after creation (hardware binding) */}
-          {!isEdit && (
-            <div className="grid grid-cols-2 gap-4">
+        {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
+        {!isEdit && form.protocolMode === 'modbus' && (
+          <div className="p-4 bg-blue-50 rounded-lg space-y-3">
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className={labelCls}>Modul Adresi *</label>
+                <label className={labelCls}>Slave ID</label>
                 <input
                   type="number"
                   className={inputCls}
-                  value={form.moduleAddress}
-                  onChange={(e) => set('moduleAddress', e.target.value)}
-                  required
-                  min={0}
+                  value={form.modbusSlaveId}
+                  onChange={(e) => set('modbusSlaveId', e.target.value)}
+                  min={1}
+                  max={247}
                 />
               </div>
               <div>
-                <label className={labelCls}>Kanal *</label>
+                <label className={labelCls}>Register</label>
                 <input
                   type="number"
                   className={inputCls}
-                  value={form.channel}
-                  onChange={(e) => set('channel', e.target.value)}
-                  required
+                  value={form.modbusRegister}
+                  onChange={(e) => set('modbusRegister', e.target.value)}
                   min={0}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Protocol Selection — immutable after creation (hardware binding) */}
-          {!isEdit && (
-            <div>
-              <label className={labelCls}>Protokol</label>
-              <div className="flex gap-3 mt-1">
-                {(['modbus', 'gpio', 'manual'] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => set('protocolMode', p)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                      form.protocolMode === p
-                        ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
-                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {p === 'modbus' ? 'Modbus' : p === 'gpio' ? 'GPIO' : 'Manuel'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
-          {!isEdit && form.protocolMode === 'modbus' && (
-            <div className="p-4 bg-blue-50 rounded-lg space-y-3">
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className={labelCls}>Slave ID</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={form.modbusSlaveId}
-                    onChange={(e) => set('modbusSlaveId', e.target.value)}
-                    min={1}
-                    max={247}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Register</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={form.modbusRegister}
-                    onChange={(e) => set('modbusRegister', e.target.value)}
-                    min={0}
-                    max={65535}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Function Code</label>
-                  <select
-                    className={`${inputCls} ${currentFcIncompatible ? 'border-amber-400 bg-amber-50' : ''}`}
-                    value={form.modbusFunction}
-                    onChange={(e) => set('modbusFunction', e.target.value)}
-                  >
-                    {filteredFunctionCodes.map((fc) => (
-                      <option key={fc.value} value={String(fc.value)}>{fc.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              {/* Warning banner for legacy configs with incompatible function code */}
-              {currentFcIncompatible && (
-                <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 border border-amber-200">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <span className="text-xs text-amber-800">
-                    FC{form.modbusFunction} is a {Number(form.modbusFunction) <= 4 ? 'read' : 'write'} function
-                    and is incompatible with {form.ioType} ({form.ioType === IoType.DO || form.ioType === IoType.AO ? 'output requires write' : 'input requires read'}).
-                    Select a compatible function code or the backend will reject this configuration.
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
-          {!isEdit && form.protocolMode === 'gpio' && (
-            <div className="grid grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
-              <div>
-                <label className={labelCls}>GPIO Pin</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.gpioPin}
-                  onChange={(e) => set('gpioPin', e.target.value)}
-                  min={0}
+                  max={65535}
                 />
               </div>
               <div>
-                <label className={labelCls}>GPIO Modu</label>
+                <label className={labelCls}>Function Code</label>
                 <select
-                  className={inputCls}
-                  value={form.gpioMode}
-                  onChange={(e) => set('gpioMode', e.target.value)}
+                  className={`${inputCls} ${currentFcIncompatible ? 'border-amber-400 bg-amber-50' : ''}`}
+                  value={form.modbusFunction}
+                  onChange={(e) => set('modbusFunction', e.target.value)}
                 >
-                  <option value="input">Input</option>
-                  <option value="output">Output</option>
+                  {filteredFunctionCodes.map((fc) => (
+                    <option key={fc.value} value={String(fc.value)}>{fc.label}</option>
+                  ))}
                 </select>
               </div>
-              <div className="flex items-end pb-2">
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.invertValue}
-                    onChange={(e) => set('invertValue', e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                  />
-                  Invert Value
-                </label>
-              </div>
             </div>
-          )}
+            {/* Warning banner for legacy configs with incompatible function code */}
+            {currentFcIncompatible && (
+              <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 border border-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <span className="text-xs text-amber-800">
+                  FC{form.modbusFunction} is a {Number(form.modbusFunction) <= 4 ? 'read' : 'write'} function
+                  and is incompatible with {form.ioType} ({form.ioType === IoType.DO || form.ioType === IoType.AO ? 'output requires write' : 'input requires read'}).
+                  Select a compatible function code or the backend will reject this configuration.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Analog Scaling — Raw ADC -> Engineering Unit dönüşümü (linear interpolation) */}
-          {isAnalog && (
-            <div className="p-4 bg-purple-50 rounded-lg space-y-3">
-              <p className="text-xs font-medium text-purple-700 uppercase">Analog Olceklendirme</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Raw Min</label>
-                  <input type="number" step="any" className={inputCls} value={form.rawMin} onChange={(e) => set('rawMin', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Raw Max</label>
-                  <input type="number" step="any" className={inputCls} value={form.rawMax} onChange={(e) => set('rawMax', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Eng Min</label>
-                  <input type="number" step="any" className={inputCls} value={form.engMin} onChange={(e) => set('engMin', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Eng Max</label>
-                  <input type="number" step="any" className={inputCls} value={form.engMax} onChange={(e) => set('engMax', e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <label className={labelCls}>Muhendislik Birimi</label>
-                <input className={inputCls} value={form.engUnit} onChange={(e) => set('engUnit', e.target.value)} placeholder="pH, mg/L, °C ..." />
-              </div>
+        {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
+        {!isEdit && form.protocolMode === 'gpio' && (
+          <div className="grid grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
+            <div>
+              <label className={labelCls}>GPIO Pin</label>
+              <input
+                type="number"
+                className={inputCls}
+                value={form.gpioPin}
+                onChange={(e) => set('gpioPin', e.target.value)}
+                min={0}
+              />
             </div>
-          )}
-
-          {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
-          <div className="p-4 bg-orange-50 rounded-lg space-y-3">
-            <p className="text-xs font-medium text-orange-700 uppercase">Alarm Esikleri (ISA-18.2)</p>
-            <div className="grid grid-cols-5 gap-3">
-              <div>
-                <label className={labelCls}>HH</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmHH} onChange={(e) => set('alarmHH', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>H</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmH} onChange={(e) => set('alarmH', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>L</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmL} onChange={(e) => set('alarmL', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>LL</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmLL} onChange={(e) => set('alarmLL', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Deadband</label>
-                <input type="number" step="any" className={inputCls} value={form.deadband} onChange={(e) => set('deadband', e.target.value)} min={0} />
-              </div>
+            <div>
+              <label className={labelCls}>GPIO Modu</label>
+              <select
+                className={inputCls}
+                value={form.gpioMode}
+                onChange={(e) => set('gpioMode', e.target.value)}
+              >
+                <option value="input">Input</option>
+                <option value="output">Output</option>
+              </select>
+            </div>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.invertValue}
+                  onChange={(e) => set('invertValue', e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                />
+                Invert Value
+              </label>
             </div>
           </div>
+        )}
 
-          {/* Active Toggle */}
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => set('isActive', e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-            />
-            <span className="text-sm font-medium text-gray-700">Aktif</span>
-          </label>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !form.tagName.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isEdit ? 'Güncelle' : 'Ekle'}
-            </button>
+        {/* Analog Scaling — Raw ADC -> Engineering Unit dönüşümü (linear interpolation) */}
+        {isAnalog && (
+          <div className="p-4 bg-purple-50 rounded-lg space-y-3">
+            <p className="text-xs font-medium text-purple-700 uppercase">Analog Olceklendirme</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Raw Min</label>
+                <input type="number" step="any" className={inputCls} value={form.rawMin} onChange={(e) => set('rawMin', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Raw Max</label>
+                <input type="number" step="any" className={inputCls} value={form.rawMax} onChange={(e) => set('rawMax', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Eng Min</label>
+                <input type="number" step="any" className={inputCls} value={form.engMin} onChange={(e) => set('engMin', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Eng Max</label>
+                <input type="number" step="any" className={inputCls} value={form.engMax} onChange={(e) => set('engMax', e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Muhendislik Birimi</label>
+              <input className={inputCls} value={form.engUnit} onChange={(e) => set('engUnit', e.target.value)} placeholder="pH, mg/L, °C ..." />
+            </div>
           </div>
-        </form>
-      </div>
-    </div>
+        )}
+
+        {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
+        <div className="p-4 bg-orange-50 rounded-lg space-y-3">
+          <p className="text-xs font-medium text-orange-700 uppercase">Alarm Esikleri (ISA-18.2)</p>
+          <div className="grid grid-cols-5 gap-3">
+            <div>
+              <label className={labelCls}>HH</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmHH} onChange={(e) => set('alarmHH', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>H</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmH} onChange={(e) => set('alarmH', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>L</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmL} onChange={(e) => set('alarmL', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>LL</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmLL} onChange={(e) => set('alarmLL', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Deadband</label>
+              <input type="number" step="any" className={inputCls} value={form.deadband} onChange={(e) => set('deadband', e.target.value)} min={0} />
+            </div>
+          </div>
+        </div>
+
+        {/* Active Toggle */}
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => set('isActive', e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+          />
+          <span className="text-sm font-medium text-gray-700">Aktif</span>
+        </label>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            İptal
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || !form.tagName.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isEdit ? 'Güncelle' : 'Ekle'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -897,62 +870,24 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   onCancel,
   isDeleting,
 }) => {
-  // Escape tuşu desteği
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onCancel]);
-
-  if (!isOpen) return null;
-
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onCancel();
-  };
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={handleBackdropClick}
-      role="alertdialog"
-      aria-modal="true"
-      aria-label="I/O Kanal Silme Onayi"
-    >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">I/O Kanal Sil</h3>
-            <p className="text-sm text-gray-500">Bu islem geri alinamaz.</p>
-          </div>
-        </div>
-        <p className="text-sm text-gray-700 mb-6">
+    <ConfirmModal
+      isOpen={isOpen}
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="I/O Kanal Sil"
+      message={
+        <>
           <strong>{tagName}</strong> kanalini silmek istediginizden emin misiniz?
-          Bu kanal ile iliskili otomasyon programlari etkilenebilir.
-        </p>
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            İptal
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isDeleting}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Sil
-          </button>
-        </div>
-      </div>
-    </div>
+          Bu kanal ile iliskili otomasyon programlari etkilenebilir. Bu islem geri alinamaz.
+        </>
+      }
+      confirmText="Sil"
+      cancelText="İptal"
+      variant="danger"
+      isLoading={isDeleting}
+      loadingText="Siliniyor..."
+    />
   );
 };
 
@@ -1667,29 +1602,25 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
 
       {/* Confirmation modal */}
       {showConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
-          role="alertdialog"
-          aria-modal="true"
-          aria-label="Firmware Güncelleme Onayi"
-        >
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-orange-100' : 'bg-cyan-100'}`}>
+        <Modal
+          isOpen
+          onClose={() => setShowConfirm(false)}
+          size="sm"
+          showCloseButton={!updateMutation.isPending}
+          closeOnEscape={!updateMutation.isPending}
+          closeOnOverlayClick={!updateMutation.isPending}
+          title={
+            <span className="flex items-center gap-3">
+              <span className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-orange-100' : 'bg-cyan-100'}`}>
                 <Upload className={`w-5 h-5 ${isDowngrade ? 'text-orange-600' : 'text-cyan-600'}`} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Firmware Güncelleme</h3>
-                <p className="text-sm text-gray-500">Bu islem cihaz yeniden baslatilmasina neden olabilir.</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-700 mb-6">
-              <strong>{currentVersion || 'Bilinmiyor'}</strong> &rarr; <strong>{selectedVersion}</strong>
-              {isDowngrade && <span className="text-orange-600 font-medium"> (downgrade)</span>}
-              {' '}kurulacak. Devam edilsin mi?
-            </p>
-            <div className="flex justify-end gap-3">
+              </span>
+              <span>Firmware Güncelleme</span>
+            </span>
+          }
+          description="Bu islem cihaz yeniden baslatilmasina neden olabilir."
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
                 onClick={() => setShowConfirm(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -1706,9 +1637,15 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                 {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                 Devam
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p className="text-sm text-gray-700 mb-6">
+            <strong>{currentVersion || 'Bilinmiyor'}</strong> &rarr; <strong>{selectedVersion}</strong>
+            {isDowngrade && <span className="text-orange-600 font-medium"> (downgrade)</span>}
+            {' '}kurulacak. Devam edilsin mi?
+          </p>
+        </Modal>
       )}
 
       {/* Mutation error */}

@@ -47865,6 +47865,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/web-theme-token-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/web-usetenantquery-adoption-ratchet.spec.ts",
       "prettier_managed": true
     },
@@ -49947,12 +49953,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/components/messaging/ConfirmDialog.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/apps/aquamobil/src/components/messaging/EmptyChat.tsx",
       "prettier_managed": true
     },
@@ -50073,7 +50073,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/BottomSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/ConfirmSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ConfirmSheet.tsx",
       "prettier_managed": true
     },
     {
@@ -50397,6 +50421,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useDarkMode.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useDialogBehavior.ts",
       "prettier_managed": true
     },
     {
@@ -59736,12 +59766,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/common/DeleteConfirmModal.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/common/index.ts",
       "prettier_managed": true
     },
@@ -60851,6 +60875,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useClickOutside.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/__tests__/useConfirm.spec.tsx",
       "prettier_managed": true
     },
@@ -60876,6 +60906,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/hooks/useAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useClickOutside.ts",
       "prettier_managed": true
     },
     {

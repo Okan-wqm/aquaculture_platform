@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Modal } from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 
@@ -59,63 +59,68 @@ const EditRetentionModal: React.FC<{
   const [applyToAll, setApplyToAll] = useState(true);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-1">Edit Retention Policy</h3>
-        <p className="text-sm text-gray-500 mb-4">{tenant.tenantName}</p>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
-              Retention Period
-            </label>
-            <select
-              value={selectedRetention}
-              onChange={(e) => setSelectedRetention(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            >
-              {RETENTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={applyToAll}
-              onChange={(e) => setApplyToAll(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            Apply to all channels (override existing channel-level settings)
-          </label>
-
-          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-xs text-yellow-700">
-              Warning: Reducing the retention period will cause older messages to be deleted
-              during the next nightly cleanup (02:00 UTC). Messages under legal hold will be preserved.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 mt-6">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title="Edit Retention Policy"
+      description={tenant.tenantName}
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
-            onClick={() => onSave(tenant.policyId, selectedRetention, applyToAll)}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Save
-          </button>
-          <button
+            type="button"
             onClick={onClose}
             className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
           >
             Cancel
           </button>
-        </div>
+          <button
+            type="button"
+            onClick={() => onSave(tenant.policyId, selectedRetention, applyToAll)}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Save
+          </button>
+        </>
+      }
+    >
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">
+          Retention Period
+        </label>
+        <select
+          value={selectedRetention}
+          onChange={(e) => setSelectedRetention(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+        >
+          {RETENTION_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={applyToAll}
+          onChange={(e) => setApplyToAll(e.target.checked)}
+          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        Apply to all channels (override existing channel-level settings)
+      </label>
+
+      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <p className="text-xs text-yellow-700">
+          Warning: Reducing the retention period will cause older messages to be deleted
+          during the next nightly cleanup (02:00 UTC). Messages under legal hold will be preserved.
+        </p>
       </div>
     </div>
+    </Modal>
   );
 };
 
@@ -132,40 +137,24 @@ const AddChannelOverrideModal: React.FC<{
   const [retentionDays, setRetentionDays] = useState(365);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-1">Add Channel Override</h3>
-        <p className="text-sm text-gray-500 mb-4">{tenant.tenantName}</p>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Channel ID</label>
-            <input
-              type="text"
-              value={channelId}
-              onChange={(e) => setChannelId(e.target.value)}
-              placeholder="Enter channel UUID..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Retention Period</label>
-            <select
-              value={retentionDays}
-              onChange={(e) => setRetentionDays(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-            >
-              {RETENTION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.days}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 mt-6">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title="Add Channel Override"
+      description={tenant.tenantName}
+      bodyClassName="p-6"
+      footer={
+        <>
           <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
             onClick={() => {
               if (channelId.trim()) {
                 onSave(tenant.tenantId, channelId.trim(), retentionDays);
@@ -176,15 +165,36 @@ const AddChannelOverrideModal: React.FC<{
           >
             Add Override
           </button>
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
+        </>
+      }
+    >
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Channel ID</label>
+        <input
+          type="text"
+          value={channelId}
+          onChange={(e) => setChannelId(e.target.value)}
+          placeholder="Enter channel UUID..."
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Retention Period</label>
+        <select
+          value={retentionDays}
+          onChange={(e) => setRetentionDays(Number(e.target.value))}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+        >
+          {RETENTION_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.days}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
+    </Modal>
   );
 };
 

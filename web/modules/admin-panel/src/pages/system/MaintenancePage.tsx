@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Select, useConfirm, usePrompt } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, useConfirm, usePrompt } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
@@ -130,6 +130,13 @@ export const MaintenancePage: React.FC = () => {
 
   const loadData = (): void => {
     void windowsQuery.refetch();
+  };
+
+  const closeForm = (): void => {
+    setShowCreateModal(false);
+    setShowEditModal(false);
+    setSelectedMaintenance(null);
+    setFormData(defaultForm);
   };
 
   const handleCreate = async (): Promise<void> => {
@@ -572,147 +579,142 @@ export const MaintenancePage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       {(showCreateModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">
-                {showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Title <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Maintenance title"
-                  />
-                </div>
+        <Modal
+          isOpen
+          onClose={closeForm}
+          size="lg"
+          title={showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
+          showCloseButton={!saving}
+          closeOnEscape={!saving}
+          closeOnOverlayClick={!saving}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                loading={saving}
+                disabled={!formData.title || !formData.scheduledStart}
+              >
+                {showEditModal ? 'Update' : 'Schedule Maintenance'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Title <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Maintenance title"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="What will be done during this maintenance?"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="What will be done during this maintenance?"
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <Select
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })}
-                      options={[
-                        { value: 'scheduled', label: 'Scheduled' },
-                        { value: 'emergency', label: 'Emergency' },
-                        { value: 'rolling_update', label: 'Rolling Update' },
-                        { value: 'database_migration', label: 'Database Migration' },
-                        { value: 'security_patch', label: 'Security Patch' },
-                      ]}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
-                    <Select
-                      value={formData.scope}
-                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'service', label: 'Service' },
-                        { value: 'region', label: 'Region' },
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Start Date & Time <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      type="datetime-local"
-                      value={formData.scheduledStart}
-                      onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Estimated Duration (minutes)
-                    </label>
-                    <Input
-                      type="number"
-                      value={formData.estimatedDurationMinutes}
-                      onChange={(e) => setFormData({ ...formData, estimatedDurationMinutes: parseInt(e.target.value) || 60 })}
-                      placeholder="60"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">User Message</label>
-                  <textarea
-                    value={formData.userMessage}
-                    onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Message shown to users during maintenance"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowReadOnlyAccess}
-                      onChange={(e) => setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Allow Read-Only Access</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.bypassForSuperAdmins}
-                      onChange={(e) => setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Bypass for Super Admins</span>
-                  </label>
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <Select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })}
+                  options={[
+                    { value: 'scheduled', label: 'Scheduled' },
+                    { value: 'emergency', label: 'Emergency' },
+                    { value: 'rolling_update', label: 'Rolling Update' },
+                    { value: 'database_migration', label: 'Database Migration' },
+                    { value: 'security_patch', label: 'Security Patch' },
+                  ]}
+                />
               </div>
-
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setShowEditModal(false);
-                    setSelectedMaintenance(null);
-                    setFormData(defaultForm);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreate}
-                  loading={saving}
-                  disabled={!formData.title || !formData.scheduledStart}
-                >
-                  {showEditModal ? 'Update' : 'Schedule Maintenance'}
-                </Button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
+                <Select
+                  value={formData.scope}
+                  onChange={(e) => setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })}
+                  options={[
+                    { value: 'global', label: 'Global' },
+                    { value: 'tenant', label: 'Tenant' },
+                    { value: 'service', label: 'Service' },
+                    { value: 'region', label: 'Region' },
+                  ]}
+                />
               </div>
             </div>
-          </Card>
-        </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Start Date & Time <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="datetime-local"
+                  value={formData.scheduledStart}
+                  onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Estimated Duration (minutes)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.estimatedDurationMinutes}
+                  onChange={(e) => setFormData({ ...formData, estimatedDurationMinutes: parseInt(e.target.value) || 60 })}
+                  placeholder="60"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">User Message</label>
+              <textarea
+                value={formData.userMessage}
+                onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Message shown to users during maintenance"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.allowReadOnlyAccess}
+                  onChange={(e) => setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Allow Read-Only Access</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.bypassForSuperAdmins}
+                  onChange={(e) => setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Bypass for Super Admins</span>
+              </label>
+            </div>
+          </div>
+        </Modal>
       )}
 
     </div>

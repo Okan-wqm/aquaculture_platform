@@ -1,3 +1,5 @@
+import { colors } from '@aquaculture/shared-ui';
+
 export type PrintReportResult = 'popup' | 'iframe' | 'unavailable';
 
 export interface ReportChartSnapshot {
@@ -267,7 +269,7 @@ function tableHtml(rows: string[][], title: string): string {
       <div style="margin-bottom:8px">
         <div style="font-size:11px;font-weight:bold;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px">${escapeHtml(title)}</div>
         <table style="width:100%;border-collapse:collapse;font-size:10px">
-          ${rows.map(row => `<tr>${row.map((cell, index) => `<td style="padding:2px 6px;border:1px solid #ddd;${index % 2 === 0 ? 'background:#f9fafb;font-weight:500;width:18%' : 'width:32%'}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
+          ${rows.map(row => `<tr>${row.map((cell, index) => `<td style="padding:2px 6px;border:1px solid #ddd;${index % 2 === 0 ? `background:${colors.neutral[50]};font-weight:500;width:18%` : 'width:32%'}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}
         </table>
       </div>`;
 }

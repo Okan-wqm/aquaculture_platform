@@ -1692,3 +1692,35 @@ permitted` — and `_git_containment_probe_reason()` is
   accessor as `$RUNNER_USER` — waiting by name when the user does not exist or cannot read
   the checkout, never substituting root. The runbook carries the knob, the profile and the
   runner-user probe, and expects the accessor's own spelling.
+
+## ARIA-HIGH-153 — one queue selection rewrote the tools index once per request in the queue
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence (the first production cycle since 2026-09-04, run 35322803000, store
+  `cyc-20260918T081405Z-auto`):** the cycle itself completed at 09:27:17Z (73 min, 47 phases,
+  none failed); the process then stayed at 86 % of one core for the planner-dispatch drain with
+  no child, no new ledger row, and every ledger's mtime touched every few seconds. A stack
+  sample (`py-spy dump`, 10:12Z) read `run_planner_dispatch_daemon` →
+  `dispatch_one_pending_planner_request` → `next_pending_request` → `derive_request_states` →
+  `derive_request_state` → `ensure_tools_dir` → `update_tools_index` → `write_index` →
+  `state_transaction`; a second sample ended in `derive_request_state` → `effective_control` →
+  `_rows` → `commands_path` → `ensure_tools_dir`. `strace` over 4 s counted 23 index-group
+  transactions (`runs.jsonl.lock` taken 23 times, `repo_identity.json` opened 720 times). The
+  batch fold of ORPHAN-HIGH-794 / I-V12-QUEUE-01 loads the three ledgers once — and then calls
+  `derive_request_state` per request, which called `ensure_tools_dir` twice per request: once
+  directly, once through the control fold. `ensure_tools_dir` is a write: it rewrites
+  `integrity_index.json` under a transaction that locks the whole index group. On the 828-row
+  backlog that is ~1,650 index rewrites per queue selection (~5 min at 6/s), and the planner
+  drain selects once per iteration for up to ten iterations — the 44+ minutes after
+  `cycle_completed` were the drain deriving the same 828 states over and over, writing the same
+  index each time. The trial store (86 requests) hid it: 13 minutes of drain read as "the
+  drainers".
+- **Rule:** a derivation is a read; a read resolves a path and never creates, writes or
+  re-indexes to answer. What the batch ensured once, the fold it feeds must not ensure again.
+- **What is now true (2026-09-18):** with injected ledgers `derive_request_state` resolves the
+  tools path (`tools_dir`) and writes nothing; the batch folds the control ledger once
+  (`effective_control`) and injects it (`_control`); `control._rows` resolves its ledger with
+  `tools_dir` — a store that does not exist has no commands, and nothing is created to find
+  that out. The single-request form is unchanged. Pinned in
+  `test_derive_request_states_batch.py`: the batch ensures the tools dir exactly once (3 before,
+  for two requests), folds control once, and the fold never calls `ensure_tools_dir`.

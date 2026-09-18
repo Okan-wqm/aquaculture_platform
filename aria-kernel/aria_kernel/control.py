@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import append_tools_governance, ensure_tools_dir, tools_dir, utc_now
 
 CONTROL_COMMANDS_SURFACE = "control_commands"
 CONTROL_COMMANDS_RELPATH: tuple[str, ...] = ("control", "commands.jsonl")
@@ -63,7 +63,12 @@ def commands_path(base_dir: str | Path | None = None) -> Path:
 
 
 def _rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
-    path = commands_path(base_dir)
+    # ARIA-HIGH-153 — a fold is a read. `commands_path` goes through
+    # `ensure_tools_dir`, which rewrites the tools index under a store
+    # transaction; the per-request state derivation called this fold for
+    # every request in the queue. A store that does not exist has no
+    # commands; nothing is created to find that out.
+    path = tools_dir(base_dir).joinpath(*CONTROL_COMMANDS_RELPATH)
     if not path.exists():
         return []
     return load_declared_jsonl(path, expected_surface=CONTROL_COMMANDS_SURFACE)

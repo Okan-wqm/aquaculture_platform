@@ -84,7 +84,16 @@ scroll lock, inert-while-busy) and a `ConfirmSheet` on top of it. Both
 hand-rolled `ConfirmDialog` copies (messaging + AccountPage) are deleted;
 the attachment picker, add-member sheet, forward picker and the message
 long-press menu are sheets; the new-chat "creating" veil is a live-region
-status with the list inert; overlays 19 → 12. Remaining
+status with the list inert; overlays 19 → 12. Batch 6 (same cycle): the
+four runtime entries marked "re-evaluate" are re-evaluated: the SCADA
+setpoint PIN keypad is a `Modal size=sm`, the PID faceplate a right
+`Drawer`, the operator alarm tray a bottom `Drawer` (headerless — the
+panel keeps its own header, so `Drawer` gained `ariaLabel` for the
+accessible name) and the GDPR consent gate a `Modal` with no dismissal
+path (no close control, Escape or overlay click); overlays 12 → 8. What
+remains is genuinely not a dialog (kiosk, view overlay, camera viewfinder,
+media viewers) or waits on a dark Modal theme variant (the editor's
+export/import dialogs and ST editor). Remaining
 files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only

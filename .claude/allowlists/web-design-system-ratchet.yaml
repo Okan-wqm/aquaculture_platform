@@ -24,7 +24,7 @@
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 12
+  ceiling: 8
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -44,18 +44,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: full-screen media viewer page, not a dialog
-    - site: web/modules/sensor-module/src/components/scada-builder/PidFaceplate.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: PID faceplate over the builder canvas; re-evaluate as Drawer
-    - site: web/modules/sensor-module/src/components/scada-operator/AlarmSummaryBar.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: alarm acknowledgement layer over the runtime canvas; life-safety surface, re-evaluate as Drawer
     - site: web/modules/sensor-module/src/components/scada-operator/KioskMode.tsx
       batch: runtime
       owner: okan
@@ -68,12 +56,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: SCADA popup-view layer driven by screen navigation; nests operator views, not a dialog
-    - site: web/modules/sensor-module/src/components/scada-operator/widgets/RuntimeInput.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: setpoint entry keypad over the runtime canvas; re-evaluate as Modal size=sm
     - site: web/modules/sensor-module/src/components/unified-editor/json-bundle/ExportDialog.tsx
       batch: runtime
       owner: okan
@@ -92,12 +74,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: full-screen dark ST editor surface; needs a Modal theme variant before migrating
-    - site: web/shell/src/components/ConsentBanner.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: GDPR consent gate that must block the whole shell until answered; re-evaluate as Modal closeOnEscape=false
 rawHex:
   entries:
     - package: web/apps/aquamobil
@@ -193,7 +169,7 @@ inlineStyle:
       findingId: FE-MEDIUM-067
       reason: inline style objects bypass the token system and the properties Tailwind can express; keep only genuinely dynamic geometry (canvas, gauges) and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 530
+      ceiling: 529
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-067

@@ -22,6 +22,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 
+import { Drawer } from '@aquaculture/shared-ui';
 import type { AlarmStatusSummary } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import { AlarmPanel } from './AlarmPanel';
@@ -219,27 +220,21 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
         </div>
       </div>
 
-      {/* ── AlarmPanel modal ─────────────────────────────────────── */}
-      {panelOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-stretch pointer-events-none"
-          style={{ paddingBottom: '2.5rem' }} // leave room above the bar
-        >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 pointer-events-auto"
-            onClick={handlePanelClose}
-          />
-
-          {/* Panel */}
-          <div className="relative w-full pointer-events-auto px-4 pb-2">
-            <AlarmPanel
-              onClose={handlePanelClose}
-              className="w-full"
-            />
-          </div>
-        </div>
-      )}
+      {/* ── AlarmPanel drawer — rises above the bar; the panel keeps its own
+          header (counts, ACK all, export, close), the Drawer supplies the
+          backdrop, Escape, focus trap and the accessible name. ── */}
+      <Drawer
+        isOpen={panelOpen}
+        onClose={handlePanelClose}
+        side="bottom"
+        size="lg"
+        ariaLabel="Alarm Management"
+        showCloseButton={false}
+        className="bg-transparent shadow-none"
+        bodyClassName="flex-1 min-h-0 overflow-y-auto px-4 pb-10"
+      >
+        <AlarmPanel onClose={handlePanelClose} className="w-full" />
+      </Drawer>
     </>
   );
 });

@@ -27,25 +27,15 @@ import { TankHandlers } from './handlers';
 import { TankResolver } from './resolvers/tank.resolver';
 import { TankCapacityService } from './services/tank-capacity.service';
 import { GetTankRegistryResponder } from './responders/get-tank-registry.responder';
+import { TankAiQueryResponder } from './responders/tank-ai-query.responder';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Tank,
-      Department,
-      TankBatch,
-      TankOperation,
-      Batch,
-      Species,
-    ]),
+    TypeOrmModule.forFeature([Tank, Department, TankBatch, TankOperation, Batch, Species]),
     FarmStockModule,
   ],
-  controllers: [GetTankRegistryResponder],
-  providers: [
-    TankCapacityService,
-    ...TankHandlers,
-    TankResolver,
-  ],
+  controllers: [TankAiQueryResponder, GetTankRegistryResponder],
+  providers: [TankCapacityService, ...TankHandlers, TankResolver],
   exports: [
     TypeOrmModule,
     // Exported so batch handlers (deploy-cleaner-fish, allocate-to-tank,

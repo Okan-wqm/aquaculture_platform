@@ -22,6 +22,25 @@ import {
   ListTreatmentApplicationsTool,
   ListWelfareAssessmentsTool,
 } from './water-health';
+import {
+  GetBatchPerformanceTool,
+  GetBiomassReportTool,
+  GetDailyFeedingPlanTool,
+  GetFeedingSummaryTool,
+  GetFinanceBatchTotalsTool,
+  GetFinanceSummaryTool,
+  GetGrowthAnalysisTool,
+  GetHarvestPlanStatsTool,
+  GetMortalityByCauseTool,
+  GetSiteFeedConsumptionTool,
+  GetTankCapacityTool,
+  GetTransfersSummaryTool,
+  ListFeedingProtocolsTool,
+  ListGrowthMeasurementsTool,
+  ListHarvestPlansTool,
+  ListRegulatoryReportsTool,
+  ListSpeciesTool,
+} from './production';
 
 const TOOLS = [
   CreateTaskTool,
@@ -44,6 +63,24 @@ const TOOLS = [
   ListTreatmentApplicationsTool,
   ListWelfareAssessmentsTool,
   CheckBatchHarvestEligibilityTool,
+  // farm-production specialist (FARM-MEDIUM-328)
+  GetBatchPerformanceTool,
+  GetGrowthAnalysisTool,
+  ListGrowthMeasurementsTool,
+  GetMortalityByCauseTool,
+  GetTransfersSummaryTool,
+  ListSpeciesTool,
+  GetTankCapacityTool,
+  GetDailyFeedingPlanTool,
+  GetFeedingSummaryTool,
+  GetSiteFeedConsumptionTool,
+  ListFeedingProtocolsTool,
+  ListHarvestPlansTool,
+  GetHarvestPlanStatsTool,
+  GetBiomassReportTool,
+  ListRegulatoryReportsTool,
+  GetFinanceSummaryTool,
+  GetFinanceBatchTotalsTool,
 ];
 
 /**

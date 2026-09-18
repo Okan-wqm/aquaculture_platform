@@ -31,14 +31,31 @@ describe('GetBatchOverviewResponder', () => {
   it('reads batches through the tenant-context SSoT and maps identity + status', async () => {
     const changedAt = new Date('2026-07-01T08:00:00.000Z');
     mockRunInTenantRead.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
         expect(tenantId).toBe(TENANT);
         const qr = {
           manager: {
             find: jest.fn().mockResolvedValue([
-              { id: 'b1', batchNumber: 'B-2024-001', name: 'Levrek A', status: 'ACTIVE', statusChangedAt: changedAt },
-              { id: 'b2', batchNumber: 'B-2024-002', name: null, status: 'GROWING', statusChangedAt: null },
+              {
+                id: 'b1',
+                batchNumber: 'B-2024-001',
+                name: 'Levrek A',
+                status: 'ACTIVE',
+                statusChangedAt: changedAt,
+              },
+              {
+                id: 'b2',
+                batchNumber: 'B-2024-002',
+                name: null,
+                status: 'GROWING',
+                statusChangedAt: null,
+              },
             ]),
           },
         };
@@ -49,7 +66,13 @@ describe('GetBatchOverviewResponder', () => {
     const result = await responder.handleGetBatchOverview({ tenantId: TENANT });
 
     expect(result).toEqual([
-      { id: 'b1', batchNumber: 'B-2024-001', name: 'Levrek A', status: 'ACTIVE', statusChangedAt: '2026-07-01T08:00:00.000Z' },
+      {
+        id: 'b1',
+        batchNumber: 'B-2024-001',
+        name: 'Levrek A',
+        status: 'ACTIVE',
+        statusChangedAt: '2026-07-01T08:00:00.000Z',
+      },
       { id: 'b2', batchNumber: 'B-2024-002', name: null, status: 'GROWING', statusChangedAt: null },
     ]);
   });

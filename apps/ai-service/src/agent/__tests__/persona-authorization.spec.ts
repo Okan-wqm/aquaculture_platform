@@ -166,12 +166,23 @@ describe('AgentProfileService persona authorization', () => {
       });
       // expert ceiling confirm_required ∧ farm cap confirm_required ∧ tenant confirm_required
       expect(profile.actuationPolicy).toBe('confirm_required');
-      expect(profile.effectiveToolNames).toEqual([
-        'get_farm_tanks',
-        'get_farm_batches',
-        'get_farm_feeding',
-        'get_farm_harvest',
-      ]);
+      // The expert tier sees the whole production bundle including the
+      // manager+ finance reads; an operator would not (see below).
+      expect(profile.effectiveToolNames).toEqual(
+        expect.arrayContaining([
+          'get_farm_batches',
+          'get_batch_performance',
+          'get_finance_summary',
+        ]),
+      );
+      const operator = await service.resolveProfile(
+        tenantId,
+        'operator-farm-production-v1',
+        caller(['MODULE_USER'], ['ai_personas:operator', 'ai_specialties:farm']),
+      );
+      expect(operator.effectiveToolNames).toContain('get_batch_performance');
+      expect(operator.effectiveToolNames).not.toContain('get_finance_summary');
+      expect(operator.effectiveToolNames).not.toContain('get_finance_batch_totals');
     });
 
     it('a TENANT_ADMIN bypasses both capabilities', async () => {

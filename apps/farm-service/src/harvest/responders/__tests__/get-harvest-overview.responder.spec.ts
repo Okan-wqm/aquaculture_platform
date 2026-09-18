@@ -27,12 +27,31 @@ describe('GetHarvestOverviewResponder', () => {
 
   it('reads plans and normalises the DATE column to YYYY-MM-DD (Date or string)', async () => {
     mockRunInTenantRead.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
         expect(tenantId).toBe(TENANT);
         const find = jest.fn().mockResolvedValue([
-          { id: 'h1', planCode: 'HP-2024-001', name: 'Levrek hasat', batchId: 'b1', status: 'scheduled', plannedDate: new Date('2026-07-15T00:00:00.000Z') },
-          { id: 'h2', planCode: 'HP-2024-002', name: 'Çipura hasat', batchId: 'b2', status: 'planned', plannedDate: '2026-08-01' },
+          {
+            id: 'h1',
+            planCode: 'HP-2024-001',
+            name: 'Levrek hasat',
+            batchId: 'b1',
+            status: 'scheduled',
+            plannedDate: new Date('2026-07-15T00:00:00.000Z'),
+          },
+          {
+            id: 'h2',
+            planCode: 'HP-2024-002',
+            name: 'Çipura hasat',
+            batchId: 'b2',
+            status: 'planned',
+            plannedDate: '2026-08-01',
+          },
         ]);
         return fn({ manager: { find } });
       },
@@ -41,8 +60,22 @@ describe('GetHarvestOverviewResponder', () => {
     const result = await responder.handleGetHarvestOverview({ tenantId: TENANT });
 
     expect(result).toEqual([
-      { id: 'h1', planCode: 'HP-2024-001', name: 'Levrek hasat', batchId: 'b1', status: 'scheduled', plannedDate: '2026-07-15' },
-      { id: 'h2', planCode: 'HP-2024-002', name: 'Çipura hasat', batchId: 'b2', status: 'planned', plannedDate: '2026-08-01' },
+      {
+        id: 'h1',
+        planCode: 'HP-2024-001',
+        name: 'Levrek hasat',
+        batchId: 'b1',
+        status: 'scheduled',
+        plannedDate: '2026-07-15',
+      },
+      {
+        id: 'h2',
+        planCode: 'HP-2024-002',
+        name: 'Çipura hasat',
+        batchId: 'b2',
+        status: 'planned',
+        plannedDate: '2026-08-01',
+      },
     ]);
   });
 

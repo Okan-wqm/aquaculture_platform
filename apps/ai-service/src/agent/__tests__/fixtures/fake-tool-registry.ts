@@ -48,6 +48,24 @@ export const REGISTERED_TOOLS: readonly FakeToolSpec[] = [
   { name: 'list_treatment_applications', requiresModule: 'farm' },
   { name: 'list_welfare_assessments', requiresModule: 'farm' },
   { name: 'check_batch_harvest_eligibility', requiresModule: 'farm' },
+  // farm-production read surface (PR-4)
+  { name: 'get_batch_performance', requiresModule: 'farm' },
+  { name: 'get_growth_analysis', requiresModule: 'farm' },
+  { name: 'list_growth_measurements', requiresModule: 'farm' },
+  { name: 'get_mortality_by_cause', requiresModule: 'farm' },
+  { name: 'get_transfers_summary', requiresModule: 'farm' },
+  { name: 'list_species', requiresModule: 'farm' },
+  { name: 'get_tank_capacity', requiresModule: 'farm' },
+  { name: 'get_daily_feeding_plan', requiresModule: 'farm' },
+  { name: 'get_feeding_summary', requiresModule: 'farm' },
+  { name: 'get_site_feed_consumption', requiresModule: 'farm' },
+  { name: 'list_feeding_protocols', requiresModule: 'farm' },
+  { name: 'list_harvest_plans', requiresModule: 'farm' },
+  { name: 'get_harvest_plan_stats', requiresModule: 'farm' },
+  { name: 'get_biomass_report', requiresModule: 'farm' },
+  { name: 'list_regulatory_reports', requiresModule: 'farm' },
+  { name: 'get_finance_summary', requiresModule: 'farm', requiredPermissions: MANAGER_UP },
+  { name: 'get_finance_batch_totals', requiresModule: 'farm', requiredPermissions: MANAGER_UP },
 ];
 
 function toMetadata(spec: FakeToolSpec): ToolMetadata {

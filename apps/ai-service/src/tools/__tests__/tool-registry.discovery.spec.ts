@@ -58,6 +58,24 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     'list_treatment_applications',
     'list_welfare_assessments',
     'check_batch_harvest_eligibility',
+    // farm-production read surface
+    'get_batch_performance',
+    'get_growth_analysis',
+    'list_growth_measurements',
+    'get_mortality_by_cause',
+    'get_transfers_summary',
+    'list_species',
+    'get_tank_capacity',
+    'get_daily_feeding_plan',
+    'get_feeding_summary',
+    'get_site_feed_consumption',
+    'list_feeding_protocols',
+    'list_harvest_plans',
+    'get_harvest_plan_stats',
+    'get_biomass_report',
+    'list_regulatory_reports',
+    'get_finance_summary',
+    'get_finance_batch_totals',
   ];
 
   /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */

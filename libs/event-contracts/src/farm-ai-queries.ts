@@ -37,6 +37,26 @@ export const FARM_AI_QUERY_SUBJECTS = {
   FH_TREATMENTS: 'request.farm.ai.listTreatmentApplications',
   FH_WELFARE: 'request.farm.ai.listWelfareAssessments',
   FH_HARVEST_ELIGIBILITY: 'request.farm.ai.checkBatchHarvestEligibility',
+  // production: batch / growth / species / tank capacity
+  BATCH_PERFORMANCE: 'request.farm.ai.getBatchPerformance',
+  BATCH_MORTALITY_BY_CAUSE: 'request.farm.ai.getMortalityByCause',
+  BATCH_TRANSFERS_SUMMARY: 'request.farm.ai.getTransfersSummary',
+  GROWTH_ANALYSIS: 'request.farm.ai.getGrowthAnalysis',
+  GROWTH_MEASUREMENTS: 'request.farm.ai.listGrowthMeasurements',
+  SPECIES_LIST: 'request.farm.ai.listSpecies',
+  TANK_CAPACITY: 'request.farm.ai.getTankCapacity',
+  // feeding
+  FEEDING_DAILY_PLAN: 'request.farm.ai.getDailyFeedingPlan',
+  FEEDING_SUMMARY: 'request.farm.ai.getFeedingSummary',
+  FEEDING_SITE_CONSUMPTION: 'request.farm.ai.getSiteFeedConsumption',
+  FEED_PROTOCOLS: 'request.farm.ai.listFeedingProtocols',
+  // harvest / regulatory / finance
+  HARVEST_PLANS: 'request.farm.ai.listHarvestPlans',
+  HARVEST_PLAN_STATS: 'request.farm.ai.getHarvestPlanStats',
+  REG_BIOMASS_REPORT: 'request.farm.ai.getBiomassReport',
+  REG_REPORTS: 'request.farm.ai.listRegulatoryReports',
+  FINANCE_SUMMARY: 'request.farm.ai.getFinanceSummary',
+  FINANCE_BATCH_TOTALS: 'request.farm.ai.getFinanceBatchTotals',
 } as const;
 
 export type FarmAiQuerySubject =
@@ -159,3 +179,6 @@ export function clampListLimit(requested: number | undefined): number {
 
 export * from './farm-ai-queries/water-quality';
 export * from './farm-ai-queries/fish-health';
+export * from './farm-ai-queries/production';
+export * from './farm-ai-queries/feeding';
+export * from './farm-ai-queries/harvest-finance';

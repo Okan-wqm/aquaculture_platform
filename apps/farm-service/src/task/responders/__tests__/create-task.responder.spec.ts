@@ -5,9 +5,7 @@ import 'reflect-metadata';
 // manager is the one createWithManager receives.
 const mockRunInTenantTransaction = jest.fn();
 jest.mock('@aquaculture/backend-common/database', () => ({
-  runInTenantTransaction: (
-    ...args: unknown[]
-  ): unknown => mockRunInTenantTransaction(...args),
+  runInTenantTransaction: (...args: unknown[]): unknown => mockRunInTenantTransaction(...args),
 }));
 
 import { createMockDataSource } from '@aquaculture/testing';
@@ -78,7 +76,12 @@ describe('CreateTaskResponder', () => {
     const fakeQr = { manager: { id: 'mgr' } };
     taskService.createWithManager.mockResolvedValue({ id: 'task-9', title: 'Check pond 3' });
     mockRunInTenantTransaction.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
         expect(tenantId).toBe('t-1');
         return fn(fakeQr);
@@ -91,7 +94,11 @@ describe('CreateTaskResponder', () => {
     expect(taskService.createWithManager).toHaveBeenCalledWith(
       fakeQr.manager,
       't-1',
-      expect.objectContaining({ title: 'Check pond 3', category: 'WATER_QUALITY', priority: 'HIGH' }),
+      expect.objectContaining({
+        title: 'Check pond 3',
+        category: 'WATER_QUALITY',
+        priority: 'HIGH',
+      }),
       'u-1',
     );
   });

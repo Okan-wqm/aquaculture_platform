@@ -69,6 +69,7 @@ import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from './services/removal-quantity-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
+import { BatchAiQueryResponder } from './responders/batch-ai-query.responder';
 
 // Cross-cutting: backdate policy for mortality observations
 // (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
@@ -118,6 +119,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     GrowthModule,
   ],
   controllers: [
+    BatchAiQueryResponder,
     BatchController,
     TankOperationsController,
     GetBatchOverviewResponder,
@@ -137,9 +139,9 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BiomassCalculatorService,
     StockReconstructionService,
     BatchCostCalculatorService,
-    BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
-    BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
-    BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
+    BatchDocumentDataLoader, // REQUEST-scoped: one instance per GraphQL request
+    BatchLocationDataLoader, // REQUEST-scoped: eliminates N+1 for batch.locations
+    BatchFeedAssignmentDataLoader, // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: object-level site authz SSoT (injected by the
     // stock handlers) + the mobile-feature guard (composed on the resolver).

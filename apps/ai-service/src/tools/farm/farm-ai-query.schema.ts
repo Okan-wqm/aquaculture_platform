@@ -15,3 +15,5 @@ export const LIST_LIMIT_SCHEMA = {
 } as const;
 
 export const ALL_TIERS = ['operator', 'manager', 'expert', 'supervisor'] as const;
+/** Tiers above operator — finance and other management-only reads. */
+export const MANAGER_UP = ['manager', 'expert', 'supervisor'] as const;

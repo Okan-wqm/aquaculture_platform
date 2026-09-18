@@ -81,17 +81,8 @@ export class CreateTaskResponder {
     };
 
     try {
-      const saved = await runInTenantTransaction(
-        this.dataSource,
-        'farm',
-        payload.tenantId,
-        (qr) =>
-          this.taskService.createWithManager(
-            qr.manager,
-            payload.tenantId,
-            input,
-            payload.createdBy,
-          ),
+      const saved = await runInTenantTransaction(this.dataSource, 'farm', payload.tenantId, (qr) =>
+        this.taskService.createWithManager(qr.manager, payload.tenantId, input, payload.createdBy),
       );
       return { ok: true, taskId: saved.id, title: saved.title };
     } catch (err) {

@@ -46,6 +46,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
 // Doğrudan provider: FeedingProtocolModule import'u modül döngüsü yaratırdı
 // (BatchModule/HarvestModule emsali).
 import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { GrowthAiQueryResponder } from './responders/growth-ai-query.responder';
 
 @Module({
   imports: [
@@ -61,6 +62,8 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
     ]),
     BackdatePolicyModule,
   ],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [GrowthAiQueryResponder],
   providers: [
     FCRCalculationService,
     ProtocolRateService,
@@ -68,9 +71,6 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
     ...GrowthQueryHandlers,
     ...GrowthResolvers,
   ],
-  exports: [
-    TypeOrmModule,
-    FCRCalculationService,
-  ],
+  exports: [TypeOrmModule, FCRCalculationService],
 })
 export class GrowthModule {}

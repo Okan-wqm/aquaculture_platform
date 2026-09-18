@@ -31,7 +31,12 @@ describe('GetTankRegistryResponder', () => {
 
   it('reads tanks through the tenant-context SSoT and maps them to the registry shape', async () => {
     mockRunInTenantRead.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
         expect(tenantId).toBe(TENANT);
         const qr = {

@@ -694,7 +694,10 @@ jobs:
           fi
 
       - name: Remove the ARIA GitHub App private key from RUNNER_TEMP
-        if: always()
+        # Inside the guarded region like every step after the lease gate
+        # (workflow_contract_registry.WorkflowAbortGate); always() alone
+        # would run it for a blocked cycle and read as an unguarded step.
+        if: always() && steps.lease_check.outputs.blocked != 'true'
         run: rm -f "$RUNNER_TEMP/gh-app-private-key.pem"
 
       - name: Upload response envelope (artefact)

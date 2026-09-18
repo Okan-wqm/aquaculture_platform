@@ -16,12 +16,12 @@ import { tempCToK } from './types.js';
 
 /** Total boron concentration in mol/kg-SW from salinity (Uppstrom 1974) */
 export function totalBoron(S: number): number {
-  return 0.000232 * (S / 1.80655) / 10.811;
+  return (0.000232 * (S / 1.80655)) / 10.811;
 }
 
 /** Total sulfate concentration in mol/kg-SW from salinity (Morris & Riley 1966) */
 export function totalSulfate(S: number): number {
-  return (0.1400 / 96.062) * (S / 1.80655);
+  return (0.14 / 96.062) * (S / 1.80655);
 }
 
 /** Total fluoride concentration in mol/kg-SW from salinity (Riley 1965) */
@@ -59,7 +59,7 @@ export function getK1(tempC: number, S: number): number {
     19.568224 * lnT +
     (13.4191 * sqrtS + 0.0331 * S - 0.0000533 * S * S) +
     (-530.123 * sqrtS - 6.103 * S) / T +
-    -2.06950 * sqrtS * lnT;
+    -2.0695 * sqrtS * lnT;
 
   return Math.pow(10, -pK1);
 }
@@ -110,7 +110,7 @@ export function calcKw(tempC: number, S: number): number {
     (-5.977 + 118.67 / T + 1.0495 * lnT) * S2 -
     0.01615 * S;
 
-  return Math.exp(lnKw);  // Total scale
+  return Math.exp(lnKw); // Total scale
 }
 
 /**
@@ -122,7 +122,7 @@ export function calcKB(tempC: number, S: number): number {
   const S2 = Math.sqrt(S);
 
   const lnKB =
-    (-8966.90 - 2890.53 * S2 - 77.942 * S + 1.728 * S * S2 - 0.0996 * S * S) / T +
+    (-8966.9 - 2890.53 * S2 - 77.942 * S + 1.728 * S * S2 - 0.0996 * S * S) / T +
     (148.0248 + 137.1942 * S2 + 1.62142 * S) +
     (-24.4344 - 25.085 * S2 - 0.2474 * S) * Math.log(T) +
     0.053105 * S2 * T;
@@ -191,12 +191,7 @@ export function getKH2S(tempC: number, S: number): number {
   const T = tempCToK(tempC);
   const S2 = Math.sqrt(S);
 
-  const lnKH2S =
-    225.838 -
-    13275.3 / T -
-    34.6435 * Math.log(T) +
-    0.3449 * S2 -
-    0.0274 * S;
+  const lnKH2S = 225.838 - 13275.3 / T - 34.6435 * Math.log(T) + 0.3449 * S2 - 0.0274 * S;
 
   return Math.exp(lnKH2S);
 }
@@ -207,9 +202,7 @@ export function getKH2S(tempC: number, S: number): number {
 
 /** Ionic strength from salinity (Millero 1982) */
 export function calcIonicStrength(S: number): number {
-  return (
-    19.924 * S / (1000 - 1.005 * S)
-  );
+  return (19.924 * S) / (1000 - 1.005 * S);
 }
 
 // ============================================================================
@@ -239,22 +232,14 @@ export function ahSwsToNbsFactor(tempC: number, S: number): number {
  * Matches R CarbCalc phNbsToPhFree()
  */
 export function phNbsToFree(pHnbs: number, tempC: number, S: number): number {
-  return (
-    pHnbs +
-    Math.log10(ahSwsToNbsFactor(tempC, S)) +
-    Math.log10(ahFreeToSwsFactor(tempC, S))
-  );
+  return pHnbs + Math.log10(ahSwsToNbsFactor(tempC, S)) + Math.log10(ahFreeToSwsFactor(tempC, S));
 }
 
 /**
  * Convert pH from Free scale to NBS scale
  */
 export function phFreeToNbs(pHfree: number, tempC: number, S: number): number {
-  return (
-    pHfree -
-    Math.log10(ahSwsToNbsFactor(tempC, S)) -
-    Math.log10(ahFreeToSwsFactor(tempC, S))
-  );
+  return pHfree - Math.log10(ahSwsToNbsFactor(tempC, S)) - Math.log10(ahFreeToSwsFactor(tempC, S));
 }
 
 /**
@@ -273,7 +258,7 @@ export function calcActivityCoefficientH(tempC: number, S: number): number {
   // where epsilon ≈ 79 for water (dielectric constant approximation)
   const A = 1820000.0 * Math.pow(79 * T, -1.5);
 
-  const logfH = A * ((rootI / (1 + rootI)) - 0.2 * I);
+  const logfH = A * (rootI / (1 + rootI) - 0.2 * I);
   return Math.pow(10, -logfH);
 }
 
@@ -328,7 +313,7 @@ export function alphaZero(pHfree: number, tempC: number, S: number): number {
   const H = Math.pow(10, -pHfree);
   const K1 = swsToFree(getK1(tempC, S), tempC, S);
   const K2 = swsToFree(getK2(tempC, S), tempC, S);
-  return H * H / (H * H + H * K1 + K1 * K2);
+  return (H * H) / (H * H + H * K1 + K1 * K2);
 }
 
 /**
@@ -338,7 +323,7 @@ export function alphaOne(pHfree: number, tempC: number, S: number): number {
   const H = Math.pow(10, -pHfree);
   const K1 = swsToFree(getK1(tempC, S), tempC, S);
   const K2 = swsToFree(getK2(tempC, S), tempC, S);
-  return H * K1 / (H * H + H * K1 + K1 * K2);
+  return (H * K1) / (H * H + H * K1 + K1 * K2);
 }
 
 /**
@@ -348,7 +333,7 @@ export function alphaTwo(pHfree: number, tempC: number, S: number): number {
   const H = Math.pow(10, -pHfree);
   const K1 = swsToFree(getK1(tempC, S), tempC, S);
   const K2 = swsToFree(getK2(tempC, S), tempC, S);
-  return K1 * K2 / (H * H + H * K1 + K1 * K2);
+  return (K1 * K2) / (H * H + H * K1 + K1 * K2);
 }
 
 // ============================================================================
@@ -379,7 +364,7 @@ export function phLineIntercept(pHfree: number, tempC: number, S: number): numbe
   if (S > 0) {
     const BT = totalBoron(S);
     const KB = totToFree(calcKB(tempC, S), tempC, S);
-    borate = BT * KB / (KB + H);
+    borate = (BT * KB) / (KB + H);
   }
 
   // Return in meq/L (multiply mol/kg by 1000)
@@ -451,7 +436,7 @@ export function calcPhForCritCO2(
   tempC: number,
   S: number,
   minPH = DEFFEYES_SOLVER_PH_DOMAIN.minPH,
-  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH
+  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH,
 ): number {
   const co2CritMM = co2MgToMm(co2CritMg);
   if (dicMM <= 0 || co2CritMM <= 0) return NaN;
@@ -488,7 +473,7 @@ export function calcPhForAlkDic(
   tempC: number,
   S: number,
   minPH = DEFFEYES_SOLVER_PH_DOMAIN.minPH,
-  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH
+  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH,
 ): number {
   if (!isFinite(alkMeq) || !isFinite(dicMM) || dicMM <= 0) return NaN;
   if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;
@@ -592,7 +577,13 @@ export function calcCO3(dicMM: number, pHnbs: number, tempC: number, S: number):
  * @param caMolKg - Ca²⁺ in mol/kg-soln
  * @param pHnbs - pH on NBS scale
  */
-export function calcOmegaCalcite(dicMM: number, caMolKg: number, pHnbs: number, tempC: number, S: number): number {
+export function calcOmegaCalcite(
+  dicMM: number,
+  caMolKg: number,
+  pHnbs: number,
+  tempC: number,
+  S: number,
+): number {
   const co3MolKg = calcCO3(dicMM, pHnbs, tempC, S) * 1e-3; // mmol/L → mol/kg approx
   return (caMolKg * co3MolKg) / calcKspCalcite(tempC, S);
 }
@@ -600,7 +591,13 @@ export function calcOmegaCalcite(dicMM: number, caMolKg: number, pHnbs: number, 
 /**
  * Calculate Omega for Aragonite: Ω = [Ca²⁺] × [CO₃²⁻] / Ksp
  */
-export function calcOmegaAragonite(dicMM: number, caMolKg: number, pHnbs: number, tempC: number, S: number): number {
+export function calcOmegaAragonite(
+  dicMM: number,
+  caMolKg: number,
+  pHnbs: number,
+  tempC: number,
+  S: number,
+): number {
   const co3MolKg = calcCO3(dicMM, pHnbs, tempC, S) * 1e-3;
   return (caMolKg * co3MolKg) / calcKspAragonite(tempC, S);
 }

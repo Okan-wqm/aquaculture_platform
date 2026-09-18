@@ -6,9 +6,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * WHY: the farm AI specialists (`<tier>-farm-*-v1` personas) are gated by a new
  * catalogue capability `ai_specialties:farm` (auth-service permission-catalogue,
  * category `ai_specialists`, module-gated on ai + farm). New tenants receive it
- * from DEFAULT_ROLE_PERMISSIONS at provisioning, but seedDefaultRoles SKIPS
- * tenants that already have roles, so EXISTING tenants' shipped default roles
- * would hold none of it and ai-service's persona authorization
+ * from DEFAULT_ROLE_PERMISSIONS at provisioning, and the RBAC-MEDIUM-015
+ * per-role reconcile in tenant-role.service.ts would grant it additively to
+ * existing tenants — but that reconcile runs ONLY when a tenant admin invokes
+ * the `seedTenantRoles` mutation, never on deploy. Without this migration,
+ * every existing tenant's shipped default roles would hold none of it until
+ * an admin happened to re-seed, and ai-service's persona authorization
  * (`ai_personas:<tier>` ∧ `ai_specialties:<module>`) would fail closed for
  * every non-admin. Same shape and semantics as the MT-HIGH-057 backfill
  * (1801300000000): additive, idempotent, keyed by role NAME.
@@ -16,9 +19,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *   - panel_permissions: the `ai_specialists` top-level key is merged in (`||`).
  *   - resource_permissions: `ai_specialties:farm` is UNION-ed in, de-duplicated.
  *
- * Entitlement is NOT decided here: a tenant without the ai or farm module
- * keeps the grant row but never receives the capability — the token mint and
- * `resolveCallerCapabilities` intersect grants with `entitledCapabilities()`.
+ * Entitlement is NOT decided here, deliberately: the grant is written for
+ * every tenant so a tenant that enables the farm module later becomes live
+ * without a re-seed, while a tenant without the ai or farm module keeps the
+ * grant row and never receives the capability — the token mint and
+ * `resolveCallerCapabilities` intersect grants with `entitledCapabilities()`
+ * (the single entitlement SSoT), so a non-entitled grant row is inert.
  *
  * Tables live in the `auth` schema but are owned by the admin-api-service
  * migration runner (1800500000000-TenantProvisioningTopology), so statements

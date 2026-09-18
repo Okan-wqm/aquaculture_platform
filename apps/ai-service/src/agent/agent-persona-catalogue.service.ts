@@ -1,8 +1,19 @@
 import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { AI_PERSONA_CATALOGUE, type AiPersonaCatalogueEntry } from '@aquaculture/shared-contracts';
+import {
+  AI_PERSONA_CATALOGUE,
+  type AiPersonaCatalogueEntry,
+  type AiPersonaTier,
+} from '@aquaculture/shared-contracts';
 import { RESTRICTED_PROMPT_DELIMITERS } from '../safety/instruction-hierarchy.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
-import { composePersona, PROMPT_PREAMBLE, type ComposedPersona } from './personas/compose';
+import {
+  composePersona,
+  PROMPT_DECISION_ADVISORY,
+  PROMPT_DECISION_AUTONOMOUS,
+  PROMPT_POSTAMBLE,
+  PROMPT_PREAMBLE,
+  type ComposedPersona,
+} from './personas/compose';
 import { SPECIALTIES } from './personas/specialties';
 import { TIERS } from './personas/tiers';
 
@@ -40,6 +51,15 @@ export class AgentPersonaCatalogueService implements OnApplicationBootstrap {
       throw new UnknownPersonaError(personaId);
     }
     return persona;
+  }
+
+  /**
+   * The tier of a STORED persona id, or null when the catalogue no longer
+   * publishes it — for callers that must fail closed on a retired id without
+   * turning a persisted row into a thrown request error.
+   */
+  tierOf(personaId: string): AiPersonaTier | null {
+    return this.build().get(personaId)?.tier ?? null;
   }
 
   /** Every composed persona, in catalogue order. */
@@ -97,7 +117,12 @@ export class AgentPersonaCatalogueService implements OnApplicationBootstrap {
   }
 
   private assertFragmentsSafe(): void {
-    const fragments: Array<[string, string]> = [['PROMPT_PREAMBLE', PROMPT_PREAMBLE]];
+    const fragments: Array<[string, string]> = [
+      ['PROMPT_PREAMBLE', PROMPT_PREAMBLE],
+      ['PROMPT_DECISION_ADVISORY', PROMPT_DECISION_ADVISORY],
+      ['PROMPT_DECISION_AUTONOMOUS', PROMPT_DECISION_AUTONOMOUS],
+      ['PROMPT_POSTAMBLE', PROMPT_POSTAMBLE],
+    ];
     for (const tier of Object.values(TIERS))
       fragments.push([`tier ${tier.id}`, tier.promptFragment]);
     for (const specialty of Object.values(SPECIALTIES)) {

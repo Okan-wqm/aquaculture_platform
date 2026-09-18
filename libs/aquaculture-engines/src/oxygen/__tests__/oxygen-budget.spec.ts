@@ -55,6 +55,16 @@ describe('oxygenBudget', () => {
     expect(oxygenBudget({ ...base, waterFlowM3h: 0 }).waterExchange).toBeNull();
   });
 
+  it('an unfed tank above the floor is a surplus (no demand), not critical; at/below the floor it is critical', () => {
+    const unfed = oxygenBudget({ ...base, dailyFeedKg: 0 });
+    expect(unfed.demand.totalKgPerDay).toBe(0);
+    expect(unfed.hoursToMinDo).toBeNull();
+    expect(unfed.balanceStatus).toBe('surplus');
+    expect(oxygenBudget({ ...base, dailyFeedKg: 0, currentDoMgL: 5 }).balanceStatus).toBe(
+      'critical',
+    );
+  });
+
   it('honours an explicit minimum-DO override', () => {
     const r = oxygenBudget({ ...base, minSafeDoMgL: 6 });
     expect(r.minSafeDoMgL).toBe(6);
@@ -72,11 +82,12 @@ describe('status thresholds', () => {
     expect(saturationStatus(49.9)).toBe('critical');
   });
 
-  it('balance: >24 h surplus, ≥12 balanced, else deficit; null critical', () => {
-    expect(oxygenBalanceStatus(24.1)).toBe('surplus');
-    expect(oxygenBalanceStatus(24)).toBe('balanced');
-    expect(oxygenBalanceStatus(12)).toBe('balanced');
-    expect(oxygenBalanceStatus(11.9)).toBe('deficit');
-    expect(oxygenBalanceStatus(null)).toBe('critical');
+  it('balance: >24 h surplus, ≥12 balanced, else deficit; null → critical below the floor, surplus above it', () => {
+    expect(oxygenBalanceStatus(24.1, true)).toBe('surplus');
+    expect(oxygenBalanceStatus(24, true)).toBe('balanced');
+    expect(oxygenBalanceStatus(12, true)).toBe('balanced');
+    expect(oxygenBalanceStatus(11.9, true)).toBe('deficit');
+    expect(oxygenBalanceStatus(null, false)).toBe('critical');
+    expect(oxygenBalanceStatus(null, true)).toBe('surplus');
   });
 });

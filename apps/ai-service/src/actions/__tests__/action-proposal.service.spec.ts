@@ -43,10 +43,10 @@ jest.mock('@aquaculture/backend-common/database', () => ({
  *   - unknown / cross-tenant / expired proposals refuse execution.
  */
 const managerProxy = {
-  create: (...args: unknown[]) => repoMock.create(...(args as [])),
-  save: (...args: unknown[]) => repoMock.save(...(args as [])),
-  findOne: (...args: unknown[]) => repoMock.findOne(...(args as [])),
-  update: (...args: unknown[]) => repoMock.update(...(args as [])),
+  create: (...args: unknown[]): unknown => repoMock.create(...(args as [])),
+  save: (...args: unknown[]): unknown => repoMock.save(...(args as [])),
+  findOne: (...args: unknown[]): unknown => repoMock.findOne(...(args as [])),
+  update: (...args: unknown[]): unknown => repoMock.update(...(args as [])),
 };
 const repoMock = {
   create: jest.fn(),
@@ -72,7 +72,12 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
       id: actionId,
       tenantId,
       toolName: 'create_task',
-      params: { title: 'Check pond 3', category: 'GENERAL', priority: 'MEDIUM', dueDate: '2026-07-13' },
+      params: {
+        title: 'Check pond 3',
+        category: 'GENERAL',
+        priority: 'MEDIUM',
+        dueDate: '2026-07-13',
+      },
       description: 'Create task "Check pond 3"',
       requestedBy: requesterId,
       requesterRoles: ['operator'],
@@ -89,9 +94,7 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
     executor = { executeTool: jest.fn() };
     repo = repoMock;
     // 2-arg entity-manager form: (EntityClass, data) -> data
-    repoMock.create.mockImplementation(
-      (_entity: unknown, v: Partial<ProposedAction>) => v,
-    );
+    repoMock.create.mockImplementation((_entity: unknown, v: Partial<ProposedAction>) => v);
     repoMock.save.mockImplementation((v: ProposedAction) =>
       Promise.resolve({ ...v, id: actionId }),
     );
@@ -103,10 +106,13 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
         { provide: getRepositoryToken(ProposedAction), useValue: repo },
         { provide: ToolExecutorService, useValue: executor },
         { provide: DataSource, useValue: {} as DataSource },
-        // The stored persona id resolves to its tier for the executor's check.
+        // The stored persona id resolves to its tier for the executor's check;
+        // a retired id resolves to null (fail-closed path below).
         {
           provide: AgentPersonaCatalogueService,
-          useValue: { resolve: jest.fn().mockReturnValue({ id: 'operator-v1', tier: 'operator' }) },
+          useValue: {
+            tierOf: jest.fn((id: string) => (id === 'operator-v1' ? 'operator' : null)),
+          },
         },
       ],
     }).compile();
@@ -135,13 +141,19 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
 
   it('executeProposal claims atomically, runs the STORED params as the requester with policy allowed', async () => {
     repo.findOne.mockResolvedValue(proposalRow());
-    executor.executeTool.mockResolvedValue({ success: true, data: { taskId: 't-1' }, durationMs: 5, cacheable: false });
+    executor.executeTool.mockResolvedValue({
+      success: true,
+      data: { taskId: 't-1' },
+      durationMs: 5,
+      cacheable: false,
+    });
 
     const outcome = await service.executeProposal(actionId, tenantId, confirmerId);
 
     // Atomic claim: UPDATE … WHERE status='proposed'.
     expect(repo.update).toHaveBeenCalledWith(
-      expect.any(Function),{ id: actionId, tenantId, status: 'proposed' },
+      expect.any(Function),
+      { id: actionId, tenantId, status: 'proposed' },
       expect.objectContaining({ status: 'executing', confirmedBy: confirmerId }),
     );
     // Stored intent executes — as the ORIGINAL requester, policy 'allowed'.
@@ -154,26 +166,35 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
         userRoles: ['operator'],
         persona: 'operator-v1',
         personaTier: 'operator',
+        // The stored tool is the only thing the confirmation may run.
+        offeredToolNames: ['create_task'],
         actuationPolicy: 'allowed',
       }),
     );
     expect(outcome.success).toBe(true);
     // Terminal state persisted.
     expect(repo.update).toHaveBeenCalledWith(
-      expect.any(Function),{ id: actionId },
+      expect.any(Function),
+      { id: actionId },
       expect.objectContaining({ status: 'completed' }),
     );
   });
 
   it('a failed tool run lands on failed with the error persisted', async () => {
     repo.findOne.mockResolvedValue(proposalRow());
-    executor.executeTool.mockResolvedValue({ success: false, error: 'farm-service timeout', durationMs: 5, cacheable: false });
+    executor.executeTool.mockResolvedValue({
+      success: false,
+      error: 'farm-service timeout',
+      durationMs: 5,
+      cacheable: false,
+    });
 
     const outcome = await service.executeProposal(actionId, tenantId, confirmerId);
 
     expect(outcome.success).toBe(false);
     expect(repo.update).toHaveBeenCalledWith(
-      expect.any(Function),{ id: actionId },
+      expect.any(Function),
+      { id: actionId },
       expect.objectContaining({ status: 'failed' }),
     );
   });
@@ -187,6 +208,25 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
     expect(executor.executeTool).not.toHaveBeenCalled();
     expect(outcome.success).toBe(true);
     expect(outcome.result).toBe('Task created.');
+  });
+
+  it('a proposal whose stored persona is no longer published fails CLOSED to failed, never stuck in executing', async () => {
+    repo.findOne.mockResolvedValue(proposalRow({ persona: 'operator-v2' }));
+
+    const outcome = await service.executeProposal(actionId, tenantId, confirmerId);
+
+    expect(outcome.success).toBe(false);
+    expect(executor.executeTool).not.toHaveBeenCalled();
+    // Terminal row written from `proposed` directly — no `executing` claim.
+    expect(repo.update).toHaveBeenCalledTimes(1);
+    expect(repo.update).toHaveBeenCalledWith(
+      expect.any(Function),
+      { id: actionId, tenantId, status: 'proposed' },
+      expect.objectContaining({ status: 'failed' }),
+    );
+    const updateCalls = repo.update.mock.calls as unknown[][];
+    const written = updateCalls[0]?.[2] as { result?: string } | undefined;
+    expect(written?.result).toContain('operator-v2');
   });
 
   it('refuses an unknown or cross-tenant proposal', async () => {
@@ -210,7 +250,8 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
     expect(executor.executeTool).not.toHaveBeenCalled();
     // Expiry is persisted so the card cannot be retried forever.
     expect(repo.update).toHaveBeenCalledWith(
-      expect.any(Function),{ id: actionId },
+      expect.any(Function),
+      { id: actionId },
       expect.objectContaining({ status: 'failed' }),
     );
   });

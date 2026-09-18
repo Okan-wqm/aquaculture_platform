@@ -62,7 +62,7 @@ export const en = {
   'login.mfa.title': 'One more step',
   'login.mfa.totpPrompt': 'Drop in the 6-digit code from your authenticator',
   'login.mfa.recoveryPrompt': 'Enter one of your recovery codes',
-  'login.mfa.verifyCode': 'Verify Code',
+  'login.mfa.verifyCode': 'Verify & continue',
   'login.mfa.verifyRecovery': 'Verify Recovery Code',
   'login.mfa.useRecovery': 'Use a recovery code',
   'login.mfa.useAuthenticator': 'Use authenticator app',

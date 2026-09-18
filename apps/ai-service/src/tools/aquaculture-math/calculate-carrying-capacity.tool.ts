@@ -10,6 +10,7 @@ import {
   TEMPERATURE_SCHEMA,
   requireFinite,
   requireOptionalFinite,
+  roundNumbersDeep,
 } from './aquaculture-math.schema';
 
 interface CarryingCapacityInput {
@@ -70,6 +71,7 @@ interface CarryingCapacityInput {
       'avgFishWeightG',
       'dailyFeedingRatePercent',
     ],
+    additionalProperties: false,
   },
   requiresModule: null,
   requiresConfirmation: false,
@@ -82,7 +84,18 @@ export class CalculateCarryingCapacityTool extends BaseTool<
     input: CarryingCapacityInput,
     _ctx: ToolExecutionContext,
   ): Promise<CarryingCapacityResult> {
-    return carryingCapacity(input);
+    return roundNumbersDeep(
+      carryingCapacity({
+        tankVolumeM3: input.tankVolumeM3,
+        temperatureC: input.temperatureC,
+        salinityPpt: input.salinityPpt,
+        minSafeDoMgL: input.minSafeDoMgL,
+        maxDensityKgM3: input.maxDensityKgM3,
+        avgFishWeightG: input.avgFishWeightG,
+        dailyFeedingRatePercent: input.dailyFeedingRatePercent,
+        hasBiofilter: input.hasBiofilter,
+      }),
+    );
   }
 
   async validate(input: CarryingCapacityInput): Promise<{ valid: boolean; errors?: string[] }> {

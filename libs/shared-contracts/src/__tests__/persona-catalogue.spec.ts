@@ -6,6 +6,7 @@ import {
   AI_SPECIALTY_CATALOGUE,
   DEFAULT_AI_PERSONA_ID,
   findAiPersona,
+  AI_TIER_PRESENTATION,
 } from '../ai/persona-catalogue';
 import { AI_PERSONA_ID_MAX_LENGTH, parseAiPersonaId } from '../ai/persona-id';
 
@@ -86,6 +87,18 @@ describe('AI_PERSONA_CATALOGUE (SSoT)', () => {
       expect(Object.isFrozen(entry.capabilities)).toBe(true);
       expect(Object.isFrozen(entry.requiredCapabilities)).toBe(true);
     }
+    // The SOURCE catalogues too — a mutation there would leak into the next
+    // derivation and into every picker that reads them directly.
+    for (const tier of Object.values(AI_TIER_PRESENTATION)) {
+      expect(Object.isFrozen(tier)).toBe(true);
+      expect(Object.isFrozen(tier.capabilities)).toBe(true);
+    }
+    for (const specialty of Object.values(AI_SPECIALTY_CATALOGUE)) {
+      expect(Object.isFrozen(specialty)).toBe(true);
+      expect(Object.isFrozen(specialty.capabilities)).toBe(true);
+      expect(Object.isFrozen(specialty.publishedTiers)).toBe(true);
+    }
+    expect(Object.isFrozen(AI_GENERAL_ASSISTANT_PICKER_ENTRY.capabilities)).toBe(true);
   });
 
   it('findAiPersona resolves published ids only; the default persona is published', () => {

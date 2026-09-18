@@ -68,8 +68,17 @@ export interface FcrResult {
   feedSavingsKgIfImproved01: number;
 }
 
+/** Own-key lookup only: a model-supplied code such as `constructor` must fall to the default, not to Object.prototype. */
+function tableLookup(
+  table: Readonly<Record<string, number>>,
+  key: string,
+  fallback: number,
+): number {
+  return Object.prototype.hasOwnProperty.call(table, key) ? (table[key] as number) : fallback;
+}
+
 export function industryFcrFor(speciesCode: string | undefined): number {
-  return INDUSTRY_FCR[speciesCode?.toLowerCase() ?? ''] ?? DEFAULT_INDUSTRY_FCR;
+  return tableLookup(INDUSTRY_FCR, speciesCode?.toLowerCase() ?? '', DEFAULT_INDUSTRY_FCR);
 }
 
 export function fcrEfficiency(fcr: number, industryAverage: number): FcrEfficiency {

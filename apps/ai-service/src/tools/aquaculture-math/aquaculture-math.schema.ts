@@ -50,3 +50,30 @@ export function requireOptionalFinite(
 ): string[] {
   return value === undefined ? [] : requireFinite(field, value, min, max);
 }
+
+/** Decimal places the math tools present to the model (the engines never round). */
+export const PRESENTATION_DECIMALS = 4;
+
+/**
+ * Presentation step (the engines return raw doubles): every finite number in
+ * the result is rounded to `decimals` places so the model reads 1.3516, not
+ * 1.3515504…; non-numbers pass through untouched.
+ */
+export function roundNumbersDeep<T>(value: T, decimals: number = PRESENTATION_DECIMALS): T {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return value;
+    const factor = 10 ** decimals;
+    return (Math.round(value * factor) / factor) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item: unknown) => roundNumbersDeep(item, decimals)) as T;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = roundNumbersDeep(item, decimals);
+    }
+    return out as T;
+  }
+  return value;
+}

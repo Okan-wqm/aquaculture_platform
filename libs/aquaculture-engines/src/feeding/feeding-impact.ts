@@ -81,8 +81,21 @@ export function feedingRateStatus(ratePercentBw: number): FeedingRateStatus {
   return 'overfeeding';
 }
 
+/** Own-key lookup only: a model-supplied code such as `constructor` must fall to the default, not to Object.prototype. */
+function tableLookup(
+  table: Readonly<Record<string, number>>,
+  key: string,
+  fallback: number,
+): number {
+  return Object.prototype.hasOwnProperty.call(table, key) ? (table[key] as number) : fallback;
+}
+
 export function nh3LimitFor(speciesCode: string | undefined): number {
-  return NH3_LIMIT_BY_SPECIES[speciesCode?.toLowerCase() ?? ''] ?? DEFAULT_NH3_LIMIT_MG_L;
+  return tableLookup(
+    NH3_LIMIT_BY_SPECIES,
+    speciesCode?.toLowerCase() ?? '',
+    DEFAULT_NH3_LIMIT_MG_L,
+  );
 }
 
 export function tanCoefficientFor(
@@ -97,8 +110,11 @@ export function tanCoefficientFor(
   }
   return {
     method: 'species_coefficient',
-    coefficientKgPerKgFeed:
-      TAN_PER_KG_FEED_BY_SPECIES[speciesCode?.toLowerCase() ?? ''] ?? DEFAULT_TAN_PER_KG_FEED,
+    coefficientKgPerKgFeed: tableLookup(
+      TAN_PER_KG_FEED_BY_SPECIES,
+      speciesCode?.toLowerCase() ?? '',
+      DEFAULT_TAN_PER_KG_FEED,
+    ),
   };
 }
 

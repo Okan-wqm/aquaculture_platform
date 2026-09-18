@@ -10,8 +10,14 @@
  * surfaces the opt-in wherever an AI room is created or opened, instead of
  * letting the user discover the refusal message by message.
  */
-import { useTenantQuery, useTenantMutation, graphqlClient } from '@aquaculture/shared-ui';
-import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
+import {
+  useTenantQuery,
+  useTenantMutation,
+  graphqlClient,
+  useAuth,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import { useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 
 import {
   AVAILABLE_AI_PERSONAS_QUERY,
@@ -60,11 +66,20 @@ export function useAiSettings(enabled = true): UseQueryResult<AiSettings, Error>
   );
 }
 
+/** Per-mutation cache context for the consent rollback. */
+interface ConsentContext {
+  previous: Array<[readonly unknown[], AiSettings | undefined]>;
+}
+
 /**
- * Set (not toggle) the user's AI consent; the settings query is re-read on
- * success so the UI reflects the server's truth rather than the request.
+ * Set (not toggle) the user's AI consent. OPTIMISTIC: the switch shows the
+ * requested value at once (a controlled checkbox that snaps back until the
+ * refetch lands reads as "it did not take"), rolls back on error, and the
+ * settings query is re-read on success so the server's truth wins.
  */
 export function useUpdateAiConsent(): UseMutationResult<boolean, Error, boolean> {
+  const { tenantId } = useAuth();
+  const queryClient = useQueryClient();
   return useTenantMutation<boolean, Error, boolean>(
     async (consent: boolean) => {
       const data = await graphqlClient.request<UpdateUserAiConsentResult>(
@@ -73,7 +88,27 @@ export function useUpdateAiConsent(): UseMutationResult<boolean, Error, boolean>
       );
       return data.updateUserAiConsent;
     },
-    { invalidate: [['messaging', 'ai-settings']] },
+    {
+      invalidate: [['messaging', 'ai-settings']],
+      // (queryKey expressions inline createTenantInvalidationKey — the
+      // no-bare-tenant-query-key lint gate requires the factory call inline.)
+      onMutate: (consent) => {
+        const previous = queryClient.getQueriesData<AiSettings | undefined>({
+          queryKey: createTenantInvalidationKey(tenantId, 'messaging', 'ai-settings'),
+        });
+        queryClient.setQueriesData<AiSettings | undefined>(
+          { queryKey: createTenantInvalidationKey(tenantId, 'messaging', 'ai-settings') },
+          (old) => (old ? { ...old, userAiConsent: consent } : old),
+        );
+        return { previous } satisfies ConsentContext;
+      },
+      onError: (_error, _consent, context) => {
+        const ctx = context as ConsentContext | undefined;
+        for (const [key, value] of ctx?.previous ?? []) {
+          queryClient.setQueryData(key, value);
+        }
+      },
+    },
   );
 }
 

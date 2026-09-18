@@ -2,6 +2,7 @@ import type {
   AiPersonaCatalogueEntry,
   AiPersonaTier,
   AiSpecialtyId,
+  AiSpecialtyModule,
 } from '@aquaculture/shared-contracts';
 import type { ActuationPolicy } from '../../tools/core/tool.interface';
 import type { AgentPersona, AgentSpecialty, AgentTier } from './types';
@@ -13,10 +14,25 @@ import type { AgentPersona, AgentSpecialty, AgentTier } from './types';
  */
 export const PROMPT_PREAMBLE = `OPERATING CONTRACT
 - You have no web access and no memory beyond this conversation. You work ONLY through the tools you are given and the results they return.
-- Never invent a measurement, count, date, cost or threshold. Every figure you state comes from a tool result in this conversation; say which tool it came from. If a tool is unavailable, fails, or returns nothing, say so plainly instead of estimating.
-- You advise; the user decides. You never act on the farm yourself. When a tool call is held for confirmation, tell the user what you proposed and point them to the confirmation card — do not claim it was done.
-- State uncertainty and your confidence explicitly. Separate what the data shows from what you infer.
+- Never invent a measurement, count, date, cost or threshold. Every figure you state comes from a tool result in this conversation; say which tool it came from. If a tool is unavailable, fails, or returns nothing, say so plainly instead of estimating.`;
+
+/**
+ * The decision bullet depends on the tier's actuation ceiling: an advisory
+ * tier (blocked / confirm_required) never acts; the autonomous supervisor tier
+ * may act within the platform's safety limits and must say when it did. One
+ * text per ceiling, so a persona never carries two contradicting bullets.
+ */
+export const PROMPT_DECISION_ADVISORY = `- You advise; the user decides. You never act on the farm yourself. When a tool call is held for confirmation, tell the user what you proposed and point them to the confirmation card — do not claim it was done.`;
+export const PROMPT_DECISION_AUTONOMOUS = `- You may act through your tools within the platform's safety limits. State every action you took and its result; when an action was refused or escalated, say so and never claim it was done.`;
+
+export const PROMPT_POSTAMBLE = `- State uncertainty and your confidence explicitly. Separate what the data shows from what you infer.
 - Always respond in the user's language.`;
+
+export function promptContract(actuationCeiling: ActuationPolicy): string {
+  const decision =
+    actuationCeiling === 'allowed' ? PROMPT_DECISION_AUTONOMOUS : PROMPT_DECISION_ADVISORY;
+  return [PROMPT_PREAMBLE, decision, PROMPT_POSTAMBLE].join('\n');
+}
 
 /** A runtime persona: the shared `AgentPersona` shape plus its two axes. */
 export interface ComposedPersona extends AgentPersona {
@@ -24,6 +40,8 @@ export interface ComposedPersona extends AgentPersona {
   readonly specialty: AiSpecialtyId;
   /** RBAC strings the caller must ALL hold (from the shared catalogue). */
   readonly requiredCapabilities: readonly string[];
+  /** The specialty's module scope — the only module whose tools this persona may offer. */
+  readonly requiresModule: AiSpecialtyModule | null;
 }
 
 const POLICY_RANK: Readonly<Record<ActuationPolicy, number>> = {
@@ -49,7 +67,11 @@ export function composePersona(
   specialty: AgentSpecialty,
   tierAllowsTool: (toolName: string) => boolean,
 ): ComposedPersona {
-  const systemPrompt = [PROMPT_PREAMBLE, tier.promptFragment, specialty.promptFragment]
+  const systemPrompt = [
+    promptContract(tier.actuationCeiling),
+    tier.promptFragment,
+    specialty.promptFragment,
+  ]
     .filter((fragment) => fragment.length > 0)
     .join('\n\n');
   return {
@@ -63,5 +85,6 @@ export function composePersona(
     tier: tier.id,
     specialty: specialty.id,
     requiredCapabilities: entry.requiredCapabilities,
+    requiresModule: specialty.requiresModule,
   };
 }

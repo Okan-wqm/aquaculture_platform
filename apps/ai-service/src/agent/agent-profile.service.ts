@@ -94,7 +94,7 @@ export class AgentProfileService {
       if (!metadata.requiredPermissions.includes(basePersona.tier)) return false;
       if (
         metadata.requiresModule !== null &&
-        !this.specialtyCoversModule(basePersona, metadata.requiresModule)
+        metadata.requiresModule !== basePersona.requiresModule
       ) {
         return false;
       }
@@ -123,12 +123,6 @@ export class AgentProfileService {
       tenantCustomPrompt: config.customSystemPrompt?.trim() || null,
       actuationPolicy,
     };
-  }
-
-  private specialtyCoversModule(persona: ComposedPersona, module: string): boolean {
-    // The catalogue's requiredCapabilities carry `ai_specialties:<module>` for
-    // exactly the module the specialty is scoped to.
-    return persona.requiredCapabilities.includes(`ai_specialties:${module}`);
   }
 
   /**

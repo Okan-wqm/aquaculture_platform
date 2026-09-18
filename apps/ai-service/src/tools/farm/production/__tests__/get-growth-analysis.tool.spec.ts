@@ -13,6 +13,7 @@ const CTX: ToolExecutionContext = {
   correlationId: 'corr-1',
   persona: 'manager-farm-production-v1',
   personaTier: 'manager',
+  offeredToolNames: [],
   actuationPolicy: 'confirm_required',
 };
 

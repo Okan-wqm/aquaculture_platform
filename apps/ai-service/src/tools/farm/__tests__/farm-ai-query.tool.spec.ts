@@ -19,6 +19,7 @@ const CTX: ToolExecutionContext = {
   correlationId: 'corr-1',
   persona: 'operator-farm-water-health-v1',
   personaTier: 'operator',
+  offeredToolNames: [],
   actuationPolicy: 'confirm_required',
 };
 

@@ -12,6 +12,7 @@ describe('AnalyzeSensorDataTool', () => {
     correlationId: 'corr-123',
     persona: 'aqua-expert',
     personaTier: 'expert',
+    offeredToolNames: [],
     actuationPolicy: 'confirm_required',
   };
 
@@ -26,12 +27,7 @@ describe('AnalyzeSensorDataTool', () => {
       expect(meta.category).toBe('sensor_query');
       expect(meta.runtime).toBe('cloud');
       expect(meta.requiresConfirmation).toBe(false);
-      expect(meta.requiredPermissions).toEqual([
-        'operator',
-        'manager',
-        'expert',
-        'supervisor',
-      ]);
+      expect(meta.requiredPermissions).toEqual(['operator', 'manager', 'expert', 'supervisor']);
     });
   });
 
@@ -39,9 +35,7 @@ describe('AnalyzeSensorDataTool', () => {
     it('should reject empty samples array', async () => {
       const result = await tool.validate({ samples: [] });
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain(
-        'samples must contain at least one sample',
-      );
+      expect(result.errors).toContain('samples must contain at least one sample');
     });
 
     it('should reject samples without timestamp', async () => {
@@ -54,9 +48,7 @@ describe('AnalyzeSensorDataTool', () => {
 
     it('should accept valid input', async () => {
       const result = await tool.validate({
-        samples: [
-          { timestamp: '2026-01-01T00:00:00Z', values: { temp: 25 } },
-        ],
+        samples: [{ timestamp: '2026-01-01T00:00:00Z', values: { temp: 25 } }],
       });
       expect(result.valid).toBe(true);
     });
@@ -76,9 +68,7 @@ describe('AnalyzeSensorDataTool', () => {
       expect(result.data!.confidence).toBe('high');
       expect(result.data!.detectedFields).toHaveLength(2);
 
-      const tempField = result.data!.detectedFields.find(
-        (f) => f.key === 'temperature',
-      );
+      const tempField = result.data!.detectedFields.find((f) => f.key === 'temperature');
       expect(tempField).toBeDefined();
       expect(tempField!.dataType).toBe('number');
       expect(tempField!.min).toBe(20);
@@ -87,9 +77,7 @@ describe('AnalyzeSensorDataTool', () => {
       expect(tempField!.suggestedLabel).toBe('Temperature');
       expect(tempField!.suggestedWidgetType).toBe('gauge');
 
-      const humField = result.data!.detectedFields.find(
-        (f) => f.key === 'humidity',
-      );
+      const humField = result.data!.detectedFields.find((f) => f.key === 'humidity');
       expect(humField).toBeDefined();
       expect(humField!.suggestedUnit).toBe('%RH');
     });
@@ -113,9 +101,7 @@ describe('AnalyzeSensorDataTool', () => {
       const result = await tool.execute({ samples }, ctx);
       expect(result.success).toBe(true);
 
-      const pumpField = result.data!.detectedFields.find(
-        (f) => f.key === 'pump_active',
-      );
+      const pumpField = result.data!.detectedFields.find((f) => f.key === 'pump_active');
       expect(pumpField).toBeDefined();
       expect(pumpField!.dataType).toBe('boolean');
       expect(pumpField!.suggestedWidgetType).toBe('indicator');
@@ -134,9 +120,7 @@ describe('AnalyzeSensorDataTool', () => {
     });
 
     it('should return low confidence for fewer than 3 samples', async () => {
-      const samples = [
-        { timestamp: '2026-01-01T00:00:00Z', values: { do: 6.5 } },
-      ];
+      const samples = [{ timestamp: '2026-01-01T00:00:00Z', values: { do: 6.5 } }];
 
       const result = await tool.execute({ samples }, ctx);
       expect(result.data!.confidence).toBe('low');
@@ -165,9 +149,7 @@ describe('AnalyzeSensorDataTool', () => {
       const result = await tool.execute({ samples }, ctx);
       expect(result.success).toBe(true);
 
-      const fieldMap = new Map(
-        result.data!.detectedFields.map((f) => [f.key, f]),
-      );
+      const fieldMap = new Map(result.data!.detectedFields.map((f) => [f.key, f]));
 
       expect(fieldMap.get('ph')!.suggestedUnit).toBe('pH');
       expect(fieldMap.get('dissolved_oxygen')!.suggestedUnit).toBe('mg/L');
@@ -183,9 +165,7 @@ describe('AnalyzeSensorDataTool', () => {
     });
 
     it('should include context in output', async () => {
-      const samples = [
-        { timestamp: '2026-01-01T00:00:00Z', values: { temp: 25 } },
-      ];
+      const samples = [{ timestamp: '2026-01-01T00:00:00Z', values: { temp: 25 } }];
 
       const result = await tool.execute(
         {
@@ -214,9 +194,7 @@ describe('AnalyzeSensorDataTool', () => {
       ];
 
       const result = await tool.execute({ samples }, ctx);
-      const statusField = result.data!.detectedFields.find(
-        (f) => f.key === 'status',
-      );
+      const statusField = result.data!.detectedFields.find((f) => f.key === 'status');
       expect(statusField!.dataType).toBe('string');
       expect(statusField!.suggestedWidgetType).toBe('text');
     });

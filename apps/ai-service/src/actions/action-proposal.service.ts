@@ -134,6 +134,23 @@ export class ActionProposalService {
       return { success: false, result: 'Proposed action has expired — ask the AI again.' };
     }
 
+    // The stored persona was a published catalogue id when the proposal was
+    // written; if the catalogue no longer publishes it, the proposal fails
+    // CLOSED — to a terminal `failed` row, never to a row stuck in `executing`.
+    // Resolved before the claim so an unresolvable persona never claims.
+    const personaTier = this.catalogue.tierOf(proposal.persona);
+    if (personaTier === null) {
+      await this.pinnedUpdate(
+        tenantId,
+        { id: actionId, tenantId, status: 'proposed' },
+        { status: 'failed', result: `Persona ${proposal.persona} is no longer published.` },
+      );
+      return {
+        success: false,
+        result: 'Proposed action can no longer be executed — ask the AI again.',
+      };
+    }
+
     // Atomic claim: only ONE confirmer transitions proposed → executing.
     const claim = await this.pinnedUpdate(
       tenantId,
@@ -155,9 +172,7 @@ export class ActionProposalService {
 
     // Execute the STORED intent as the ORIGINAL requester. The executor
     // re-checks the stored persona's tier against the tool's
-    // requiredPermissions and writes the strict actuation audit row. The
-    // persona was a published catalogue id when the proposal was stored; if
-    // the catalogue no longer publishes it, the proposal fails closed.
+    // requiredPermissions and writes the strict actuation audit row.
     const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
     const context: ToolExecutionContext = {
       tenantId,
@@ -166,7 +181,11 @@ export class ActionProposalService {
       userRoles: proposal.requesterRoles,
       correlationId: proposal.correlationId ?? actionId,
       persona: proposal.persona,
-      personaTier: this.catalogue.resolve(proposal.persona).tier,
+      personaTier,
+      // RBAC-MEDIUM-016: the stored tool was offered when the proposal was
+      // created (the runner only proposes what its profile offered); the row
+      // itself is the grant, and nothing else may run under it.
+      offeredToolNames: [proposal.toolName],
       // The human confirmation IS the authorization override the
       // confirm_required policy was holding for.
       actuationPolicy: 'allowed',

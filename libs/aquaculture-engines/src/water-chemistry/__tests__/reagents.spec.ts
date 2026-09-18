@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { calculateDosingRecipes, REAGENTS } from '../index.js';
 
-const ALL = REAGENTS.map(r => r.name);
+const ALL = REAGENTS.map((r) => r.name);
 
 /**
  * Dosing-recipe curation.
@@ -20,24 +20,24 @@ describe('calculateDosingRecipes — curation & ranking', () => {
 
   it('never surfaces counter-productive base+acid recipes when practical ones exist', () => {
     // For a raise-ALK move, HCl only appears paired with a base (overshoot-then-trim)
-    expect(recs.every(r => r.steps.every(s => s.formula !== 'HCl'))).toBe(true);
+    expect(recs.every((r) => r.steps.every((s) => s.formula !== 'HCl'))).toBe(true);
   });
 
   it('keeps the practical lime recipes that the old cap dropped', () => {
-    const formulas = recs.flatMap(r => r.steps.map(s => s.formula));
+    const formulas = recs.flatMap((r) => r.steps.map((s) => s.formula));
     expect(formulas).toContain('CaO');
     expect(formulas).toContain('Ca(OH)₂');
     expect(recs.length).toBeLessThanOrEqual(6);
   });
 
   it('ranks the default aquaculture buffer (NaHCO₃ + CO₂) first', () => {
-    expect(recs[0]?.steps.some(s => s.formula === 'NaHCO₃')).toBe(true);
+    expect(recs[0]?.steps.some((s) => s.formula === 'NaHCO₃')).toBe(true);
   });
 
   it('per-recipe MATH is unchanged (matches reference goldens)', () => {
-    const nahco3 = recs.find(r => r.steps.some(s => s.formula === 'NaHCO₃'));
-    const base = nahco3?.steps.find(s => s.formula === 'NaHCO₃');
-    const co2 = nahco3?.steps.find(s => s.formula === 'CO₂');
+    const nahco3 = recs.find((r) => r.steps.some((s) => s.formula === 'NaHCO₃'));
+    const base = nahco3?.steps.find((s) => s.formula === 'NaHCO₃');
+    const co2 = nahco3?.steps.find((s) => s.formula === 'CO₂');
     expect(base?.amountGrams).toBeCloseTo(42.004, 2);
     expect(co2?.amountGrams).toBeCloseTo(22.005, 2);
   });

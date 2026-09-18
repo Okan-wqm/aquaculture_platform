@@ -53,12 +53,7 @@ export function percentNH3(pHnbs: number, tempC: number, S: number): number {
  * @param S - Salinity in ppt
  * @returns pH on NBS scale where NH3 = nh3Limit, or NaN if not reachable
  */
-export function criticalPHforNH3(
-  tan: number,
-  nh3Limit: number,
-  tempC: number,
-  S: number
-): number {
+export function criticalPHforNH3(tan: number, nh3Limit: number, tempC: number, S: number): number {
   if (tan <= 0 || nh3Limit <= 0 || nh3Limit >= tan) return NaN;
 
   // Target fraction
@@ -84,12 +79,7 @@ export function criticalPHforNH3(
  * Calculate the maximum safe TAN at given pH/T/S conditions
  * safeTAN = nh3Limit / fractionNH3  (i.e. how much TAN can you have before NH3 exceeds limit)
  */
-export function calcSafeTAN(
-  pHnbs: number,
-  nh3Limit: number,
-  tempC: number,
-  S: number
-): number {
+export function calcSafeTAN(pHnbs: number, nh3Limit: number, tempC: number, S: number): number {
   const f = fractionNH3(pHnbs, tempC, S);
   if (f <= 0) return Infinity;
   return nh3Limit / f;
@@ -99,10 +89,7 @@ export function calcSafeTAN(
  * Determine UIA safety status based on current vs critical pH
  * Returns 'safe' (green), 'alert' (yellow within 0.2 pH of critical), or 'danger' (red)
  */
-export function uiaStatus(
-  currentPH: number,
-  criticalPH: number
-): 'safe' | 'alert' | 'danger' {
+export function uiaStatus(currentPH: number, criticalPH: number): 'safe' | 'alert' | 'danger' {
   if (isNaN(criticalPH)) return 'safe'; // no critical pH means NH3 limit can never be reached
   if (currentPH >= criticalPH) return 'danger';
   if (currentPH >= criticalPH - 0.2) return 'alert';
@@ -120,7 +107,7 @@ export function generateUIAvsPHData(
   nh3Limit: number,
   pHmin = 6.0,
   pHmax = 9.5,
-  step = 0.05
+  step = 0.05,
 ): Array<{ pH: number; UIA: number; limit: number }> {
   const data: Array<{ pH: number; UIA: number; limit: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -144,7 +131,7 @@ export function generateNH3vsPHData(
   tan = 1.0,
   pHmin = 6.0,
   pHmax = 9.5,
-  step = 0.1
+  step = 0.1,
 ): Array<{ pH: number; NH3: number; NH4: number }> {
   const data: Array<{ pH: number; NH3: number; NH4: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -182,7 +169,12 @@ export function calcH2S(totalSulfide: number, pHnbs: number, tempC: number, S: n
  * Calculate total sulfide from measured H₂S at the measurement pH
  * h2sMeasured in µg/L → totalSulfide in µg/L
  */
-export function calcTotalSulfide(h2sMeasured: number, pHnbs: number, tempC: number, S: number): number {
+export function calcTotalSulfide(
+  h2sMeasured: number,
+  pHnbs: number,
+  tempC: number,
+  S: number,
+): number {
   const f = fractionH2S(pHnbs, tempC, S);
   if (f <= 0) return Infinity;
   return h2sMeasured / f;
@@ -208,7 +200,7 @@ export function criticalPHforH2S(
   h2sMeasuredAtPH: number,
   h2sLimit: number,
   tempC: number,
-  S: number
+  S: number,
 ): number {
   if (h2sMeasured <= 0 || h2sLimit <= 0) return NaN;
 
@@ -245,7 +237,7 @@ export function calcSafeTotalSulfide(
   pHnbs: number,
   h2sLimit: number,
   tempC: number,
-  S: number
+  S: number,
 ): number {
   const f = fractionH2S(pHnbs, tempC, S);
   if (f <= 0) return Infinity;
@@ -257,10 +249,7 @@ export function calcSafeTotalSulfide(
  * NOTE: H₂S is toxic at LOW pH (opposite of NH3 which is toxic at HIGH pH).
  * So danger = currentPH <= criticalPH.
  */
-export function h2sStatus(
-  currentPH: number,
-  criticalPH: number
-): 'safe' | 'alert' | 'danger' {
+export function h2sStatus(currentPH: number, criticalPH: number): 'safe' | 'alert' | 'danger' {
   if (isNaN(criticalPH)) return 'safe';
   if (currentPH <= criticalPH) return 'danger';
   if (currentPH <= criticalPH + 0.2) return 'alert';
@@ -285,10 +274,16 @@ export function generateH2SvsPHData(
   h2sLimit: number,
   pHmin = 5.0,
   pHmax = 9.5,
-  step = 0.05
+  step = 0.05,
 ): Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> {
   const totalSulfide = calcTotalSulfide(h2sMeasured, h2sMeasuredAtPH, tempC, S);
-  const data: Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> = [];
+  const data: Array<{
+    pH: number;
+    H2S_pct: number;
+    HS_pct: number;
+    H2S_ugL: number;
+    limit: number;
+  }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
     const f = fractionH2S(pH, tempC, S);
     data.push({

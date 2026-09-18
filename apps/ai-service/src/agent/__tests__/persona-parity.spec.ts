@@ -138,10 +138,21 @@ describe('persona composition parity', () => {
     expect(catalogue.resolve(id).systemPrompt).toMatchSnapshot();
   });
 
-  it('every composed prompt opens with the operating contract and never a reserved delimiter', () => {
+  it('every composed prompt opens with the operating contract, carries exactly one decision bullet matching its actuation ceiling, and never a reserved delimiter', () => {
     for (const persona of catalogue.list()) {
       expect(persona.systemPrompt.startsWith('OPERATING CONTRACT')).toBe(true);
-      expect(persona.systemPrompt).toContain('You advise; the user decides.');
+      // The decision bullet follows the tier ceiling: advisory tiers never
+      // act, the autonomous supervisor may — a persona never carries both.
+      const advisory = persona.systemPrompt.includes('You advise; the user decides.');
+      const autonomous = persona.systemPrompt.includes(
+        'You may act through your tools within the platform',
+      );
+      expect({ id: persona.id, advisory, autonomous }).toEqual({
+        id: persona.id,
+        advisory: persona.tier !== 'supervisor',
+        autonomous: persona.tier === 'supervisor',
+      });
+      expect(persona.systemPrompt).toContain('Always respond in the user');
       for (const delimiter of ['[SYSTEM', 'IMMUTABLE', 'DO NOT OVERRIDE', '[END SYSTEM]']) {
         expect(persona.systemPrompt).not.toContain(delimiter);
       }

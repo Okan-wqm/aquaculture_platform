@@ -265,7 +265,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               LIFE-SAFETY: Autonomous PLC Actuation
             </h3>
             <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed mt-1">
-              Some AI personas (especially SCADA AI / Supervisor) can control physical equipment
+              Some AI personas (especially the SCADA Supervisor) can control physical equipment
               through PLC actuation. The actuation policy and autonomous safety limits shown below
               are loaded from the real backend TenantAgentConfig entity. These are not display-only
               values -- they directly control what the AI can do to physical infrastructure. Always

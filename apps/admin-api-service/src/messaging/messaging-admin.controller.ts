@@ -94,11 +94,18 @@ interface ExportResponse {
   status: string;
 }
 
+/**
+ * Mirrors messaging-service's `AiPersonaDefinition` (a shared-catalogue
+ * persona as the admin inventory serves it). Personas are platform-managed
+ * and read-only here — there is no enabled flag on the wire.
+ */
 interface PersonaResponse {
-  id: string;
+  id: string | null;
   name: string;
   description: string;
-  isActive: boolean;
+  icon: string;
+  color: string;
+  capabilities: string[];
 }
 
 // ── Controller ──────────────────────────────────────────────────────────
@@ -129,9 +136,7 @@ export class MessagingAdminController {
    */
   @Get('compliance/stats')
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
-  async getComplianceStats(
-    @Query('tenantId') tenantId: string,
-  ): Promise<ComplianceStatsResponse> {
+  async getComplianceStats(@Query('tenantId') tenantId: string): Promise<ComplianceStatsResponse> {
     return this.sendNatsRequest<ComplianceStatsResponse>(
       'request.messaging.admin.complianceStats',
       { tenantId },
@@ -146,13 +151,10 @@ export class MessagingAdminController {
    */
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
-  async getLegalHolds(
-    @Query('tenantId') tenantId: string,
-  ): Promise<LegalHoldResponse[]> {
-    return this.sendNatsRequest<LegalHoldResponse[]>(
-      'request.messaging.admin.getLegalHolds',
-      { tenantId },
-    );
+  async getLegalHolds(@Query('tenantId') tenantId: string): Promise<LegalHoldResponse[]> {
+    return this.sendNatsRequest<LegalHoldResponse[]>('request.messaging.admin.getLegalHolds', {
+      tenantId,
+    });
   }
 
   /**
@@ -165,19 +167,16 @@ export class MessagingAdminController {
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.createLegalHold',
-      {
-        tenantId: dto.tenantId,
-        userId: user.id,
-        channelId: dto.channelId ?? null,
-        reason: dto.reason,
-        legalMatterId: dto.legalMatterId,
-        legalMatterDescription: dto.legalMatterDescription,
-        requestedBy: dto.requestedBy,
-        expiresAt: dto.expiresAt,
-      },
-    );
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.createLegalHold', {
+      tenantId: dto.tenantId,
+      userId: user.id,
+      channelId: dto.channelId ?? null,
+      reason: dto.reason,
+      legalMatterId: dto.legalMatterId,
+      legalMatterDescription: dto.legalMatterDescription,
+      requestedBy: dto.requestedBy,
+      expiresAt: dto.expiresAt,
+    });
   }
 
   /**
@@ -191,14 +190,11 @@ export class MessagingAdminController {
     @Query('tenantId') tenantId: string,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.releaseLegalHold',
-      {
-        holdId: id,
-        tenantId,
-        userId: user.id,
-      },
-    );
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.releaseLegalHold', {
+      holdId: id,
+      tenantId,
+      userId: user.id,
+    });
   }
 
   // ── Retention Policies ──────────────────────────────────────────────
@@ -251,7 +247,7 @@ export class MessagingAdminController {
   async getMonitoringStats(): Promise<never> {
     throw new HttpException(
       'Messaging monitoring stats not yet implemented in messaging-service. ' +
-      'Requires real-time metrics aggregation endpoint.',
+        'Requires real-time metrics aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -276,19 +272,16 @@ export class MessagingAdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<AuditLogResponse> {
-    return this.sendNatsRequest<AuditLogResponse>(
-      'request.messaging.admin.getAuditLog',
-      {
-        tenantId,
-        limit: limit ? parseInt(limit, 10) : 25,
-        cursor: cursor ?? null,
-        userId,
-        action,
-        resourceType,
-        startDate,
-        endDate,
-      },
-    );
+    return this.sendNatsRequest<AuditLogResponse>('request.messaging.admin.getAuditLog', {
+      tenantId,
+      limit: limit ? parseInt(limit, 10) : 25,
+      cursor: cursor ?? null,
+      userId,
+      action,
+      resourceType,
+      startDate,
+      endDate,
+    });
   }
 
   // ── Tenant Messaging Overview ───────────────────────────────────────
@@ -302,7 +295,7 @@ export class MessagingAdminController {
   async getTenants(): Promise<never> {
     throw new HttpException(
       'Tenant messaging overview not yet implemented in messaging-service. ' +
-      'Requires cross-tenant aggregation endpoint.',
+        'Requires cross-tenant aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -321,14 +314,11 @@ export class MessagingAdminController {
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>(
-      'request.messaging.admin.triggerExport',
-      {
-        tenantId: id,
-        userId: user.id,
-        format: dto.format ?? 'json',
-      },
-    );
+    return this.sendNatsRequest<ExportResponse>('request.messaging.admin.triggerExport', {
+      tenantId: id,
+      userId: user.id,
+      format: dto.format ?? 'json',
+    });
   }
 
   // ── AI Personas ─────────────────────────────────────────────────────
@@ -339,13 +329,10 @@ export class MessagingAdminController {
    */
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
-  async getPersonas(
-    @Query('tenantId') tenantId: string,
-  ): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>(
-      'request.messaging.admin.getPersonas',
-      { tenantId },
-    );
+  async getPersonas(@Query('tenantId') tenantId: string): Promise<PersonaResponse[]> {
+    return this.sendNatsRequest<PersonaResponse[]>('request.messaging.admin.getPersonas', {
+      tenantId,
+    });
   }
 
   /**
@@ -355,12 +342,10 @@ export class MessagingAdminController {
    */
   @Put('personas/:id')
   @ApiOperation({ summary: 'Update AI persona configuration' })
-  async updatePersona(
-    @Param('id') _id: string,
-  ): Promise<never> {
+  async updatePersona(@Param('id') _id: string): Promise<never> {
     throw new HttpException(
       'AI persona configuration update not yet implemented in messaging-service. ' +
-      'Personas are currently static; per-tenant configuration is planned.',
+        'Personas are currently static; per-tenant configuration is planned.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -375,18 +360,13 @@ export class MessagingAdminController {
    * @returns Response from messaging-service
    * @throws HttpException on timeout or NATS errors
    */
-  private async sendNatsRequest<T>(
-    pattern: string,
-    payload: Record<string, unknown>,
-  ): Promise<T> {
+  private async sendNatsRequest<T>(pattern: string, payload: Record<string, unknown>): Promise<T> {
     try {
       const result = await firstValueFrom(
         this.natsClient.send<T>(pattern, payload).pipe(
           timeout(this.natsTimeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: pattern=${pattern}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: pattern=${pattern}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -416,10 +396,7 @@ export class MessagingAdminController {
         throw err;
       }
 
-      throw new HttpException(
-        `Messaging service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Messaging service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 }

@@ -65,9 +65,13 @@ function senderName(m: Message, fallback: string): string {
 const ChatRoomPage: React.FC = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const myId = user?.id;
   const { t } = useI18n();
+  // FE-MEDIUM-065: the consent switch is shown only to members who may use
+  // the assistant at all — without ai_assistant:use an opt-in would only turn
+  // "no consent" notices into "not permitted" ones.
+  const canUseAi = hasPermission('ai_assistant:use');
 
   const {
     data: messagesData,
@@ -305,7 +309,7 @@ const ChatRoomPage: React.FC = () => {
 
         {/* FE-MEDIUM-065: the bridge answers in an AI room only for members who
             opted in — the switch lives where the refusal would otherwise show. */}
-        {currentChannel?.type === 'AI' && (
+        {currentChannel?.type === 'AI' && canUseAi && (
           <div
             data-testid="ai-consent"
             style={{ padding: '10px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}

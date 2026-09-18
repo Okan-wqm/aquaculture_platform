@@ -9,8 +9,12 @@ const mockCommandBusExecute = jest.fn();
 const mockQueryBusExecute = jest.fn();
 
 jest.mock('@nestjs/cqrs', () => {
-  class MockCommandBus { execute = mockCommandBusExecute; }
-  class MockQueryBus { execute = mockQueryBusExecute; }
+  class MockCommandBus {
+    execute = mockCommandBusExecute;
+  }
+  class MockQueryBus {
+    execute = mockQueryBusExecute;
+  }
   return {
     CommandBus: MockCommandBus,
     QueryBus: MockQueryBus,
@@ -39,7 +43,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Channel, ChannelType } from '../../entities/channel.entity';
-import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../../entities/channel-member.entity';
+import {
+  ChannelMember,
+  ChannelMemberRole,
+  NotificationPreference,
+} from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
 import { PresenceService } from '../../../presence/presence.service';
 import { ChannelResolver } from '../channel.resolver';
@@ -106,10 +114,7 @@ describe('ChannelResolver', () => {
   // myChannels query
   // -----------------------------------------------------------------------
   it('myChannels returns paginated channel list', async () => {
-    const channels = [
-      createMockChannel({ name: 'Ops' }),
-      createMockChannel({ name: 'Dev' }),
-    ];
+    const channels = [createMockChannel({ name: 'Ops' }), createMockChannel({ name: 'Dev' })];
     mockQueryBusExecute.mockResolvedValue({
       items: channels,
       total: 2,
@@ -182,6 +187,39 @@ describe('ChannelResolver', () => {
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
   });
 
+  // AISAFETY-MEDIUM-024: an AI room may pin only a persona the creator may
+  // drive (tier ∧ specialty capabilities) — the pin is permanent.
+  it('createChannel forbids pinning an AI persona the caller lacks the capabilities for', async () => {
+    const input = {
+      type: ChannelType.AI,
+      name: 'Production help',
+      memberIds: [],
+      aiPersona: 'expert-farm-production-v1',
+    };
+
+    // Holds the tier but not the farm specialty → denied.
+    await expect(
+      resolver.createChannel(tenantId, mockUser(['ai_personas:expert']) as never, input as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(mockCommandBusExecute).not.toHaveBeenCalled();
+  });
+
+  it('createChannel allows an AI persona the caller holds every capability for, and the tenant default without any', async () => {
+    mockCommandBusExecute.mockResolvedValue(createMockChannel({ type: ChannelType.AI }));
+
+    await resolver.createChannel(
+      tenantId,
+      mockUser(['ai_personas:expert', 'ai_specialties:farm']) as never,
+      { type: ChannelType.AI, memberIds: [], aiPersona: 'expert-farm-production-v1' } as never,
+    );
+    await resolver.createChannel(
+      tenantId,
+      mockUser([]) as never,
+      { type: ChannelType.AI, memberIds: [] } as never,
+    );
+    expect(mockCommandBusExecute).toHaveBeenCalledTimes(2);
+  });
+
   // -----------------------------------------------------------------------
   // addChannelMember mutation
   // -----------------------------------------------------------------------
@@ -193,7 +231,11 @@ describe('ChannelResolver', () => {
     const targetUserId = fakeUuid('usr');
 
     const result = await resolver.addChannelMember(
-      tenantId, mockUser() as never, channelId, targetUserId, ChannelMemberRole.MEMBER,
+      tenantId,
+      mockUser() as never,
+      channelId,
+      targetUserId,
+      ChannelMemberRole.MEMBER,
     );
 
     expect(mockCommandBusExecute).toHaveBeenCalledTimes(1);
@@ -215,7 +257,10 @@ describe('ChannelResolver', () => {
     queryRunner.manager.save.mockImplementation(async (_Entity: unknown, data: unknown) => data);
 
     const result = await resolver.updateNotificationPreference(
-      tenantId, mockUser() as never, channelId, NotificationPreference.MENTIONS,
+      tenantId,
+      mockUser() as never,
+      channelId,
+      NotificationPreference.MENTIONS,
     );
 
     expect(queryRunner.manager.findOne).toHaveBeenCalled();

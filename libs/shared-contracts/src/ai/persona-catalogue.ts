@@ -71,9 +71,24 @@ interface AiTierPresentation {
   readonly capabilities: readonly string[];
 }
 
+/**
+ * Freeze a source definition and its arrays so a runtime mutation of the
+ * source catalogues (not only the derived AI_PERSONA_CATALOGUE) is impossible.
+ * Typed per definition so the literal icon/colour/tier unions are preserved.
+ */
+function freezeTier(definition: AiTierPresentation): AiTierPresentation {
+  Object.freeze(definition.capabilities);
+  return Object.freeze(definition);
+}
+function freezeSpecialty(definition: AiSpecialtyDefinition): AiSpecialtyDefinition {
+  Object.freeze(definition.capabilities);
+  Object.freeze(definition.publishedTiers);
+  return Object.freeze(definition);
+}
+
 export const AI_TIER_PRESENTATION: Readonly<Record<AiPersonaTier, AiTierPresentation>> =
   Object.freeze({
-    operator: {
+    operator: freezeTier({
       label: 'Operator',
       name: 'Operations Assistant',
       description: 'Water quality readings, sensor values, safe ranges, alerts',
@@ -85,8 +100,8 @@ export const AI_TIER_PRESENTATION: Readonly<Record<AiPersonaTier, AiTierPresenta
         'Ammonia/H2S/CO2 toxicity',
         'Carbonate chemistry',
       ],
-    },
-    manager: {
+    }),
+    manager: freezeTier({
       label: 'Manager',
       name: 'Management Assistant',
       description: 'Analytics, reporting, risk assessment, data-driven insights',
@@ -99,8 +114,8 @@ export const AI_TIER_PRESENTATION: Readonly<Record<AiPersonaTier, AiTierPresenta
         'Feed management',
         'Alert analysis',
       ],
-    },
-    expert: {
+    }),
+    expert: freezeTier({
       label: 'Expert',
       name: 'Aquaculture Expert',
       description: 'Advanced water chemistry, dosing, growth analytics, risk',
@@ -113,8 +128,8 @@ export const AI_TIER_PRESENTATION: Readonly<Record<AiPersonaTier, AiTierPresenta
         'Risk assessment',
         'Actuation (with confirmation)',
       ],
-    },
-    supervisor: {
+    }),
+    supervisor: freezeTier({
       label: 'Supervisor',
       name: 'SCADA Supervisor',
       description: 'Automation, PLC control, autonomous monitoring within safety limits',
@@ -127,7 +142,7 @@ export const AI_TIER_PRESENTATION: Readonly<Record<AiPersonaTier, AiTierPresenta
         'Safety limit enforcement',
         'Escalation management',
       ],
-    },
+    }),
   });
 
 export interface AiSpecialtyDefinition {
@@ -150,7 +165,7 @@ export interface AiSpecialtyDefinition {
 
 export const AI_SPECIALTY_CATALOGUE: Readonly<Record<AiSpecialtyId, AiSpecialtyDefinition>> =
   Object.freeze({
-    general: {
+    general: freezeSpecialty({
       id: 'general',
       name: 'General',
       description: 'Ask anything about your aquaculture operations',
@@ -159,8 +174,8 @@ export const AI_SPECIALTY_CATALOGUE: Readonly<Record<AiSpecialtyId, AiSpecialtyD
       capabilities: ['General questions', 'Basic guidance', 'Platform help'],
       requiresModule: null,
       publishedTiers: AI_PERSONA_TIERS,
-    },
-    'farm-water-health': {
+    }),
+    'farm-water-health': freezeSpecialty({
       id: 'farm-water-health',
       name: 'Water & Fish Health Specialist',
       description:
@@ -176,8 +191,8 @@ export const AI_SPECIALTY_CATALOGUE: Readonly<Record<AiSpecialtyId, AiSpecialtyD
       ],
       requiresModule: 'farm',
       publishedTiers: ['operator', 'manager', 'expert'],
-    },
-    'farm-production': {
+    }),
+    'farm-production': freezeSpecialty({
       id: 'farm-production',
       name: 'Production Specialist',
       description:
@@ -193,8 +208,8 @@ export const AI_SPECIALTY_CATALOGUE: Readonly<Record<AiSpecialtyId, AiSpecialtyD
       ],
       requiresModule: 'farm',
       publishedTiers: ['operator', 'manager', 'expert'],
-    },
-    'farm-operations': {
+    }),
+    'farm-operations': freezeSpecialty({
       id: 'farm-operations',
       name: 'Farm Operations Specialist',
       description:
@@ -210,7 +225,7 @@ export const AI_SPECIALTY_CATALOGUE: Readonly<Record<AiSpecialtyId, AiSpecialtyD
       ],
       requiresModule: 'farm',
       publishedTiers: ['operator', 'manager', 'expert'],
-    },
+    }),
   });
 
 export interface AiPersonaCatalogueEntry {
@@ -289,5 +304,5 @@ export const AI_GENERAL_ASSISTANT_PICKER_ENTRY = Object.freeze({
   description: AI_SPECIALTY_CATALOGUE.general.description,
   icon: AI_SPECIALTY_CATALOGUE.general.icon,
   color: AI_SPECIALTY_CATALOGUE.general.color,
-  capabilities: AI_SPECIALTY_CATALOGUE.general.capabilities,
+  capabilities: Object.freeze([...AI_SPECIALTY_CATALOGUE.general.capabilities]),
 } as const);

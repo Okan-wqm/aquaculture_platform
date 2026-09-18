@@ -26,7 +26,7 @@ describe('generateDeffeyesChartData — H₂S toxic zone (legacy ALK/DIC chart)'
       TOXIC_H2S_LIMITS,
       alkMgToMeq(50),
       alkMgToMeq(100),
-      400
+      400,
     );
 
     expect(data.nh3ToxicZone).not.toBeNull();

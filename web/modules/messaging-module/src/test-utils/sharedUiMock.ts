@@ -53,7 +53,14 @@ type TenantMutationOptions<TData, TVariables> = {
   onError?: (error: Error, variables: TVariables, context: unknown) => void;
 };
 
-export async function createSharedUiMock(): Promise<Record<string, unknown>> {
+export interface SharedUiMockOptions {
+  /** Capability verdict for the stub session (default: holds everything). */
+  hasPermission?: (permission: string) => boolean;
+}
+
+export async function createSharedUiMock(
+  options: SharedUiMockOptions = {},
+): Promise<Record<string, unknown>> {
   const actual =
     await vi.importActual<typeof import('@aquaculture/shared-ui')>('@aquaculture/shared-ui');
   const rq = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
@@ -70,7 +77,7 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     hasRole: () => true,
     hasAnyRole: () => true,
     hasAllRoles: () => true,
-    hasPermission: () => true,
+    hasPermission: options.hasPermission ?? ((): boolean => true),
     isPlatformAdmin: false,
     isTenantAdmin: true,
   });

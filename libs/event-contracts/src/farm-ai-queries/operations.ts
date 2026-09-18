@@ -2,7 +2,11 @@
  * Operations shapes for the farm AI read contract: equipment, feeder
  * calibration, work orders, maintenance alerts, spare-part stock, farm stock
  * inventory and tasks. Assignees, creators, approvers, serial numbers,
- * purchase prices, specifications, checklists and notes never cross.
+ * purchase prices, specifications, checklist text and notes never cross;
+ * checklists are carried as done/total counts only. A work order's or task's
+ * `title` and a task's `location` are carried — the operator's one-line
+ * names the model needs to talk about the item — and are the only free-text
+ * fields in this file.
  */
 import {
   isAiQueryList,
@@ -16,13 +20,14 @@ import {
   isUuidString,
   type AiQueryList,
   type AiQueryRequest,
+  FARM_AI_QUERY_LIMITS,
 } from '../farm-ai-queries';
 
 // ── Equipment ───────────────────────────────────────────────────────────────
 
 export interface EquipmentListRequest extends AiQueryRequest {
   equipmentTypeId?: string;
-  status?: string;
+  status?: EquipmentStatusCode;
   isTank?: boolean;
   limit: number;
 }
@@ -42,13 +47,37 @@ export interface EquipmentDto {
   isActive: boolean;
 }
 export type EquipmentListReply = AiQueryList<EquipmentDto>;
+/**
+ * The equipment status vocabulary the AI filter accepts — mirrors farm's
+ * `EquipmentStatus` enum (equipment.entity.ts). A status outside it is an
+ * INVALID_REQUEST, never a silently dropped filter.
+ */
+export const EQUIPMENT_STATUSES = [
+  'operational',
+  'maintenance',
+  'repair',
+  'out_of_service',
+  'decommissioned',
+  'standby',
+  'active',
+  'preparing',
+  'cleaning',
+  'harvesting',
+  'fallow',
+  'quarantine',
+] as const;
+export type EquipmentStatusCode = (typeof EQUIPMENT_STATUSES)[number];
+export function isEquipmentStatusCode(value: unknown): value is EquipmentStatusCode {
+  return typeof value === 'string' && (EQUIPMENT_STATUSES as readonly string[]).includes(value);
+}
+
 export function isEquipmentListRequest(value: unknown): value is EquipmentListRequest {
   return (
     isAiQueryRequestShape(value, ['equipmentTypeId', 'status', 'isTank', 'limit']) &&
     isOptional(value['equipmentTypeId'], isUuidString) &&
-    isOptional(value['status'], (v): v is string => typeof v === 'string' && v.length <= 32) &&
+    isOptional(value['status'], isEquipmentStatusCode) &&
     isOptional(value['isTank'], (v): v is boolean => typeof v === 'boolean') &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isEquipmentDto(value: unknown): value is EquipmentDto {
@@ -83,7 +112,7 @@ export function isFeederCalibrationsRequest(value: unknown): value is FeederCali
   return (
     isAiQueryRequestShape(value, ['equipmentId', 'limit']) &&
     isUuidString(value['equipmentId']) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isFeederCalibrationDto(value: unknown): value is FeederCalibrationDto {
@@ -281,7 +310,7 @@ export function isFarmStockInventoryRequest(value: unknown): value is FarmStockI
     isAiQueryRequestShape(value, ['siteId', 'hasActiveBatch', 'limit']) &&
     isOptional(value['siteId'], isUuidString) &&
     isOptional(value['hasActiveBatch'], (v): v is boolean => typeof v === 'boolean') &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isFarmStockContainerDto(value: unknown): value is FarmStockContainerDto {

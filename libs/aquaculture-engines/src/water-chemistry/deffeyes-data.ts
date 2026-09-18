@@ -10,7 +10,13 @@
  * - Current and target operating points
  */
 
-import { calcTotalSulfide, criticalPHforH2S, fractionH2S, fractionNH3, criticalPHforNH3 } from './ammonia-calc.js';
+import {
+  calcTotalSulfide,
+  criticalPHforH2S,
+  fractionH2S,
+  fractionNH3,
+  criticalPHforNH3,
+} from './ammonia-calc.js';
 import { criticalPHforCO2 } from './co2-calc.js';
 import {
   DEFFEYES_CHART_MAX_DIC,
@@ -56,22 +62,22 @@ function rangeValues(start: number, end: number, step: number): number[] {
 const PH_ISOLINE_VALUES = rangeValues(
   DEFFEYES_CHART_PH_DOMAIN.minPH + 0.25,
   DEFFEYES_CHART_PH_DOMAIN.maxPH,
-  0.25
+  0.25,
 );
 
 /** Color palette for pH isolines */
 function phIsolineColor(pH: number): string {
   // Gradient from red (low pH) through green (neutral) to purple (high pH)
-  if (pH < 6.0) return '#dc2626';      // red
-  if (pH < 6.5) return '#ef4444';      // light red
-  if (pH < 7.0) return '#f97316';      // orange
-  if (pH < 7.5) return '#eab308';      // yellow
-  if (pH < 8.0) return '#22c55e';      // green
-  if (pH < 8.5) return '#06b6d4';      // cyan
-  if (pH < 9.0) return '#3b82f6';      // blue
-  if (pH < 9.5) return '#6366f1';      // indigo
-  if (pH < 10.0) return '#a855f7';     // purple
-  return '#7c3aed';                      // deep purple
+  if (pH < 6.0) return '#dc2626'; // red
+  if (pH < 6.5) return '#ef4444'; // light red
+  if (pH < 7.0) return '#f97316'; // orange
+  if (pH < 7.5) return '#eab308'; // yellow
+  if (pH < 8.0) return '#22c55e'; // green
+  if (pH < 8.5) return '#06b6d4'; // cyan
+  if (pH < 9.0) return '#3b82f6'; // blue
+  if (pH < 9.5) return '#6366f1'; // indigo
+  if (pH < 10.0) return '#a855f7'; // purple
+  return '#7c3aed'; // deep purple
 }
 
 /**
@@ -84,7 +90,7 @@ export function generatePHIsolines(
   tempC: number,
   S: number,
   maxDIC = 6,
-  step = maxDIC / 100
+  step = maxDIC / 100,
 ): PHIsoline[] {
   const isolines: PHIsoline[] = [];
 
@@ -126,7 +132,7 @@ export function generateNH3ToxicZone(
   S: number,
   tan: number,
   nh3Limit: number,
-  maxDIC = 6
+  maxDIC = 6,
 ): ToxicZone | null {
   const critPH = criticalPHforNH3(tan, nh3Limit, tempC, S);
   if (isNaN(critPH)) return null;
@@ -160,7 +166,7 @@ export function generateCO2ToxicZone(
   tempC: number,
   S: number,
   co2CritMg: number,
-  maxDIC = 6
+  maxDIC = 6,
 ): ToxicZone | null {
   // For each DIC, find the pH where CO2 = co2Crit, then get ALK at that pH
   // Scan a wider CT range (up to maxDIC*3) to ensure curve crosses both AT=0 and AT=maxALK
@@ -210,7 +216,7 @@ export function generateH2SToxicZone(
   h2sMeasured: number,
   h2sMeasuredAtPH: number,
   h2sLimit: number,
-  maxDIC = 6
+  maxDIC = 6,
 ): ToxicZone | null {
   const critPH = criticalPHforH2S(h2sMeasured, h2sMeasuredAtPH, h2sLimit, tempC, S);
   if (!isFinite(critPH)) return null;
@@ -247,9 +253,9 @@ function criticalPHforCO2AtDIC(
   tempC: number,
   S: number,
   minPH = DEFFEYES_LEGACY_PH_DOMAIN.minPH,
-  maxPH = DEFFEYES_LEGACY_PH_DOMAIN.maxPH
+  maxPH = DEFFEYES_LEGACY_PH_DOMAIN.maxPH,
 ): number {
-  const co2CritMM = co2CritMg / 44.010;
+  const co2CritMM = co2CritMg / 44.01;
   if (dicMM <= 0 || co2CritMM >= dicMM) return NaN;
 
   const co2AtMinPH = calcCo2OfDic(dicMM, minPH, tempC, S);
@@ -290,7 +296,7 @@ export function generateSafeZone(
   nh3Limit: number,
   co2CritMg: number,
   alkMinMeq: number,
-  alkMaxMeq: number
+  alkMaxMeq: number,
 ): SafeZone | null {
   const nh3pH = criticalPHforNH3(tan, nh3Limit, tempC, S);
   if (isNaN(nh3pH)) return null;
@@ -306,7 +312,9 @@ export function generateSafeZone(
   const dicBottomRight = calcDicOfAlk(alkMinMeq, co2pHMin, tempC, S);
 
   // Validate all values
-  if ([dicTopLeft, dicTopRight, dicBottomLeft, dicBottomRight].some(v => isNaN(v) || !isFinite(v))) {
+  if (
+    [dicTopLeft, dicTopRight, dicBottomLeft, dicBottomRight].some((v) => isNaN(v) || !isFinite(v))
+  ) {
     return null;
   }
 
@@ -329,7 +337,7 @@ export function calcOperatingPoint(
   pHnbs: number,
   alkMeq: number,
   tempC: number,
-  S: number
+  S: number,
 ): OperatingPoint {
   const dic = calcDicOfAlk(alkMeq, pHnbs, tempC, S);
   return { DIC: dic, ALK: alkMeq };
@@ -342,7 +350,7 @@ export function calcTargetPoint(
   targetpH: number,
   targetAlkMeq: number,
   tempC: number,
-  S: number
+  S: number,
 ): OperatingPoint {
   const dic = calcDicOfAlk(targetAlkMeq, targetpH, tempC, S);
   return { DIC: dic, ALK: targetAlkMeq };
@@ -377,7 +385,7 @@ function generateOmegaIsopleth(
   ksp: number,
   maxDIC = DEFFEYES_CHART_MAX_DIC,
   minPH = DEFFEYES_CHART_PH_DOMAIN.minPH,
-  maxPH = DEFFEYES_CHART_PH_DOMAIN.maxPH
+  maxPH = DEFFEYES_CHART_PH_DOMAIN.maxPH,
 ): Array<{ CT: number; AT: number }> {
   const points: Array<{ CT: number; AT: number }> = [];
   if (caMolKg <= 0) return points;
@@ -433,7 +441,7 @@ export function generateCalciteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC = DEFFEYES_CHART_MAX_DIC
+  maxDIC = DEFFEYES_CHART_MAX_DIC,
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078; // mg/L → mol/L ≈ mol/kg
@@ -450,7 +458,7 @@ export function generateAragoniteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC = DEFFEYES_CHART_MAX_DIC
+  maxDIC = DEFFEYES_CHART_MAX_DIC,
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078;
@@ -474,7 +482,7 @@ export function generateDeffeyesChartData(
   alkMinMeq: number,
   alkMaxMeq: number,
   caMgL = 0,
-  showTarget = true
+  showTarget = true,
 ): DeffeyesChartData {
   const { tempC, pH, salinity, alkalinity } = params;
   const maxDIC = DEFFEYES_CHART_MAX_DIC;
@@ -484,19 +492,31 @@ export function generateDeffeyesChartData(
 
   // Toxic zones
   const nh3ToxicZone = generateNH3ToxicZone(
-    tempC, salinity, limits.tan, limits.unIonizedNH3, maxDIC
+    tempC,
+    salinity,
+    limits.tan,
+    limits.unIonizedNH3,
+    maxDIC,
   );
-  const co2ToxicZone = generateCO2ToxicZone(
-    tempC, salinity, limits.co2Toxic, maxDIC
-  );
+  const co2ToxicZone = generateCO2ToxicZone(tempC, salinity, limits.co2Toxic, maxDIC);
   const h2sToxicZone = generateH2SToxicZone(
-    tempC, salinity, limits.h2sMeasuredUgL, limits.h2sMeasuredAtPH, limits.h2sLimitUgL, maxDIC
+    tempC,
+    salinity,
+    limits.h2sMeasuredUgL,
+    limits.h2sMeasuredAtPH,
+    limits.h2sLimitUgL,
+    maxDIC,
   );
 
   // Safe zone
   const safeZoneData = generateSafeZone(
-    tempC, salinity, limits.tan, limits.unIonizedNH3,
-    limits.co2Toxic, alkMinMeq, alkMaxMeq
+    tempC,
+    salinity,
+    limits.tan,
+    limits.unIonizedNH3,
+    limits.co2Toxic,
+    alkMinMeq,
+    alkMaxMeq,
   );
 
   // Operating points
@@ -509,7 +529,8 @@ export function generateDeffeyesChartData(
 
   // Omega isopleths (Calcite & Aragonite saturation Ω=1)
   const omegaCalcite = caMgL > 0 ? generateCalciteIsopleth(tempC, salinity, caMgL, maxDIC) : null;
-  const omegaAragonite = caMgL > 0 ? generateAragoniteIsopleth(tempC, salinity, caMgL, maxDIC) : null;
+  const omegaAragonite =
+    caMgL > 0 ? generateAragoniteIsopleth(tempC, salinity, caMgL, maxDIC) : null;
 
   return {
     isolines,
@@ -544,7 +565,7 @@ export function criticalPHforNH3PHChartDomain(
   tempC: number,
   S: number,
   minPH = PH_CHART_MIN,
-  maxPH = PH_CHART_MAX
+  maxPH = PH_CHART_MAX,
 ): number {
   if (tan <= 0 || nh3Limit <= 0 || nh3Limit >= tan) return NaN;
   if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;
@@ -578,7 +599,7 @@ export function criticalPHforH2SPHChartDomain(
   tempC: number,
   S: number,
   minPH = PH_CHART_MIN,
-  maxPH = PH_CHART_MAX
+  maxPH = PH_CHART_MAX,
 ): number {
   if (h2sMeasured <= 0 || h2sLimit <= 0) return NaN;
   if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;

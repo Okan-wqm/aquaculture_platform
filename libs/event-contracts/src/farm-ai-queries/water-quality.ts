@@ -91,7 +91,7 @@ export function isTankWaterQualityStatsRequest(
   return (
     isAiQueryRequestShape(value, ['tankId', 'days']) &&
     isUuidString(value['tankId']) &&
-    isBoundedInt(value['days'], 1, 90)
+    isBoundedInt(value['days'], 1, FARM_AI_QUERY_LIMITS.MAX_STAT_DAYS)
   );
 }
 
@@ -101,7 +101,7 @@ export function isSystemWaterQualityStatsRequest(
   return (
     isAiQueryRequestShape(value, ['systemId', 'days']) &&
     isUuidString(value['systemId']) &&
-    isBoundedInt(value['days'], 1, 90)
+    isBoundedInt(value['days'], 1, FARM_AI_QUERY_LIMITS.MAX_STAT_DAYS)
   );
 }
 
@@ -137,7 +137,7 @@ export function isWaterQualityHistoryRequest(value: unknown): value is WaterQual
     isAiQueryRequestShape(value, ['tankId', 'fromDate', 'toDate', 'limit']) &&
     isUuidString(value['tankId']) &&
     isBoundedDateRange(value['fromDate'], value['toDate'], FARM_AI_QUERY_LIMITS.MAX_STAT_DAYS) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isWaterQualityHistoryReply(value: unknown): value is WaterQualityHistoryReply {
@@ -170,7 +170,10 @@ export type CriticalWaterQualityReply = AiQueryList<CriticalWaterQualityDto>;
 export function isCriticalWaterQualityRequest(
   value: unknown,
 ): value is CriticalWaterQualityRequest {
-  return isAiQueryRequestShape(value, ['limit']) && isBoundedInt(value['limit'], 1, 50);
+  return (
+    isAiQueryRequestShape(value, ['limit']) &&
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
+  );
 }
 export function isCriticalWaterQualityDto(value: unknown): value is CriticalWaterQualityDto {
   return (

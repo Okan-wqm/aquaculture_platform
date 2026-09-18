@@ -182,7 +182,7 @@ export function isFeedingProtocolsRequest(value: unknown): value is FeedingProto
   return (
     isAiQueryRequestShape(value, ['species', 'limit']) &&
     isOptional(value['species'], (v): v is string => typeof v === 'string' && v.length <= 64) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isFeedingProtocolDto(value: unknown): value is FeedingProtocolDto {

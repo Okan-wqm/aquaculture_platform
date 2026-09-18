@@ -51,7 +51,7 @@ export type AiSpecialtyId = (typeof AI_SPECIALTY_IDS)[number];
  * fixed `-v<N>` suffix make the parse unambiguous.
  */
 export const AI_PERSONA_ID_RE =
-  /^(operator|manager|expert|supervisor)(?:-([a-z]+(?:-[a-z]+)*))?-v(\d+)$/;
+  /^(operator|manager|expert|supervisor)(?:-([a-z]+(?:-[a-z]+)*))?-v([1-9]\d*)$/;
 
 /** Column width shared by every persisted persona column. */
 export const AI_PERSONA_ID_MAX_LENGTH = 50;
@@ -98,8 +98,10 @@ export function parseAiPersonaId(id: string): ParsedAiPersonaId | null {
   if (specialtySegment === 'general') return null;
   const specialty = specialtySegment ?? 'general';
   if (!isSpecialty(specialty)) return null;
+  // The grammar admits only `v[1-9]\d*`, so the version is ≥ 1 and spelled
+  // canonically (no leading zeros): every parsed id round-trips byte-for-byte.
   const version = Number.parseInt(versionSegment, 10);
-  if (!Number.isSafeInteger(version) || version < 1) return null;
+  if (!Number.isSafeInteger(version)) return null;
   return { tier, specialty, version };
 }
 

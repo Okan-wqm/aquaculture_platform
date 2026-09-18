@@ -41,16 +41,16 @@ describe('AiPersonasRegistryService (shared catalogue view)', () => {
     expect(list.map((p) => p.id)).toEqual([null, 'operator-v1', 'manager-v1', 'expert-v1']);
   });
 
-  it('a tenant admin sees the whole catalogue; listAll serves the admin inventory unfiltered', () => {
+  it('a tenant admin sees the whole catalogue; listAll serves the 13 published personas', () => {
     const admin = registry.getAvailablePersonas({
       roles: ['TENANT_ADMIN'],
       resourcePermissions: [],
     });
     expect(admin).toHaveLength(AI_PERSONA_CATALOGUE.length + 1);
-    expect(registry.listAll().map((p) => p.id)).toEqual([
-      null,
-      ...AI_PERSONA_CATALOGUE.map((e) => e.id),
-    ]);
+    // The admin inventory is the 13 PUBLISHED personas; the `id: null`
+    // tenant-default row is a picker affordance, not a persona.
+    expect(registry.listAll().map((p) => p.id)).toEqual(AI_PERSONA_CATALOGUE.map((e) => e.id));
+    expect(registry.listAll()).toHaveLength(13);
   });
 
   it('carries the catalogue presentation (renamed general personas, specialist names)', () => {

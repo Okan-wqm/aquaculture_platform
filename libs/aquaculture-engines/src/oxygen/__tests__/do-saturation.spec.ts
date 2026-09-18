@@ -14,10 +14,15 @@ describe('doSaturationWeiss — literature anchors', () => {
     [20, 0, 9.09],
     [25, 0, 8.26],
     [30, 0, 7.56],
+    [35, 0, 6.93],
     [10, 35, 9.02],
     [20, 35, 7.38],
   ])('%d °C, %d ppt → ≈ %f mg/L', (t, s, expected) => {
     expect(doSaturationWeiss(t, s)).toBeCloseTo(expected, 1);
+  });
+
+  it('defaults salinity to fresh water', () => {
+    expect(doSaturationWeiss(20)).toBe(doSaturationWeiss(20, 0));
   });
 
   it('falls with temperature and with salinity (Henry’s law)', () => {

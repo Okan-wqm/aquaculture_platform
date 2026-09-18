@@ -1,9 +1,11 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   FARM_AI_QUERY_LIMITS,
   FARM_AI_QUERY_SUBJECTS,
+  clampListLimit,
   isCriticalWaterQualityRequest,
   isSystemWaterQualityStatsRequest,
   isTankWaterQualityStatsRequest,
@@ -20,8 +22,8 @@ import type { WaterQualityMeasurement } from '../entities/water-quality-measurem
 import type { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { GetSystemWaterQualityStatisticsQuery } from '../queries/get-system-water-quality-statistics.query';
 import { GetTankWaterQualityStatisticsQuery } from '../queries/get-tank-water-quality-statistics.query';
-import { GetWaterQualityChartQuery } from '../queries/get-water-quality-chart.query';
 import { ListCriticalWaterQualityQuery } from '../queries/list-critical-water-quality.query';
+import { ListWaterQualityQuery } from '../queries/list-water-quality.query';
 import { ListParameterConfigsQuery } from '../queries/list-parameter-configs.query';
 import type { WaterQualityStatsResult } from '../query-handlers/water-quality-stats.result';
 import {
@@ -85,22 +87,25 @@ export class WaterQualityAiQueryResponder {
       payload,
       isWaterQualityHistoryRequest,
       async (req) => {
-        const rows = await this.queryBus.execute<
-          GetWaterQualityChartQuery,
-          WaterQualityMeasurement[]
+        // The paginated list query loads the FULL measurement (the chart
+        // query selects a sparse column set without `parameters`, which the
+        // projection reads), orders newest-first and bounds the read in the
+        // database (`take`), and counts the window so `truncated` is exact.
+        // `toDate` is a calendar day: include the whole of it.
+        const limit = clampListLimit(req.limit);
+        const page = await this.queryBus.execute<
+          ListWaterQualityQuery,
+          IStandardPaginatedResult<WaterQualityMeasurement>
         >(
-          new GetWaterQualityChartQuery(
-            req.tenantId,
-            req.tankId,
-            new Date(req.fromDate),
-            new Date(req.toDate),
-          ),
+          new ListWaterQualityQuery(req.tenantId, {
+            tankId: req.tankId,
+            fromDate: new Date(req.fromDate),
+            toDate: endOfUtcDay(req.toDate),
+            limit,
+            offset: 0,
+          }),
         );
-        // Newest first: the model wants the latest reading at the top.
-        const newestFirst = [...rows].sort(
-          (a, b) => new Date(b.measuredAt).getTime() - new Date(a.measuredAt).getTime(),
-        );
-        return toBoundedList(newestFirst, req.limit, projectMeasurement);
+        return toBoundedList(page.items, limit, projectMeasurement, page.total);
       },
     );
   }
@@ -143,4 +148,11 @@ export class WaterQualityAiQueryResponder {
       },
     );
   }
+}
+
+/** The last instant of an ISO calendar day (UTC), so a `toDate` bound includes that day's readings. */
+function endOfUtcDay(isoDate: string): Date {
+  const end = new Date(isoDate);
+  end.setUTCHours(23, 59, 59, 999);
+  return end;
 }

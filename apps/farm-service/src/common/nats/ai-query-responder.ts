@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   FARM_AI_QUERY_LIMITS,
   toEventIso,
@@ -14,9 +15,17 @@ import {
  * outcome in the reply envelope. Never throws into the reply channel — a
  * malformed request is `INVALID_REQUEST`, a failure is `INTERNAL_ERROR`, and
  * the ai-service tool turns either into a visible tool error (not an empty
- * list). Tenant pinning is the handler's job (every farm query handler runs
- * inside runInTenantRead); this helper only validates that a tenant id is
- * present and well-formed.
+ * list).
+ *
+ * Tenant pinning: the handler runs inside `withTenantContext(tenantId)`, so
+ * the AsyncLocalStorage frame every ambient repository resolves its RLS GUC
+ * and search_path from is ALWAYS present — a NATS request has no HTTP
+ * middleware to establish it. Most farm query handlers additionally pin with
+ * `runInTenantRead`; the ones that fan out to ambient-repository services
+ * (`FcrCalculationService`, `BatchCostCalculatorService` behind
+ * GetBatchPerformance / GetGrowthAnalysis) read an empty tenant without this
+ * frame and silently returned zeros. The frame is established here, once,
+ * for all forty subjects, so no responder can forget it.
  */
 export async function respondAiQuery<TRequest extends AiQueryRequest, TData>(
   logger: Logger,
@@ -30,7 +39,8 @@ export async function respondAiQuery<TRequest extends AiQueryRequest, TData>(
     return { ok: false, error: 'INVALID_REQUEST' };
   }
   try {
-    return { ok: true, data: await handle(payload) };
+    const data = await withTenantContext(payload.tenantId, () => handle(payload));
+    return { ok: true, data };
   } catch (error) {
     logger.error(
       `${subject} failed for tenant ${payload.tenantId}: ${

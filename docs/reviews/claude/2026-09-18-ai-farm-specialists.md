@@ -3,7 +3,7 @@
 **Date:** 2026-09-18 · **Agent:** claude · **Cycle:** 2026-09-18 ai-farm-specialists
 **Plan:** tier × specialty persona composition; three farm-module experts (water & fish health / production / operations); read-only tools over farm-service via NATS request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
-**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-066 and INFRA-HIGH-174 (base-branch regressions found by this branch's gates, fixed here).
+**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-066, INFRA-HIGH-174 and FE-HIGH-067 (base-branch defects found by this branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner: farm-module maintainer, deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -64,7 +64,10 @@ on both sides (no shared contract) and answer `[]` on failure, so the model
 cannot tell "no data" from "farm-service down". Fix: a shared
 `libs/event-contracts` contract (`FARM_AI_QUERY_SUBJECTS`, `AiQueryReply`
 envelope, guards), a `respondAiQuery` helper in farm-service dispatching
-`QueryBus.execute` (handlers already `runInTenantRead`), a `FarmAiQueryTool`
+`QueryBus.execute` (the responder helper establishes the tenant AsyncLocalStorage
+frame with `withTenantContext` for EVERY subject, so the handlers that fan out to
+ambient-repository services — FCR and batch cost — read the right tenant, and
+most handlers additionally pin with `runInTenantRead`), a `FarmAiQueryTool`
 base in ai-service, ~40 read tools across the three specialists, explicit
 ACL grants per subject, and a contract SSoT invariant.
 
@@ -140,3 +143,48 @@ the inventory could never be loaded. The page had no spec, so the wrong state
 was undetectable. Fix: start idle (`loading: false`), delete the empty effect,
 and add the page's first spec, which drives the button and asserts the
 catalogue-derived tier / specialty column.
+
+## Post-plan review round (six independent reviewers) — what changed
+
+- **RBAC-MEDIUM-016 at execute time.** The module entitlement and tenant block
+  list were evaluated only when the tool list was OFFERED; a `tool_use` the
+  model emitted for a tool it was never given (every farm tool admits every
+  tier) ran anyway. `ToolExecutionContext.offeredToolNames` now carries the
+  offer and the executor refuses anything outside it for a human turn; a
+  confirmed proposal offers exactly its stored tool.
+- **Proposals fail closed, not stuck.** `executeProposal` resolved the stored
+  persona after the atomic `proposed → executing` claim and outside the
+  try/catch, so a retired persona id left the row in `executing` forever. The
+  tier is now resolved before the claim (`catalogue.tierOf`) and an
+  unpublished persona writes a terminal `failed` row.
+- **Tenant frame for the farm AI read path (FARM-MEDIUM-328).** See above:
+  `get_batch_performance` / `get_growth_analysis` computed FCR and cost through
+  ambient repositories with no AsyncLocalStorage frame and silently returned
+  zeros; `respondAiQuery` now wraps every handler in `withTenantContext`.
+- **`get_water_quality_history` crashed on every call**: the chart query
+  selects a sparse column set without `parameters`, which the projection reads.
+  The subject now runs the paginated list query (full rows, DESC, `take` in the
+  database, exact `total`) with an inclusive `toDate`.
+- Closed vocabularies and SSoT constants: equipment `status` is an enum at the
+  contract, responder and tool (an unknown code is `INVALID_REQUEST`, not a
+  dropped filter); day/limit caps reference `FARM_AI_QUERY_LIMITS` (+
+  `MAX_UPCOMING_DAYS`); species/tank responders gained specs; the free-text
+  exceptions (`title`, `location`) are documented in the invariant.
+- Persona grammar admits only canonical versions (`v[1-9]\d*`); the source
+  catalogues are deep-frozen; the supervisor's operating contract carries the
+  autonomous decision bullet instead of the contradicting advisory one; one
+  reserved-delimiter list drives boot, validation and runtime sanitising.
+- Messaging: `createChannel` refuses an AI persona the caller lacks the
+  capabilities for (the pin is permanent); the admin inventory lists the 13
+  published personas (no picker-default row); consent is optimistic and shown
+  only to members holding `ai_assistant:use`.
+- Math tools (FARM-LOW-329): an unfed tank above the DO floor is a `surplus`,
+  species tables are own-key lookups, schemas are closed
+  (`additionalProperties: false`) with explicit field mapping, results are
+  presented (4/6 decimals, whole fish); boundary pins for every status.
+- Auth (RBAC-MEDIUM-016): all-of entitlement pinned at the seed path and the
+  write boundary; the seed template is proven ⊆ catalogue; the backfill
+  migration's rationale corrected (the reconcile is admin-triggered only).
+- Base-branch drift folded back: the MFA button label follows the base
+  branch's wording in BOTH locales ("Verify & continue") and the shell spec
+  was updated instead of reverting product copy.

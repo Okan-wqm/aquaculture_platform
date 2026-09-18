@@ -50,9 +50,26 @@ describe('feedingImpact', () => {
 
   it('classifies the feeding rate as % of body weight', () => {
     expect(feedingImpact(base).feedingRate).toEqual({ ratePercentBw: 2, status: 'normal' });
-    expect(feedingRateStatus(0.4)).toBe('low');
-    expect(feedingRateStatus(4)).toBe('high');
-    expect(feedingRateStatus(6)).toBe('overfeeding');
+  });
+
+  it.each([
+    [0.4999, 'low'],
+    [0.5, 'normal'],
+    [3, 'normal'],
+    [3.0001, 'high'],
+    [5, 'high'],
+    [5.0001, 'overfeeding'],
+  ] as const)('feedingRateStatus(%f) = %s at the boundary', (rate, status) => {
+    expect(feedingRateStatus(rate)).toBe(status);
+  });
+
+  it('a prototype key as species code falls to the default coefficients and limit', () => {
+    for (const code of ['constructor', '__proto__', 'valueOf']) {
+      const r = feedingImpact({ ...base, speciesCode: code });
+      expect(r.tan.coefficientKgPerKgFeed).toBe(0.03);
+      expect(r.ammonia.limitMgL).toBe(0.02);
+      expect(Number.isFinite(r.tan.producedKg)).toBe(true);
+    }
   });
 
   it('reports no critical pH when the TAN load cannot reach the limit', () => {

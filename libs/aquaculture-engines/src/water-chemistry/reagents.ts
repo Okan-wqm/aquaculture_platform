@@ -9,7 +9,14 @@
  * 4. Calculate amounts for each reagent
  */
 
-import { ReagentInfo, DosingResult, DosingRecipe, DosingVisualization, OnDemandStep, OnDemandInput } from './types.js';
+import {
+  ReagentInfo,
+  DosingResult,
+  DosingRecipe,
+  DosingVisualization,
+  OnDemandStep,
+  OnDemandInput,
+} from './types.js';
 import { calcPhForAlkDic, calcCo2OfDic, co2MmToMg } from './water-quality.js';
 
 // ============================================================================
@@ -68,7 +75,7 @@ export const REAGENTS: ReagentInfo[] = [
   {
     name: 'Add CO₂',
     formula: 'CO₂',
-    mw: 44.010,
+    mw: 44.01,
     meqPerMol: 0,
     slope: 0,
     radians: 0,
@@ -76,7 +83,7 @@ export const REAGENTS: ReagentInfo[] = [
   {
     name: 'De-gas CO₂',
     formula: '-CO₂',
-    mw: 44.010,
+    mw: 44.01,
     meqPerMol: 0,
     slope: 0,
     radians: Math.PI,
@@ -87,7 +94,7 @@ export const REAGENTS: ReagentInfo[] = [
     mw: 36.461,
     meqPerMol: 1,
     slope: Infinity,
-    radians: 3 * Math.PI / 2,
+    radians: (3 * Math.PI) / 2,
   },
 ];
 
@@ -143,7 +150,7 @@ function calcTwoReagentDosing(
   let wpSlopeRad: number;
   if (Math.abs(deltaDic) < 1e-10) {
     // Vertical movement
-    wpSlopeRad = deltaAlk > 0 ? Math.PI / 2 : 3 * Math.PI / 2;
+    wpSlopeRad = deltaAlk > 0 ? Math.PI / 2 : (3 * Math.PI) / 2;
   } else {
     wpSlopeRad = Math.atan(deltaAlk / deltaDic);
 
@@ -208,14 +215,14 @@ function calcTwoReagentDosing(
     // Horizontal or vertical reagent
     if (lower.slope === 0) {
       // CO₂: amount based on DIC change
-      chemAdj1Grams = Math.abs(dicStar - initDic) * lower.mw * volumeL / 1000;
+      chemAdj1Grams = (Math.abs(dicStar - initDic) * lower.mw * volumeL) / 1000;
     } else {
       // Vertical: amount based on ALK change
-      chemAdj1Grams = Math.abs(alkStar - initAlk) * (lower.mw / lower.meqPerMol) * volumeL / 1000;
+      chemAdj1Grams = (Math.abs(alkStar - initAlk) * (lower.mw / lower.meqPerMol) * volumeL) / 1000;
     }
   } else {
     // Diagonal: 1 mol reagent → 1 mmol DIC, amount based on DIC change
-    chemAdj1Grams = Math.abs(dicStar - initDic) * lower.mw * volumeL / 1000;
+    chemAdj1Grams = (Math.abs(dicStar - initDic) * lower.mw * volumeL) / 1000;
   }
 
   // Step 7: Reagent 2 (higher) - amount from ALK deficit
@@ -224,10 +231,10 @@ function calcTwoReagentDosing(
 
   if (higher.slope === 0) {
     // CO₂/De-gas: amount based on DIC change
-    chemAdj2Grams = Math.abs(finalDic - dicStar) * higher.mw * volumeL / 1000;
+    chemAdj2Grams = (Math.abs(finalDic - dicStar) * higher.mw * volumeL) / 1000;
   } else {
     // For all others: alkDeficit * (mw / meqPerMol) * vol
-    chemAdj2Grams = alkDeficit * (higher.mw / higher.meqPerMol) * volumeL / 1000;
+    chemAdj2Grams = (alkDeficit * (higher.mw / higher.meqPerMol) * volumeL) / 1000;
   }
 
   // Sanity check
@@ -282,8 +289,8 @@ function calcTwoReagentDosing(
  * so base+CO₂ / acid+CO₂ recipes are never flagged.
  */
 function isCounterProductiveRecipe(recipe: DosingRecipe): boolean {
-  const hasAlkGain = recipe.steps.some(s => s.deltaAlk > 1e-9);
-  const hasAlkLoss = recipe.steps.some(s => s.deltaAlk < -1e-9);
+  const hasAlkGain = recipe.steps.some((s) => s.deltaAlk > 1e-9);
+  const hasAlkLoss = recipe.steps.some((s) => s.deltaAlk < -1e-9);
   return hasAlkGain && hasAlkLoss;
 }
 
@@ -295,7 +302,7 @@ function isCounterProductiveRecipe(recipe: DosingRecipe): boolean {
  */
 function recipePriority(recipe: DosingRecipe): number {
   return recipe.steps.reduce((sum, s) => {
-    const idx = REAGENTS.findIndex(r => r.name === s.reagentName);
+    const idx = REAGENTS.findIndex((r) => r.name === s.reagentName);
     return sum + (idx < 0 ? 99 : idx);
   }, 0);
 }
@@ -320,7 +327,7 @@ export function calculateDosingRecipes(
   targetDIC: number,
   targetAlk: number,
   volumeM3: number,
-  selectedReagents: string[]
+  selectedReagents: string[],
 ): DosingRecipe[] {
   const deltaAlk = targetAlk - currentAlk;
   const deltaDIC = targetDIC - currentDIC;
@@ -329,7 +336,7 @@ export function calculateDosingRecipes(
     return []; // Already at target
   }
 
-  const selected = REAGENTS.filter(r => selectedReagents.includes(r.name));
+  const selected = REAGENTS.filter((r) => selectedReagents.includes(r.name));
   if (selected.length === 0) return [];
 
   // Enumerate every feasible reagent pair (no early cap), dedup identical recipes
@@ -344,14 +351,20 @@ export function calculateDosingRecipes(
       }
 
       const recipe = calcTwoReagentDosing(
-        currentDIC, currentAlk,
-        targetDIC, targetAlk,
+        currentDIC,
+        currentAlk,
+        targetDIC,
+        targetAlk,
         volumeM3,
-        r1, r2,
+        r1,
+        r2,
       );
       if (!recipe) continue;
 
-      const recipeKey = recipe.steps.map(s => s.formula).sort().join('+');
+      const recipeKey = recipe.steps
+        .map((s) => s.formula)
+        .sort()
+        .join('+');
       if (seen.has(recipeKey)) continue;
       seen.add(recipeKey);
       all.push(recipe);
@@ -361,7 +374,7 @@ export function calculateDosingRecipes(
   // Curate: drop counter-productive recipes so they cannot displace practical
   // ones under the cap — unless they are the ONLY feasible option (then keep
   // them so the operator still gets an answer). Then rank by practicality.
-  const productive = all.filter(r => !isCounterProductiveRecipe(r));
+  const productive = all.filter((r) => !isCounterProductiveRecipe(r));
   const ranked = (productive.length > 0 ? productive : all)
     .slice()
     .sort((a, b) => recipePriority(a) - recipePriority(b));
@@ -377,7 +390,7 @@ export function reagentDirectionLine(
   startDIC: number,
   startAlk: number,
   reagent: ReagentInfo,
-  length = 3
+  length = 3,
 ): Array<{ CT: number; AT: number }> {
   const points: Array<{ CT: number; AT: number }> = [];
   const steps = 50;
@@ -443,8 +456,8 @@ export function calcDosingVisualization(
   reagent1Name: string,
   reagent2Name: string,
 ): DosingVisualization | null {
-  const r1 = REAGENTS.find(r => r.name === reagent1Name);
-  const r2 = REAGENTS.find(r => r.name === reagent2Name);
+  const r1 = REAGENTS.find((r) => r.name === reagent1Name);
+  const r2 = REAGENTS.find((r) => r.name === reagent2Name);
   if (!r1 || !r2) return null;
 
   const deltaDic = targetDIC - currentDIC;
@@ -453,13 +466,18 @@ export function calcDosingVisualization(
 
   // Sort by radians
   let lower: ReagentInfo, higher: ReagentInfo;
-  if (r1.radians < r2.radians) { lower = r1; higher = r2; }
-  else { lower = r2; higher = r1; }
+  if (r1.radians < r2.radians) {
+    lower = r1;
+    higher = r2;
+  } else {
+    lower = r2;
+    higher = r1;
+  }
 
   // Feasibility check (same as calcTwoReagentDosing)
   let wpSlopeRad: number;
   if (Math.abs(deltaDic) < 1e-10) {
-    wpSlopeRad = deltaAlk > 0 ? Math.PI / 2 : 3 * Math.PI / 2;
+    wpSlopeRad = deltaAlk > 0 ? Math.PI / 2 : (3 * Math.PI) / 2;
   } else {
     wpSlopeRad = Math.atan(deltaAlk / deltaDic);
     if (deltaDic < 0 && deltaAlk >= 0) wpSlopeRad += Math.PI;
@@ -486,7 +504,8 @@ export function calcDosingVisualization(
   } else {
     const slopeDiff = higher.slope - lower.slope;
     if (Math.abs(slopeDiff) < 1e-12) return null;
-    dicStar = (currentAlk - lower.slope * currentDIC - targetAlk + higher.slope * targetDIC) / slopeDiff;
+    dicStar =
+      (currentAlk - lower.slope * currentDIC - targetAlk + higher.slope * targetDIC) / slopeDiff;
     alkStar = lower.slope * (dicStar - currentDIC) + currentAlk;
   }
 
@@ -507,8 +526,16 @@ export function calcDosingVisualization(
   ];
 
   return {
-    reagentLine1: { points: line1, label: lower.formula, color: REAGENT_COLORS[lower.name] || '#6b7280' },
-    reagentLine2: { points: line2, label: higher.formula, color: REAGENT_COLORS[higher.name] || '#6b7280' },
+    reagentLine1: {
+      points: line1,
+      label: lower.formula,
+      color: REAGENT_COLORS[lower.name] || '#6b7280',
+    },
+    reagentLine2: {
+      points: line2,
+      label: higher.formula,
+      color: REAGENT_COLORS[higher.name] || '#6b7280',
+    },
     step1Path,
     step2Path,
     intermediatePoint: { DIC: dicStar, ALK: alkStar },
@@ -534,20 +561,20 @@ export function calcDosingVisualization(
 function reagentDeltas(
   reagent: ReagentInfo,
   amountGrams: number,
-  volumeL: number
+  volumeL: number,
 ): { deltaDIC: number; deltaALK: number } {
   const moles = amountGrams / reagent.mw;
-  const concMmolL = (moles * 1000) / volumeL;  // mmol/L
+  const concMmolL = (moles * 1000) / volumeL; // mmol/L
 
   if (reagent.slope === 0) {
     // Horizontal: CO₂ add or degas
-    const sign = Math.abs(reagent.radians) < 0.01 ? 1 : -1;  // radians≈0 → add, radians≈π → degas
+    const sign = Math.abs(reagent.radians) < 0.01 ? 1 : -1; // radians≈0 → add, radians≈π → degas
     return { deltaDIC: sign * concMmolL, deltaALK: 0 };
   }
 
   if (!isFinite(reagent.slope)) {
     // Vertical: base or acid
-    const sign = reagent.radians < Math.PI ? 1 : -1;  // π/2 → base (up), 3π/2 → acid (down)
+    const sign = reagent.radians < Math.PI ? 1 : -1; // π/2 → base (up), 3π/2 → acid (down)
     return { deltaDIC: 0, deltaALK: sign * reagent.meqPerMol * concMmolL };
   }
 
@@ -567,7 +594,7 @@ function reagentDeltas(
 export function calcForwardDosing(
   current: { dic: number; alk: number; tempC: number; salinity: number },
   volumeM3: number,
-  steps: OnDemandInput[]
+  steps: OnDemandInput[],
 ): OnDemandStep[] {
   const volumeL = volumeM3 * 1000;
 
@@ -597,7 +624,7 @@ export function calcForwardDosing(
     const { reagentKey, amountGrams } = input;
     if (amountGrams <= 0) continue;
 
-    const reagent = REAGENTS.find(r => r.name === reagentKey);
+    const reagent = REAGENTS.find((r) => r.name === reagentKey);
     if (!reagent) continue;
 
     const { deltaDIC, deltaALK } = reagentDeltas(reagent, amountGrams, volumeL);
@@ -613,7 +640,9 @@ export function calcForwardDosing(
 
     const isLast = i === steps.length - 1;
     result.push({
-      label: isLast ? `Final (${reagent.formula})` : `+ ${reagent.formula} ${amountGrams.toFixed(1)}g`,
+      label: isLast
+        ? `Final (${reagent.formula})`
+        : `+ ${reagent.formula} ${amountGrams.toFixed(1)}g`,
       dic,
       alk,
       ph,

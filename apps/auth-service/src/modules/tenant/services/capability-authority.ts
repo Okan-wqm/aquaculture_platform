@@ -230,7 +230,7 @@ export class CapabilityAuthorityService {
       const detail = unentitled
         .map(
           (capability) =>
-            `${capability} (requires the ${(requiredModulesFor(capability) ?? ['?']).join(' + ')} module)`,
+            `${capability} (requires the ${(requiredModulesFor(capability) ?? ['?']).join(' + ')} module${(requiredModulesFor(capability)?.length ?? 1) > 1 ? 's' : ''})`,
         )
         .join(', ');
       throw new ForbiddenException(

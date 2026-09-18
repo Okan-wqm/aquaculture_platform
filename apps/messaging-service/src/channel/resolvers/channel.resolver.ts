@@ -22,13 +22,26 @@ import { UseGuards, Logger, NotFoundException, ForbiddenException } from '@nestj
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { DataSource, IsNull } from 'typeorm';
 import DataLoader from 'dataloader';
-import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role, hasResourcePermission } from '@aquaculture/backend-common/decorators';
+import {
+  Tenant,
+  CurrentUser,
+  CurrentUserPayload,
+  Roles,
+  Role,
+  hasResourcePermission,
+  hasAllResourcePermissions,
+} from '@aquaculture/backend-common/decorators';
+import { findAiPersona } from '@aquaculture/shared-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 // Entities
 import { Channel, ChannelType } from '../entities/channel.entity';
-import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../entities/channel-member.entity';
+import {
+  ChannelMember,
+  ChannelMemberRole,
+  NotificationPreference,
+} from '../entities/channel-member.entity';
 import { Message } from '../../message/entities/message.entity';
 
 // DTOs
@@ -172,13 +185,24 @@ export class ChannelResolver {
     // (AquaMobil NewChatPage). The default seeded roles grant create_group to
     // every role (WhatsApp-like), so behaviour is preserved until a tenant admin
     // narrows it. Enforced independently of the FE's button-hiding.
-    if (
-      input.type === ChannelType.GROUP &&
-      !hasResourcePermission(user, 'channels:create_group')
-    ) {
-      throw new ForbiddenException(
-        'You do not have permission to create group channels',
-      );
+    if (input.type === ChannelType.GROUP && !hasResourcePermission(user, 'channels:create_group')) {
+      throw new ForbiddenException('You do not have permission to create group channels');
+    }
+
+    // AISAFETY-MEDIUM-024: an AI channel may pin only a persona THIS caller
+    // may drive — the same `requiredCapabilities` rule ai-service applies on
+    // every turn and `availableAiPersonas` uses to build the picker. Enforced
+    // here because a pinned persona is permanent (UpdateChannelInput has no
+    // aiPersona), so a crafted or stale-client mutation would otherwise create
+    // a room whose every turn ends in a FORBIDDEN notice. The DTO validator
+    // already proved the id is published.
+    if (input.type === ChannelType.AI && input.aiPersona !== undefined) {
+      const persona = findAiPersona(input.aiPersona);
+      if (persona === undefined || !hasAllResourcePermissions(user, persona.requiredCapabilities)) {
+        throw new ForbiddenException(
+          `You do not have permission to use the AI persona ${input.aiPersona}`,
+        );
+      }
     }
 
     const primaryRole = this.getPrimaryRole(user);
@@ -301,7 +325,6 @@ export class ChannelResolver {
       },
     );
 
-
     this.logger.log(
       `User ${user.sub} updated notification preference to ${preference} in channel ${channelId}`,
     );
@@ -319,7 +342,11 @@ export class ChannelResolver {
    * When the channel list query (GetChannelsHandler) already computed lastMessageAt,
    * we still need to fetch the full message object for the GraphQL response.
    */
-  @ResolveField(() => Message, { name: 'lastMessage', nullable: true, description: 'Most recent message in the channel' })
+  @ResolveField(() => Message, {
+    name: 'lastMessage',
+    nullable: true,
+    description: 'Most recent message in the channel',
+  })
   async resolveLastMessage(
     @Parent() channel: Channel,
     @Tenant() tenantId: string,
@@ -342,7 +369,11 @@ export class ChannelResolver {
    * members are eagerly loaded by GetChannelsHandler only for the
    * single-channel query; for the list query we resolve lazily via DataLoader.
    */
-  @ResolveField(() => [ChannelMember], { name: 'members', nullable: true, description: 'Active channel members' })
+  @ResolveField(() => [ChannelMember], {
+    name: 'members',
+    nullable: true,
+    description: 'Active channel members',
+  })
   async resolveMembers(
     @Parent() channel: Channel,
     @Tenant() tenantId: string,
@@ -369,7 +400,11 @@ export class ChannelResolver {
    * If already computed by GetChannelsHandler (list query), return the cached value.
    * Otherwise compute on demand for single-channel queries.
    */
-  @ResolveField(() => Int, { name: 'unreadCount', nullable: true, description: 'Unread message count for the current user' })
+  @ResolveField(() => Int, {
+    name: 'unreadCount',
+    nullable: true,
+    description: 'Unread message count for the current user',
+  })
   async resolveUnreadCount(
     @Parent() channel: Channel & { unreadCount?: number },
     @CurrentUser() user: CurrentUserPayload,
@@ -405,7 +440,11 @@ export class ChannelResolver {
    * If already computed by GetChannelsHandler (list query), return the cached value.
    * Otherwise compute on demand.
    */
-  @ResolveField(() => Int, { name: 'memberCount', nullable: true, description: 'Active member count' })
+  @ResolveField(() => Int, {
+    name: 'memberCount',
+    nullable: true,
+    description: 'Active member count',
+  })
   async resolveMemberCount(
     @Parent() channel: Channel & { memberCount?: number },
     @Tenant() tenantId: string,
@@ -435,22 +474,26 @@ export class ChannelResolver {
    * @param channelIds - Array of channel UUIDs to load last messages for
    * @returns Array of Message|null in the same order as channelIds
    */
-  private async batchLoadLastMessages(tenantId: string, channelIds: string[]): Promise<(Message | null)[]> {
+  private async batchLoadLastMessages(
+    tenantId: string,
+    channelIds: string[],
+  ): Promise<(Message | null)[]> {
     if (channelIds.length === 0) return [];
 
     const messages = await runInTenantTransaction(
       this.dataSource,
       'messaging',
       tenantId,
-      async (queryRunner) => queryRunner.manager
-        .createQueryBuilder(Message, 'm')
-        .where('m."tenantId" = :tenantId', { tenantId })
-        .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
-        .andWhere('m."isDeleted" = false')
-        .orderBy('m.channelId', 'ASC')
-        .addOrderBy('m.createdAt', 'DESC')
-        .distinctOn(['m."channelId"'])
-        .getMany(),
+      async (queryRunner) =>
+        queryRunner.manager
+          .createQueryBuilder(Message, 'm')
+          .where('m."tenantId" = :tenantId', { tenantId })
+          .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
+          .andWhere('m."isDeleted" = false')
+          .orderBy('m.channelId', 'ASC')
+          .addOrderBy('m.createdAt', 'DESC')
+          .distinctOn(['m."channelId"'])
+          .getMany(),
     );
 
     // Build lookup map
@@ -468,17 +511,21 @@ export class ChannelResolver {
    * @param channelIds - Array of channel UUIDs
    * @returns Array of ChannelMember arrays in the same order as channelIds
    */
-  private async batchLoadMembers(tenantId: string, channelIds: string[]): Promise<ChannelMember[][]> {
+  private async batchLoadMembers(
+    tenantId: string,
+    channelIds: string[],
+  ): Promise<ChannelMember[][]> {
     if (channelIds.length === 0) return [];
 
     const allMembers = await runInTenantTransaction(
       this.dataSource,
       'messaging',
       tenantId,
-      async (queryRunner) => queryRunner.manager.find(ChannelMember, {
-        where: channelIds.map((channelId) => ({ tenantId, channelId, leftAt: IsNull() })),
-        order: { joinedAt: 'ASC' },
-      }),
+      async (queryRunner) =>
+        queryRunner.manager.find(ChannelMember, {
+          where: channelIds.map((channelId) => ({ tenantId, channelId, leftAt: IsNull() })),
+          order: { joinedAt: 'ASC' },
+        }),
     );
 
     // Group by channel
@@ -532,15 +579,17 @@ export class ChannelResolver {
 export class ChannelMemberResolver {
   private readonly logger = new Logger(ChannelMemberResolver.name);
 
-  constructor(
-    private readonly presenceService: PresenceService,
-  ) {}
+  constructor(private readonly presenceService: PresenceService) {}
 
   /**
    * Resolve the user field for a ChannelMember.
    * Returns a User with profile details for rendering member lists and DM channel names.
    */
-  @ResolveField(() => PublicUserProfile, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
+  @ResolveField(() => PublicUserProfile, {
+    name: 'user',
+    nullable: true,
+    description: 'User profile details for this channel member',
+  })
   async resolveUser(
     @Parent() member: ChannelMember,
     @Tenant() tenantId: string,
@@ -567,7 +616,10 @@ export class ChannelMemberResolver {
    * @param tenantId - Tenant context for presence lookups
    * @returns Array of User objects in the same order as userIds
    */
-  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<PublicUserProfile[]> {
+  private async batchLoadMemberUsers(
+    userIds: string[],
+    tenantId: string,
+  ): Promise<PublicUserProfile[]> {
     // Get online status for all users in one call
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
 

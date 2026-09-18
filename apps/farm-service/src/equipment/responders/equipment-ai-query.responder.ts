@@ -11,6 +11,7 @@ import {
   type EquipmentListReply,
   type FeederCalibrationDto,
   type FeederCalibrationsReply,
+  type EquipmentStatusCode,
 } from '@platform/event-contracts';
 import {
   isoOrNull,
@@ -53,11 +54,19 @@ export function projectCalibration(row: FeederCalibration): FeederCalibrationDto
   };
 }
 
-function toEquipmentStatus(code: string | undefined): EquipmentStatus | undefined {
+/**
+ * The contract's status vocabulary is the entity enum's value set (guarded at
+ * the boundary by `isEquipmentStatusCode`); the lookup is by enum VALUE so a
+ * vocabulary drift between the two becomes a thrown INTERNAL_ERROR, never a
+ * silently dropped filter.
+ */
+function toEquipmentStatus(code: EquipmentStatusCode | undefined): EquipmentStatus | undefined {
   if (code === undefined) return undefined;
-  return (Object.values(EquipmentStatus) as string[]).includes(code)
-    ? (code as EquipmentStatus)
-    : undefined;
+  const status = Object.values(EquipmentStatus).find((value) => value === code);
+  if (status === undefined) {
+    throw new Error(`Equipment status ${code} is in the AI contract but not in EquipmentStatus`);
+  }
+  return status;
 }
 
 /** Equipment read surface for the farm operations specialist (FARM-MEDIUM-328). */

@@ -8,7 +8,7 @@ import {
 } from '@platform/event-contracts';
 import { Tool } from '../../core/tool.decorator';
 import { FarmAiQueryTool } from '../farm-ai-query.tool';
-import { ALL_TIERS, LIST_LIMIT_SCHEMA } from '../farm-ai-query.schema';
+import { ALL_TIERS, LIST_LIMIT_SCHEMA, UPCOMING_DAYS_SCHEMA } from '../farm-ai-query.schema';
 
 interface Input {
   scope?: 'upcoming' | 'overdue';
@@ -30,7 +30,7 @@ interface Input {
     additionalProperties: false,
     properties: {
       scope: { type: 'string', enum: ['upcoming', 'overdue'] },
-      days: { type: 'integer', minimum: 1, maximum: 180 },
+      days: UPCOMING_DAYS_SCHEMA,
       limit: LIST_LIMIT_SCHEMA,
     },
   },

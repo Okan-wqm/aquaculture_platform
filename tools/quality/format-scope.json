@@ -15927,6 +15927,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/species/responders/__tests__/species-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/species/responders/species-ai-query.responder.ts",
       "prettier_managed": true
     },
@@ -17200,6 +17206,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/tank/responders/__tests__/get-tank-registry.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/tank/responders/__tests__/tank-ai-query.responder.spec.ts",
       "prettier_managed": true
     },
     {

@@ -11,6 +11,7 @@ import { CalculateCarryingCapacityTool } from '../calculate-carrying-capacity.to
 import { CalculateGrowthMetricsTool } from '../calculate-growth-metrics.tool';
 import { CalculateOxygenBudgetTool } from '../calculate-oxygen-budget.tool';
 import { PredictFeedingImpactTool } from '../predict-feeding-impact.tool';
+import { roundNumbersDeep } from '../aquaculture-math.schema';
 
 const CTX: ToolExecutionContext = {
   tenantId: '11111111-1111-4111-8111-111111111111',
@@ -20,6 +21,7 @@ const CTX: ToolExecutionContext = {
   correlationId: 'corr-1',
   persona: 'expert-farm-production-v1',
   personaTier: 'expert',
+  offeredToolNames: [],
   actuationPolicy: 'confirm_required',
 };
 
@@ -63,7 +65,7 @@ describe('aquaculture-math tools', () => {
     };
     const result = await new CalculateOxygenBudgetTool().execute(input, CTX);
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(oxygenBudget(input));
+    expect(result.data).toEqual(roundNumbersDeep(oxygenBudget(input)));
   });
 
   it('calculate_carrying_capacity returns the engine result verbatim', async () => {
@@ -76,7 +78,7 @@ describe('aquaculture-math tools', () => {
     };
     const result = await new CalculateCarryingCapacityTool().execute(input, CTX);
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(carryingCapacity(input));
+    expect(result.data).toEqual(roundNumbersDeep(carryingCapacity(input)));
   });
 
   it('predict_feeding_impact returns the engine result verbatim', async () => {
@@ -90,7 +92,7 @@ describe('aquaculture-math tools', () => {
     };
     const result = await new PredictFeedingImpactTool().execute(input, CTX);
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(feedingImpact(input));
+    expect(result.data).toEqual(roundNumbersDeep(feedingImpact(input), 6));
   });
 
   it('calculate_growth_metrics dispatches on mode and tags the result', async () => {
@@ -99,7 +101,10 @@ describe('aquaculture-math tools', () => {
       { mode: 'sgr', initialWeightG: 100, finalWeightG: 150, days: 30 },
       CTX,
     );
-    expect(sgr.data).toEqual({ mode: 'sgr', ...specificGrowthRate(100, 150, 30) });
+    expect(sgr.data).toEqual(
+      roundNumbersDeep({ mode: 'sgr', ...specificGrowthRate(100, 150, 30) }),
+    );
+    expect((sgr.data as { sgrPercentPerDay: number }).sgrPercentPerDay).toBe(1.3516);
 
     const projection = await tool.execute(
       {
@@ -108,18 +113,30 @@ describe('aquaculture-math tools', () => {
         currentQuantity: 1000,
         sgrPercentPerDay: 1,
         targetWeightG: 200,
+        mortalityRatePercent: 0.1,
       },
       CTX,
     );
-    expect(projection.data).toEqual({
-      mode: 'projection',
-      ...growthProjection({
-        currentWeightG: 100,
-        currentQuantity: 1000,
-        sgrPercentPerDay: 1,
-        targetWeightG: 200,
-      }),
+    // Presentation: whole fish, four decimals; the engine's numbers otherwise.
+    const engine = growthProjection({
+      currentWeightG: 100,
+      currentQuantity: 1000,
+      sgrPercentPerDay: 1,
+      targetWeightG: 200,
+      mortalityRatePercent: 0.1,
     });
+    const presented = projection.data as {
+      samples: Array<{ quantity: number; cumulativeMortality: number }>;
+      final: { quantity: number };
+      survivalRatePercent: number;
+    };
+    expect(
+      presented.samples.every(
+        (s) => Number.isInteger(s.quantity) && Number.isInteger(s.cumulativeMortality),
+      ),
+    ).toBe(true);
+    expect(presented.final.quantity).toBe(Math.round(engine.final.quantity));
+    expect(presented.survivalRatePercent).toBe(Math.round(engine.survivalRatePercent * 1e4) / 1e4);
 
     const transfer = await tool.execute(
       {
@@ -165,5 +182,25 @@ describe('aquaculture-math tools', () => {
     expect(noHorizon.error).toContain('targetWeightG or projectionDays');
     const badMode = await growth.execute({ mode: 'fcr2' as never }, CTX);
     expect(badMode.success).toBe(false);
+  });
+
+  it('an unfed tank above the floor reads as a surplus, and only declared fields reach the engine', async () => {
+    const unfed = await new CalculateOxygenBudgetTool().execute(
+      { temperatureC: 20, dailyFeedKg: 0, tankVolumeM3: 100, currentDoMgL: 9 },
+      CTX,
+    );
+    expect(unfed.success).toBe(true);
+    expect((unfed.data as { balanceStatus: string }).balanceStatus).toBe('surplus');
+
+    const badFloor = await new CalculateOxygenBudgetTool().execute(
+      { temperatureC: 20, dailyFeedKg: 10, tankVolumeM3: 100, currentDoMgL: 9, minSafeDoMgL: -1e9 },
+      CTX,
+    );
+    expect(badFloor.success).toBe(false);
+    expect(badFloor.error).toContain('minSafeDoMgL');
+
+    for (const tool of tools) {
+      expect(tool.getMetadata().inputSchema['additionalProperties']).toBe(false);
+    }
   });
 });

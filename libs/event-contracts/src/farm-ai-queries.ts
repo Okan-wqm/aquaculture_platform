@@ -81,6 +81,8 @@ export const FARM_AI_QUERY_LIMITS = {
   MAX_STAT_DAYS: 90,
   /** Days a from/to window may span. */
   MAX_RANGE_DAYS: 366,
+  /** Longest look-ahead for upcoming/overdue plan listings (days). */
+  MAX_UPCOMING_DAYS: 180,
 } as const;
 
 // ── Envelope ────────────────────────────────────────────────────────────────

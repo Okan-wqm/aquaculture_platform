@@ -83,7 +83,7 @@ const DEFAULT_TENANT_ROLES = [
 /**
  * Default role permissions
  */
-const DEFAULT_ROLE_PERMISSIONS: Record<
+export const DEFAULT_ROLE_PERMISSIONS: Record<
   string,
   Record<string, Record<string, Record<string, boolean>>>
 > = {

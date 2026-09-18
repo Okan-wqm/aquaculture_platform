@@ -10,6 +10,7 @@ import {
   TEMPERATURE_SCHEMA,
   requireFinite,
   requireOptionalFinite,
+  roundNumbersDeep,
 } from './aquaculture-math.schema';
 
 interface FeedingImpactInput {
@@ -65,6 +66,7 @@ interface FeedingImpactInput {
       },
     },
     required: ['feedKg', 'biomassKg', 'tankVolumeM3', 'temperatureC', 'currentPH'],
+    additionalProperties: false,
   },
   requiresModule: null,
   requiresConfirmation: false,
@@ -74,7 +76,22 @@ export class PredictFeedingImpactTool extends BaseTool<FeedingImpactInput, Feedi
     input: FeedingImpactInput,
     _ctx: ToolExecutionContext,
   ): Promise<FeedingImpactResult> {
-    return feedingImpact(input);
+    return roundNumbersDeep(
+      feedingImpact({
+        feedKg: input.feedKg,
+        biomassKg: input.biomassKg,
+        tankVolumeM3: input.tankVolumeM3,
+        temperatureC: input.temperatureC,
+        salinityPpt: input.salinityPpt,
+        currentPH: input.currentPH,
+        currentTanMgL: input.currentTanMgL,
+        hasBiofilter: input.hasBiofilter,
+        feedProteinPercent: input.feedProteinPercent,
+        speciesCode: input.speciesCode,
+      }),
+      // NH3 fractions and TAN masses are small: keep six places here.
+      6,
+    );
   }
 
   async validate(input: FeedingImpactInput): Promise<{ valid: boolean; errors?: string[] }> {

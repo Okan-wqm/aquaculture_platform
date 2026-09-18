@@ -13,6 +13,7 @@ const CTX: ToolExecutionContext = {
   correlationId: 'corr-1',
   persona: 'operator-farm-operations-v1',
   personaTier: 'operator',
+  offeredToolNames: [],
   actuationPolicy: 'confirm_required',
 };
 

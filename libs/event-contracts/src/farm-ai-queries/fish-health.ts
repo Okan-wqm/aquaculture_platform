@@ -1,7 +1,10 @@
 /**
  * Fish-health shapes for the farm AI read contract. Compact projections
- * with no operator, veterinarian or free-text fields (reportedBy, vetName,
- * vetLicense, notes, attachments are never emitted).
+ * with no operator or veterinarian identity and no notes/attachments
+ * (reportedBy, vetName, vetLicense, notes, attachments are never emitted).
+ * The event `title` IS carried — it is the operator's one-line name for the
+ * event and the model cannot reason about an event without it; it is the
+ * single free-text field, trimmed and length-bounded by the entity.
  */
 import {
   isAiQueryList,
@@ -15,6 +18,7 @@ import {
   isUuidString,
   type AiQueryList,
   type AiQueryRequest,
+  FARM_AI_QUERY_LIMITS,
 } from '../farm-ai-queries';
 
 // ── Stats ───────────────────────────────────────────────────────────────────
@@ -113,7 +117,7 @@ export function isHealthEventsRequest(value: unknown): value is HealthEventsRequ
     isOptional(value['severity'], (v): v is HealthSeverityCode =>
       (HEALTH_SEVERITIES as readonly string[]).includes(v as string),
     ) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isHealthEventsReply(value: unknown): value is HealthEventsReply {
@@ -125,7 +129,10 @@ export interface BoundedListRequest extends AiQueryRequest {
   limit: number;
 }
 export function isBoundedListRequest(value: unknown): value is BoundedListRequest {
-  return isAiQueryRequestShape(value, ['limit']) && isBoundedInt(value['limit'], 1, 50);
+  return (
+    isAiQueryRequestShape(value, ['limit']) &&
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
+  );
 }
 
 // ── Lice counts ─────────────────────────────────────────────────────────────
@@ -160,7 +167,7 @@ export function isLiceCountsRequest(value: unknown): value is LiceCountsRequest 
     isOptional(value['tankId'], isUuidString) &&
     isOptional(value['reportingYear'], (v): v is number => isBoundedInt(v, 2000, 2100)) &&
     isOptional(value['reportingWeek'], (v): v is number => isBoundedInt(v, 1, 53)) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isLiceCountDto(value: unknown): value is LiceCountDto {
@@ -219,7 +226,7 @@ export function isTreatmentApplicationsRequest(
     isOptional(value['siteId'], isUuidString) &&
     isOptional(value['fromDate'], isIsoDateString) &&
     isOptional(value['toDate'], isIsoDateString) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isTreatmentApplicationDto(value: unknown): value is TreatmentApplicationDto {
@@ -276,7 +283,7 @@ export function isWelfareAssessmentsRequest(value: unknown): value is WelfareAss
     isOptional(value['tankId'], isUuidString) &&
     isOptional(value['fromDate'], isIsoDateString) &&
     isOptional(value['toDate'], isIsoDateString) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isWelfareAssessmentDto(value: unknown): value is WelfareAssessmentDto {

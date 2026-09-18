@@ -4,28 +4,28 @@
  */
 
 export interface WaterParams {
-  tempC: number;        // Temperature in Celsius
-  pH: number;           // pH on NBS scale
-  salinity: number;     // Salinity in ppt
-  alkalinity: number;   // Alkalinity in meq/L (convert from mg/L CaCO3 by dividing by 50.04345)
+  tempC: number; // Temperature in Celsius
+  pH: number; // pH on NBS scale
+  salinity: number; // Salinity in ppt
+  alkalinity: number; // Alkalinity in meq/L (convert from mg/L CaCO3 by dividing by 50.04345)
 }
 
 export interface TargetParams {
-  targetpH: number;           // Target pH on NBS scale
-  targetAlkalinity: number;   // Target alkalinity in meq/L
+  targetpH: number; // Target pH on NBS scale
+  targetAlkalinity: number; // Target alkalinity in meq/L
 }
 
 export interface ToxicLimits {
-  tan: number;             // Total Ammonia Nitrogen in mg/L
-  unIonizedNH3: number;    // Un-ionized NH3-N limit in mg/L
-  co2Toxic: number;        // CO2 toxic level in mg/L
-  h2sMeasuredUgL: number;  // Measured H₂S in µg/L
-  h2sLimitUgL: number;     // Toxic H₂S limit in µg/L
+  tan: number; // Total Ammonia Nitrogen in mg/L
+  unIonizedNH3: number; // Un-ionized NH3-N limit in mg/L
+  co2Toxic: number; // CO2 toxic level in mg/L
+  h2sMeasuredUgL: number; // Measured H₂S in µg/L
+  h2sLimitUgL: number; // Toxic H₂S limit in µg/L
   h2sMeasuredAtPH: number; // pH (NBS) at which the measured H₂S sample was taken
 }
 
 export interface SystemParams {
-  volume: number;          // System volume in m3
+  volume: number; // System volume in m3
   fishType: FishType;
   fishSize: FishSize;
 }
@@ -40,29 +40,24 @@ export type FishType =
   | 'Turbot'
   | 'Tilapia';
 
-export type FishSize =
-  | '0-5 gram'
-  | '5-20 gram'
-  | '20-100 gram'
-  | '100-500 gram'
-  | '500+ gram';
+export type FishSize = '0-5 gram' | '5-20 gram' | '20-100 gram' | '100-500 gram' | '500+ gram';
 
 export interface ReagentInfo {
   name: string;
   formula: string;
-  mw: number;           // Molecular weight g/mol
-  meqPerMol: number;    // meq per mol
-  slope: number;        // dAlk/dDIC slope (Infinity for vertical)
-  radians: number;      // Direction angle in radians
+  mw: number; // Molecular weight g/mol
+  meqPerMol: number; // meq per mol
+  slope: number; // dAlk/dDIC slope (Infinity for vertical)
+  radians: number; // Direction angle in radians
 }
 
 export interface DosingResult {
   reagentName: string;
   formula: string;
-  amountKg: number;     // Amount in kg
-  amountGrams: number;  // Amount in grams
-  deltaAlk: number;     // Change in alkalinity meq/L
-  deltaDIC: number;     // Change in DIC mmol/L
+  amountKg: number; // Amount in kg
+  amountGrams: number; // Amount in grams
+  deltaAlk: number; // Change in alkalinity meq/L
+  deltaDIC: number; // Change in DIC mmol/L
 }
 
 export interface DosingRecipe {
@@ -71,8 +66,8 @@ export interface DosingRecipe {
 }
 
 export interface OperatingPoint {
-  DIC: number;   // mmol/L (mM)
-  ALK: number;   // meq/L
+  DIC: number; // mmol/L (mM)
+  ALK: number; // meq/L
 }
 
 export interface SafeZone {
@@ -132,41 +127,41 @@ export interface DeffeyesChartData {
 }
 
 export interface CalculatedOutputs {
-  toxicNH3pH: number;          // pH where NH3 becomes toxic
-  toxicCO2pH: number;          // pH where CO2 becomes toxic
-  uiaNPercent: number;         // UIA-N % at TAN-pH border
-  targetCO2: number;           // CO2 at target point mg/L
-  currentCO2: number;          // CO2 at current point mg/L
-  currentDIC: number;          // Current DIC mmol/L
-  targetDIC: number;           // Target DIC mmol/L
+  toxicNH3pH: number; // pH where NH3 becomes toxic
+  toxicCO2pH: number; // pH where CO2 becomes toxic
+  uiaNPercent: number; // UIA-N % at TAN-pH border
+  targetCO2: number; // CO2 at target point mg/L
+  currentCO2: number; // CO2 at current point mg/L
+  currentDIC: number; // Current DIC mmol/L
+  targetDIC: number; // Target DIC mmol/L
   dosingRecipes: DosingRecipe[];
   // UIA safety fields (from R Shiny UIA module)
-  currentUIA: number;          // Current NH3-N at operating conditions (mg/L)
-  safeTAN: number;             // Max safe TAN at current pH/T/S (mg/L)
-  uiaStatusLevel: 'safe' | 'alert' | 'danger';  // Green/yellow/red
-  deltaPH: number;             // criticalPH - currentPH (positive = safe margin)
+  currentUIA: number; // Current NH3-N at operating conditions (mg/L)
+  safeTAN: number; // Max safe TAN at current pH/T/S (mg/L)
+  uiaStatusLevel: 'safe' | 'alert' | 'danger'; // Green/yellow/red
+  deltaPH: number; // criticalPH - currentPH (positive = safe margin)
   // H₂S safety fields
-  toxicH2SpH: number;          // pH where H₂S reaches toxic limit (below this = danger)
-  currentH2S: number;          // Current H₂S at operating conditions (µg/L)
-  totalSulfide: number;        // Calculated total sulfide (µg/L)
-  safeTotalSulfide: number;    // Max safe total sulfide at current pH/T/S (µg/L)
+  toxicH2SpH: number; // pH where H₂S reaches toxic limit (below this = danger)
+  currentH2S: number; // Current H₂S at operating conditions (µg/L)
+  totalSulfide: number; // Calculated total sulfide (µg/L)
+  safeTotalSulfide: number; // Max safe total sulfide at current pH/T/S (µg/L)
   h2sStatusLevel: 'safe' | 'alert' | 'danger';
-  h2sDeltaPH: number;          // currentPH - criticalPH (positive = safe margin, opposite of NH3)
+  h2sDeltaPH: number; // currentPH - criticalPH (positive = safe margin, opposite of NH3)
 }
 
 /** Single step in the on-demand forward dosing path */
 export interface OnDemandStep {
-  label: string;     // e.g. "Start", "After NaHCO₃", "Final"
-  dic: number;       // mmol/L
-  alk: number;       // meq/L
+  label: string; // e.g. "Start", "After NaHCO₃", "Final"
+  dic: number; // mmol/L
+  alk: number; // meq/L
   ph: number;
-  co2: number;       // mg/L
-  amountKg: number;  // amount added (0 for start)
+  co2: number; // mg/L
+  amountKg: number; // amount added (0 for start)
 }
 
 /** One chemical + amount entry for on-demand dosing */
 export interface OnDemandInput {
-  reagentKey: string;  // reagent name (matches ReagentInfo.name)
+  reagentKey: string; // reagent name (matches ReagentInfo.name)
   amountGrams: number;
 }
 
@@ -258,9 +253,8 @@ export function calcIonBalance(
   const totalAnionsMeqL = anions.reduce((sum, a) => sum + a.meqL, 0);
 
   const denominator = totalCationsMeqL + totalAnionsMeqL;
-  const ionBalanceErrorPercent = denominator > 0
-    ? ((totalCationsMeqL - totalAnionsMeqL) / denominator) * 100
-    : 0;
+  const ionBalanceErrorPercent =
+    denominator > 0 ? ((totalCationsMeqL - totalAnionsMeqL) / denominator) * 100 : 0;
 
   return {
     totalCationsMeqL,
@@ -276,18 +270,18 @@ export function calcIonBalance(
  */
 export const COMMON_IONS = {
   // Cations
-  'Ca2+':  { molarMass: 40.078,  charge: 2 },
-  'Mg2+':  { molarMass: 24.305,  charge: 2 },
-  'Na+':   { molarMass: 22.990,  charge: 1 },
-  'K+':    { molarMass: 39.098,  charge: 1 },
-  'Fe2+':  { molarMass: 55.845,  charge: 2 },
-  'Fe3+':  { molarMass: 55.845,  charge: 3 },
-  'NH4+':  { molarMass: 18.039,  charge: 1 },
+  'Ca2+': { molarMass: 40.078, charge: 2 },
+  'Mg2+': { molarMass: 24.305, charge: 2 },
+  'Na+': { molarMass: 22.99, charge: 1 },
+  'K+': { molarMass: 39.098, charge: 1 },
+  'Fe2+': { molarMass: 55.845, charge: 2 },
+  'Fe3+': { molarMass: 55.845, charge: 3 },
+  'NH4+': { molarMass: 18.039, charge: 1 },
   // Anions
-  'HCO3-': { molarMass: 61.017,  charge: 1 },
-  'CO32-': { molarMass: 60.009,  charge: 2 },
-  'SO42-': { molarMass: 96.062,  charge: 2 },
-  'Cl-':   { molarMass: 35.453,  charge: 1 },
-  'NO3-':  { molarMass: 62.004,  charge: 1 },
-  'F-':    { molarMass: 18.998,  charge: 1 },
+  'HCO3-': { molarMass: 61.017, charge: 1 },
+  'CO32-': { molarMass: 60.009, charge: 2 },
+  'SO42-': { molarMass: 96.062, charge: 2 },
+  'Cl-': { molarMass: 35.453, charge: 1 },
+  'NO3-': { molarMass: 62.004, charge: 1 },
+  'F-': { molarMass: 18.998, charge: 1 },
 } as const;

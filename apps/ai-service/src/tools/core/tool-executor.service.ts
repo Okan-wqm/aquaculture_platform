@@ -77,6 +77,26 @@ export class ToolExecutorService {
     const hasPermission =
       serviceGrant ||
       (ctx.personaTier !== null && metadata.requiredPermissions.includes(ctx.personaTier));
+    // RBAC-MEDIUM-016: a human turn may run only what its resolved profile
+    // offered. The offer filter carries the module entitlement and the tenant
+    // block list; without this check those rules would bind only well-behaved
+    // models (every farm tool admits every tier, so the tier check alone lets
+    // a general persona reach farm data on a hallucinated tool_use).
+    // A service principal authorizes through its grant alone (checked below).
+    const offered = ctx.servicePrincipal !== undefined || ctx.offeredToolNames.includes(toolName);
+    if (!offered) {
+      this.logger.warn(
+        `Tool not offered: ${ctx.userId} (persona: ${ctx.persona}) attempted ${toolName}`,
+      );
+      const denied: ToolResult = {
+        success: false,
+        error: `Tool ${toolName} is not available to persona ${ctx.persona}`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, denied, ctx);
+      return denied;
+    }
     if (!hasPermission) {
       this.logger.warn(
         `Permission denied: ${ctx.userId} (tier: ${ctx.personaTier ?? 'none'}) attempted ${toolName}`,

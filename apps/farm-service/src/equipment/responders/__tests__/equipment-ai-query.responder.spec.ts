@@ -81,20 +81,10 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(JSON.stringify(reply)).not.toContain(secret);
   });
 
-  it('ignores an unknown status code instead of failing', async () => {
-    execute.mockResolvedValue({
-      data: [],
-      pagination: {
-        page: 1,
-        limit: 5,
-        total: 0,
-        totalPages: 0,
-        hasNextPage: false,
-        hasPreviousPage: false,
-      },
-    });
-    await responder.listEquipment({ tenantId: TENANT, status: 'flying', limit: 5 });
-    expect((execute.mock.calls[0][0] as ListEquipmentQuery).filter).toEqual({ isActive: true });
+  it('rejects a status outside the contract vocabulary as INVALID_REQUEST (never a silently dropped filter)', async () => {
+    const reply = await responder.listEquipment({ tenantId: TENANT, status: 'flying', limit: 5 });
+    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('feeder calibrations: respects the (equipmentId, tenantId) constructor order', async () => {

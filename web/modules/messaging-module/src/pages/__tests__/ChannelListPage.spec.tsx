@@ -17,8 +17,14 @@ import { requestMock, TEST_USER_ID } from '../../test-utils/sharedUiMock';
 import type { Channel } from '../../types/messaging';
 import ChannelListPage from '../ChannelListPage';
 
+const { session } = vi.hoisted(() => ({
+  session: { hasPermission: (_permission: string): boolean => true },
+}));
+
 vi.mock('@aquaculture/shared-ui', async () =>
-  (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
+  (await import('../../test-utils/sharedUiMock')).createSharedUiMock({
+    hasPermission: (permission) => session.hasPermission(permission),
+  }),
 );
 vi.mock('socket.io-client', async () =>
   (await import('../../test-utils/mockSocketIo')).socketIoModuleMock(),
@@ -90,6 +96,7 @@ function renderList(): void {
 beforeEach(() => {
   requestMock.mockReset();
   resetSocketMock();
+  session.hasPermission = () => true;
 });
 
 describe('ChannelListPage', () => {
@@ -114,6 +121,19 @@ describe('ChannelListPage', () => {
     ]);
     renderList();
     expect(await screen.findByRole('button', { name: 'New AI conversation' })).toBeVisible();
+  });
+
+  it('hides the AI entry point without ai_assistant:use', async () => {
+    session.hasPermission = (permission) => permission !== 'ai_assistant:use';
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 0, items: [] } }),
+      },
+    ]);
+    renderList();
+    await screen.findByText('No channels yet.');
+    expect(screen.queryByRole('button', { name: 'New AI conversation' })).not.toBeInTheDocument();
   });
 
   it('renders a TEXT lastMessage as the preview', async () => {

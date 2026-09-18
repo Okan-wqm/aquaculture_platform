@@ -17,3 +17,17 @@ export const LIST_LIMIT_SCHEMA = {
 export const ALL_TIERS = ['operator', 'manager', 'expert', 'supervisor'] as const;
 /** Tiers above operator — finance and other management-only reads. */
 export const MANAGER_UP = ['manager', 'expert', 'supervisor'] as const;
+
+/** Trailing-window length for statistics tools, bounded by the contract's MAX_STAT_DAYS. */
+export const STAT_DAYS_SCHEMA = {
+  type: 'integer',
+  minimum: 1,
+  maximum: FARM_AI_QUERY_LIMITS.MAX_STAT_DAYS,
+} as const;
+
+/** Look-ahead length for upcoming/overdue plan listings, bounded by MAX_UPCOMING_DAYS. */
+export const UPCOMING_DAYS_SCHEMA = {
+  type: 'integer',
+  minimum: 1,
+  maximum: FARM_AI_QUERY_LIMITS.MAX_UPCOMING_DAYS,
+} as const;

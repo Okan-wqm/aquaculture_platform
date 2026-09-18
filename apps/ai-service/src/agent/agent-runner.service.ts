@@ -328,6 +328,9 @@ export class AgentRunnerService {
       // AISAFETY-MEDIUM-021: the composed persona's tier is the executor's
       // authority dimension for a human turn.
       personaTier: profile.persona.tier,
+      // RBAC-MEDIUM-016: the executor refuses any tool_use outside this list —
+      // the module/block-list offer filter becomes binding at execution time.
+      offeredToolNames: profile.effectiveToolNames,
       // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
       // most-restrictive) gates whether an actuation tool may run autonomously.
       actuationPolicy: profile.actuationPolicy,

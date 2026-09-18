@@ -21,12 +21,7 @@ import {
 /**
  * Calculate CO2 level (mg/L) from alkalinity and pH
  */
-export function co2Level(
-  alkMeq: number,
-  pHnbs: number,
-  tempC: number,
-  S: number
-): number {
+export function co2Level(alkMeq: number, pHnbs: number, tempC: number, S: number): number {
   const dic = calcDicOfAlk(alkMeq, pHnbs, tempC, S);
   const co2mm = calcCo2OfDic(dic, pHnbs, tempC, S);
   return co2MmToMg(co2mm);
@@ -46,7 +41,7 @@ export function criticalPHforCO2(
   alkMeq: number,
   co2CritMg: number,
   tempC: number,
-  S: number
+  S: number,
 ): number {
   // At constant alkalinity, as pH decreases, CO2 increases
   // Find pH where CO2(alk, pH) = co2CritMg
@@ -75,7 +70,7 @@ export function generateCarbonateVsPHData(
   _dicMM = 2.0,
   pHmin = 6.0,
   pHmax = 9.5,
-  step = 0.1
+  step = 0.1,
 ): Array<{ pH: number; CO2: number; HCO3: number; CO3: number }> {
   const data: Array<{ pH: number; CO2: number; HCO3: number; CO3: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
@@ -109,7 +104,7 @@ export function generateSaturationVsPHData(
   caMgL: number,
   pHmin = 6.0,
   pHmax = 9.5,
-  step = 0.1
+  step = 0.1,
 ): Array<{ pH: number; Calcite: number; Aragonite: number }> {
   // Mucci (1983) T/S-dependent Ksp
   const KspCa = calcKspCalcite(tempC, S);
@@ -117,7 +112,7 @@ export function generateSaturationVsPHData(
 
   // Convert Ca from mg/L to mol/kg (approx mol/L for dilute solutions)
   // Ca atomic weight = 40.078 g/mol
-  const CaMol = (caMgL / 40078); // mg/L → mol/L (divide by MW*1000)
+  const CaMol = caMgL / 40078; // mg/L → mol/L (divide by MW*1000)
 
   const data: Array<{ pH: number; Calcite: number; Aragonite: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {

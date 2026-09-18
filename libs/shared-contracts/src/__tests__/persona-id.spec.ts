@@ -45,6 +45,8 @@ describe('AI persona id grammar', () => {
       'farm-production-v1', // no tier prefix
       'operator-v', // no version
       'operator-v0', // versions start at 1
+      'operator-v01', // canonical spelling only: no leading zeros (one string per persona)
+      'expert-farm-production-v010',
       'Operator-v1', // case-sensitive
       'operator-hr-payroll-v1', // grammar-valid but unknown specialty
       'operator--v1',

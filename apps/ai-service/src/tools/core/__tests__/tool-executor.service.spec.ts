@@ -50,6 +50,7 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     correlationId: 'corr-1',
     persona: 'operator-v1',
     personaTier: 'operator',
+    offeredToolNames: ['dose_reagent', 'read_ph', 'calculate_reagent_dosing'],
     actuationPolicy: policy,
   });
 
@@ -162,6 +163,35 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     expect(logToolExecution).toHaveBeenCalledTimes(1);
   });
 
+  // RBAC-MEDIUM-016 (execute-time): the offer filter is binding. A tool the
+  // profile did not offer is refused even when the tier alone would admit it —
+  // every farm tool admits every tier, so this is what keeps module
+  // entitlement and the tenant block list from depending on the model's
+  // good behaviour.
+  it('refuses a tool the persona was not offered, even when the tier would admit it', async () => {
+    registry.getTool.mockReturnValue(
+      makeTool({ requiredPermissions: ['operator'], requiresConfirmation: false }),
+    );
+
+    const result = await service.executeTool('get_farm_batches', {}, ctx('allowed'));
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not available to persona operator-v1/);
+    expect(logToolExecution).toHaveBeenCalledTimes(1);
+
+    const offered = await service.executeTool(
+      'get_farm_batches',
+      {},
+      {
+        ...ctx('allowed'),
+        offeredToolNames: ['get_farm_batches'],
+      },
+    );
+    expect(offered.success).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   // AISAFETY-MEDIUM-021: the persona TIER is the authority dimension; JWT role
   // names are never consulted, and a human turn without a tier is denied.
   it('authorizes by persona tier, not by JWT role names', async () => {
@@ -226,6 +256,7 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       correlationId: 'corr-1',
       persona: 'service',
       personaTier: null,
+      offeredToolNames: [],
       actuationPolicy: 'blocked',
       servicePrincipal: { name: 'sensor-service', grantedToolNames: grant },
     });

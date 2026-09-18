@@ -8,6 +8,7 @@ import {
   type BiomassResult,
   type FcrResult,
   type GrowthProjectionResult,
+  type GrowthProjectionSample,
   type SgrResult,
   type TransferDensityResult,
   type TransferTank,
@@ -20,6 +21,7 @@ import {
   POSITIVE_NUMBER_SCHEMA,
   requireFinite,
   requireOptionalFinite,
+  roundNumbersDeep,
 } from './aquaculture-math.schema';
 
 type GrowthMode = 'sgr' | 'fcr' | 'biomass' | 'projection' | 'transfer_density';
@@ -76,6 +78,14 @@ const MODE_REQUIRED: Readonly<Record<GrowthMode, readonly (keyof GrowthMetricsIn
   projection: ['currentWeightG', 'currentQuantity', 'sgrPercentPerDay'],
   transfer_density: ['sourceTank', 'destTank', 'transferBiomassKg'],
 };
+
+function wholeFish(sample: GrowthProjectionSample): GrowthProjectionSample {
+  return {
+    ...sample,
+    quantity: Math.round(sample.quantity),
+    cumulativeMortality: Math.round(sample.cumulativeMortality),
+  };
+}
 
 function isTransferTank(value: unknown): value is TransferTank {
   if (typeof value !== 'object' || value === null) return false;
@@ -157,6 +167,7 @@ function isTransferTank(value: unknown): value is TransferTank {
       },
     },
     required: ['mode'],
+    additionalProperties: false,
   },
   requiresModule: null,
   requiresConfirmation: false,
@@ -166,6 +177,10 @@ export class CalculateGrowthMetricsTool extends BaseTool<GrowthMetricsInput, Gro
     input: GrowthMetricsInput,
     _ctx: ToolExecutionContext,
   ): Promise<GrowthMetricsOutput> {
+    return roundNumbersDeep(this.compute(input));
+  }
+
+  private compute(input: GrowthMetricsInput): GrowthMetricsOutput {
     switch (input.mode) {
       case 'sgr':
         return {
@@ -190,19 +205,26 @@ export class CalculateGrowthMetricsTool extends BaseTool<GrowthMetricsInput, Gro
           mode: 'biomass',
           ...biomass(input.quantity as number, input.avgWeightG as number, input.tankVolumeM3),
         };
-      case 'projection':
+      case 'projection': {
+        const projection = growthProjection({
+          currentWeightG: input.currentWeightG as number,
+          currentQuantity: input.currentQuantity as number,
+          sgrPercentPerDay: input.sgrPercentPerDay as number,
+          targetWeightG: input.targetWeightG,
+          mortalityRatePercent: input.mortalityRatePercent,
+          projectionDays: input.projectionDays,
+          dailyFeedingRatePercent: input.dailyFeedingRatePercent,
+        });
+        // Presentation: fish are counted whole; the engine's continuous
+        // mortality model yields fractional stock.
+        const samples = projection.samples.map(wholeFish);
         return {
           mode: 'projection',
-          ...growthProjection({
-            currentWeightG: input.currentWeightG as number,
-            currentQuantity: input.currentQuantity as number,
-            sgrPercentPerDay: input.sgrPercentPerDay as number,
-            targetWeightG: input.targetWeightG,
-            mortalityRatePercent: input.mortalityRatePercent,
-            projectionDays: input.projectionDays,
-            dailyFeedingRatePercent: input.dailyFeedingRatePercent,
-          }),
+          ...projection,
+          samples,
+          final: samples[samples.length - 1] as GrowthProjectionSample,
         };
+      }
       case 'transfer_density':
         return {
           mode: 'transfer_density',

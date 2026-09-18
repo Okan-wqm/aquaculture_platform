@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
 import { isoOrNull, numberOrNull, respondAiQuery, toBoundedList } from '../ai-query-responder';
 
@@ -28,6 +29,20 @@ describe('respondAiQuery', () => {
     expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
     expect(handle).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('runs the handler inside the tenant AsyncLocalStorage frame (ambient repositories resolve the tenant)', async () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111';
+    expect(getRequestContext().tenantId).toBeUndefined();
+    const reply = await respondAiQuery(
+      logger,
+      FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE,
+      { tenantId, x: 1 },
+      isReq,
+      async () => ({ seenTenant: getRequestContext().tenantId }),
+    );
+    expect(reply).toEqual({ ok: true, data: { seenTenant: tenantId } });
+    expect(getRequestContext().tenantId).toBeUndefined();
   });
 
   it('wraps the handler result in the ok envelope', async () => {

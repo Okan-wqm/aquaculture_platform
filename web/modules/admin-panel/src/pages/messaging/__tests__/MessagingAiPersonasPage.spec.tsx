@@ -21,14 +21,6 @@ vi.mock('../../../services/adminApi', () => ({
 
 const PERSONAS: AiPersonaDefinition[] = [
   {
-    id: null,
-    name: 'General AI Assistant',
-    description: 'Ask anything',
-    icon: 'bot',
-    color: 'purple',
-    capabilities: ['General questions'],
-  },
-  {
     id: 'expert-v1',
     name: 'Aquaculture Expert (General)',
     description: 'Advanced water chemistry',
@@ -76,8 +68,6 @@ describe('MessagingAiPersonasPage', () => {
       if (!row) throw new Error(`no row for ${name}`);
       return row;
     };
-    expect(rowOf('General AI Assistant')).toHaveTextContent('Tenant default');
-    expect(rowOf('General AI Assistant')).toHaveTextContent('general');
     expect(rowOf('Aquaculture Expert (General)')).toHaveTextContent('Expert');
     expect(rowOf('Aquaculture Expert (General)')).toHaveTextContent('general');
     expect(rowOf('Farm Operations Specialist (Manager)')).toHaveTextContent('Manager');

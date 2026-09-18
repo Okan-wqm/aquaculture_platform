@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   biomass,
+  densityStatus,
+  fcrEfficiency,
   feedConversionRatio,
   growthProjection,
+  sgrRating,
   specificGrowthRate,
   transferDensity,
 } from '../growth-metrics.js';
@@ -39,6 +42,46 @@ describe('feedConversionRatio', () => {
     expect(r.deviationFromIndustryPercent).toBeCloseTo(0, 10);
     expect(r.efficiency).toBe('good');
     expect(r.feedSavingsKgIfImproved01).toBeCloseTo(100, 10);
+  });
+
+  it('a prototype key as species code falls to the default table entry, never to Object.prototype', () => {
+    for (const code of ['constructor', '__proto__', 'hasOwnProperty', 'toString']) {
+      expect(feedConversionRatio(1.5, 1, code).industryAverageFcr).toBe(1.5);
+      expect(feedConversionRatio(1.5, 1, code).efficiency).toBe('good');
+    }
+  });
+
+  it.each([
+    [3.0001, 'excellent'],
+    [3, 'good'],
+    [2, 'good'],
+    [1.9999, 'average'],
+    [1, 'average'],
+    [0.9999, 'poor'],
+  ] as const)('sgrRating(%f) = %s at the boundary', (sgr, rating) => {
+    expect(sgrRating(sgr)).toBe(rating);
+  });
+
+  it.each([
+    [1.5 * 0.85, 'excellent'],
+    [1.5 * 0.85 + 1e-9, 'good'],
+    [1.5, 'good'],
+    [1.5 + 1e-9, 'average'],
+    [1.5 * 1.2, 'average'],
+    [1.5 * 1.2 + 1e-9, 'poor'],
+  ] as const)('fcrEfficiency(%f, 1.5) = %s at the boundary', (fcr, efficiency) => {
+    expect(fcrEfficiency(fcr, 1.5)).toBe(efficiency);
+  });
+
+  it.each([
+    [4.9999, 'low'],
+    [5, 'normal'],
+    [15, 'normal'],
+    [15.0001, 'high'],
+    [30, 'high'],
+    [30.0001, 'excessive'],
+  ] as const)('densityStatus(%f) = %s at the boundary', (density, status) => {
+    expect(densityStatus(density)).toBe(status);
   });
 
   it('unknown species uses the 1.5 default; ≤85 % of it is excellent, >120 % poor', () => {

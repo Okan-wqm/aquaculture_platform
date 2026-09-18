@@ -16,6 +16,7 @@ const ctx: ToolExecutionContext = {
   correlationId: 'corr-1',
   persona: 'operator-v1',
   personaTier: 'operator',
+  offeredToolNames: [],
   actuationPolicy: 'allowed',
 };
 
@@ -29,9 +30,7 @@ function makeService(save: jest.Mock) {
 describe('AuditService — audit durability mode', () => {
   it('swallows a write failure in best-effort (non-strict) mode', async () => {
     const service = makeService(jest.fn().mockRejectedValue(new Error('db down')));
-    await expect(
-      service.logToolExecution('read_ph', {}, result, ctx),
-    ).resolves.toBeUndefined();
+    await expect(service.logToolExecution('read_ph', {}, result, ctx)).resolves.toBeUndefined();
   });
 
   it('re-throws a write failure in strict mode (actuation)', async () => {

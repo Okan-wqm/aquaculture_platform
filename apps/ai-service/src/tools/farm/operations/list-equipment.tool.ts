@@ -5,6 +5,8 @@ import {
   type EquipmentListRequest,
   clampListLimit,
   isEquipmentListReply,
+  EQUIPMENT_STATUSES,
+  type EquipmentStatusCode,
 } from '@platform/event-contracts';
 import { Tool } from '../../core/tool.decorator';
 import { FarmAiQueryTool } from '../farm-ai-query.tool';
@@ -12,7 +14,7 @@ import { ALL_TIERS, LIST_LIMIT_SCHEMA, UUID_SCHEMA } from '../farm-ai-query.sche
 
 interface Input {
   equipmentTypeId?: string;
-  status?: string;
+  status?: EquipmentStatusCode;
   isTank?: boolean;
   limit?: number;
 }
@@ -31,7 +33,7 @@ interface Input {
     additionalProperties: false,
     properties: {
       equipmentTypeId: UUID_SCHEMA,
-      status: { type: 'string', maxLength: 32 },
+      status: { type: 'string', enum: [...EQUIPMENT_STATUSES] },
       isTank: { type: 'boolean' },
       limit: LIST_LIMIT_SCHEMA,
     },

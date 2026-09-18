@@ -211,7 +211,7 @@ export function isGrowthMeasurementsRequest(value: unknown): value is GrowthMeas
   return (
     isAiQueryRequestShape(value, ['batchId', 'limit']) &&
     isUuidString(value['batchId']) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isGrowthMeasurementDto(value: unknown): value is GrowthMeasurementDto {

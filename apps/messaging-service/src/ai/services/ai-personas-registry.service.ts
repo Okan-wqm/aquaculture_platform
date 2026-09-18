@@ -82,8 +82,12 @@ export class AiPersonasRegistryService {
     return [PICKER_DEFAULT, ...permitted.map(toDefinition)];
   }
 
-  /** Every published persona (platform-admin inventory), unfiltered. */
+  /**
+   * Every PUBLISHED persona (platform-admin inventory), unfiltered — the 13
+   * catalogue entries. The `id: null` tenant-default row is a picker
+   * affordance, not a persona, so it is not part of the inventory.
+   */
   listAll(): AiPersonaDefinition[] {
-    return [PICKER_DEFAULT, ...AI_PERSONA_CATALOGUE.map(toDefinition)];
+    return AI_PERSONA_CATALOGUE.map(toDefinition);
   }
 }

@@ -10,6 +10,7 @@ import {
   TEMPERATURE_SCHEMA,
   requireFinite,
   requireOptionalFinite,
+  roundNumbersDeep,
 } from './aquaculture-math.schema';
 
 interface OxygenBudgetInput {
@@ -20,6 +21,7 @@ interface OxygenBudgetInput {
   currentDoMgL: number;
   hasBiofilter?: boolean;
   waterFlowM3h?: number;
+  minSafeDoMgL?: number;
 }
 
 /**
@@ -52,8 +54,14 @@ interface OxygenBudgetInput {
         description: 'Fresh-water exchange flow (m³/h), optional',
         minimum: 0,
       },
+      minSafeDoMgL: {
+        type: 'number',
+        description: 'Minimum safe DO (mg/L), default 5',
+        minimum: 0,
+      },
     },
     required: ['temperatureC', 'dailyFeedKg', 'tankVolumeM3', 'currentDoMgL'],
+    additionalProperties: false,
   },
   requiresModule: null,
   requiresConfirmation: false,
@@ -63,7 +71,19 @@ export class CalculateOxygenBudgetTool extends BaseTool<OxygenBudgetInput, Oxyge
     input: OxygenBudgetInput,
     _ctx: ToolExecutionContext,
   ): Promise<OxygenBudgetResult> {
-    return oxygenBudget(input);
+    // Explicit field mapping: only declared, validated fields reach the engine.
+    return roundNumbersDeep(
+      oxygenBudget({
+        temperatureC: input.temperatureC,
+        salinityPpt: input.salinityPpt,
+        dailyFeedKg: input.dailyFeedKg,
+        tankVolumeM3: input.tankVolumeM3,
+        currentDoMgL: input.currentDoMgL,
+        hasBiofilter: input.hasBiofilter,
+        waterFlowM3h: input.waterFlowM3h,
+        minSafeDoMgL: input.minSafeDoMgL,
+      }),
+    );
   }
 
   async validate(input: OxygenBudgetInput): Promise<{ valid: boolean; errors?: string[] }> {
@@ -75,6 +95,7 @@ export class CalculateOxygenBudgetTool extends BaseTool<OxygenBudgetInput, Oxyge
     ];
     errors.push(...requireOptionalFinite('salinityPpt', input.salinityPpt, 0, 45));
     errors.push(...requireOptionalFinite('waterFlowM3h', input.waterFlowM3h, 0));
+    errors.push(...requireOptionalFinite('minSafeDoMgL', input.minSafeDoMgL, 0));
     return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
 

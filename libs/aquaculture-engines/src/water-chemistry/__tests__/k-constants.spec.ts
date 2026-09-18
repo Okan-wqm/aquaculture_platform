@@ -33,7 +33,7 @@ describe('carbonic-acid K1/K2 — literature anchors (SWS pK)', () => {
   });
 
   it('reproduces seawater (S=35, 25°C) SWS constants', () => {
-    expect(pK1(25, 35)).toBeCloseTo(5.840, 2);
+    expect(pK1(25, 35)).toBeCloseTo(5.84, 2);
     expect(pK2(25, 35)).toBeCloseTo(8.964, 2);
   });
 

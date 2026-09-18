@@ -1,6 +1,4 @@
-import {
-  MESSAGING_MEDIA_MIME_ALLOWLIST,
-} from '../enums/messaging-media-mime';
+import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '../enums/messaging-media-mime';
 
 /**
  * MSG-MEDIUM-057 — SSoT-level invariants for the messaging media MIME allowlist.

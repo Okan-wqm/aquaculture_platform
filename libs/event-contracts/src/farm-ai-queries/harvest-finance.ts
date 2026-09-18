@@ -50,8 +50,8 @@ export function isHarvestPlansRequest(value: unknown): value is HarvestPlansRequ
   return (
     isAiQueryRequestShape(value, ['scope', 'days', 'limit']) &&
     (HARVEST_PLAN_SCOPES as readonly string[]).includes(value['scope'] as string) &&
-    isBoundedInt(value['days'], 1, 180) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['days'], 1, FARM_AI_QUERY_LIMITS.MAX_UPCOMING_DAYS) &&
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isHarvestPlanDto(value: unknown): value is HarvestPlanDto {
@@ -177,7 +177,7 @@ export function isRegulatoryReportsRequest(value: unknown): value is RegulatoryR
     isAiQueryRequestShape(value, ['reportType', 'siteId', 'limit']) &&
     (REGULATORY_REPORT_TYPES as readonly string[]).includes(value['reportType'] as string) &&
     isOptional(value['siteId'], isUuidString) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isRegulatoryReportDto(value: unknown): value is RegulatoryReportDto {
@@ -257,7 +257,7 @@ export function isFinanceBatchTotalsRequest(value: unknown): value is FinanceBat
   return (
     isAiQueryRequestShape(value, ['fromDate', 'toDate', 'limit']) &&
     isBoundedDateRange(value['fromDate'], value['toDate'], FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS) &&
-    isBoundedInt(value['limit'], 1, 50)
+    isBoundedInt(value['limit'], 1, FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT)
   );
 }
 export function isFinanceBatchTotalDto(value: unknown): value is FinanceBatchTotalDto {

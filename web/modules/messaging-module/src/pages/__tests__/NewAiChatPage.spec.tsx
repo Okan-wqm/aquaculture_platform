@@ -14,8 +14,14 @@ import { requestMock } from '../../test-utils/sharedUiMock';
 import type { AiPersona } from '../../types/messaging';
 import NewAiChatPage from '../NewAiChatPage';
 
+const { session } = vi.hoisted(() => ({
+  session: { hasPermission: (_permission: string): boolean => true },
+}));
+
 vi.mock('@aquaculture/shared-ui', async () =>
-  (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
+  (await import('../../test-utils/sharedUiMock')).createSharedUiMock({
+    hasPermission: (permission) => session.hasPermission(permission),
+  }),
 );
 
 const PERSONAS: AiPersona[] = [
@@ -74,6 +80,7 @@ function renderPage(): void {
 
 beforeEach(() => {
   requestMock.mockReset();
+  session.hasPermission = () => true;
 });
 
 describe('NewAiChatPage', () => {
@@ -141,6 +148,18 @@ describe('NewAiChatPage', () => {
         },
       ),
     );
+  });
+
+  it('without ai_assistant:use shows the no-access banner and fires no AI query', async () => {
+    session.hasPermission = (permission) => permission !== 'ai_assistant:use';
+    route({ tenantAiEnabled: true, userAiConsent: true });
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You do not have access to the AI assistant.',
+    );
+    expect(screen.queryByRole('button', { name: 'Start conversation' })).not.toBeInTheDocument();
+    expect(requestMock).not.toHaveBeenCalled();
   });
 
   it('blocks creation and explains when the tenant master switch is off', async () => {

@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import type { QueryBus } from '@platform/cqrs';
 import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
 import { GetTankWaterQualityStatisticsQuery } from '../../queries/get-tank-water-quality-statistics.query';
-import { GetWaterQualityChartQuery } from '../../queries/get-water-quality-chart.query';
+import { ListWaterQualityQuery } from '../../queries/list-water-quality.query';
 import { ListCriticalWaterQualityQuery } from '../../queries/list-critical-water-quality.query';
 import { ListParameterConfigsQuery } from '../../queries/list-parameter-configs.query';
 import type { WaterQualityMeasurement } from '../../entities/water-quality-measurement.entity';
@@ -129,12 +129,20 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).not.toHaveBeenCalled();
     });
 
-    it('returns newest-first, bounded, projected readings', async () => {
-      execute.mockResolvedValue([
-        measurement({ measuredAt: new Date('2026-09-16T06:00:00Z') }),
-        measurement({ measuredAt: new Date('2026-09-18T06:00:00Z') }),
-        measurement({ measuredAt: new Date('2026-09-17T06:00:00Z') }),
-      ]);
+    it('reads a DB-bounded newest-first page (full rows incl. parameters) through the whole toDate day', async () => {
+      // The list query returns the page the DB already ordered and bounded.
+      execute.mockResolvedValue({
+        items: [
+          measurement({ measuredAt: new Date('2026-09-18T23:30:00Z') }),
+          measurement({ measuredAt: new Date('2026-09-17T06:00:00Z') }),
+        ],
+        total: 3,
+        page: 1,
+        limit: 2,
+        totalPages: 2,
+        hasNextPage: true,
+        hasPreviousPage: false,
+      });
 
       const reply = await responder.getHistory({
         tenantId: TENANT,
@@ -144,14 +152,18 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
         limit: 2,
       });
 
-      expect(execute).toHaveBeenCalledWith(expect.any(GetWaterQualityChartQuery));
+      expect(execute).toHaveBeenCalledWith(expect.any(ListWaterQualityQuery));
+      const query = execute.mock.calls[0]?.[0] as ListWaterQualityQuery;
+      expect(query.filters).toMatchObject({ tankId: TANK, limit: 2, offset: 0 });
+      // toDate is a calendar day: the bound is the END of 2026-09-18 (UTC).
+      expect(query.filters.toDate?.toISOString()).toBe('2026-09-18T23:59:59.999Z');
       expect(reply.ok).toBe(true);
       if (!reply.ok) return;
       expect(reply.data.items.map((m) => m.measuredAt)).toEqual([
-        '2026-09-18T06:00:00.000Z',
+        '2026-09-18T23:30:00.000Z',
         '2026-09-17T06:00:00.000Z',
       ]);
-      expect(reply.data.truncated).toBe(true);
+      expect(reply.data).toMatchObject({ truncated: true, total: 3 });
     });
   });
 

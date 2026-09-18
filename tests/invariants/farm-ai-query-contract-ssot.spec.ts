@@ -142,6 +142,10 @@ describe('INVARIANT (FARM-MEDIUM-328): farm AI read contract SSoT', () => {
   });
 
   it('no operator, veterinarian or free-text field crosses the contract DTOs', () => {
+    // Deliberate exceptions, reviewed: `title` (health events, work orders,
+    // tasks) and `location` (tasks) are the operator's one-line names for
+    // the item and are needed for the model to reference it; `checklistDone`
+    // / `checklistTotal` are counts, not checklist text.
     const banned = [
       'reportedBy',
       'assignedTo',

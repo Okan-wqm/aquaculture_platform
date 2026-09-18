@@ -71,6 +71,18 @@ export interface ToolExecutionContext {
    */
   personaTier: AiPersonaTier | null;
   /**
+   * RBAC-MEDIUM-016 (execute-time): the tool names this turn OFFERED the
+   * model — the resolved profile's effective tools (bundle ∩ registry ∩ tier
+   * ∩ module entitlement − tenant block list), or, for a confirmed proposal,
+   * exactly the stored tool. The executor refuses any other name, so a model
+   * that emits a `tool_use` for a tool it was never given (hallucination,
+   * relay leniency, prompt injection through a tool result) cannot reach a
+   * module-scoped or tenant-blocked tool: the offer filter is the ONLY place
+   * those rules are evaluated, and this is what makes it binding. Service
+   * principals authorize through `servicePrincipal.grantedToolNames` instead.
+   */
+  offeredToolNames: readonly string[];
+  /**
    * AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant, most
    * restrictive wins). REQUIRED so the executor can never fail open — an
    * actuation tool runs autonomously only under 'allowed'. Populated by the

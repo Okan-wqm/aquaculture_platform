@@ -7,7 +7,7 @@ import {
 } from '@platform/event-contracts';
 import { Tool } from '../../core/tool.decorator';
 import { FarmAiQueryTool } from '../farm-ai-query.tool';
-import { ALL_TIERS, UUID_SCHEMA } from '../farm-ai-query.schema';
+import { ALL_TIERS, STAT_DAYS_SCHEMA, UUID_SCHEMA } from '../farm-ai-query.schema';
 
 interface Input {
   tankId: string;
@@ -27,7 +27,7 @@ interface Input {
     type: 'object',
     additionalProperties: false,
     required: ['tankId'],
-    properties: { tankId: UUID_SCHEMA, days: { type: 'integer', minimum: 1, maximum: 90 } },
+    properties: { tankId: UUID_SCHEMA, days: STAT_DAYS_SCHEMA },
   },
   requiresConfirmation: false,
 })

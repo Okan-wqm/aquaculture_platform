@@ -64,8 +64,16 @@ export function saturationStatus(saturationPercent: number): SaturationStatus {
   return 'critical';
 }
 
-export function oxygenBalanceStatus(hoursToMinDo: number | null): OxygenBalanceStatus {
-  if (hoursToMinDo === null) return 'critical';
+/**
+ * `hoursToMinDo` is null both when DO is already at/below the floor (critical)
+ * and when there is no oxygen demand at all (an unfed tank — nothing pulls
+ * DO down, a surplus); `aboveFloor` tells the two apart.
+ */
+export function oxygenBalanceStatus(
+  hoursToMinDo: number | null,
+  aboveFloor: boolean,
+): OxygenBalanceStatus {
+  if (hoursToMinDo === null) return aboveFloor ? 'surplus' : 'critical';
   if (hoursToMinDo > 24) return 'surplus';
   if (hoursToMinDo >= 12) return 'balanced';
   return 'deficit';
@@ -121,7 +129,7 @@ export function oxygenBudget(input: OxygenBudgetInput): OxygenBudgetResult {
     demand,
     consumptionRateMgLPerHour,
     hoursToMinDo,
-    balanceStatus: oxygenBalanceStatus(hoursToMinDo),
+    balanceStatus: oxygenBalanceStatus(hoursToMinDo, input.currentDoMgL > minSafe),
     doChangePerDegreeC,
     criticalTemperatureC,
     waterExchange,

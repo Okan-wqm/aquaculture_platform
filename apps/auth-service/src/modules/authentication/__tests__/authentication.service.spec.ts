@@ -509,6 +509,15 @@ describe('AuthenticationService', () => {
       expect(passwordAtMint).toBe(legacyHash);
       const mintOrder = mockTokenService.generateTokens.mock.invocationCallOrder[0];
       const [bookkeepingOrder, migrationOrder] = mockUserRepository.save.mock.invocationCallOrder;
+      // noUncheckedIndexedAccess: an absent invocation is a failed expectation,
+      // not an undefined operand.
+      if (
+        mintOrder === undefined ||
+        bookkeepingOrder === undefined ||
+        migrationOrder === undefined
+      ) {
+        throw new Error('expected one generateTokens() and two save() invocations');
+      }
       expect(bookkeepingOrder).toBeLessThan(mintOrder);
       expect(mintOrder).toBeLessThan(migrationOrder);
     });

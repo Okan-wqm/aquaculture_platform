@@ -1,6 +1,6 @@
 /**
  * INVARIANT — design-system adoption in the web tree only moves one way
- * (FE-HIGH-076 / FE-HIGH-077 / FE-MEDIUM-078).
+ * (FE-HIGH-065 / FE-HIGH-066 / FE-MEDIUM-067).
  *
  * `web/shared-ui` is a real design system: 61 colour tokens, Modal /
  * ConfirmModal / Drawer with one shared dialog behaviour, Button, form fields.
@@ -89,9 +89,9 @@ function read(relativePath: string): string {
 
 /** `web/modules/<name>`, `web/shell` or `web/apps/<name>` — the unit a ceiling is granted to. */
 function packageOf(file: string): string {
-  const match = /^(web\/modules\/[^/]+|web\/shell|web\/apps\/[^/]+)/.exec(file);
-  if (!match) throw new Error(`file outside a web package: ${file}`);
-  return match[1];
+  const pkg = /^(web\/modules\/[^/]+|web\/shell|web\/apps\/[^/]+)/.exec(file)?.[1];
+  if (!pkg) throw new Error(`file outside a web package: ${file}`);
+  return pkg;
 }
 
 function expiryIso(value: string | Date): string {
@@ -109,14 +109,17 @@ function countByPackage(files: string[], pattern: RegExp): Map<string, number> {
   return counts;
 }
 
-function assertGoverned(entry: { owner: string; expiry: string | Date; findingId: string; reason: string }, today: string): void {
+function assertGoverned(
+  entry: { owner: string; expiry: string | Date; findingId: string; reason: string },
+  today: string,
+): void {
   expect(entry.owner).toBeTruthy();
   expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
   expect(entry.reason.length).toBeGreaterThan(20);
   expect(expiryIso(entry.expiry) > today).toBe(true);
 }
 
-describe('INVARIANT (FE-HIGH-076/077, FE-MEDIUM-078): web design-system adoption ratchet', () => {
+describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption ratchet', () => {
   const files = sourceFiles();
   const doc = yaml.load(read(ALLOWLIST)) as Allowlist;
   const today = new Date().toISOString().slice(0, 10);
@@ -128,7 +131,7 @@ describe('INVARIANT (FE-HIGH-076/077, FE-MEDIUM-078): web design-system adoption
     expect(files.some((f) => f.startsWith('web/apps/aquamobil/'))).toBe(true);
   });
 
-  it('ratchets every hand-rolled overlay — governed, live, and only shrinking (FE-HIGH-076)', () => {
+  it('ratchets every hand-rolled overlay — governed, live, and only shrinking (FE-HIGH-065)', () => {
     const actual = new Set(files.filter((file) => OVERLAY.test(read(file))));
     const listed = new Set(doc.overlays.entries.map((entry) => entry.site));
 
@@ -146,7 +149,7 @@ describe('INVARIANT (FE-HIGH-076/077, FE-MEDIUM-078): web design-system adoption
     expect(doc.overlays.entries.length).toBeLessThanOrEqual(doc.overlays.ceiling);
   });
 
-  it('ratchets raw hex colours outside theme.css per package (FE-HIGH-077)', () => {
+  it('ratchets raw hex colours outside theme.css per package (FE-HIGH-066)', () => {
     const actual = countByPackage(files, RAW_HEX);
     const ceilings = new Map(doc.rawHex.entries.map((entry) => [entry.package, entry]));
 
@@ -156,17 +159,23 @@ describe('INVARIANT (FE-HIGH-076/077, FE-MEDIUM-078): web design-system adoption
       expect(entry === undefined ? `${pkg}: ${count} raw hex, no ceiling` : '').toBe('');
       if (entry) expect({ pkg, count }).toEqual({ pkg, count: expect.any(Number) });
       if (entry && count > entry.ceiling) {
-        throw new Error(`${pkg}: ${count} raw hex colours, ceiling ${entry.ceiling}. Use theme.css tokens (bg-primary-*, var(--color-*)) instead of raw values; lower the ceiling when you remove some.`);
+        throw new Error(
+          `${pkg}: ${count} raw hex colours, ceiling ${entry.ceiling}. Use theme.css tokens (bg-primary-*, var(--color-*)) instead of raw values; lower the ceiling when you remove some.`,
+        );
       }
     }
     for (const entry of doc.rawHex.entries) {
       assertGoverned(entry, today);
       // A ceiling above the live count is slack nobody earned: tighten it.
-      expect((actual.get(entry.package) ?? 0) === entry.ceiling ? '' : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`).toBe('');
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
     }
   });
 
-  it('ratchets inline style={{}} blocks per package (FE-MEDIUM-078)', () => {
+  it('ratchets inline style={{}} blocks per package (FE-MEDIUM-067)', () => {
     const actual = countByPackage(files, INLINE_STYLE);
     const ceilings = new Map(doc.inlineStyle.entries.map((entry) => [entry.package, entry]));
 
@@ -174,12 +183,18 @@ describe('INVARIANT (FE-HIGH-076/077, FE-MEDIUM-078): web design-system adoption
       const entry = ceilings.get(pkg);
       expect(entry === undefined ? `${pkg}: ${count} inline styles, no ceiling` : '').toBe('');
       if (entry && count > entry.ceiling) {
-        throw new Error(`${pkg}: ${count} inline style blocks, ceiling ${entry.ceiling}. Prefer utility classes / tokens; lower the ceiling when you remove some.`);
+        throw new Error(
+          `${pkg}: ${count} inline style blocks, ceiling ${entry.ceiling}. Prefer utility classes / tokens; lower the ceiling when you remove some.`,
+        );
       }
     }
     for (const entry of doc.inlineStyle.entries) {
       assertGoverned(entry, today);
-      expect((actual.get(entry.package) ?? 0) === entry.ceiling ? '' : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`).toBe('');
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
     }
   });
 });

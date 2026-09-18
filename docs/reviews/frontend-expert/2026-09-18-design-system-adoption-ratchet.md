@@ -2,18 +2,18 @@
 
 **Agent:** `frontend-expert` · **Mode:** WRITER (survey + gates + first migration wave) · **Lane:** web
 **Cycle:** `2026-09-18-design-need-map` · **Verdict:** CONDITIONAL
-**Findings:** 3 (HIGH 2 · MEDIUM 1)
+**Findings:** 4 (HIGH 3 · MEDIUM 1)
 
 > Finding IDs are allocated above the `FE` high-water mark in
-> `docs/reviews/_registry/findings.jsonl` (FE was at 075 at cycle time). They are
-> **not yet registered** — `npm run findings:add` is a separate, human-gated append.
+> `docs/reviews/_registry/findings.jsonl` (FE was at 064 at cycle time); registered with `findings:add` in the
+> same change that lands this document.
 
 ## Scope
 
 Textual survey of `web/` on `main @ 1e6e99f7` (1.077 `.tsx`, tests and generated
 code excluded): design-system adoption per package, overlay/dialog construction,
 colour and inline-style discipline, browser dialogs, i18n reach. Companion
-design canvas: *Tasarım İhtiyaç Haritası* (Design artifact, 7 boards).
+design canvas: _Tasarım İhtiyaç Haritası_ (Design artifact, 7 boards).
 
 ## Executive summary
 
@@ -36,7 +36,7 @@ change and are pinned by a governed ratchet so they can only shrink.
 
 ### HIGH
 
-#### FE-HIGH-076 — Hand-rolled overlays duplicate Modal without its behaviour
+#### FE-HIGH-065 — Hand-rolled overlays duplicate Modal without its behaviour
 
 96 files outside `shared-ui` carry a `fixed inset-0` overlay. 27 `role="dialog"`
 occurrences in total; 55 close buttons have no `aria-label`; only two files trap
@@ -56,7 +56,7 @@ per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
 decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).
 
-#### FE-HIGH-077 — Raw hex colours outside theme.css
+#### FE-HIGH-066 — Raw hex colours outside theme.css
 
 2.136 `#rrggbb` occurrences in 244 files; sensor-module alone 1.625 in 196 files,
 all Tailwind defaults or raw RGB (`#ef4444` ×121, `#3b82f6` ×104, `#ff0000` ×28,
@@ -69,12 +69,29 @@ default palette before `theme.css` existed and was never re-pointed.
 **Fix (this cycle):** per-package occurrence ceilings pinned to the exact live
 count (the spec rejects slack). **Owner:** okan · **Expiry:** 2027-03-31.
 
+#### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
+
+87 call sites across admin-panel (9), farm-module (55), sensor-module (18),
+hr-module (1) and AquaMobil (1) opened the browser's native dialogs — unstylable,
+dark-mode-blind, tab-blocking and invisible to the accessibility tree.
+
+**Root cause:** the shared ConfirmModal required hoisting dialog state into every
+caller, so the one-line `if (!confirm('…')) return;` shape kept winning; nothing
+detected a new call.
+
+**Fix (commit `aae401bc`, resolved):** ESLint `no-alert: error` for `web/**`
+(zero violations from the first commit); promise-based `useConfirm()` /
+`usePrompt()` backed by `ConfirmProvider` (one dialog surface mounted in the
+shell, the ToastProvider pattern; throws without a provider instead of hanging);
+`alert()` messages through `useToast()`; AquaMobil's service-worker
+"new version" confirm replaced by the `UpdatePrompt` banner. **Owner:** okan.
+
 ### MEDIUM
 
-#### FE-MEDIUM-078 — Inline `style={{}}` bypasses the token system
+#### FE-MEDIUM-067 — Inline `style={{}}` bypasses the token system
 
 683 occurrences (sensor-module 531). Legitimate for canvas geometry and gauges;
-not for colours, spacing and typography. Same ratchet shape as FE-HIGH-077.
+not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement

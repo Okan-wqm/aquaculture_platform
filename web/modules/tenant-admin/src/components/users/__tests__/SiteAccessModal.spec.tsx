@@ -130,6 +130,9 @@ const targetUser = {
   role: 'MODULE_USER',
   status: 'active',
   lastLogin: 'Today',
+  // DisplayUser gained isLocked in PR #1489; the fixture was never updated and
+  // stayed uncompiled until this spec entered the changed-file type check.
+  isLocked: false,
 };
 
 function renderModal(): ReturnType<typeof render> {

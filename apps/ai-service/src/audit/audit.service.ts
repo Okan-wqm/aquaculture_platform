@@ -24,8 +24,11 @@ export function servicePrincipalUuid(serviceName: string): string {
     .digest()
     .subarray(0, 16);
   // Set UUID v5 bits (version 5, variant 1)
-  hash[6] = (hash[6]! & 0x0f) | 0x50;
-  hash[8] = (hash[8]! & 0x3f) | 0x80;
+  // digest() always returns 16 bytes; index access is total (noUncheckedIndexedAccess pedantry)
+  const b6 = hash[6] ?? 0;
+  const b8 = hash[8] ?? 0;
+  hash[6] = (b6 & 0x0f) | 0x50;
+  hash[8] = (b8 & 0x3f) | 0x80;
   const hex = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

@@ -30,4 +30,6 @@ For changes, tell the operator to contact their manager or use the management in
   ],
   actuationPolicy: 'confirm_required',
   maxTokensPerTurn: 4096,
+  allowAdditionalTools: true,
+  permissionModel: 'user-tier',
 };

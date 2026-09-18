@@ -42,9 +42,13 @@ jest.mock('@aquaculture/backend-common/database', () => ({
  *   - unknown / cross-tenant / expired proposals refuse execution.
  */
 const managerProxy = {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   create: (...args: unknown[]) => repoMock.create(...(args as [])),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   save: (...args: unknown[]) => repoMock.save(...(args as [])),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   findOne: (...args: unknown[]) => repoMock.findOne(...(args as [])),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   update: (...args: unknown[]) => repoMock.update(...(args as [])),
 };
 const repoMock = {

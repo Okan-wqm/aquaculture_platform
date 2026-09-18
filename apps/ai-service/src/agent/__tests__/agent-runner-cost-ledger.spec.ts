@@ -235,6 +235,9 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     expect(harness.recordTurn).toHaveBeenCalledWith({
       tenantId,
       conversationId,
+      // FARM-AI Sprint 1.2: conversation-backed turns carry null ephemeral keys
+      correlationId: null,
+      servicePrincipal: null,
       personaId: 'operator',
       model: 'claude-haiku-4-5',
       usage: { input: 300, output: 60, cacheRead: 30, cacheCreation: 40 },

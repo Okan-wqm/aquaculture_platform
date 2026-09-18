@@ -94,6 +94,15 @@ export class TenantAgentConfig {
   @Column({ type: 'boolean', default: false })
   proactiveMonitoringEnabled!: boolean;
 
+  /**
+   * FARM-AI Sprint 1.2: tenant opt-in for the routine orchestrator (Faz 5 —
+   * cron → anomaly → specialist delegation). Ships DEFAULT FALSE: nothing
+   * machine-driven runs for a tenant until they explicitly turn it on. The
+   * orchestrator will be the FIRST reader of this column.
+   */
+  @Column({ type: 'boolean', default: false })
+  routineAiEnabled!: boolean;
+
   @Column({ type: 'boolean', default: false })
   autonomousActionsEnabled!: boolean;
 

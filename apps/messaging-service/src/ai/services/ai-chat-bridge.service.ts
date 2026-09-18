@@ -90,6 +90,9 @@ interface AiChatRequest {
   content: string;
   userId: string;
   persona: string | null;
+  /** FARM-AI Sprint 1.2: calling-service identity for the server-side
+   * service→persona grant map in ai-service (authority is never payload-borne). */
+  serviceId: 'messaging_service';
   /** Faz 2.3: the sender's resolved authorization — drives ai-service's
    * persona-tier check (ai_personas:<tier>) instead of the dead local shim. */
   userRoles: string[];
@@ -261,6 +264,7 @@ export class AiChatBridgeService {
       content,
       userId: senderId,
       persona: channel.aiPersona,
+      serviceId: 'messaging_service',
       userRoles: capabilities.roles,
       resourcePermissions: capabilities.resourcePermissions,
       contextMessages,

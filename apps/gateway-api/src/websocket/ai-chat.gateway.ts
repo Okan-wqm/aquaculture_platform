@@ -181,6 +181,9 @@ export class AiChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             message,
             conversationId: body.conversationId,
             persona: body.persona ?? 'operator-v1',
+            // FARM-AI Sprint 1.2: calling-service identity for the
+            // server-side service→persona grant map in ai-service.
+            serviceId: 'gateway_api',
             userRoles: identity.roles,
             resourcePermissions: identity.resourcePermissions,
           })

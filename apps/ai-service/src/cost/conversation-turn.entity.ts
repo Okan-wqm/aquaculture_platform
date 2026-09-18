@@ -39,9 +39,29 @@ export class ConversationTurn {
    * removes chat CONTENT; aggregate token counts in this ledger are not PII
    * and remain for finance reconciliation), and per-tenant clones cannot
    * carry cross-schema constraints anyway.
+   *
+   * FARM-AI Sprint 1.2: NULLABLE — ephemeral runs (service-driven narratives,
+   * routine turns) have NO conversation; their row keys on correlationId +
+   * servicePrincipal instead. User-chat turns keep the conversation pointer.
    */
-  @Column({ type: 'uuid' })
-  conversationId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  conversationId?: string | null;
+
+  /**
+   * Ephemeral-run correlation id (FARM-AI Sprint 1.2). Present exactly when
+   * conversationId is null — the caller-traceable key for a machine-driven
+   * turn (matches the NATS request correlationId).
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  correlationId?: string | null;
+
+  /**
+   * Declared calling service for ephemeral runs (e.g. 'farm_service') —
+   * the service-principal identity of a machine-driven turn. NULL for
+   * user-chat turns (the user id lives in the conversation).
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  servicePrincipal?: string | null;
 
   /** Persona identifier (e.g. 'operator-v1'); null for personaless paths. */
   @Column({ type: 'varchar', length: 50, nullable: true })

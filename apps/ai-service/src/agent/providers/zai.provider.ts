@@ -30,7 +30,7 @@ function supportsReasoningEffort(model: string): boolean {
 
 @Injectable()
 export class ZaiProvider extends OpenAiProvider {
-  override readonly id: 'zai' = 'zai';
+  override readonly id = 'zai' as const;
   protected override readonly logger = new Logger('ZaiProvider');
 
   protected override newClient(apiKey: string): OpenAI {

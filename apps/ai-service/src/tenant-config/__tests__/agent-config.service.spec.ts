@@ -32,8 +32,11 @@ const saveMock = jest.fn();
 const createMock = jest.fn();
 
 const managerProxy = {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   findOne: (...args: unknown[]) => findOne(...args),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   save: (...args: unknown[]) => saveMock(...args),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- test proxy over an untyped jest mock
   create: (...args: unknown[]) => createMock(...args),
 };
 

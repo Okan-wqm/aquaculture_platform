@@ -31,4 +31,6 @@ If an action exceeds safety limits, escalate to human operators instead.`,
   ],
   actuationPolicy: 'allowed',
   maxTokensPerTurn: 16384,
+  allowAdditionalTools: true,
+  permissionModel: 'user-tier',
 };

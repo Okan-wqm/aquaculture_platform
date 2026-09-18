@@ -81,7 +81,7 @@ export class ConversationService {
       this.dataSource,
       'ai',
       tenantId,
-      async (queryRunner) =>
+      async (queryRunner): Promise<unknown> =>
         queryRunner.query(
           `UPDATE agent_conversations SET messages = messages || $1::jsonb, "updatedAt" = NOW() WHERE id = $2 AND "tenantId" = $3 AND "userId" = $4`,
           [JSON.stringify([message]), conversationId, tenantId, userId],
@@ -162,7 +162,7 @@ export class ConversationService {
       this.dataSource,
       'ai',
       tenantId,
-      async (queryRunner) =>
+      async (queryRunner): Promise<unknown> =>
         queryRunner.query(
           `UPDATE agent_conversations SET "totalTokens" = "totalTokens" + $1 WHERE id = $2 AND "tenantId" = $3 AND "userId" = $4`,
           [tokens, conversationId, tenantId, userId],

@@ -30,4 +30,6 @@ You have READ-ONLY access. You cannot actuate equipment or change settings.`,
   ],
   actuationPolicy: 'blocked',
   maxTokensPerTurn: 8192,
+  allowAdditionalTools: true,
+  permissionModel: 'user-tier',
 };

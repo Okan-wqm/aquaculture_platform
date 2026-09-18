@@ -1,7 +1,16 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
-import { AgentRunnerService, AiKeyMissingError, ChatRequest } from '../agent/agent-runner.service';
+import { DEFAULT_AI_PERSONA_ID } from '@aquaculture/shared-contracts';
+import {
+  AgentRunnerService,
+  AiKeyMissingError,
+  ChatRequest,
+} from '../agent/agent-runner.service';
+import {
+  PersonaNotPermittedError,
+  UnknownPersonaError,
+} from '../agent/agent-profile.service';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -31,6 +40,20 @@ export interface AiChatNatsRequest {
   /** Faz 7c: the caller's tenant-RBAC grants — authorizes the persona tier. */
   resourcePermissions?: string[];
   correlationId?: string;
+  /**
+   * FARM-AI Sprint 1.2: ephemeral run — no conversation is created or read;
+   * the response carries conversationId=null. Service paths (narratives,
+   * routines) use this.
+   */
+  ephemeral?: boolean;
+  /**
+   * FARM-AI Sprint 1.2: identity of the calling service, checked against the
+   * server-side SERVICE_PERSONA_GRANTS map in AgentProfileService. Authority
+   * is never taken from the payload.
+   */
+  serviceId?: string;
+  /** FARM-AI Sprint 1.2: allowlisted rate-limit namespace ('routine'). */
+  rateNamespace?: string;
   // ── messaging-bridge-only context (ignored by the assistant path) ──
   channelId?: string;
   messageId?: string;
@@ -84,7 +107,10 @@ export interface AiChatNatsResponse {
   metadata: Record<string, unknown> | null;
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
   /** Present only on failure — callers surface AI_KEY_MISSING distinctly. */
-  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'INTERNAL'; message: string };
+  error?: {
+    code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL';
+    message: string;
+  };
 }
 
 @Controller()
@@ -114,13 +140,16 @@ export class AiChatResponder {
     const chatRequest: ChatRequest = {
       message,
       conversationId: payload.conversationId,
-      persona: payload.persona ?? 'operator-v1',
+      persona: payload.persona ?? DEFAULT_AI_PERSONA_ID,
       tenantId: payload.tenantId,
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
       resourcePermissions: payload.resourcePermissions ?? [],
       schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
+      ephemeral: payload.ephemeral === true,
+      serviceId: payload.serviceId,
+      rateNamespace: payload.rateNamespace,
       // MSGFIX-FAZ2 2.3: the bridge's consent-filtered channel context —
       // becomes the model's prior turns (previously ignored, so AI channels
       // had zero memory). Only used when no conversationId rides the request.
@@ -158,8 +187,21 @@ export class AiChatResponder {
       const isKeyMissing =
         error instanceof AiKeyMissingError ||
         (error as { code?: string })?.code === 'AI_KEY_MISSING';
+      // FARM-AI Sprint 1.2: persona authorization failures are CALLER errors,
+      // not outages. An unknown persona id (strict resolution, no fallback) is
+      // BAD_REQUEST; a denied tier / denied service grant is FORBIDDEN. Both
+      // used to land in the generic "temporarily unavailable" bucket, hiding
+      // configuration bugs behind a lie about availability.
+      const isUnknownPersona = error instanceof UnknownPersonaError;
+      const isNotPermitted = error instanceof PersonaNotPermittedError;
       if (isKeyMissing) {
         this.logger.warn(`request.ai.chat blocked: tenant ${payload.tenantId} has no valid AI key`);
+      } else if (isUnknownPersona || isNotPermitted) {
+        this.logger.warn(
+          `request.ai.chat persona rejected for tenant ${payload.tenantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       } else {
         this.logger.error(
           `request.ai.chat failed for ${payload.tenantId}: ${
@@ -169,15 +211,26 @@ export class AiChatResponder {
       }
       const userFacing = isKeyMissing
         ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
-        : 'The AI is temporarily unavailable. Please try again later.';
+        : isUnknownPersona
+          ? 'The requested AI assistant is not available on this platform.'
+          : isNotPermitted
+            ? 'You do not have access to the requested AI assistant.'
+            : 'The AI is temporarily unavailable. Please try again later.';
+      const errorCode: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL' = isKeyMissing
+        ? 'AI_KEY_MISSING'
+        : isUnknownPersona
+          ? 'BAD_REQUEST'
+          : isNotPermitted
+            ? 'FORBIDDEN'
+            : 'INTERNAL';
       return {
         // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
         // lets the socket.io assistant route the user to AI settings.
         content: userFacing,
         conversationId: null,
-        metadata: { errorCode: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL' },
+        metadata: { errorCode },
         error: {
-          code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
+          code: errorCode,
           message: userFacing,
         },
       };

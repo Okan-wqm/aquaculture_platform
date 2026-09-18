@@ -17,6 +17,7 @@ const DEFAULT_CONFIG: Partial<TenantAgentConfig> = {
   applicableRoles: ['operator'],
   isEnabled: true,
   proactiveMonitoringEnabled: false,
+  routineAiEnabled: false,
   autonomousActionsEnabled: false,
   monthlyTokenBudget: 1_000_000,
   hourlyRequestLimit: 60,

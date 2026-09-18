@@ -30,4 +30,6 @@ ACTUATION: You can propose equipment changes, but each action requires human con
   ],
   actuationPolicy: 'confirm_required',
   maxTokensPerTurn: 16384,
+  allowAdditionalTools: true,
+  permissionModel: 'user-tier',
 };

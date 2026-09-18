@@ -51,13 +51,24 @@ export class RateLimitService {
   // ── Key generation ────────────────────────────────────────────────────────
 
   /**
+   * FARM-AI Sprint 1.2: allowlisted non-user rate-limit namespaces. The
+   * default user-chat counter keeps its EXACT legacy key
+   * (`ai:ratelimit:{tenant}:{hour}`); service namespaces get
+   * `ai:ratelimit:{ns}:{tenant}:{hour}` so machine-driven bursts can neither
+   * consume nor hide behind user quota. 'routine' is claimed by the Faz 5
+   * routine orchestrator; add a row here IN THE SAME COMMIT as its caller.
+   */
+  private static readonly RATE_NAMESPACES: ReadonlySet<string> = new Set(['routine']);
+
+  /**
    * Generate an hourly-scoped Redis key.
    * Format: ai:ratelimit:{tenantId}:{YYYY-MM-DD-HH}
+   *         ai:ratelimit:{namespace}:{tenantId}:{YYYY-MM-DD-HH} (namespaced)
    *
    * WHY: Including the hour in the key means expired windows are separate keys
    * that Redis TTL garbage-collects automatically — no manual cleanup needed.
    */
-  private getHourlyKey(tenantId: string): string {
+  private getHourlyKey(tenantId: string, namespace?: string): string {
     const now = new Date();
     const hour = [
       now.getUTCFullYear(),
@@ -65,7 +76,11 @@ export class RateLimitService {
       String(now.getUTCDate()).padStart(2, '0'),
       String(now.getUTCHours()).padStart(2, '0'),
     ].join('-');
-    return `ai:ratelimit:${tenantId}:${hour}`;
+    const ns =
+      namespace !== undefined && RateLimitService.RATE_NAMESPACES.has(namespace)
+        ? `${namespace}:`
+        : '';
+    return `ai:ratelimit:${ns}${tenantId}:${hour}`;
   }
 
   /**
@@ -86,18 +101,21 @@ export class RateLimitService {
   /**
    * Check and increment the rate limit counter for a tenant.
    *
-   * @param tenantId - Tenant identifier (from JWT, not user-supplied)
-   * @param limit    - Maximum requests allowed per hour
+   * @param tenantId  - Tenant identifier (from JWT, not user-supplied)
+   * @param limit     - Maximum requests allowed per hour
+   * @param namespace - Optional allowlisted service namespace (FARM-AI 1.2);
+   *                    undefined keeps the legacy user-chat key unchanged
    * @returns Rate limit status with remaining quota and window reset time
    */
   async checkRateLimit(
     tenantId: string,
     limit: number,
+    namespace?: string,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
     if (this.redisService) {
-      return this.checkRateLimitRedis(this.redisService, tenantId, limit);
+      return this.checkRateLimitRedis(this.redisService, tenantId, limit, namespace);
     }
-    return this.checkRateLimitLocal(tenantId, limit);
+    return this.checkRateLimitLocal(tenantId, limit, namespace);
   }
 
   // ── Redis implementation ──────────────────────────────────────────────────
@@ -113,8 +131,9 @@ export class RateLimitService {
     redisService: RedisService,
     tenantId: string,
     limit: number,
+    namespace?: string,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
-    const key = this.getHourlyKey(tenantId);
+    const key = this.getHourlyKey(tenantId, namespace);
     const ttl = this.getSecondsUntilHourEnd();
 
     // INCR atomically creates the key with value 1 if it doesn't exist
@@ -149,8 +168,9 @@ export class RateLimitService {
   private async checkRateLimitLocal(
     tenantId: string,
     limit: number,
+    namespace?: string,
   ): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {
-    const key = this.getHourlyKey(tenantId);
+    const key = this.getHourlyKey(tenantId, namespace);
     const now = Date.now();
     const entry = this.localCounters.get(key);
 

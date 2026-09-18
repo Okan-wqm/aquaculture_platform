@@ -93,6 +93,8 @@ export class SensorChannelDetectionResponder {
       userRoles: [],
       correlationId: payload.correlationId ?? randomUUID(),
       persona: 'service',
+      // No persona drives a service turn; the service grant is the sole authority.
+      personaTier: null,
       // Fail-closed: a service principal never actuates. Combined with the
       // read-only grant, an actuation tool is refused twice over.
       actuationPolicy: 'blocked',

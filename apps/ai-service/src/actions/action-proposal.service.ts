@@ -2,13 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
-import {
-  runInTenantRead,
-  runInTenantTransaction,
-} from '@aquaculture/backend-common/database';
+import { runInTenantRead, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ProposedAction } from './proposed-action.entity';
 
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
+import { AgentPersonaCatalogueService } from '../agent/agent-persona-catalogue.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
 
 /**
@@ -61,6 +59,7 @@ export class ActionProposalService {
     private readonly proposalRepo: Repository<ProposedAction>,
     private readonly toolExecutor: ToolExecutorService,
     private readonly dataSource: DataSource,
+    private readonly catalogue: AgentPersonaCatalogueService,
   ) {}
 
   async createProposal(input: CreateProposalInput): Promise<ProposedAction> {
@@ -99,17 +98,15 @@ export class ActionProposalService {
   ): Promise<ProposalOutcome> {
     // Tenant-scoped lookup: a cross-tenant id resolves to nothing.
     // MSGFIX: tenant-schema-pinned read (NATS-context callers).
-    const proposal = await runInTenantRead(
-      this.dataSource,
-      'ai',
-      tenantId,
-      async (queryRunner) =>
-        queryRunner.manager.findOne(ProposedAction, {
-          where: { id: actionId, tenantId },
-        }),
+    const proposal = await runInTenantRead(this.dataSource, 'ai', tenantId, async (queryRunner) =>
+      queryRunner.manager.findOne(ProposedAction, {
+        where: { id: actionId, tenantId },
+      }),
     );
     if (!proposal) {
-      this.logger.warn(`executeAction refused: proposal ${actionId} not found for tenant ${tenantId}`);
+      this.logger.warn(
+        `executeAction refused: proposal ${actionId} not found for tenant ${tenantId}`,
+      );
       return { success: false, result: 'Proposed action not found.' };
     }
 
@@ -126,10 +123,14 @@ export class ActionProposalService {
 
     // A stale confirmation must not actuate hours later.
     if (Date.now() - proposal.createdAt.getTime() > CONFIRMATION_WINDOW_MS) {
-      await this.pinnedUpdate(tenantId, { id: actionId }, {
-        status: 'failed',
-        result: 'Proposal expired before confirmation.',
-      });
+      await this.pinnedUpdate(
+        tenantId,
+        { id: actionId },
+        {
+          status: 'failed',
+          result: 'Proposal expired before confirmation.',
+        },
+      );
       return { success: false, result: 'Proposed action has expired — ask the AI again.' };
     }
 
@@ -141,14 +142,10 @@ export class ActionProposalService {
     );
     if (!claim.affected) {
       // Lost the race — re-read for the converged outcome.
-      const current = await runInTenantRead(
-        this.dataSource,
-        'ai',
-        tenantId,
-        async (queryRunner) =>
-          queryRunner.manager.findOne(ProposedAction, {
-            where: { id: actionId, tenantId },
-          }),
+      const current = await runInTenantRead(this.dataSource, 'ai', tenantId, async (queryRunner) =>
+        queryRunner.manager.findOne(ProposedAction, {
+          where: { id: actionId, tenantId },
+        }),
       );
       if (current?.status === 'completed') {
         return { success: true, result: current.result ?? 'Action already executed.' };
@@ -157,8 +154,10 @@ export class ActionProposalService {
     }
 
     // Execute the STORED intent as the ORIGINAL requester. The executor
-    // re-checks the requester's roles against the tool's requiredPermissions
-    // and writes the strict actuation audit row.
+    // re-checks the stored persona's tier against the tool's
+    // requiredPermissions and writes the strict actuation audit row. The
+    // persona was a published catalogue id when the proposal was stored; if
+    // the catalogue no longer publishes it, the proposal fails closed.
     const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
     const context: ToolExecutionContext = {
       tenantId,
@@ -167,30 +166,43 @@ export class ActionProposalService {
       userRoles: proposal.requesterRoles,
       correlationId: proposal.correlationId ?? actionId,
       persona: proposal.persona,
+      personaTier: this.catalogue.resolve(proposal.persona).tier,
       // The human confirmation IS the authorization override the
       // confirm_required policy was holding for.
       actuationPolicy: 'allowed',
     };
 
     try {
-      const result = await this.toolExecutor.executeTool(proposal.toolName, proposal.params, context);
+      const result = await this.toolExecutor.executeTool(
+        proposal.toolName,
+        proposal.params,
+        context,
+      );
       const resultText = result.success
         ? `${proposal.description} — done.`
         : `Action failed: ${result.error ?? 'unknown error'}`;
-      await this.pinnedUpdate(tenantId, { id: actionId }, {
-        status: result.success ? 'completed' : 'failed',
-        result: resultText,
-        executedAt: new Date(),
-      });
+      await this.pinnedUpdate(
+        tenantId,
+        { id: actionId },
+        {
+          status: result.success ? 'completed' : 'failed',
+          result: resultText,
+          executedAt: new Date(),
+        },
+      );
       return { success: result.success, result: resultText };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       this.logger.error(`executeAction ${actionId} crashed: ${message}`);
-      await this.pinnedUpdate(tenantId, { id: actionId }, {
-        status: 'failed',
-        result: `Action failed: ${message}`,
-        executedAt: new Date(),
-      });
+      await this.pinnedUpdate(
+        tenantId,
+        { id: actionId },
+        {
+          status: 'failed',
+          result: `Action failed: ${message}`,
+          executedAt: new Date(),
+        },
+      );
       return { success: false, result: `Action failed: ${message}` };
     }
   }
@@ -205,12 +217,8 @@ export class ActionProposalService {
       executedAt?: Date;
     },
   ): Promise<{ affected?: number | null }> {
-    return runInTenantTransaction(
-      this.dataSource,
-      'ai',
-      tenantId,
-      async (queryRunner) =>
-        queryRunner.manager.update(ProposedAction, criteria, partial),
+    return runInTenantTransaction(this.dataSource, 'ai', tenantId, async (queryRunner) =>
+      queryRunner.manager.update(ProposedAction, criteria, partial),
     );
   }
 }

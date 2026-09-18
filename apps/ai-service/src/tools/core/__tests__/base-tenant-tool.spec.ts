@@ -64,6 +64,7 @@ const ctx = (schema: string): ToolExecutionContext => ({
   userRoles: ['operator'],
   correlationId: 'c1',
   persona: 'operator-v1',
+  personaTier: 'operator',
   actuationPolicy: 'confirm_required',
 });
 

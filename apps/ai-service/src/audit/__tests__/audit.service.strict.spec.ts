@@ -15,6 +15,7 @@ const ctx: ToolExecutionContext = {
   userRoles: ['operator'],
   correlationId: 'corr-1',
   persona: 'operator-v1',
+  personaTier: 'operator',
   actuationPolicy: 'allowed',
 };
 

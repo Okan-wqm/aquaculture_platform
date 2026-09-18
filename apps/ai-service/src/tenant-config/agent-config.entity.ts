@@ -8,7 +8,10 @@ import {
 } from 'typeorm';
 import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
-export type AgentRole = 'operator' | 'manager' | 'expert' | 'supervisor';
+import type { AiPersonaTier } from '@aquaculture/shared-contracts';
+
+/** Persona tier vocabulary — the shared-contracts SSoT. */
+export type AgentRole = AiPersonaTier;
 export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
 
 /** Selectable LLM providers for BYOK. Kept in sync with LlmProviderId. */

@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 
 import { ToolExecutorService } from '../../tools/core/tool-executor.service';
 import { ActionProposalService } from '../action-proposal.service';
+import { AgentPersonaCatalogueService } from '../../agent/agent-persona-catalogue.service';
 import { ProposedAction } from '../proposed-action.entity';
 
 /**
@@ -102,6 +103,11 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
         { provide: getRepositoryToken(ProposedAction), useValue: repo },
         { provide: ToolExecutorService, useValue: executor },
         { provide: DataSource, useValue: {} as DataSource },
+        // The stored persona id resolves to its tier for the executor's check.
+        {
+          provide: AgentPersonaCatalogueService,
+          useValue: { resolve: jest.fn().mockReturnValue({ id: 'operator-v1', tier: 'operator' }) },
+        },
       ],
     }).compile();
 
@@ -146,6 +152,8 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
         tenantId,
         userId: requesterId,
         userRoles: ['operator'],
+        persona: 'operator-v1',
+        personaTier: 'operator',
         actuationPolicy: 'allowed',
       }),
     );

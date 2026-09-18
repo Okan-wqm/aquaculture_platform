@@ -3167,7 +3167,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/fixtures/fake-tool-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/persona-authorization.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/persona-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/agent-persona-catalogue.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/agent-persona-catalogue.service.ts",
       "prettier_managed": true
     },
     {
@@ -3191,7 +3215,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/expert.ts",
+      "path": "apps/ai-service/src/agent/personas/compose.ts",
       "prettier_managed": true
     },
     {
@@ -3203,19 +3227,67 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/manager.ts",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-operations.specialty.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/operator.ts",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-production.specialty.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/agent/personas/supervisor.ts",
+      "path": "apps/ai-service/src/agent/personas/specialties/farm-water-health.specialty.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/specialties/general.specialty.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/specialties/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/expert.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/manager.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/operator.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/tiers/supervisor.tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/types.ts",
       "prettier_managed": true
     },
     {

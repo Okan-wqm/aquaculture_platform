@@ -1,17 +1,18 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  hasResourcePermission,
+  hasAllResourcePermissions,
   type ResourcePermissionUser,
 } from '@aquaculture/backend-common/decorators';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
-import { AgentRole } from '../tenant-config/agent-config.entity';
-import { OPERATOR_PERSONA } from './personas/operator';
-import { MANAGER_PERSONA } from './personas/manager';
-import { EXPERT_PERSONA } from './personas/expert';
-import { SUPERVISOR_PERSONA } from './personas/supervisor';
+import type { ActuationPolicy } from '../tools/core/tool.interface';
+import { AgentPersonaCatalogueService } from './agent-persona-catalogue.service';
+import { mostRestrictivePolicy, type ComposedPersona } from './personas/compose';
+import type { AgentPersona } from './personas/types';
 import { ZAI_DEFAULT_MODEL } from './providers/zai.provider';
+
+export type { AgentPersona } from './personas/types';
 
 /** Thrown when a user requests a persona above their tenant-RBAC entitlement. */
 export class PersonaNotPermittedError extends ForbiddenException {
@@ -20,29 +21,12 @@ export class PersonaNotPermittedError extends ForbiddenException {
   }
 }
 
-export interface AgentPersona {
-  id: string;
-  name: string;
-  model: string;
-  systemPrompt: string;
-  defaultToolNames: string[];
-  actuationPolicy: 'blocked' | 'confirm_required' | 'allowed';
-  maxTokensPerTurn: number;
-}
-
 export interface ResolvedProfile {
-  persona: AgentPersona;
+  persona: ComposedPersona;
   effectiveToolNames: string[];
   effectiveSystemPrompt: string;
-  actuationPolicy: 'blocked' | 'confirm_required' | 'allowed';
+  actuationPolicy: ActuationPolicy;
 }
-
-const PERSONAS: Record<string, AgentPersona> = {
-  'operator-v1': OPERATOR_PERSONA,
-  'manager-v1': MANAGER_PERSONA,
-  'expert-v1': EXPERT_PERSONA,
-  'supervisor-v1': SUPERVISOR_PERSONA,
-};
 
 @Injectable()
 export class AgentProfileService {
@@ -51,21 +35,24 @@ export class AgentProfileService {
   constructor(
     private readonly agentConfig: AgentConfigService,
     private readonly toolRegistry: ToolRegistryService,
+    private readonly catalogue: AgentPersonaCatalogueService,
     private readonly configService: ConfigService,
   ) {}
 
   /**
    * Resolve effective profile:
-   * Base Profile + tenant additions - tenant removals, filtered by module entitlements.
+   * composed persona (tier × specialty) + tenant additions − tenant removals,
+   * filtered by registry membership, tier permission and module scope.
    *
    * AISAFETY-MEDIUM-013 / Faz 7c: the resolved persona is authorized against the
-   * caller's tenant-RBAC capabilities (`ai_personas:<tier>`) before anything else
-   * runs, so a user cannot escalate into a higher-privilege persona (e.g. the
-   * autonomous supervisor) just by naming it. This replaces the earlier fixed
-   * platform-role ceiling with the tenant-configurable capability model: the
-   * tenant admin decides which role may drive which persona tier (seeded defaults
-   * grant operator to all, higher tiers to senior roles; supervisor stays
-   * admin-only). Admins bypass. Fail-closed.
+   * caller's tenant-RBAC capabilities before anything else runs —
+   * `ai_personas:<tier>` for every persona, plus `ai_specialties:<module>` for a
+   * module-scoped specialist (RBAC-MEDIUM-016) — so a user cannot escalate into a
+   * higher-privilege persona just by naming it. The tenant admin decides which
+   * role may drive which tier / specialty. Admins bypass. Fail-closed.
+   *
+   * AISAFETY-MEDIUM-024: an unknown persona id is a hard error (UnknownPersonaError,
+   * BAD_REQUEST); it never silently resolves to a lower-privilege persona.
    */
   async resolveProfile(
     tenantId: string,
@@ -73,38 +60,18 @@ export class AgentProfileService {
     caller: ResourcePermissionUser,
   ): Promise<ResolvedProfile> {
     const config = await this.agentConfig.getConfig(tenantId);
-    const basePersona =
-      PERSONAS[personaId] ?? PERSONAS[config.baseProfileId] ?? OPERATOR_PERSONA;
+    const basePersona = this.catalogue.resolve(personaId);
 
-    // Authorize the persona tier against the caller's capabilities. Tier is
-    // derived from the RESOLVED persona (not the raw request string), so the
-    // fallback path is authorized too. Fail-closed.
     this.assertPersonaPermitted(basePersona, caller);
 
-    // Start with base tool names
     const toolNames = new Set(basePersona.defaultToolNames);
-
-    // Add tenant additions
     for (const tool of config.additionalToolNames) {
       if (this.toolRegistry.hasTool(tool)) {
         toolNames.add(tool);
       }
     }
-
-    // Remove tenant blocks
     for (const tool of config.blockedToolNames) {
       toolNames.delete(tool);
-    }
-
-    // Filter by what's actually registered
-    const effectiveToolNames = Array.from(toolNames).filter((name) =>
-      this.toolRegistry.hasTool(name),
-    );
-
-    // Build system prompt with tenant customization
-    let systemPrompt = basePersona.systemPrompt;
-    if (config.customSystemPrompt) {
-      systemPrompt += `\n\n--- Tenant-Specific Instructions ---\n${config.customSystemPrompt}`;
     }
 
     // Resolve actuation policy (most restrictive wins)
@@ -113,16 +80,40 @@ export class AgentProfileService {
       config.actuationPolicy,
     );
 
+    // A tool is offered only when the registry has it, the persona's tier may
+    // run it (the executor's own check), and its module matches the specialty's
+    // scope. Under a `blocked` policy, confirmation-class tools are withheld
+    // rather than offered-then-refused.
+    const effectiveToolNames = Array.from(toolNames).filter((name) => {
+      const tool = this.toolRegistry.getTool(name);
+      if (!tool) return false;
+      const metadata = tool.getMetadata();
+      if (!metadata.requiredPermissions.includes(basePersona.tier)) return false;
+      if (
+        metadata.requiresModule !== null &&
+        !this.specialtyCoversModule(basePersona, metadata.requiresModule)
+      ) {
+        return false;
+      }
+      if (actuationPolicy === 'blocked' && metadata.requiresConfirmation) return false;
+      return true;
+    });
+
+    // Build system prompt with tenant customization
+    let systemPrompt = basePersona.systemPrompt;
+    if (config.customSystemPrompt) {
+      systemPrompt += `\n\n--- Tenant-Specific Instructions ---\n${config.customSystemPrompt}`;
+    }
+
     // Model resolution precedence (highest wins):
     //   1. AI_CHAT_MODEL_OVERRIDE — ops fleet-wide escape hatch for a model
     //      retirement, applied without a redeploy or any tenant edit.
     //   2. config.chatModel       — the tenant's own per-tenant override (set
     //      via the BYOK settings CRUD; runs on the tenant's own key/bill).
-    //   3. basePersona.model      — the platform default for the persona tier.
-    // Spread copy below — PERSONAS entries are shared module singletons and must
+    //   3. the tier's model       — the platform default for the persona tier.
+    // Spread copy below — composed personas are shared singletons and must
     // never be mutated per request.
-    const personaDefault =
-      config.provider === 'zai' ? ZAI_DEFAULT_MODEL : basePersona.model;
+    const personaDefault = config.provider === 'zai' ? ZAI_DEFAULT_MODEL : basePersona.model;
     const model =
       this.configService.get<string>('AI_CHAT_MODEL_OVERRIDE') ??
       (config.chatModel?.trim() || null) ??
@@ -136,67 +127,35 @@ export class AgentProfileService {
     };
   }
 
-  getPersona(personaId: string): AgentPersona | undefined {
-    return PERSONAS[personaId];
-  }
-
-  getAllPersonas(): AgentPersona[] {
-    return Object.values(PERSONAS);
-  }
-
-  /**
-   * The capability tier of a persona, derived from its id prefix
-   * ('supervisor-v1' → 'supervisor'). An UNKNOWN prefix maps to the HIGHEST tier
-   * (supervisor) so a mis-named / future persona is treated as maximally
-   * privileged and thus reachable only by the highest role — fail-safe, never
-   * silently broadly-accessible.
-   */
-  private personaTier(persona: AgentPersona): AgentRole {
-    const prefix = persona.id.split('-')[0];
-    return prefix === 'operator' ||
-      prefix === 'manager' ||
-      prefix === 'expert' ||
-      prefix === 'supervisor'
-      ? prefix
-      : 'supervisor';
+  private specialtyCoversModule(persona: ComposedPersona, module: string): boolean {
+    // The catalogue's requiredCapabilities carry `ai_specialties:<module>` for
+    // exactly the module the specialty is scoped to.
+    return persona.requiredCapabilities.includes(`ai_specialties:${module}`);
   }
 
   /**
-   * AISAFETY-MEDIUM-013 / Faz 7c: fail-closed persona authorization against the
-   * caller's tenant-RBAC capability `ai_personas:<tier>`. A user cannot drive a
-   * persona tier they were not granted. Admins bypass (via the shared SSoT
-   * check). Throws PersonaNotPermittedError otherwise.
+   * AISAFETY-MEDIUM-013 / Faz 7c + RBAC-MEDIUM-016: fail-closed persona
+   * authorization against every capability the catalogue requires for the
+   * persona (`ai_personas:<tier>` ∧ `ai_specialties:<module>`). Admins bypass
+   * via the shared SSoT check. Throws PersonaNotPermittedError otherwise.
    */
   private assertPersonaPermitted(
-    persona: AgentPersona,
+    persona: AgentPersona & ComposedPersona,
     caller: ResourcePermissionUser,
   ): void {
-    const tier = this.personaTier(persona);
-
-    if (!hasResourcePermission(caller, `ai_personas:${tier}`)) {
+    if (!hasAllResourcePermissions(caller, persona.requiredCapabilities)) {
       this.logger.warn(
-        `Persona ${persona.id} (tier ${tier}) not permitted — caller lacks ai_personas:${tier}`,
+        `Persona ${persona.id} not permitted — caller lacks one of [${persona.requiredCapabilities.join(', ')}]`,
       );
       throw new PersonaNotPermittedError(persona.id);
     }
   }
 
-  private resolveActuationPolicy(
-    base: string,
-    tenantOverride: string,
-  ): 'blocked' | 'confirm_required' | 'allowed' {
-    const priority = { blocked: 0, confirm_required: 1, allowed: 2 };
-    const basePriority = priority[base as keyof typeof priority] ?? 1;
-    const overridePriority =
-      priority[tenantOverride as keyof typeof priority] ?? 1;
-    // Most restrictive wins (lowest priority number)
-    const entries = Object.entries(priority);
-    const resolved = entries.find(
-      ([, v]) => v === Math.min(basePriority, overridePriority),
-    );
-    return (resolved?.[0] ?? 'confirm_required') as
-      | 'blocked'
-      | 'confirm_required'
-      | 'allowed';
+  private resolveActuationPolicy(base: ActuationPolicy, tenantOverride: string): ActuationPolicy {
+    const override: ActuationPolicy =
+      tenantOverride === 'blocked' || tenantOverride === 'allowed'
+        ? tenantOverride
+        : 'confirm_required';
+    return mostRestrictivePolicy(base, override);
   }
 }

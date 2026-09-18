@@ -69,19 +69,17 @@ export class ToolExecutorService {
       return denied;
     }
 
-    // Permission check (AISAFETY-MEDIUM-021 hotfix): tools require TIER names
-    // (operator/manager/expert/supervisor); userRoles carries JWT role names —
-    // the vocabularies never intersect for human callers. When a persona is
-    // driving (personaTier present), the tier IS the authority dimension.
+    // Permission check (AISAFETY-MEDIUM-021): tools declare the persona TIERS
+    // that may run them; the driving persona's tier is the authority dimension
+    // for a human turn, the service grant for a service principal. JWT role
+    // names (TENANT_ADMIN|MODULE_USER…) never intersect the tier vocabulary and
+    // are deliberately not consulted.
     const hasPermission =
       serviceGrant ||
-      (ctx.personaTier !== null &&
-        ctx.personaTier !== undefined &&
-        metadata.requiredPermissions.includes(ctx.personaTier)) ||
-      metadata.requiredPermissions.some((perm) => ctx.userRoles.includes(perm));
+      (ctx.personaTier !== null && metadata.requiredPermissions.includes(ctx.personaTier));
     if (!hasPermission) {
       this.logger.warn(
-        `Permission denied: ${ctx.userId} (roles: ${ctx.userRoles.join(',')}) attempted ${toolName}`,
+        `Permission denied: ${ctx.userId} (tier: ${ctx.personaTier ?? 'none'}) attempted ${toolName}`,
       );
       const denied: ToolResult = {
         success: false,
@@ -131,7 +129,14 @@ export class ToolExecutorService {
     // already run, so returning a false failure would risk a double-actuation.
     if (metadata.requiresConfirmation) {
       try {
-        await this.auditService.logToolExecution(toolName, inputRecord, result, ctx, undefined, true);
+        await this.auditService.logToolExecution(
+          toolName,
+          inputRecord,
+          result,
+          ctx,
+          undefined,
+          true,
+        );
       } catch (auditError) {
         this.logger.error(
           `AUDIT GAP (actuation): ${toolName} executed but its audit write failed — ` +

@@ -5,6 +5,7 @@
 
 import React, { memo, useCallback, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = (config.label ?? 'Switch') as string;
@@ -57,8 +58,8 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         <defs>
           {/* 3D knob gradient - subtle top-light / bottom-shadow */}
           <radialGradient id={ids.knobGradient} cx="40%" cy="35%" r="60%">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="100%" stopColor="#e2e2e2" />
+            <stop offset="0%" stopColor={colors.white} />
+            <stop offset="100%" stopColor={colors.neutral[200]} />
           </radialGradient>
           {/* Drop shadow for the knob */}
           <filter id={ids.knobShadow} x="-30%" y="-30%" width="160%" height="160%">
@@ -80,7 +81,7 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
             x={0} y={0}
             width={trackW} height={trackH}
             rx={trackH / 2}
-            fill={isOn ? '#22c55e' : '#d1d5db'}
+            fill={isOn ? colors.success[500] : colors.neutral[300]}
             style={{ transition: 'fill 200ms ease-in-out' }}
             filter={isOn ? `url(#${ids.glowFilter})` : undefined}
           />
@@ -106,7 +107,7 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
               y1={trackH / 2 - knobR * 0.3}
               x2={knobOffCx}
               y2={trackH / 2 + knobR * 0.3}
-              stroke="#c0c0c0"
+              stroke={colors.neutral[300]}
               strokeWidth={1}
               strokeLinecap="round"
             />
@@ -118,13 +119,13 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         style={{
           fontSize: 10,
           fontWeight: 600,
-          color: isOn ? '#16a34a' : '#6b7280',
+          color: isOn ? colors.success[600] : colors.gray[400],
           transition: 'color 200ms ease-in-out',
         }}
       >
         {isOn ? 'ON' : 'OFF'}
       </span>
-      <span style={{ fontSize: 10, color: '#9ca3af' }}>{label}</span>
+      <span style={{ fontSize: 10, color: colors.neutral[400] }}>{label}</span>
     </div>
   );
 };

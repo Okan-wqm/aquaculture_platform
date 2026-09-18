@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const SiloSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -68,7 +69,7 @@ const SiloSymbol: React.FC<EquipmentSymbolProps> = ({
               y={42}
               width={48}
               height={58}
-              fill="#d4a574"
+              fill={themeColors.accent[500]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-body)`}
             />
@@ -81,7 +82,7 @@ const SiloSymbol: React.FC<EquipmentSymbolProps> = ({
               y={100}
               width={50}
               height={30}
-              fill="#d4a574"
+              fill={themeColors.accent[500]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-cone)`}
             />
@@ -89,7 +90,7 @@ const SiloSymbol: React.FC<EquipmentSymbolProps> = ({
             <path
               d="M 27 42 Q 36 38 50 42 Q 62 46 73 42"
               fill="none"
-              stroke="#b8860b"
+              stroke={themeColors.warning[600]}
               strokeWidth={1}
               opacity={0.6}
             />
@@ -160,7 +161,7 @@ const SiloSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

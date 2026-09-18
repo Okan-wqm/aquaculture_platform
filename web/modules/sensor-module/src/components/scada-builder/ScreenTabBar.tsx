@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { useConfirm, useClickOutside } from '@aquaculture/shared-ui';
+import { useConfirm, useClickOutside, colors as themeColors } from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -196,7 +196,7 @@ const ScreenTabBar: React.FC = () => {
             }`}
             style={{
               opacity: draggedTabId === screen.id ? 0.5 : 1,
-              borderLeft: dropTargetId === screen.id ? '2px solid #06b6d4' : undefined,
+              borderLeft: dropTargetId === screen.id ? `2px solid ${themeColors.primary[400]}` : undefined,
               cursor: draggedTabId ? 'grabbing' : 'default',
             }}
           >

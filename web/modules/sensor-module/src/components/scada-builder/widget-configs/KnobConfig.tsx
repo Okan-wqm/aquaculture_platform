@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -141,7 +142,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
             <label className="block text-[10px] text-gray-400 mb-1">Knob</label>
             <input
               type="color"
-              value={(config.knobColor as string) ?? '#374151'}
+              value={(config.knobColor as string) ?? colors.neutral[700]}
               onChange={(e) => onChange({ knobColor: e.target.value })}
               className="w-full h-7 border border-gray-300 rounded cursor-pointer"
             />
@@ -150,7 +151,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
             <label className="block text-[10px] text-gray-400 mb-1">Track</label>
             <input
               type="color"
-              value={(config.trackColor as string) ?? '#e5e7eb'}
+              value={(config.trackColor as string) ?? colors.neutral[200]}
               onChange={(e) => onChange({ trackColor: e.target.value })}
               className="w-full h-7 border border-gray-300 rounded cursor-pointer"
             />
@@ -159,7 +160,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
             <label className="block text-[10px] text-gray-400 mb-1">Indicator</label>
             <input
               type="color"
-              value={(config.indicatorColor as string) ?? '#06b6d4'}
+              value={(config.indicatorColor as string) ?? colors.primary[400]}
               onChange={(e) => onChange({ indicatorColor: e.target.value })}
               className="w-full h-7 border border-gray-300 rounded cursor-pointer"
             />

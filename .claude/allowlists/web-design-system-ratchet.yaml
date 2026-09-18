@@ -88,12 +88,6 @@ rawHex:
       expiry: 2027-03-31
       findingId: FE-HIGH-066
       reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
-    - package: web/modules/sensor-module
-      ceiling: 1625
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
     - package: web/shell
       ceiling: 5
       owner: okan

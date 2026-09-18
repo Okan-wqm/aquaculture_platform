@@ -1,5 +1,6 @@
 import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -69,7 +70,7 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
     return (
       <div style={{
         width, height, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', background: '#1f2937', borderRadius: 8, color: '#6b7280',
+        justifyContent: 'center', background: colors.neutral[800], borderRadius: 8, color: colors.gray[400],
         fontSize: 11, gap: 8,
       }}>
         <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
@@ -86,14 +87,14 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
     return (
       <div style={{
         width, height, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', background: '#1f2937', borderRadius: 8, color: '#f87171',
+        justifyContent: 'center', background: colors.neutral[800], borderRadius: 8, color: colors.error[500],
         fontSize: 11, gap: 8, padding: 12, textAlign: 'center',
       }}>
         <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
           <path d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span>Invalid stream URL</span>
-        <span style={{ fontSize: 9, color: '#9ca3af' }}>Only http:// and https:// URLs are allowed</span>
+        <span style={{ fontSize: 9, color: colors.neutral[400] }}>Only http:// and https:// URLs are allowed</span>
       </div>
     );
   }
@@ -111,7 +112,7 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
         }}>
           <span>{label}</span>
           <button onClick={toggleFullscreen} type="button" style={{
-            background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 10,
+            background: 'none', border: 'none', color: colors.neutral[400], cursor: 'pointer', fontSize: 10,
           }}>
             {isFullscreen ? '\u229E' : '\u229F'}
           </button>
@@ -141,7 +142,7 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
       {/* Status dot -- green when active */}
       <div style={{
         position: 'absolute', top: label ? headerH + 4 : 4, right: 4,
-        width: 8, height: 8, borderRadius: '50%', background: '#22c55e',
+        width: 8, height: 8, borderRadius: '50%', background: colors.success[500],
         boxShadow: '0 0 4px rgba(34,197,94,0.6)',
       }} />
     </div>

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -63,7 +64,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={35}
           x2={105}
           y2={35}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.8 : 0.5}
@@ -73,7 +74,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={50}
           x2={105}
           y2={50}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.8 : 0.5}
@@ -83,7 +84,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={65}
           x2={105}
           y2={65}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.8 : 0.5}
@@ -91,7 +92,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Running state: flow direction arrows on tubes */}
         {isRunning && (
-          <g fill="#ef4444" opacity={0.9}>
+          <g fill={themeColors.error[500]} opacity={0.9}>
             {/* Arrows on tube y=35 */}
             <polygon points="60,32 66,35 60,38" />
             <polygon points="82,32 88,35 82,38" />
@@ -106,7 +107,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Shell-side flow indicators (running) */}
         {isRunning && (
-          <g stroke="#3b82f6" strokeWidth={1} fill="none" opacity={0.6}>
+          <g stroke={themeColors.info[500]} strokeWidth={1} fill="none" opacity={0.6}>
             <path d="M 25 40 Q 30 42 25 45 Q 20 48 25 50" />
             <path d="M 110 55 Q 115 57 110 60 Q 105 63 110 65" />
           </g>
@@ -122,7 +123,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="12,27 18,30 12,33" fill="#ef4444" opacity={0.8} />
+          <polygon points="12,27 18,30 12,33" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — hot-out (right-top) */}
@@ -135,7 +136,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="128,27 134,30 128,33" fill="#ef4444" opacity={0.8} />
+          <polygon points="128,27 134,30 128,33" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — cold-in (left-bottom) */}
@@ -148,7 +149,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="12,67 18,70 12,73" fill="#3b82f6" opacity={0.8} />
+          <polygon points="12,67 18,70 12,73" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — cold-out (right-bottom) */}
@@ -161,7 +162,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
           strokeWidth={3}
         />
         {isRunning && (
-          <polygon points="128,67 134,70 128,73" fill="#3b82f6" opacity={0.8} />
+          <polygon points="128,67 134,70 128,73" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* P&ID label — E (exchanger) */}
@@ -184,7 +185,7 @@ const ShellAndTubeSymbol: React.FC<EquipmentSymbolProps> = ({
             y={14}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

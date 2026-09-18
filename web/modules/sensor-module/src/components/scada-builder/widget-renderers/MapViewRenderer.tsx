@@ -10,6 +10,7 @@
 
 import React, { memo, useState, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,9 +32,9 @@ type DeviceStatus = DeviceMarker['status'];
 /* ------------------------------------------------------------------ */
 
 const STATUS_COLORS: Record<DeviceStatus, string> = {
-  online: '#22c55e',
-  offline: '#ef4444',
-  unknown: '#9ca3af',
+  online: themeColors.success[500],
+  offline: themeColors.error[500],
+  unknown: themeColors.neutral[400],
 };
 
 const HEADER_HEIGHT = 24;
@@ -119,7 +120,7 @@ MarkerTooltip.displayName = 'MarkerTooltip';
 
 const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height }) => {
   const markers = (config.markers ?? []) as DeviceMarker[];
-  const bgColor = (config.bgColor ?? '#0c4a6e') as string;
+  const bgColor = (config.bgColor ?? themeColors.primary[700]) as string;
   const showGrid = (config.showGrid ?? true) as boolean;
   const title = (config.title ?? 'Site Map') as string;
 

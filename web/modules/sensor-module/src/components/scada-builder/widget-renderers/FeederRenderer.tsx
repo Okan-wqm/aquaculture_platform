@@ -7,11 +7,12 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const STATUS_COLORS: Record<string, string> = {
-  running: '#22c55e',
-  stopped: '#9ca3af',
-  error: '#ef4444',
+  running: colors.success[500],
+  stopped: colors.neutral[400],
+  error: colors.error[500],
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -28,7 +29,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const status = (
     isEditing ? ((config.demoStatus ?? 'running') as string) : String(value ?? 'stopped')
   ).toLowerCase();
-  const statusColor = STATUS_COLORS[status] ?? '#9ca3af';
+  const statusColor = STATUS_COLORS[status] ?? colors.neutral[400];
   const statusLabel = STATUS_LABELS[status] ?? status;
 
   // When stopped/maintenance → show empty; when running → show ~90% if no specific value
@@ -66,9 +67,9 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const fillTopRight = hopperBottomRight + tFill * (hopperTopRight - hopperBottomRight);
 
   // Fill color: brown normally, yellow when low, red when critically low
-  let fillColor = '#8B6914'; // feed/grain brown
-  if (pct < 0.15) fillColor = '#ef4444';
-  else if (pct < 0.3) fillColor = '#eab308';
+  let fillColor = colors.warning[700]; // feed/grain brown
+  if (pct < 0.15) fillColor = colors.error[500];
+  else if (pct < 0.3) fillColor = colors.warning[500];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
@@ -86,7 +87,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           width={motorW}
           height={motorH}
           rx={3}
-          fill="#e0e0e0"
+          fill={colors.neutral[200]}
           stroke="#444"
           strokeWidth={2}
         />
@@ -113,7 +114,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         {/* ---- Hopper body (trapezoid outline) ---- */}
         <polygon
           points={`${hopperTopLeft},${hopperTopY} ${hopperTopRight},${hopperTopY} ${hopperBottomRight},${hopperBottomY} ${hopperBottomLeft},${hopperBottomY}`}
-          fill="#f1f5f9"
+          fill={colors.neutral[100]}
           stroke="#444"
           strokeWidth={2}
           strokeLinejoin="round"
@@ -136,7 +137,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           dominantBaseline="middle"
           fontSize={16}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
         >
           {Math.round(effectiveLevel)}
         </text>
@@ -145,7 +146,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           y={93}
           textAnchor="middle"
           fontSize={10}
-          fill="#6b7280"
+          fill={colors.gray[400]}
         >
           %
         </text>
@@ -157,7 +158,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           width={chuteW}
           height={chuteH}
           rx={1}
-          fill="#cfd8dc"
+          fill={colors.neutral[300]}
           stroke="#444"
           strokeWidth={1.5}
         />

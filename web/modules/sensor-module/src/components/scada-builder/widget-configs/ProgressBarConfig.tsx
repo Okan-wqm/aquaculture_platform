@@ -14,6 +14,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -43,8 +44,8 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   const showLabel = (config.showLabel ?? true) as boolean;
   const showPercentage = (config.showPercentage ?? true) as boolean;
   const barHeight = (config.height ?? 24) as number;
-  const backgroundColor = (config.backgroundColor ?? '#e5e7eb') as string;
-  const fillColor = (config.fillColor ?? '#3b82f6') as string;
+  const backgroundColor = (config.backgroundColor ?? themeColors.neutral[200]) as string;
+  const fillColor = (config.fillColor ?? themeColors.info[500]) as string;
   const zones = (config.zones ?? []) as ColorZone[];
   const borderRadius = (config.borderRadius ?? 4) as number;
   const labelPosition = (config.labelPosition ?? 'inside') as LabelPosition;
@@ -55,7 +56,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   /* ---------------------------------------------------------------- */
 
   const addZone = () => {
-    onChange({ zones: [...zones, { min: 0, max: 50, color: '#22c55e' }] });
+    onChange({ zones: [...zones, { min: 0, max: 50, color: themeColors.success[500] }] });
   };
 
   const updateZone = (index: number, field: keyof ColorZone, value: string | number) => {

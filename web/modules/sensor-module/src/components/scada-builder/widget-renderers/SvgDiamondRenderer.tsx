@@ -13,6 +13,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /**
  * Computes diamond vertices from the bounding box midpoints.
@@ -32,8 +33,8 @@ function computeDiamondPoints(
 const SvgDiamondRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const flatFill = (animationState?.fill ?? config.fill ?? '#f59e0b') as string;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#d97706') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? colors.warning[500]) as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.warning[600]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;

@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { SensorReading, SensorStatus } from '../../../store/scadaViewerStore';
+import { colors } from '@aquaculture/shared-ui';
 
 interface SparklineWidgetProps {
   reading: SensorReading;
@@ -16,10 +17,10 @@ interface SparklineWidgetProps {
 }
 
 const statusColors: Record<SensorStatus, string> = {
-  normal: '#22c55e',
-  warning: '#eab308',
-  critical: '#ef4444',
-  offline: '#6b7280',
+  normal: colors.success[500],
+  warning: colors.warning[500],
+  critical: colors.error[500],
+  offline: colors.gray[400],
 };
 
 export const SparklineWidget: React.FC<SparklineWidgetProps> = ({

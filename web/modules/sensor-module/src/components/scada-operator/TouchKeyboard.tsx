@@ -23,6 +23,7 @@ import React, {
   memo,
 } from 'react';
 import { X, Delete, CornerDownLeft } from 'lucide-react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -345,7 +346,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         aria-modal="false"
       >
         <div className="bg-gray-850 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
-          style={{ backgroundColor: '#1a1d23' }}
+          style={{ backgroundColor: themeColors.neutral[900] }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700">

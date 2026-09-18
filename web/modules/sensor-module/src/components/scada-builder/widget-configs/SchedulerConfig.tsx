@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -29,7 +30,7 @@ const DAY_OPTIONS = [
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
 
-const DEFAULT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+const DEFAULT_COLORS = [themeColors.info[500], themeColors.success[500], themeColors.warning[500], themeColors.error[500], themeColors.primary[700], themeColors.accent[500], themeColors.primary[400], themeColors.accent[600]];
 
 function generateId(): string {
   return `sch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -171,13 +172,13 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={entry.color || '#3b82f6'}
+                    value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
                     className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
                   />
                   <input
                     type="text"
-                    value={entry.color || '#3b82f6'}
+                    value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
                     className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />

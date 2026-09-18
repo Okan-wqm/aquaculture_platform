@@ -2,6 +2,7 @@
  * SVG stroke and fill property types used across all SVG shape widgets.
  * These map directly to SVG presentation attributes for consistent rendering.
  */
+import { colors } from '@aquaculture/shared-ui';
 
 export type StrokeDashPattern = 'solid' | 'dotted' | 'dashed' | 'dashDot' | 'dashDotDot';
 export type StrokeLineCap = 'butt' | 'round' | 'square';
@@ -65,8 +66,8 @@ export const DEFAULT_GRADIENT: GradientConfig = {
   type: 'none',
   angle: 0,
   stops: [
-    { offset: 0, color: '#3b82f6', opacity: 1 },
-    { offset: 1, color: '#1d4ed8', opacity: 1 },
+    { offset: 0, color: colors.info[500], opacity: 1 },
+    { offset: 1, color: colors.info[700], opacity: 1 },
   ],
 };
 

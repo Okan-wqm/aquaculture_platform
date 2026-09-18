@@ -1,6 +1,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -12,7 +13,7 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
   const zones: { min: number; max: number; color: string }[] = config.zones || [];
 
   const addZone = () => {
-    onChange({ zones: [...zones, { min: 0, max: 100, color: '#22c55e' }] });
+    onChange({ zones: [...zones, { min: 0, max: 100, color: colors.success[500] }] });
   };
 
   const updateZone = (index: number, field: string, value: any) => {

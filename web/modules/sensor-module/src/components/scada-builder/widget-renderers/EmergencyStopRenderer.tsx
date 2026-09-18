@@ -3,7 +3,7 @@
  */
 
 import React, { memo, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, colors } from '@aquaculture/shared-ui';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
@@ -37,7 +37,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
     >
       {/* Pulse animation for runtime */}
       {!isEditing && activated && (
-        <circle cx={100} cy={96} r={80} fill="none" stroke="#ef4444" strokeWidth={2} opacity={0.6}>
+        <circle cx={100} cy={96} r={80} fill="none" stroke={colors.error[500]} strokeWidth={2} opacity={0.6}>
           <animate attributeName="r" from="72" to="90" dur="1s" repeatCount="indefinite" />
           <animate attributeName="opacity" from="0.6" to="0" dur="1s" repeatCount="indefinite" />
         </circle>
@@ -47,8 +47,8 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
         cx={100}
         cy={96}
         r={72}
-        fill="#fef2f2"
-        stroke="#fca5a5"
+        fill={colors.error[50]}
+        stroke={colors.error[100]}
         strokeWidth={3}
       />
       {/* Button body */}
@@ -56,8 +56,8 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
         cx={100}
         cy={96}
         r={64}
-        fill={activated ? '#991b1b' : '#dc2626'}
-        stroke="#7f1d1d"
+        fill={activated ? colors.error[700] : colors.error[600]}
+        stroke={colors.accent[800]}
         strokeWidth={2}
       />
       {/* Shadow inset for 3D effect */}
@@ -89,7 +89,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
         textAnchor="middle"
         fontSize={statusFontSize}
         fontWeight={600}
-        fill={activated ? '#dc2626' : '#6b7280'}
+        fill={activated ? colors.error[600] : colors.gray[400]}
       >
         {activated ? 'ACTIVATED' : 'READY'}
       </text>

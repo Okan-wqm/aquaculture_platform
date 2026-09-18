@@ -26,6 +26,7 @@ import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, 
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -52,7 +53,7 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
       <ColorAlphaInput
-        color={(config.fill as string) || '#3b82f6'}
+        color={(config.fill as string) || colors.info[500]}
         alpha={(config.fillOpacity as number) ?? 1}
         onChange={(color, alpha) => onChange({ fill: color, fillOpacity: alpha })}
         label="Fill Color"
@@ -67,7 +68,7 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Stroke section -- delegated to shared StrokeConfig */}
       <StrokeConfig
-        stroke={(config.stroke as string) || '#1d4ed8'}
+        stroke={(config.stroke as string) || colors.info[700]}
         strokeWidth={(config.strokeWidth as number) ?? 2}
         strokeOpacity={(config.strokeOpacity as number) ?? 1}
         dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}

@@ -11,6 +11,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, ChevronRight, GripVertical, Activity, BarChart2 } from 'lucide-react';
 import { useEquipmentTypes, EquipmentType, CATEGORY_LABELS } from '../../../hooks/useEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Template definitions
@@ -50,9 +51,9 @@ const CONNECTION_POINT_TEMPLATE = {
 
 // Algae Bag node templates
 const ALGAE_BAG_TEMPLATES = [
-  { id: 'algae-bag-red', name: 'Rhodomonas Bag', code: 'ALGAE_BAG_RED', category: 'algae', nodeType: 'algaeBagRed', color: '#FFB6C1', description: 'Pink algae cultivation bag (Rhodomonas)' },
-  { id: 'algae-bag-green', name: 'Chlorella Bag', code: 'ALGAE_BAG_GREEN', category: 'algae', nodeType: 'algaeBagGreen', color: '#90EE90', description: 'Green algae cultivation bag (Chlorella)' },
-  { id: 'algae-bag-yellow', name: 'Dunaliella Bag', code: 'ALGAE_BAG_YELLOW', category: 'algae', nodeType: 'algaeBagYellow', color: '#FFD700', description: 'Yellow algae cultivation bag (Dunaliella)' },
+  { id: 'algae-bag-red', name: 'Rhodomonas Bag', code: 'ALGAE_BAG_RED', category: 'algae', nodeType: 'algaeBagRed', color: themeColors.accent[200], description: 'Pink algae cultivation bag (Rhodomonas)' },
+  { id: 'algae-bag-green', name: 'Chlorella Bag', code: 'ALGAE_BAG_GREEN', category: 'algae', nodeType: 'algaeBagGreen', color: themeColors.secondary[200], description: 'Green algae cultivation bag (Chlorella)' },
+  { id: 'algae-bag-yellow', name: 'Dunaliella Bag', code: 'ALGAE_BAG_YELLOW', category: 'algae', nodeType: 'algaeBagYellow', color: themeColors.warning[500], description: 'Yellow algae cultivation bag (Dunaliella)' },
 ];
 
 // Chart Widget template

@@ -127,7 +127,13 @@ info, green/emerald → success, amber/yellow → warning, red/rose → error,
 violet/indigo/cyan → primary shades, pink/orange → accent shades, grey →
 neutral). The ten that remain are the pH scale in
 `pid-simulator/engine/deffeyes-calc.ts` — a scientific colour scale, not a
-brand colour, kept as data. **Owner:** okan · **Expiry:** 2027-03-31.
+brand colour, kept as data. Batch 9 (same cycle): sensor-module (1 625 → 0,
+196 files). 217 distinct values: 63 mapped by hand (Tailwind defaults and
+the SCADA alarm reds/greens), the rest by nearest theme token within a
+small RGB distance, all reviewed; border strings become template literals
+over the token; the SCADA engine's own light/dark `ThemeTokens` derive
+from `colors` too, so the operator console's dark mode is the brand
+palette rather than a third one. **Owner:** okan · **Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 

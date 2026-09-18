@@ -9,17 +9,18 @@ import React, { memo, useMemo, useCallback, useEffect } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { useVfdRealtimeReadings, getVfdStatus } from '../../../hooks/useVfdReadings';
 import type { VfdParameters, VfdStatusBits } from '../../../types/vfd.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Status LED colors                                                  */
 /* ------------------------------------------------------------------ */
 
 const LED_COLORS: Record<string, string> = {
-  running: '#22c55e',
-  ready:   '#3b82f6',
-  fault:   '#ef4444',
-  warning: '#eab308',
-  stopped: '#9ca3af',
+  running: themeColors.success[500],
+  ready:   themeColors.info[500],
+  fault:   themeColors.error[500],
+  warning: themeColors.warning[500],
+  stopped: themeColors.neutral[400],
 };
 
 /* ------------------------------------------------------------------ */
@@ -83,7 +84,7 @@ const VfdMiniWidget: React.FC<WidgetRendererProps> = ({
   }, [isEditing, reading]);
 
   const { status, color } = useMemo(() => getVfdStatus(statusBits), [statusBits]);
-  const ledColor = LED_COLORS[status] || '#9ca3af';
+  const ledColor = LED_COLORS[status] || themeColors.neutral[400];
 
   const handleClick = useCallback(() => {
     if (!isEditing && onCommand) {
@@ -114,19 +115,19 @@ const VfdMiniWidget: React.FC<WidgetRendererProps> = ({
         style={{ display: 'block' }}
       >
         {/* Background */}
-        <rect x={1} y={1} width={158} height={68} rx={5} fill="#f8fafc" stroke="#d1d5db" strokeWidth={1.5} />
+        <rect x={1} y={1} width={158} height={68} rx={5} fill={themeColors.neutral[50]} stroke={themeColors.neutral[300]} strokeWidth={1.5} />
 
         {/* Top row: name + LED + frequency */}
-        <text x={8} y={18} fontSize={11} fontWeight={600} fill="#374151">{displayName}</text>
+        <text x={8} y={18} fontSize={11} fontWeight={600} fill={themeColors.neutral[700]}>{displayName}</text>
         <circle cx={132} cy={14} r={4} fill={ledColor} data-testid="vfd-mini-led" />
-        <text x={152} y={18} textAnchor="end" fontSize={10} fontWeight={700} fill="#111827">{freq}Hz</text>
+        <text x={152} y={18} textAnchor="end" fontSize={10} fontWeight={700} fill={themeColors.neutral[900]}>{freq}Hz</text>
 
         {/* Bottom row: current + speed */}
-        <text x={8} y={46} fontSize={9.5} fill="#6b7280">{current}A</text>
-        <text x={60} y={46} fontSize={9.5} fill="#6b7280">{speed}RPM</text>
+        <text x={8} y={46} fontSize={9.5} fill={themeColors.gray[400]}>{current}A</text>
+        <text x={60} y={46} fontSize={9.5} fill={themeColors.gray[400]}>{speed}RPM</text>
 
         {/* Status bar */}
-        <rect x={4} y={56} width={152} height={3} rx={1.5} fill="#e5e7eb" />
+        <rect x={4} y={56} width={152} height={3} rx={1.5} fill={themeColors.neutral[200]} />
         <rect
           x={4} y={56}
           width={status === 'running' ? 152 : status === 'ready' ? 76 : 0}

@@ -698,6 +698,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: gateway-api
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       GATEWAY_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
@@ -742,8 +744,6 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
       TRUST_PROXY: '1'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
-      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
@@ -830,6 +830,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: auth-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
@@ -928,6 +930,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: farm-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       FARM_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1149,6 +1153,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: admin-api-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3000
       # SEC-MEDIUM-069 (2026-08-23 scan №14): nginx is the trusted proxy hop —
@@ -1157,8 +1163,6 @@ services:
       # bucket: 3 requests lock password reset platform-wide.
       TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
-      ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1247,6 +1251,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: alert-engine
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       ALERT_ENGINE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1397,6 +1403,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: hr-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       HR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1452,6 +1460,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: hydroponics-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       HYDROPONICS_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1507,6 +1517,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: notification-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1569,6 +1581,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: observability-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3009
       NODE_OPTIONS: '--max-old-space-size=256'
@@ -1635,6 +1649,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: config-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3000
       CONFIG_SERVICE_PORT: 3000
@@ -1702,6 +1718,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: event-store-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3000
       EVENT_STORE_SERVICE_PORT: 3000
@@ -1756,6 +1774,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: messaging-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
@@ -1842,6 +1862,8 @@ services:
     restart: unless-stopped
     environment:
       SERVICE_NAME: ai-service
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       NODE_ENV: production
       PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'

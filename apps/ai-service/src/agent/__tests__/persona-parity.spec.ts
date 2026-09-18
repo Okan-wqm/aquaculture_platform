@@ -14,14 +14,16 @@ import { SPECIALTIES } from '../personas';
 const AUDIT_REPO_STUB = { create: jest.fn(), save: jest.fn(), find: jest.fn() };
 
 /**
- * The four pre-composition personas, frozen exactly as they were shipped
- * (agent/personas/{operator,manager,expert,supervisor}.ts before the tier ×
- * specialty refactor). The composition must reproduce them field for field.
+ * The four legacy persona ids, frozen as the composition ships them. The
+ * shape (tools, model, policy, budget) is exactly what the retired
+ * agent/personas/{operator,manager,expert,supervisor}.ts carried; the display
+ * names come from the shared catalogue (the pre-composition 'Operator' …
+ * labels collided with the farm specialists' names).
  */
 const LEGACY_PERSONAS = Object.freeze({
   'operator-v1': {
     id: 'operator-v1',
-    name: 'Operator',
+    name: 'Operations Assistant (General)',
     model: 'claude-haiku-4-5',
     defaultToolNames: [
       'calculate_ammonia_toxicity',
@@ -35,7 +37,7 @@ const LEGACY_PERSONAS = Object.freeze({
   },
   'manager-v1': {
     id: 'manager-v1',
-    name: 'Manager',
+    name: 'Management Assistant (General)',
     model: 'claude-sonnet-5',
     defaultToolNames: [
       'calculate_ammonia_toxicity',
@@ -51,7 +53,7 @@ const LEGACY_PERSONAS = Object.freeze({
   },
   'expert-v1': {
     id: 'expert-v1',
-    name: 'Expert',
+    name: 'Aquaculture Expert (General)',
     model: 'claude-sonnet-5',
     defaultToolNames: [
       'calculate_ammonia_toxicity',
@@ -67,7 +69,7 @@ const LEGACY_PERSONAS = Object.freeze({
   },
   'supervisor-v1': {
     id: 'supervisor-v1',
-    name: 'Supervisor',
+    name: 'SCADA Supervisor (General)',
     model: 'claude-sonnet-5',
     defaultToolNames: [
       'calculate_ammonia_toxicity',
@@ -127,8 +129,21 @@ describe('persona composition parity', () => {
     }).toEqual(legacy);
   });
 
-  it.each(Object.keys(LEGACY_PERSONAS))('%s keeps its shipped system prompt', (id) => {
+  // The prompt snapshots ARE the reviewed prompt text: any change to the
+  // preamble, a tier fragment or a specialty fragment shows up as a snapshot
+  // diff in review, never as a silent behaviour change.
+  it.each(AI_PERSONA_CATALOGUE.map((entry) => entry.id))('%s system prompt is pinned', (id) => {
     expect(catalogue.resolve(id).systemPrompt).toMatchSnapshot();
+  });
+
+  it('every composed prompt opens with the operating contract and never a reserved delimiter', () => {
+    for (const persona of catalogue.list()) {
+      expect(persona.systemPrompt.startsWith('OPERATING CONTRACT')).toBe(true);
+      expect(persona.systemPrompt).toContain('You advise; the user decides.');
+      for (const delimiter of ['[SYSTEM', 'IMMUTABLE', 'DO NOT OVERRIDE', '[END SYSTEM]']) {
+        expect(persona.systemPrompt).not.toContain(delimiter);
+      }
+    }
   });
 
   it('every published catalogue id composes, and nothing else does', () => {

@@ -24,7 +24,10 @@ export class PersonaNotPermittedError extends ForbiddenException {
 export interface ResolvedProfile {
   persona: ComposedPersona;
   effectiveToolNames: string[];
-  effectiveSystemPrompt: string;
+  /** The composed persona prompt — no tenant text (AISAFETY-MEDIUM-025). */
+  baseSystemPrompt: string;
+  /** The tenant's custom instructions, assembled into the final prompt by the safety pipeline. */
+  tenantCustomPrompt: string | null;
   actuationPolicy: ActuationPolicy;
 }
 
@@ -99,12 +102,6 @@ export class AgentProfileService {
       return true;
     });
 
-    // Build system prompt with tenant customization
-    let systemPrompt = basePersona.systemPrompt;
-    if (config.customSystemPrompt) {
-      systemPrompt += `\n\n--- Tenant-Specific Instructions ---\n${config.customSystemPrompt}`;
-    }
-
     // Model resolution precedence (highest wins):
     //   1. AI_CHAT_MODEL_OVERRIDE — ops fleet-wide escape hatch for a model
     //      retirement, applied without a redeploy or any tenant edit.
@@ -122,7 +119,8 @@ export class AgentProfileService {
     return {
       persona: { ...basePersona, model },
       effectiveToolNames,
-      effectiveSystemPrompt: systemPrompt,
+      baseSystemPrompt: basePersona.systemPrompt,
+      tenantCustomPrompt: config.customSystemPrompt?.trim() || null,
       actuationPolicy,
     };
   }

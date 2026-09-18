@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { AI_PERSONA_CATALOGUE, type AiPersonaCatalogueEntry } from '@aquaculture/shared-contracts';
+import { RESTRICTED_PROMPT_DELIMITERS } from '../safety/instruction-hierarchy.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { composePersona, PROMPT_PREAMBLE, type ComposedPersona } from './personas/compose';
 import { SPECIALTIES } from './personas/specialties';
@@ -11,21 +12,6 @@ export class UnknownPersonaError extends BadRequestException {
     super(`Unknown persona "${personaId}"`);
   }
 }
-
-/**
- * Prompt delimiters the instruction hierarchy reserves. A persona fragment
- * containing one could forge or terminate the immutable system block, so the
- * boot invariant refuses to start with such a fragment. Mirrors
- * safety/instruction-hierarchy.service.ts — kept as a literal list here so a
- * persona module cannot import the safety layer.
- */
-const RESTRICTED_PROMPT_DELIMITERS: readonly string[] = [
-  '[SYSTEM',
-  'IMMUTABLE',
-  'DO NOT OVERRIDE',
-  '[END SYSTEM]',
-  '[USER INPUT FOLLOWS',
-];
 
 /**
  * Composes every published persona (shared-contracts AI_PERSONA_CATALOGUE ×

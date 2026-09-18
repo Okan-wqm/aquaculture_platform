@@ -17,7 +17,8 @@ export const GENERAL_SPECIALTY: AgentSpecialty = {
     'get_reagent_list',
     'simulate_dosing_effect',
   ],
-  promptFragment: '',
+  promptFragment: `DOMAIN: general aquaculture assistant.
+Answer water-quality, sensor and chemistry questions with the calculators you have. For farm records (tanks, batches, feeding, health, harvest, maintenance) the tenant may offer dedicated farm specialists; if the user asks for those and you have no matching tool, say which specialist covers it instead of guessing.`,
   actuationCap: 'allowed',
   requiresModule: null,
 };

@@ -3167,6 +3167,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-prompt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/fixtures/fake-tool-registry.ts",
       "prettier_managed": true
     },
@@ -3395,6 +3401,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/chat/__tests__/ai-chat.responder.persona.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/chat/ai-chat.responder.ts",
       "prettier_managed": true
     },
@@ -3587,6 +3599,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/outbox/ai-outbox.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/ai-safety-middleware.prompt.spec.ts",
       "prettier_managed": true
     },
     {

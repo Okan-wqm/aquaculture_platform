@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CircuitBreakerService,
@@ -37,10 +37,29 @@ export class AiKeyMissingError extends Error {
   }
 }
 
+/**
+ * Thrown when a conversation is continued with a different persona than the
+ * one it was created with. A conversation is bound to its persona: the stored
+ * history was produced under that persona's prompt and tool belt, and the
+ * clients reset the conversation when the user switches persona.
+ */
+export class PersonaConversationMismatchError extends BadRequestException {
+  constructor(conversationPersona: string, requestedPersona: string) {
+    super(
+      `Conversation belongs to persona "${conversationPersona}"; start a new conversation to use "${requestedPersona}"`,
+    );
+  }
+}
+
 export interface ChatRequest {
   message: string;
   conversationId?: string;
-  persona: string;
+  /**
+   * The persona id the caller named, or null for the tenant default
+   * (`tenant_agent_configs.baseProfileId`). Resolved to a published catalogue
+   * id before anything else runs; an unknown id is a BAD_REQUEST.
+   */
+  persona: string | null;
   tenantId: string;
   userId: string;
   userRoles: string[];
@@ -105,6 +124,8 @@ export interface ChatResponse {
     result: unknown;
   }>;
   tokenUsage: TokenUsageBreakdown;
+  /** The RESOLVED persona id the turn ran under (catalogue id, never the raw request string). */
+  personaId: string;
   /**
    * MOB-HIGH-001: a held actuation-class tool call, persisted as a proposal
    * awaiting human confirmation. Rides the chat response metadata so the
@@ -185,21 +206,24 @@ export class AgentRunnerService {
       );
     }
 
-    // 4. Resolve agent profile (persona tier authorized against the caller's
+    // 4. Resolve agent profile (persona authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
-    // the ai_personas:<tier> grant).
-    const profile = await this.profileService.resolveProfile(request.tenantId, request.persona, {
+    // the ai_personas:<tier> ∧ ai_specialties:<module> grants). No persona named
+    // → the tenant default; an unknown id → UnknownPersonaError (no fallback).
+    const personaId = request.persona ?? config.baseProfileId;
+    const profile = await this.profileService.resolveProfile(request.tenantId, personaId, {
       roles: request.userRoles,
       resourcePermissions: request.resourcePermissions,
     });
+    const resolvedPersonaId = profile.persona.id;
 
-    // 5. Get or create conversation
+    // 5. Get or create conversation — bound to the resolved persona.
     let conversationId = request.conversationId;
     if (!conversationId) {
       const conversation = await this.conversationService.create({
         tenantId: request.tenantId,
         userId: request.userId,
-        persona: request.persona,
+        persona: resolvedPersonaId,
       });
       conversationId = conversation.id;
     }
@@ -212,6 +236,9 @@ export class AgentRunnerService {
     const existingConversation = conversationId
       ? await this.conversationService.getById(conversationId, request.tenantId, request.userId)
       : null;
+    if (existingConversation && existingConversation.persona !== resolvedPersonaId) {
+      throw new PersonaConversationMismatchError(existingConversation.persona, resolvedPersonaId);
+    }
 
     const messages: LlmMessage[] = [];
 
@@ -248,13 +275,15 @@ export class AgentRunnerService {
       timestamp: new Date().toISOString(),
     });
 
-    // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
-    const safetyResult = this.aiSafety.preProcess(
-      request.message,
-      request.tenantId,
-      profile.persona.name,
-      profile.persona.systemPrompt,
-    );
+    // 7. SECURITY: Pre-process input through the AI safety pipeline (jailbreak
+    // filter + prompt assembly). AISAFETY-MEDIUM-025: the composed base prompt
+    // and the tenant custom prompt travel SEPARATELY into the pipeline, which
+    // returns the one final system prompt the provider sees.
+    const safetyResult = this.aiSafety.preProcess(request.message, request.tenantId, {
+      personaName: profile.persona.name,
+      baseSystemPrompt: profile.baseSystemPrompt,
+      tenantCustomPrompt: profile.tenantCustomPrompt,
+    });
 
     if (!safetyResult.allowed) {
       this.logger.warn(
@@ -263,9 +292,7 @@ export class AgentRunnerService {
       throw new Error('Your message was flagged by our safety system and cannot be processed.');
     }
 
-    // Use hardened system prompt if instruction hierarchy is active
-    const effectiveSystemPrompt =
-      safetyResult.hardenedSystemPrompt ?? profile.effectiveSystemPrompt;
+    const effectiveSystemPrompt = safetyResult.systemPrompt;
 
     // 8. Build tool definitions (provider-neutral shape)
     const toolDefinitions: LlmToolDefinition[] = this.toolRegistry
@@ -297,7 +324,7 @@ export class AgentRunnerService {
       userId: request.userId,
       userRoles: request.userRoles,
       correlationId: request.correlationId,
-      persona: request.persona,
+      persona: resolvedPersonaId,
       // AISAFETY-MEDIUM-021: the composed persona's tier is the executor's
       // authority dimension for a human turn.
       personaTier: profile.persona.tier,
@@ -436,7 +463,7 @@ export class AgentRunnerService {
             description: this.describeAction(toolUse.name, toolUse.input),
             requestedBy: request.userId,
             requesterRoles: request.userRoles,
-            persona: request.persona,
+            persona: resolvedPersonaId,
             correlationId: request.correlationId,
           });
           proposedAction = {
@@ -508,7 +535,7 @@ export class AgentRunnerService {
     await this.turnLedger.recordTurn({
       tenantId: request.tenantId,
       conversationId,
-      personaId: request.persona,
+      personaId: resolvedPersonaId,
       model: profile.persona.model,
       usage: {
         input: totalTokens.input,
@@ -543,6 +570,7 @@ export class AgentRunnerService {
       message: finalMessage,
       toolCalls,
       tokenUsage: totalTokens,
+      personaId: resolvedPersonaId,
       proposedAction,
     };
   }

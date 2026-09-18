@@ -1,7 +1,14 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
-import { AgentRunnerService, AiKeyMissingError, ChatRequest } from '../agent/agent-runner.service';
+import {
+  AgentRunnerService,
+  AiKeyMissingError,
+  ChatRequest,
+  PersonaConversationMismatchError,
+} from '../agent/agent-runner.service';
+import { PersonaNotPermittedError } from '../agent/agent-profile.service';
+import { UnknownPersonaError } from '../agent/agent-persona-catalogue.service';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -83,8 +90,12 @@ export interface AiChatNatsResponse {
   conversationId: string | null;
   metadata: Record<string, unknown> | null;
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
-  /** Present only on failure — callers surface AI_KEY_MISSING distinctly. */
-  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'INTERNAL'; message: string };
+  /**
+   * Present only on failure — callers surface AI_KEY_MISSING distinctly;
+   * BAD_REQUEST = unknown persona / persona-conversation mismatch / missing
+   * fields; FORBIDDEN = the caller may not drive the persona.
+   */
+  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL'; message: string };
 }
 
 @Controller()
@@ -114,7 +125,8 @@ export class AiChatResponder {
     const chatRequest: ChatRequest = {
       message,
       conversationId: payload.conversationId,
-      persona: payload.persona ?? 'operator-v1',
+      // null → the tenant default persona (resolved by the runner, never here).
+      persona: payload.persona ?? null,
       tenantId: payload.tenantId,
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
@@ -137,7 +149,8 @@ export class AiChatResponder {
         // (status:'proposed' + actionType/params) plus the actionId that keys
         // the persisted proposal — the executable SSoT on confirm.
         metadata: {
-          persona: chatRequest.persona,
+          // The RESOLVED catalogue id (the request may have named none).
+          persona: result.personaId,
           tokenUsage: result.tokenUsage,
           ...(result.proposedAction
             ? {
@@ -158,8 +171,19 @@ export class AiChatResponder {
       const isKeyMissing =
         error instanceof AiKeyMissingError ||
         (error as { code?: string })?.code === 'AI_KEY_MISSING';
+      // Persona resolution outcomes are caller errors, not server faults:
+      // an unknown id / a conversation continued under another persona is a
+      // BAD_REQUEST; a persona the caller may not drive is FORBIDDEN. Both
+      // carry the exception's own message (no tenant data in it).
+      const isBadRequest =
+        error instanceof UnknownPersonaError || error instanceof PersonaConversationMismatchError;
+      const isForbidden = error instanceof PersonaNotPermittedError;
       if (isKeyMissing) {
         this.logger.warn(`request.ai.chat blocked: tenant ${payload.tenantId} has no valid AI key`);
+      } else if (isBadRequest || isForbidden) {
+        this.logger.warn(
+          `request.ai.chat rejected for ${payload.tenantId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       } else {
         this.logger.error(
           `request.ai.chat failed for ${payload.tenantId}: ${
@@ -167,19 +191,25 @@ export class AiChatResponder {
           }`,
         );
       }
+      const code: NonNullable<AiChatNatsResponse['error']>['code'] = isKeyMissing
+        ? 'AI_KEY_MISSING'
+        : isBadRequest
+          ? 'BAD_REQUEST'
+          : isForbidden
+            ? 'FORBIDDEN'
+            : 'INTERNAL';
       const userFacing = isKeyMissing
         ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
-        : 'The AI is temporarily unavailable. Please try again later.';
+        : isBadRequest || isForbidden
+          ? (error as Error).message
+          : 'The AI is temporarily unavailable. Please try again later.';
       return {
         // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
         // lets the socket.io assistant route the user to AI settings.
         content: userFacing,
         conversationId: null,
-        metadata: { errorCode: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL' },
-        error: {
-          code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
-          message: userFacing,
-        },
+        metadata: { errorCode: code },
+        error: { code, message: userFacing },
       };
     }
   }

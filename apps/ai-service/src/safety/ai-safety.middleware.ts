@@ -33,10 +33,7 @@ import {
   SsrfValidationResult,
 } from '@aquaculture/backend-common/ai-safety';
 import { InstructionHierarchyService } from './instruction-hierarchy.service';
-import {
-  ToolSchemaValidatorService,
-  ToolValidationResult,
-} from './tool-schema-validator.service';
+import { ToolSchemaValidatorService, ToolValidationResult } from './tool-schema-validator.service';
 
 // ── Configuration ──
 
@@ -68,17 +65,37 @@ const DEFAULT_CONFIG: AiSafetyConfig = {
 
 // ── Pipeline Result Types ──
 
-/** Result of pre-processing user input through the safety pipeline. */
-export interface PreProcessResult {
-  /** Whether the input passed all safety checks. */
-  allowed: boolean;
-  /** If not allowed, the reason for rejection. */
-  rejectionReason?: string;
-  /** Input filter result (if enabled). */
-  inputFilter?: InputFilterResult;
-  /** The hardened system prompt (if instruction hierarchy is enabled). */
-  hardenedSystemPrompt?: string;
+/** The prompt parts a turn is assembled from — kept apart until preProcess. */
+export interface PromptParts {
+  /** Display name of the persona (interpolated into the immutable block). */
+  personaName: string;
+  /** The composed persona prompt (preamble + tier + specialty). No tenant text. */
+  baseSystemPrompt: string;
+  /** The tenant's custom instructions, or null. Lower priority than the base. */
+  tenantCustomPrompt: string | null;
 }
+
+/** Result of pre-processing user input through the safety pipeline. */
+export type PreProcessResult =
+  | {
+      allowed: false;
+      /** Why the input was rejected. */
+      rejectionReason: string;
+      /** Input filter result (if enabled). */
+      inputFilter?: InputFilterResult;
+    }
+  | {
+      allowed: true;
+      /** Input filter result (if enabled). */
+      inputFilter?: InputFilterResult;
+      /**
+       * The FINAL system prompt for the turn: hardened through the instruction
+       * hierarchy when it is enabled, otherwise base + tenant instructions.
+       * AISAFETY-MEDIUM-025: this is the single place the prompt is assembled,
+       * so the tenant prompt can no longer be dropped by passing the wrong part.
+       */
+      systemPrompt: string;
+    };
 
 /** Result of post-processing model output through the safety pipeline. */
 export interface PostProcessResult {
@@ -123,9 +140,7 @@ export class AiSafetyMiddleware {
    */
   configure(partial: Partial<AiSafetyConfig>): void {
     this.config = { ...this.config, ...partial };
-    this.logger.log(
-      `AI Safety pipeline configured: ${JSON.stringify(this.config)}`,
-    );
+    this.logger.log(`AI Safety pipeline configured: ${JSON.stringify(this.config)}`);
   }
 
   /**
@@ -146,45 +161,40 @@ export class AiSafetyMiddleware {
    *
    * @param input - User message text
    * @param tenantId - Tenant identifier for audit
-   * @param personaName - Display name of the persona
-   * @param baseSystemPrompt - The persona's original system prompt
-   * @param tenantCustomPrompt - Optional tenant-specific prompt
-   * @returns PreProcessResult with safety verdict and hardened prompt
+   * @param prompt - The persona name, composed base prompt and tenant prompt
+   * @returns PreProcessResult with the safety verdict and the final system prompt
    */
-  preProcess(
-    input: string,
-    tenantId: string,
-    personaName: string,
-    baseSystemPrompt: string,
-    tenantCustomPrompt?: string,
-  ): PreProcessResult {
-    const result: PreProcessResult = { allowed: true };
+  preProcess(input: string, tenantId: string, prompt: PromptParts): PreProcessResult {
+    let inputFilter: InputFilterResult | undefined;
 
     // ── Stage 1: Input filter ──
     if (this.config.inputFilterEnabled) {
-      const filterResult = this.inputFilter.scanInput(input, tenantId);
-      result.inputFilter = filterResult;
+      inputFilter = this.inputFilter.scanInput(input, tenantId);
 
-      if (!filterResult.safe) {
-        result.allowed = false;
-        result.rejectionReason = filterResult.reason;
-        // SECURITY: Return immediately — do not proceed with prompt hardening
+      if (!inputFilter.safe) {
+        // SECURITY: Return immediately — do not proceed with prompt assembly
         // for blocked input.
-        return result;
+        return {
+          allowed: false,
+          rejectionReason: inputFilter.reason ?? 'Input rejected by the safety filter',
+          inputFilter,
+        };
       }
     }
 
-    // ── Stage 2: Instruction hierarchy ──
-    if (this.config.instructionHierarchyEnabled) {
-      result.hardenedSystemPrompt =
-        this.instructionHierarchy.buildHardenedSystemPrompt(
-          personaName,
-          baseSystemPrompt,
+    // ── Stage 2: Instruction hierarchy (or plain assembly when disabled) ──
+    const tenantCustomPrompt = prompt.tenantCustomPrompt?.trim() || undefined;
+    const systemPrompt = this.config.instructionHierarchyEnabled
+      ? this.instructionHierarchy.buildHardenedSystemPrompt(
+          prompt.personaName,
+          prompt.baseSystemPrompt,
           tenantCustomPrompt,
-        );
-    }
+        )
+      : tenantCustomPrompt
+        ? `${prompt.baseSystemPrompt}\n\n--- Tenant-Specific Instructions ---\n${tenantCustomPrompt}`
+        : prompt.baseSystemPrompt;
 
-    return result;
+    return { allowed: true, inputFilter, systemPrompt };
   }
 
   /**
@@ -206,10 +216,7 @@ export class AiSafetyMiddleware {
     // ── Stage 1: PII scan ──
     if (this.config.outputPiiScanEnabled) {
       if (this.config.outputPiiAutoRedact) {
-        const redactResult: PiiRedactResult = this.outputPiiScanner.redact(
-          outputText,
-          tenantId,
-        );
+        const redactResult: PiiRedactResult = this.outputPiiScanner.redact(outputText, tenantId);
         result.outputText = redactResult.redactedText;
         result.piiScan = redactResult.scanResult;
         result.piiRedacted = redactResult.scanResult.hasPii;
@@ -244,11 +251,7 @@ export class AiSafetyMiddleware {
 
     // ── Stage 1: Schema validation ──
     if (this.config.toolSchemaValidationEnabled) {
-      const schemaResult = this.toolSchemaValidator.validate(
-        toolName,
-        params,
-        schema,
-      );
+      const schemaResult = this.toolSchemaValidator.validate(toolName, params, schema);
       result.schemaValidation = schemaResult;
 
       if (!schemaResult.valid) {

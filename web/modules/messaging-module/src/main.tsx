@@ -1,4 +1,4 @@
-import { ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
+import { ConfiguredBrowserRouter, ConfirmProvider } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -17,7 +17,9 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ConfiguredBrowserRouter>
-        <MessagingModule />
+        <ConfirmProvider>
+          <MessagingModule />
+        </ConfirmProvider>
       </ConfiguredBrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,

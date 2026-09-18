@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { X, Calendar, AlertTriangle, Loader2 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Calendar, AlertTriangle, Loader2 } from 'lucide-react';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 
 // ============================================================================
@@ -74,26 +75,13 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
   if (!isCreateDialogOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create change set"
+    <Modal
+      isOpen={isCreateDialogOpen}
+      onClose={closeCreateDialog}
+      size="md"
+      className="max-h-[90vh] overflow-y-auto"
+      title="Create Change Set"
     >
-      <div className="absolute inset-0 bg-black/30" onClick={closeCreateDialog} aria-hidden="true" />
-      <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Create Change Set</h2>
-          <button
-            type="button"
-            onClick={closeCreateDialog}
-            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Close dialog"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Description */}
           <div>
@@ -186,7 +174,6 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

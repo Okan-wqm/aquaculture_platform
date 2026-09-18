@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Download, Upload, X, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Download, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
 
@@ -240,33 +241,19 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
   const importPreviewRows = importData.length > 1 ? importData.slice(0, 11) : []; // header + 10 rows max
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      size="lg"
+      className="max-h-[85vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={
+        <span className="flex items-center gap-2">
+          <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
+          CSV Tag Import / Export
+        </span>
+      }
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="csv-dialog-title"
-        className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[85vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 id="csv-dialog-title" className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
-            CSV Tag Import / Export
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close"
-            title="Close"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Tab Bar */}
         <div className="flex border-b border-gray-200" role="tablist" aria-label="CSV operations">
@@ -457,8 +444,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

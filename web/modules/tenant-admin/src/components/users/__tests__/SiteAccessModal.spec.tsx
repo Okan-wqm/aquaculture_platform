@@ -39,7 +39,10 @@ const state = vi.hoisted(() => ({
   useAssignedIds: vi.fn(),
 }));
 
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // The dialogs under test render through the real shared-ui Modal (portal,
+  // focus trap, Escape); only the auth/session seams are faked.
+  Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
   useAuth: () => ({
     tenantId: state.auth.tenantId,
     token: state.auth.token,
@@ -55,13 +58,6 @@ vi.mock('@aquaculture/shared-ui', () => ({
   ): boolean =>
     previous[1] === current[1] &&
     JSON.stringify(previous.at(-1)) === JSON.stringify(current.at(-1)),
-}));
-
-vi.mock('../../../hooks/useFocusTrap', () => ({
-  useFocusTrap: () => ({
-    containerRef: { current: null },
-    handleKeyDown: vi.fn(),
-  }),
 }));
 
 vi.mock('../../../utils/error-handling', () => ({
@@ -134,6 +130,9 @@ const targetUser = {
   role: 'MODULE_USER',
   status: 'active',
   lastLogin: 'Today',
+  // DisplayUser gained isLocked in PR #1489; the fixture was never updated and
+  // stayed uncompiled until this spec entered the changed-file type check.
+  isLocked: false,
 };
 
 function renderModal(): ReturnType<typeof render> {

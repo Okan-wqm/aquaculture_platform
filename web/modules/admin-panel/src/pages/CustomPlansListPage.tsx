@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, useConfirm } from '@aquaculture/shared-ui';
 import {
   billingApi,
   CustomPlan,
@@ -58,6 +58,7 @@ const STATUS_FILTERS: { value: CustomPlanStatus | 'all'; label: string }[] = [
 // ============================================================================
 
 const CustomPlansListPage: React.FC = () => {
+  const confirm = useConfirm();
   const navigate = useNavigate();
 
   const [plans, setPlans] = useState<readonly CustomPlan[]>([]);
@@ -204,7 +205,7 @@ const CustomPlansListPage: React.FC = () => {
   };
 
   const handleDelete = async (planId: string, planName: string) => {
-    if (!confirm(`Are you sure you want to delete the plan "${planName}"? This cannot be undone.`)) {
+    if (!(await confirm({ title: `Delete plan "${planName}"?`, message: 'This cannot be undone.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) {
       return;
     }
 

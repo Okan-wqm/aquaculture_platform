@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, useConfirm, usePrompt } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
@@ -57,6 +57,8 @@ const defaultForm: MaintenanceForm = {
 // ============================================================================
 
 export const MaintenancePage: React.FC = () => {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   // State
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -169,7 +171,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleStartMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Start maintenance "${maintenance.title}" now?`)) return;
+    if (!(await confirm({ title: `Start maintenance "${maintenance.title}" now?`, confirmText: 'Start', cancelText: 'Cancel', variant: 'warning' }))) return;
     try {
       await startWindow.mutateAsync(maintenance.id);
     } catch {
@@ -178,7 +180,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleEndMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`End maintenance "${maintenance.title}"?`)) return;
+    if (!(await confirm({ title: `End maintenance "${maintenance.title}"?`, confirmText: 'End', cancelText: 'Cancel', variant: 'warning' }))) return;
     try {
       await endWindow.mutateAsync(maintenance.id);
     } catch {
@@ -187,7 +189,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleExtendMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    const minutes = prompt('Extend by how many minutes?', '30');
+    const minutes = await prompt({ title: 'Extend maintenance', label: 'Extend by how many minutes?', defaultValue: '30', confirmText: 'Extend', cancelText: 'Cancel' });
     if (!minutes) return;
     const additionalMinutes = Number.parseInt(minutes, 10);
     if (!Number.isFinite(additionalMinutes) || additionalMinutes <= 0) return;
@@ -200,7 +202,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleCancelMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Cancel maintenance "${maintenance.title}"?`)) return;
+    if (!(await confirm({ title: `Cancel maintenance "${maintenance.title}"?`, confirmText: 'Cancel maintenance', cancelText: 'Keep', variant: 'danger' }))) return;
     try {
       await cancelWindow.mutateAsync(maintenance.id);
     } catch {

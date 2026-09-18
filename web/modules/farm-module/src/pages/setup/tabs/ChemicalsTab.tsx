@@ -20,7 +20,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast, useConfirm } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -472,23 +472,24 @@ export const ChemicalsTab: React.FC = () => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const confirm = useConfirm();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name) {
-      alert('Please enter a name.');
+      toast({ title: 'Please enter a name.', variant: 'warning' });
       return;
     }
     if (!formData.code) {
-      alert('Please enter a code.');
+      toast({ title: 'Please enter a code.', variant: 'warning' });
       return;
     }
     if (!formData.type) {
-      alert('Please select a chemical type.');
+      toast({ title: 'Please select a chemical type.', variant: 'warning' });
       return;
     }
     if (!formData.siteId) {
-      alert('Please select a site.');
+      toast({ title: 'Please select a site.', variant: 'warning' });
       return;
     }
 
@@ -605,12 +606,19 @@ export const ChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this chemical?')) {
+    if (
+      await confirm({
+        title: 'Delete this chemical?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteChemicalMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete chemical:', err);
-        alert('Failed to delete chemical. Please try again.');
+        toast({ title: 'Failed to delete chemical. Please try again.', variant: 'error' });
       }
     }
   };
@@ -627,13 +635,20 @@ export const ChemicalsTab: React.FC = () => {
       refetch();
     } catch (err) {
       console.error('Failed to upload document:', err);
-      alert('Failed to upload document. Please try again.');
+      toast({ title: 'Failed to upload document. Please try again.', variant: 'error' });
     }
   };
 
   const handleDocumentDelete = async (doc: ChemicalDocument) => {
     if (!editingId) return;
-    if (confirm(`Delete document "${doc.name}"?`)) {
+    if (
+      await confirm({
+        title: `Delete document "${doc.name}"?`,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         const filename = doc.url.split('/').pop() || doc.name;
         await removeDocument.mutateAsync({
@@ -644,7 +659,7 @@ export const ChemicalsTab: React.FC = () => {
         refetch();
       } catch (err) {
         console.error('Failed to delete document:', err);
-        alert('Failed to delete document. Please try again.');
+        toast({ title: 'Failed to delete document. Please try again.', variant: 'error' });
       }
     }
   };

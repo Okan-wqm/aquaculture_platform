@@ -5,22 +5,12 @@
  * Allows creating, editing, and deleting roles with granular permission control.
  */
 
-import React, { useState, useCallback, useMemo, memo, useId } from 'react';
-import {
-  Shield,
-  Plus,
-  Trash2,
-  RefreshCw,
-  AlertCircle,
-  X,
-  Check,
-  Star,
-  Palette,
-} from 'lucide-react';
+import React, { useState, useCallback, useMemo, memo } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
 import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
-import { useFocusTrap } from '../hooks';
 import {
   useTenantRoles,
   usePermissionCategories,
@@ -128,18 +118,7 @@ const RoleModal = memo<RoleModalProps>(({
 }) => {
   const isEditing = !!role;
 
-  // Generate unique IDs for ARIA attributes
-  const titleId = useId();
-  const descriptionId = useId();
 
-  // Focus trap for accessibility
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   // Memoize initial form data to avoid recreating on each render
   const initialFormData = useMemo<RoleFormData>(() => ({
@@ -199,47 +178,15 @@ const RoleModal = memo<RoleModalProps>(({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={isEditing ? 'Edit Role' : 'Create New Role'}
+      description={isEditing ? `Editing "${role.name}" role` : 'Define a new role with custom permissions'}
     >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
-          <div>
-            <h2 id={titleId} className="text-xl font-bold text-gray-900">
-              {isEditing ? 'Edit Role' : 'Create New Role'}
-            </h2>
-            <p id={descriptionId} className="text-sm text-gray-500 mt-0.5">
-              {isEditing
-                ? `Editing "${role.name}" role`
-                : 'Define a new role with custom permissions'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
@@ -383,8 +330,7 @@ const RoleModal = memo<RoleModalProps>(({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 });
 RoleModal.displayName = 'RoleModal';
@@ -410,18 +356,7 @@ const DeleteModal = memo<DeleteModalProps>(({
   isLoading,
   errorMessage,
 }) => {
-  // Generate unique IDs for ARIA attributes
-  const titleId = useId();
-  const descriptionId = useId();
 
-  // Focus trap for accessibility
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen: isOpen && !!role,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   if (!isOpen || !role) return null;
 
@@ -432,35 +367,20 @@ const DeleteModal = memo<DeleteModalProps>(({
   const hasActiveHolders = (role.userCount ?? 0) > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
+    <Modal
+      isOpen={isOpen && !!role}
+      onClose={onClose}
+      size="sm"
+      title={
+        <span className="flex items-center gap-3">
+          <span className="p-2 rounded-full bg-red-100" aria-hidden="true">
+            <Trash2 className="w-5 h-5 text-red-600" />
+          </span>
+          Delete Role
+        </span>
+      }
+      description={`Are you sure you want to delete "${role.name}"?`}
     >
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
-      >
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-full bg-red-100" aria-hidden="true">
-            <Trash2 className="w-6 h-6 text-red-600" />
-          </div>
-          <div>
-            <h3 id={titleId} className="text-lg font-bold text-gray-900">Delete Role</h3>
-            <p id={descriptionId} className="text-sm text-gray-500">
-              Are you sure you want to delete "{role.name}"?
-            </p>
-          </div>
-        </div>
 
         {hasActiveHolders && (
           <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
@@ -504,8 +424,7 @@ const DeleteModal = memo<DeleteModalProps>(({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 });
 DeleteModal.displayName = 'DeleteModal';

@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Loader2,
@@ -58,6 +59,7 @@ const DEFAULT_EMERGENCY_STOP = {
 };
 
 const ScadaPackageBuilderPage: React.FC = () => {
+  const confirm = useConfirm();
   const { packageId: routePackageId } = useParams<{ packageId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -310,14 +312,13 @@ const ScadaPackageBuilderPage: React.FC = () => {
   }, [setSimulationMode]);
 
   // Load demo template handler — replaces current package data with built-in RAS demo
-  const handleLoadDemo = useCallback(() => {
-     
-    if (isDirty && !confirm('Loading the demo template will replace your current work. Continue?')) {
+  const handleLoadDemo = useCallback(async (): Promise<void> => {
+    if (isDirty && !(await confirm({ title: 'Load the demo template?', message: 'It replaces your current work.', confirmText: 'Load demo', cancelText: 'Cancel', variant: 'warning' }))) {
       return;
     }
     loadFromJSON(AQUACULTURE_RAS_DEMO);
     setPackageName(AQUACULTURE_RAS_DEMO.meta?.packageName ?? 'RAS Demo');
-  }, [isDirty, loadFromJSON, setPackageName]);
+  }, [isDirty, loadFromJSON, setPackageName, confirm]);
 
   // Screen summaries for status bar
   const screenSummaries = useMemo(() => screens.map((s) => ({
@@ -362,7 +363,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
         devices={devices}
         onCsvDialogOpen={() => setShowCsvDialog(true)}
         onExportDialogOpen={() => setShowExportDialog(true)}
-        onLoadDemo={handleLoadDemo}
+        onLoadDemo={() => void handleLoadDemo()}
       />
 
       {/* Main Content */}

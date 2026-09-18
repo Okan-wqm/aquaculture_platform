@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, useConfirm } from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -79,6 +79,7 @@ function withValueBranch(draft: DiscountDraft, value: string): CreateDiscountCod
 // ============================================================================
 
 const DiscountCodePage: React.FC = () => {
+  const confirm = useConfirm();
   const [discountCodes, setDiscountCodes] = useState<readonly DiscountCode[]>([]);
   const [stats, setStats] = useState<DiscountStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -144,7 +145,7 @@ const DiscountCodePage: React.FC = () => {
   };
 
   const handleDeactivate = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this discount code?')) return;
+    if (!(await confirm({ title: 'Deactivate this discount code?', message: 'It stops applying to new checkouts immediately.', confirmText: 'Deactivate', cancelText: 'Cancel', variant: 'warning' }))) return;
 
     try {
       await billingApi.deactivateDiscountCode(id);

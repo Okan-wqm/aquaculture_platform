@@ -10,7 +10,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Upload, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 import { graphqlFetch } from '../../config/api';
 import { AUTOMATION_PROGRAMS_QUERY, DEPLOY_PROGRAM_MUTATION } from '../../graphql/automation.queries';
@@ -103,23 +104,18 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Upload className="w-5 h-5 text-indigo-600" />
-            Deploy Automation
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Upload className="w-5 h-5 text-indigo-600" />
+          Deploy Automation
+        </span>
+      }
+    >
 
         {/* Content */}
         <div className="p-4 space-y-4">
@@ -229,8 +225,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

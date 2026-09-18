@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import { useLinkableSensors, LinkableSensor, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
 
@@ -154,18 +155,6 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
     }
   }, [initialConfig, isOpen]);
 
-  // Handle ESC key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Auto-fill defaults when sensor selected
   const handleSensorSelect = (sensorId: string) => {
     const sensor = unlinkedSensors.find((s) => s.id === sensorId);
@@ -198,27 +187,19 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
   const isEditing = !!initialConfig?.sensorId;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-y-auto"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-green-600" />
+          {isEditing ? 'Sensor Düzenle' : 'Sensor Yapılandırması'}
+        </span>
+      }
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="sticky top-0 bg-white flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-green-600" />
-            {isEditing ? 'Sensor Düzenle' : 'Sensor Yapılandırması'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Kapat"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <div className="p-4 space-y-5">
@@ -416,8 +397,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
             Tamam
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

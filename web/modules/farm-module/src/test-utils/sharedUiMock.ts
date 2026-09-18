@@ -26,6 +26,13 @@ export const TEST_USER_ID = 'bbbbbbbb-2222-4333-8444-555555555555';
 export const requestMock = vi.fn();
 /** useToast seam — assert error/success surfacing without a ToastProvider. */
 export const toastMock = vi.fn();
+/**
+ * useConfirm / usePrompt seams — the design-system dialogs replaced the
+ * browser's confirm()/prompt(); without a ConfirmProvider the real hook
+ * throws, so specs get a resolved-true / resolved-null stub they can override.
+ */
+export const confirmMock = vi.fn(async (): Promise<boolean> => true);
+export const promptMock = vi.fn(async (): Promise<string | null> => null);
 
 type TenantQueryOptions = {
   enabled?: boolean;
@@ -119,6 +126,8 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     }),
     graphqlClient: { request: requestMock },
     useToast: () => ({ toast: toastMock }),
+    useConfirm: () => confirmMock,
+    usePrompt: () => promptMock,
     useTenantQuery,
     useTenantMutation,
     // Reads shared-ui's internal AuthContext in production — the stub session

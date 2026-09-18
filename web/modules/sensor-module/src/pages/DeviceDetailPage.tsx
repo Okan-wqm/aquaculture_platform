@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useConfirm, useToast } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
@@ -225,6 +226,8 @@ function getUnitForType(type: string): string {
 // ============================================================================
 
 const DeviceDetailPage: React.FC = () => {
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const { deviceId } = useParams();
   const navigate = useNavigate();
 
@@ -283,7 +286,8 @@ const DeviceDetailPage: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (!deviceId || !window.confirm('Bu sensörü silmek istediğinizden emin misiniz?')) return;
+    if (!deviceId) return;
+    if (!(await confirm({ title: 'Sensörü sil?', message: 'Sensör ve okuma geçmişi kaldırılır. Bu işlem geri alınamaz.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' }))) return;
 
     setDeleting(true);
     try {
@@ -294,10 +298,10 @@ const DeviceDetailPage: React.FC = () => {
       if (result.deleteSensor) {
         navigate('/sensor/devices');
       } else {
-        alert('Silme işlemi başarısız');
+        toast({ title: 'Silme işlemi başarısız', variant: 'error' });
       }
     } catch (err) {
-      alert((err as Error).message);
+      toast({ title: 'Sensör silinemedi', description: (err as Error).message, variant: 'error' });
     } finally {
       setDeleting(false);
     }

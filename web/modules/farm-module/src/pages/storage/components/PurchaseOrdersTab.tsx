@@ -1,7 +1,7 @@
 /**
  * Purchase Orders Tab - Real GraphQL-backed PO list with filters and modals
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, useConfirm } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import {
   usePurchaseOrders,
@@ -100,8 +100,9 @@ export const PurchaseOrdersTab: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleCancel = async (po: PurchaseOrder) => {
-    if (!confirm(`Cancel PO ${po.orderNumber}?`)) return;
+    if (!(await confirm({ title: `Cancel PO ${po.orderNumber}?`, confirmText: 'Cancel order', cancelText: 'Keep', variant: 'danger' }))) return;
     try {
       await cancelPO.mutateAsync(po.id);
     } catch (err) {

@@ -24,6 +24,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ConfirmProvider } from '@aquaculture/shared-ui';
 
 import { MaintenancePage } from '../MaintenancePage';
 import { systemSettingsApi } from '../../../services/adminApi';
@@ -78,7 +79,9 @@ function renderPage(): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MaintenancePage />
+      <ConfirmProvider>
+        <MaintenancePage />
+      </ConfirmProvider>
     </QueryClientProvider>,
   );
 }
@@ -86,7 +89,6 @@ function renderPage(): void {
 describe('MaintenancePage on the admin data layer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     listMock.mockResolvedValue(page([window_()]));
     startMock.mockResolvedValue(window_({ status: 'in_progress' }));
   });
@@ -108,6 +110,8 @@ describe('MaintenancePage on the admin data layer', () => {
 
     await screen.findByText('Postgres major upgrade');
     await user.click(screen.getByRole('button', { name: 'Start Now' }));
+    // The action is gated by the design-system confirm dialog (useConfirm), not window.confirm.
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledWith('window-1'));
     // The regression: `actualStart: new Date().toISOString()` from the
@@ -123,6 +127,8 @@ describe('MaintenancePage on the admin data layer', () => {
 
     await screen.findByText('Postgres major upgrade');
     await user.click(screen.getByRole('button', { name: 'Start Now' }));
+    // The action is gated by the design-system confirm dialog (useConfirm), not window.confirm.
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('maintenance service unavailable');
   });

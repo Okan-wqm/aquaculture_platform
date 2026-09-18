@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Link2, CheckCircle } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Link2, CheckCircle } from 'lucide-react';
 import { AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
 
@@ -30,18 +31,6 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
     }
   }, [equipment]);
 
-  // Handle ESC key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   if (!isOpen || !equipment) return null;
 
   const Icon = getEquipmentIcon(equipment.equipmentType?.code || 'default');
@@ -59,27 +48,18 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Link2 className="w-5 h-5 text-cyan-600" />
+          Link Equipment
+        </span>
+      }
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-cyan-600" />
-            Link Equipment
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Close"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <div className="p-4 space-y-4">
@@ -149,8 +129,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
             Link
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

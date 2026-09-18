@@ -8,6 +8,7 @@ import {
   DeleteConfirmationDialog,
   DeletePreviewData,
   AffectedItemGroup,
+  useToast,
 } from '@aquaculture/shared-ui';
 import {
   useDepartmentList,
@@ -201,10 +202,11 @@ export const DepartmentsTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save department:', err);
-      alert('Failed to save department. Please try again.');
+      toast({ title: 'Failed to save department. Please try again.', variant: 'error' });
     }
   };
 
+  const { toast } = useToast();
   const handleEdit = (dept: Department) => {
     setEditingId(dept.id);
     setFormData({
@@ -232,7 +234,7 @@ export const DepartmentsTab: React.FC = () => {
       setDeptToDelete(null);
     } catch (err) {
       console.error('Failed to delete department:', err);
-      alert('Failed to delete department. Please try again.');
+      toast({ title: 'Failed to delete department. Please try again.', variant: 'error' });
     }
   };
 

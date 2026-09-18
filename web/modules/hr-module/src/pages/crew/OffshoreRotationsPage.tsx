@@ -21,14 +21,14 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useWorkRotations,
   useEmployees,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
-import type { Column } from '../../components/common';
+import { expectedTotalPages } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { WorkRotation, Employee, RotationType, PaginationInput } from '../../types';
 import { RotationStatus } from '../../types';
 
@@ -175,6 +175,7 @@ export function OffshoreRotationsPage() {
   const [activeTab, setActiveTab] = useState<'schedule' | 'calendar' | 'history'>('schedule');
   const [rotationFilter, setRotationFilter] = useState<RotationType | ''>('');
   const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
+  const [historyPage, setHistoryPage] = useState(1);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   // Data fetching
@@ -186,6 +187,13 @@ export function OffshoreRotationsPage() {
 
   // Calculate stats
   const activeRotations = rotations?.filter((r) => r.status === RotationStatus.IN_PROGRESS) || [];
+  const completedRotations = rotations?.filter((r) => r.status === RotationStatus.COMPLETED) || [];
+  // The rotations query returns a flat array, so page it client-side: the
+  // pagination bar has to move what the table shows, not only its label.
+  const pageSize = pagination.limit || 20;
+  const currentPage = pagination.page || 1;
+  const pagedActiveRotations = activeRotations.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pagedCompletedRotations = completedRotations.slice((historyPage - 1) * pageSize, historyPage * pageSize);
   const upcomingTransitions = rotations
     ?.filter((r) => {
       const endDate = new Date(r.endDate);
@@ -204,12 +212,11 @@ export function OffshoreRotationsPage() {
   }, [calendarMonth]);
 
   // Rotation columns
-  const rotationColumns: Column<WorkRotation>[] = [
+  const rotationColumns: DataTableColumn<WorkRotation>[] = [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -232,7 +239,7 @@ export function OffshoreRotationsPage() {
     {
       key: 'rotationType',
       header: 'Rotation Type',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span
           className={cn(
             'inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium',
@@ -251,7 +258,7 @@ export function OffshoreRotationsPage() {
     {
       key: 'pattern',
       header: 'Pattern',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-900 dark:text-white">
           {row.daysOn}/{row.daysOff}
         </span>
@@ -260,8 +267,7 @@ export function OffshoreRotationsPage() {
     {
       key: 'dates',
       header: 'Current Period',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="text-sm">
           <p className="text-gray-900 dark:text-white">
             {new Date(row.startDate).toLocaleDateString()} -{' '}
@@ -283,7 +289,7 @@ export function OffshoreRotationsPage() {
       header: 'Status',
       // WHY: GraphQL returns UPPERCASE enum keys (IN_PROGRESS, SCHEDULED, etc.)
       // not lowercase DB values. The status lookup map must use UPPERCASE keys.
-      accessor: (row) => {
+      render: (_value, row) => {
         const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
           IN_PROGRESS: { label: 'Active', variant: 'success' },
           SCHEDULED: { label: 'Scheduled', variant: 'warning' },
@@ -448,16 +454,22 @@ export function OffshoreRotationsPage() {
           </div>
 
           {/* Rotations Table */}
-          <DataTable
-            data={activeRotations}
+          <DataTable<WorkRotation>
+            data={pagedActiveRotations}
             columns={rotationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingRotations}
+            loading={loadingRotations}
             emptyMessage="No active rotations found"
-            total={activeRotations.length}
-            page={pagination.page || 1}
-            pageSize={pagination.limit || 20}
+            pagination={{
+              page: currentPage,
+              limit: pageSize,
+              total: activeRotations.length,
+              totalPages: expectedTotalPages(activeRotations.length, pageSize),
+            }}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}
@@ -585,16 +597,22 @@ export function OffshoreRotationsPage() {
 
       {activeTab === 'history' && (
         <div className="space-y-4">
-          <DataTable
-            data={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)) || []}
+          <DataTable<WorkRotation>
+            data={pagedCompletedRotations}
             columns={rotationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingRotations}
+            loading={loadingRotations}
             emptyMessage="No rotation history found"
-            total={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)).length}
-            page={1}
-            pageSize={20}
-            onPageChange={() => {}}
+            pagination={{
+              page: historyPage,
+              limit: pageSize,
+              total: completedRotations.length,
+              totalPages: expectedTotalPages(completedRotations.length, pageSize),
+            }}
+            onPageChange={setHistoryPage}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}

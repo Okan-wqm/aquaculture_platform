@@ -119,6 +119,12 @@ export interface DataTableProps<T> {
   expandable?: boolean;
   renderExpandedRow?: (row: T) => React.ReactNode;
 
+  /**
+   * A totals row under the body, keyed by column key and aligned with the
+   * columns; rendered only when there are rows to total.
+   */
+  summaryRow?: Partial<Record<string, React.ReactNode>>;
+
   // Header Actions
   headerActions?: React.ReactNode;
 
@@ -379,6 +385,7 @@ export function DataTable<T>({
   rowClassName,
   expandable = false,
   renderExpandedRow,
+  summaryRow,
   headerActions,
   onRefresh,
   refreshing = false,
@@ -874,6 +881,25 @@ export function DataTable<T>({
             handleToggleExpand={handleToggleExpand}
             renderExpandedRow={renderExpandedRow}
           />
+
+          {/* Summary (totals) row */}
+          {summaryRow && !loading && processedData.length > 0 && (
+            <tfoot className="bg-gray-50 border-t border-gray-200">
+              <tr>
+                {selectable && <td className={cellClasses} />}
+                {expandable && <td className={cellClasses} />}
+                {activeColumns.map((col) => (
+                  <td
+                    key={String(col.key)}
+                    className={`${cellClasses} font-semibold text-gray-900 ${col.className || ''}`}
+                    style={{ textAlign: col.align }}
+                  >
+                    {summaryRow[String(col.key)]}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
@@ -886,21 +912,24 @@ export function DataTable<T>({
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Page Size Selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Rows:</span>
-              <select
-                value={pagination.limit}
-                onChange={(e) => onPageSizeChange?.(Number(e.target.value))}
-                className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              >
-                {pageSizeOptions.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Page Size Selector — only when the page can act on it; an inert select is a false affordance */}
+            {onPageSizeChange && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Rows:</span>
+                <select
+                  value={pagination.limit}
+                  onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                  aria-label="Rows per page"
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                >
+                  {pageSizeOptions.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Page Navigation */}
             <div className="flex items-center gap-1">

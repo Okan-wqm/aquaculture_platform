@@ -206,7 +206,20 @@ heading-plus-hint empty state renders inside the table instead of as a second
 empty state underneath it; a `DataTable` spec pins the toolbar-only-when-
 needed and empty-body behaviours the pages used to hand-roll around. The one
 that remains is the table-data dialog (server-described columns; needs the
-same header slots as the explorer grids). **Owner:** okan ·
+same header slots as the explorer grids). Batch 13: hr-module's private
+`DataTable` copy (a narrower API: `accessor` columns, a `Set` selection, an
+`onSort` that its seven pages never wired, so the sort icons only flipped)
+is deleted and employees, certifications, payroll, crew assignments,
+rotations, leaves and attendance render through the shared one; the
+rotations page pages its flat arrays client-side, so its pagination bar now
+moves the rows and not only the label. The finance tabs follow: salaries,
+the personnel table and HR expenses through `DataTable` (which gains a
+`summaryRow` totals slot so the salary and headcount totals stay in the
+table), the labour-cost ledger as a definition list (label/value lines, no
+header — never a grid). `DataTable`'s rows-per-page select renders only
+when a page can act on it; before, every paginated page showed an inert
+one. hr 8 → 3: the weekly schedule and team overview are calendar grids and
+the print schedule is a print document. **Owner:** okan ·
 **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -220,8 +233,8 @@ same header slots as the explorer grids). **Owner:** okan ·
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 119 remain after batch 12 (admin-panel 3,
-  tenant-admin 1, then hr's private copy, hydroponics, sensor, farm).
+- Raw `<table>` → `DataTable`: 114 remain after batch 13 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, then hydroponics 10, sensor 37, farm 59).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

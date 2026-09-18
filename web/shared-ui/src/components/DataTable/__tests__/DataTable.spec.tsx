@@ -90,3 +90,62 @@ describe('DataTable — empty body', () => {
     expect(screen.queryByText('No users found')).toBeNull();
   });
 });
+
+describe('DataTable — pagination', () => {
+  const pagination = { page: 1, limit: 10, total: 25, totalPages: 3 };
+
+  it('offers a rows-per-page control only when the page can act on it', () => {
+    const { rerender } = render(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        pagination={pagination}
+        onPageChange={() => undefined}
+      />,
+    );
+    expect(screen.getByText('Page 1 of 3')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Rows per page' })).toBeNull();
+
+    rerender(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        pagination={pagination}
+        onPageChange={() => undefined}
+        onPageSizeChange={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: 'Rows per page' })).toBeTruthy();
+  });
+});
+
+describe('DataTable — summary row', () => {
+  it('renders a totals row aligned with the columns, only when there are rows', () => {
+    const { rerender } = render(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        summaryRow={{ name: 'Total: 1 person' }}
+      />,
+    );
+    expect(screen.getByText('Total: 1 person').closest('tfoot')).not.toBeNull();
+
+    rerender(
+      <DataTable<Row>
+        data={[]}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        summaryRow={{ name: 'Total: 0 people' }}
+      />,
+    );
+    expect(screen.queryByText('Total: 0 people')).toBeNull();
+  });
+});
+

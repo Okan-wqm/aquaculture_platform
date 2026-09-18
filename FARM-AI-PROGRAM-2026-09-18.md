@@ -103,13 +103,20 @@ rate-limit namespace ('routine'), 12 lint hijyeni.
 
 ## FAZ 2 — FARM UZMANLARI (4 sprint)
 
-### Sprint 2.1 — PR-2 Commit A: byte-identical
+### Sprint 2.1 — PR-2 Commit A: byte-identical ✅ (e2cf83cc4f, 193/193)
 - tiers/{operator,manager,expert,supervisor}.tier.ts; specialties/{general,farm-*}.specialty.ts; compose.ts
 - persona-parity.spec: donmuş fixture + snapshot byte-identical
+- AgentPersonaCatalogueService: resolve/list/resolveServicePersona + BOOT invariant'ları
+  (bijection, kayıt dışı tool, RESTRICTED_DELIMITER, farm bağı); agent-runner personaTier
+  artık profile'tan taşınıyor (önek türetmesi silindi)
 
-### Sprint 2.2 — PR-2 Commit B: promptlar
+### Sprint 2.2 — PR-2 Commit B: promptlar ✅ (2b0c305174, 197/197)
 - PROMPT_PREAMBLE (uydurma yok, tool sonucu şart, karar kullanıcının)
 - Tier + specialty fragment'ları; middleware preProcess tek-çıkışlı prompt; personaId persist
+- Ek: RESTRICTED_PROMPT_DELIMITERS instruction-hierarchy'den export (tek SSoT);
+  persona NULLABLE (baseProfileId çözümü); PersonaConversationMismatchError →
+  BAD_REQUEST; tenant prompt düşme deliği (hierarchy-on yolu) KAPANDI;
+  ChatResponse.personaId; yeni agent-runner-prompt.spec
 
 ### Sprint 2.3 — PR-3: Su & Sağlık (13 araç + ACL)
 - Kontrat `farm-ai-queries/` (zarf `{ok,data}|{ok,error}`)

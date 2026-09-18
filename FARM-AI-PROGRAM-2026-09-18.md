@@ -118,7 +118,14 @@ rate-limit namespace ('routine'), 12 lint hijyeni.
   BAD_REQUEST; tenant prompt düşme deliği (hierarchy-on yolu) KAPANDI;
   ChatResponse.personaId; yeni agent-runner-prompt.spec
 
-### Sprint 2.3 — PR-3: Su & Sağlık (13 araç + ACL)
+### Sprint 2.3 — PR-3: Su & Sağlık (13 araç + ACL) ✅ (4391311ae7 + 9f01c31172)
+
+Ek: yan-kesitler — SENSOR_AUTOMATIC spoof guard'ı (GraphQL girdisi makine
+kaynağını reddeder), ALL-OF yetki denetimi (tier + ai_specialties:farm
+birlikte şart — matris testli), messaging registry katalog geçişi (13+null,
+wire şekli aynı). Kapılar: event-contracts 388, farm 2070, ai 210,
+invariant 10/10. Deploy notu: canlı NATS reload + farm/ai imaj deploy'u
+FAZ 2 sonunda (PR-4/5 ile birlikte).
 - Kontrat `farm-ai-queries/` (zarf `{ok,data}|{ok,error}`)
 - ACL: her subject açık satır → regen → aynı commit; contractFiles'a ekle
 - Responder'lar: tenant-pin ZORUNLU (6 mevcut pin'siz handler'ın hatası tekrarlanmaz)

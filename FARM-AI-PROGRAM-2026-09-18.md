@@ -297,3 +297,45 @@ Faz 0: 1 · Faz 1: 2 · Faz 2: 4 · Faz 3: 2 · Faz 4: 3 · Faz 5: 3 · Faz 6: 2
 | Tarih | Faz/Sprint | Durum | Not |
 |---|---|---|---|
 | 2026-09-18 | Plan v3 kaydedildi | ✅ | Onaylandı, Sprint 0.1 başlıyor |
+
+
+---
+
+## ENTEGRASYON KARARI (2026-09-18, kullanıcı talimatı: iki oturum entegre)
+
+**Kanonik taban: feat/ai-farm-specialists** (main soyu, PR-0..7 + 6-ajan inceleme, origin'de).
+messaging-fix-1'in AYNI PLANI yeniden uygulayan commit'leri (1.1-2.4) terk edilir; BENZERSİZ
+deltalar porta edilir. İniş stratejisi sırası:
+
+1. **Timestamp benzersizlik invariant'ı** (tests/invariants): servis başına migration timestamp
+   çakışması PATLAT (dalda zaten ai'de 1803100000000 ×2; merge'de messaging 1802200000000 da çiftleşir).
+2. **Porta edilecek messaging-fix-1 deltaları** (tek tek cherry-pick, çakışma yüzsüz):
+   a. Sprint 0.1: provider timeout 30s/1retry + AbortSignal + audit servicePrincipalUuid (f70ef3c91c)
+   b. SENSOR_AUTOMATIC guard @IsHumanMeasurementSource (9f01c31172 parçası)
+   c. Sprint 1.2 BENZERSİZ katman: SERVICE_PERSONA_GRANTS sahiplik haritası, narrator-v1
+      (toolless/service-grant), ephemeral + correlationId/servicePrincipal ledger, rate-limit
+      namespace, routineAiEnabled kolonu, PersonaConversationMismatchError (14a5f4910e)
+   d. ALL-OF yetki denetimi (requiredCapabilities tam set; 9f01c31172 parçası)
+   e. Tek-çıkış prompt üretimi (preProcess systemPrompt; 2b0c305174'ün ai-safety/middleware kısmı)
+   f. db-migrate Timescale toleransı (1a801ebb27) — canlı DB gerçeği, incelemeyle bulunamaz
+   g. acl-drift-probe.py + gece cron (3f3eceeff5; ops script)
+   h. contractFiles missingContractFiles assertion (sessiz continue YASAK; af7c93ddd3 parçası)
+3. **Kanonik dalın barındırdıkları kazanılmış kabul** (yeniden yazma YOK): 1.1-1.3 katalog/all-of,
+   2.1-2.4 kompozisyon+araçlar, 5.1, 7.1-7.2 UI, 6-ajan düzeltmeleri (tenant-context FCR, sunulmayan
+   tool yürütme yasağı, executing→failed).
+4. **Canlı DB hazırlığı kanonik deploy öncesi**: tenant_localization + feeding_job_runs +
+   feeding_record_attribution_quarantine main migration'larından YENİDEN yaratılmalı (bugün 0 satırla
+   droplandı; main ledger yaratıldı sanıyor); admin.impersonation_* elle yaratıldı (main migration'ı
+   ledger'a işlemezse çakışmasız); CORS_ORIGINS checkout satırları; nats.conf = kanonik services.yaml
+   regen'i (yeni inbox desenleri dahil) + probe referans güncellemesi.
+5. **Plan revizyonları (bu incelemeden kabul edilenler)**: journal×GDPR (erasure GUC muafiyeti /
+   SECURITY DEFINER + agent_routines erasure hedef listesi); @ScheduledJob+ScheduledJobRunner (ham
+   @Cron yasak, pg advisory lock + heartbeat zaten var); tenant saat dilimi (tenant-localization'dan);
+   anlatı ASENKRON (farm_outbox→olay→ai→ai_outbox→olay→farm; kontratlar event-contracts'a); BYOK-only
+   modeli için narrator/rutin kimlik politikası + Faz 6.1 platform-credential kavramı + embedding
+   model/boyut kararı; routineAiEnabled×proactiveMonitoringEnabled tek kolonda birleştir (rename
+   migration); deploy kuralı 'imaj main CI'dan gelir'; Faz 3.1 'yetim tablo = strictOwnership DROP =
+   veri kaybı' ifadesiyle düzelt.
+6. Reddedilen iddialar: 0.2.1 probe zaten mounted-conf diff'li (varz kullanılmıyor); 'bilinmeyen
+   önek→supervisor' kasıtlıydı ama her iki dal da UnknownPersonaError'a geçti (uzlaşı); Faz 0.1/SENSOR_AUTOMATIC
+   messaging-fix-1'de YAPILI (kanonik porta listesine alındı).

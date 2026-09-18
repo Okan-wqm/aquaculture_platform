@@ -60,14 +60,17 @@
 | 0.2.4 | Gece ACL probu | Canlı ↔ repo diff → alarm |
 
 **Deploy:** nats restart → gece prob doğrula.
+✅ **TAMAM 2026-09-18:** SSoT regen canlıya deploy edildi (aqua-nats restart; 115 consumer geri yüklendi, 0 ACL ihlali, tüm servisler yeniden bağlandı). Probe: `scripts/nats/acl-drift-probe.py` (host cron 03:00, referans `/var/lib/aqua/local-runtime/nats-conf.reference.conf` ile sabitlendi, ilk koşu clean). Commit `3f3eceeff5`.
 
-### Sprint 0.3 — PR-P0: Embedding fan-out iyileştirmesi
+### Sprint 0.3 — PR-P0: Embedding fan-out iyileştirme
 
 | # | İş | Detay |
 |---|---|---|
 | 0.3.1 | **YENİ migration** `EnsureEmbeddingColumnTenantParity` | Niteliksiz DDL + `IF NOT EXISTS`; 1800700000000'a DOKUNULMAZ (yalnız docblock + immutability waiver) |
 | 0.3.2 | postCondition | information_schema: tüm tenant şemalarında kolon varlığı |
 | 0.3.3 | Ölçüt | Kolon tüm şemalarda MEVCUT (similarMessages dirilişi Faz 6'da) |
+
+✅ **TAMAM 2026-09-18 (mevcut migration ile):** Plan yazılırken gözden kaçtı — istenen migration **zaten var**: `1802200000000-EnsureMessagesEmbeddingColumnTenantFanout` (MSGFIX-FAZ2 2.1b'den; tenant şemalarını enumerate edip `assertSafeSchemaName` + koşullu `ADD COLUMN IF NOT EXISTS` + HNSW index, messaging-service app.module.ts:214'te kayıtlı). postCondition canlıda doğrulandı: 1/1 tenant şemasında (`tenant_7f6b08ab90e246d3`) `messages.embedding` MEVCUT. Yeni migration yazımına gerek kalmadı.
 
 ---
 

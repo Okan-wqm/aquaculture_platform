@@ -4,13 +4,13 @@
  * Read-only modal showing a user's resolved permissions
  * (getUserEffectivePermissions: role + per-user overrides), grouped by
  * category (ADMIN-MEDIUM-016). Follows the module modal conventions
- * (fixed overlay + useFocusTrap + labelled dialog, see AddEditUserModal).
+ * (shared-ui Modal: portal, focus trap, Escape, labelled dialog — see AddEditUserModal).
  */
 
-import React, { useId } from 'react';
-import { X, Shield, ShieldCheck, RefreshCw, AlertCircle, Check, Minus } from 'lucide-react';
+import React from 'react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Shield, ShieldCheck, RefreshCw, AlertCircle, Check, Minus } from 'lucide-react';
 import { useUserEffectivePermissions } from '../../hooks/useTenantData';
-import { useFocusTrap } from '../../hooks';
 import { sanitizeErrorMessage } from '../../utils/error-handling';
 
 // ============================================================================
@@ -56,16 +56,6 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
   onClose,
   user,
 }) => {
-  const titleId = useId();
-  const descriptionId = useId();
-
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   const {
     data: permissions,
@@ -85,42 +75,15 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
   const revokes = permissions?.overrides.revokes ?? [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
-          <div>
-            <h2 id={titleId} className="text-xl font-bold text-gray-900">
-              Effective Permissions
-            </h2>
-            <p id={descriptionId} className="text-sm text-gray-500 mt-0.5">
-              Resolved permissions for {user.name} ({user.email})
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title="Effective Permissions"
+      description={`Resolved permissions for ${user.name} (${user.email})`}
+    >
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -277,8 +240,7 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
             Close
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

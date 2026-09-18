@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import { X, Check, Gauge, TrendingUp, BarChart3, Table, Activity, ChevronDown, ChevronRight, Target, Grid, GitBranch, AreaChart, GitFork } from 'lucide-react';
 import {
   WidgetConfig,
@@ -310,32 +311,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
   const isSingleSelect = selectedType === 'gauge' || selectedType === 'radial-gauge' || selectedType === 'sparkline' || selectedType === 'stat-card';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                {editingWidget ? 'Edit Widget' : 'Add Widget'}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {step === 'type'
-                  ? 'Select widget type'
-                  : 'Configure data channels'}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            >
-              <X size={20} />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      className="max-h-[90vh] overflow-hidden"
+      bodyClassName=""
+      title={editingWidget ? 'Edit Widget' : 'Add Widget'}
+      description={step === 'type' ? 'Select widget type' : 'Configure data channels'}
+    >
 
           {/* Content */}
           <div className="p-6 overflow-y-auto max-h-[60vh]">
@@ -719,9 +703,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
               )}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

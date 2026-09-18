@@ -18,7 +18,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { X, Download, Image, FileText, Loader2 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Download, Image, FileText, Loader2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -289,19 +290,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-[420px] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Export View</h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-100 text-gray-500"
-            aria-label="Close export dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Modal isOpen={isOpen} onClose={onClose} size="sm" bodyClassName="" title="Export View">
 
         {/* Body */}
         <div className="px-5 py-4 space-y-4">
@@ -397,8 +386,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             {isExporting ? 'Exporting...' : 'Export'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

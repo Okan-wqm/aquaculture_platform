@@ -1,5 +1,6 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, MapPin, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
+import { AlertCircle, CheckCircle2, MapPin, RefreshCw, ShieldCheck } from 'lucide-react';
 import { getSessionSnapshot, hasSameTenantSessionBoundary, useAuth } from '@aquaculture/shared-ui';
 
 import {
@@ -12,7 +13,6 @@ import {
   userSiteAccessKeys,
 } from '../../hooks/useUserSiteAccess';
 import { sanitizeErrorMessage } from '../../utils/error-handling';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { DisplayUser } from './UserListSection';
 
 interface SiteAccessModalProps {
@@ -80,8 +80,6 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
   const operationPending =
     assignMutation.isPending || unassignMutation.isPending || isReloadingAfterSave;
 
-  const titleId = useId();
-  const descriptionId = useId();
 
   const handleClose = (): void => {
     if (operationPending) return;
@@ -91,14 +89,6 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
     setSessionBoundaryMessage(null);
     onClose();
   };
-
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen: dialogIsOpen,
-    onClose: handleClose,
-    closeOnEscape: !operationPending,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   useEffect(() => {
     setPendingAction(null);
@@ -319,41 +309,18 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
   const confirmationIsAssignment = visiblePendingAction?.kind === 'assign';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={handleClose}
-        aria-hidden="true"
-      />
-
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
-          <div>
-            <h2 id={titleId} className="text-lg font-semibold text-gray-900">
-              Site access for {user.name}
-            </h2>
-            <p id={descriptionId} className="mt-1 text-sm text-gray-500">
-              Choose which active farm sites this user can access.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={operationPending}
-            aria-label="Close site access dialog"
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X className="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
+    <Modal
+      isOpen={dialogIsOpen}
+      onClose={handleClose}
+      size="lg"
+      className="max-h-[85vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      showCloseButton={!operationPending}
+      closeOnEscape={!operationPending}
+      closeOnOverlayClick={!operationPending}
+      title={`Site access for ${user.name}`}
+      description="Choose which active farm sites this user can access."
+    >
 
         {synchronousBoundaryMessage ? (
           <div className="space-y-4 px-6 py-8">
@@ -627,7 +594,6 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -18,10 +18,10 @@ export interface ModalProps {
   isOpen: boolean;
   /** Kapatma işleyicisi */
   onClose: () => void;
-  /** Modal başlığı */
-  title?: string;
+  /** Modal başlığı — ikonlu başlıklar için ReactNode da olabilir */
+  title?: React.ReactNode;
   /** Alt başlık veya açıklama */
-  description?: string;
+  description?: React.ReactNode;
   /** Modal boyutu */
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   /** Overlay tıklaması ile kapatma */
@@ -34,8 +34,14 @@ export interface ModalProps {
   footer?: React.ReactNode;
   /** Modal içeriği */
   children: React.ReactNode;
-  /** Ek CSS sınıfları */
+  /** Panele ek CSS sınıfları */
   className?: string;
+  /**
+   * Gövde sarmalayıcısının sınıfları (varsayılan `p-4`). Kendi iç düzenini
+   * (sekmeler, kaydırılan liste, yapışkan alt şerit) getiren içerik `''` ya da
+   * `flex-1 min-h-0 overflow-y-auto` gibi bir değer geçer.
+   */
+  bodyClassName?: string;
 }
 
 // ============================================================================
@@ -95,6 +101,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   children,
   className = '',
+  bodyClassName = 'p-4',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   // Escape, odak tuzağı, scroll kilidi, odak geri verme — Drawer ile ortak
@@ -179,7 +186,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Body */}
-        <div className="p-4">{children}</div>
+        <div className={bodyClassName}>{children}</div>
 
         {/* Footer */}
         {footer && (

@@ -25,10 +25,10 @@ export interface DrawerProps {
   isOpen: boolean;
   /** Kapatma işleyicisi */
   onClose: () => void;
-  /** Başlık */
-  title?: string;
+  /** Başlık — ikonlu başlıklar için ReactNode da olabilir */
+  title?: React.ReactNode;
   /** Alt başlık veya açıklama */
-  description?: string;
+  description?: React.ReactNode;
   /** Hangi kenardan açılır (varsayılan: sağ) */
   side?: DrawerSide;
   /** Genişlik (sağ/sol) ya da yükseklik (alt) */
@@ -47,6 +47,8 @@ export interface DrawerProps {
   children: React.ReactNode;
   /** Panele ek CSS sınıfları */
   className?: string;
+  /** Gövde sarmalayıcısının sınıfları (varsayılan kaydırılabilir `p-4`) */
+  bodyClassName?: string;
 }
 
 // ============================================================================
@@ -118,6 +120,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   footer,
   children,
   className = '',
+  bodyClassName = 'flex-1 min-h-0 overflow-y-auto p-4',
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -189,7 +192,7 @@ export const Drawer: React.FC<DrawerProps> = ({
         )}
 
         {/* Body — kaydırılabilir alan */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">{children}</div>
+        <div className={bodyClassName}>{children}</div>
 
         {/* Footer */}
         {footer && (

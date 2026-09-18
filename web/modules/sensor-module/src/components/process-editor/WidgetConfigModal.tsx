@@ -10,7 +10,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../dashboard/types';
@@ -120,26 +121,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Widget Configuration</h3>
-            <button
-              onClick={onClose}
-              className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-sm text-gray-500 mt-1">
-            {step === 'type' ? 'Step 1: Select widget type' : 'Step 2: Configure data source'}
-          </p>
-        </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title="Widget Configuration"
+      description={step === 'type' ? 'Step 1: Select widget type' : 'Step 2: Configure data source'}
+    >
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -382,8 +372,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

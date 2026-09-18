@@ -44,6 +44,7 @@ import { EquipmentTypeLookupService } from './services/equipment-type-lookup.ser
 import { TankEquipmentAdapterService } from './services/tank-equipment-adapter.service';
 import { SubEquipmentResolver } from './sub-equipment.resolver';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+import { EquipmentAiQueryResponder } from './responders/equipment-ai-query.responder';
 
 const CommandHandlers = [
   CreateEquipmentHandler,
@@ -88,6 +89,8 @@ const QueryHandlers = [
     FarmStockModule,
     FinanceModule,
   ],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [EquipmentAiQueryResponder],
   providers: [
     EquipmentResolver,
     SubEquipmentResolver,

@@ -232,7 +232,10 @@ describe('AgentProfileService persona authorization', () => {
         caller(['MODULE_USER'], ['ai_personas:operator', 'ai_specialties:farm']),
       );
       expect(profile.actuationPolicy).toBe('blocked');
-      expect(profile.effectiveToolNames).toEqual(['get_farm_tanks']);
+      expect(profile.effectiveToolNames).not.toContain('create_task');
+      expect(profile.effectiveToolNames).toEqual(
+        expect.arrayContaining(['get_farm_tanks', 'list_todays_tasks', 'list_overdue_work_orders']),
+      );
     });
 
     it('honours tenant blocks', async () => {

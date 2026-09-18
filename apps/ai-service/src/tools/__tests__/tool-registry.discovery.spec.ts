@@ -76,6 +76,17 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     'list_regulatory_reports',
     'get_finance_summary',
     'get_finance_batch_totals',
+    // farm-operations read surface
+    'list_equipment',
+    'list_feeder_calibrations',
+    'list_overdue_work_orders',
+    'get_work_order_stats',
+    'list_maintenance_alerts',
+    'list_low_stock_spare_parts',
+    'get_spare_stock_summary',
+    'get_farm_stock_inventory',
+    'list_todays_tasks',
+    'get_task_stats',
   ];
 
   /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */

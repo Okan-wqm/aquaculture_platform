@@ -41,6 +41,18 @@ import {
   ListRegulatoryReportsTool,
   ListSpeciesTool,
 } from './production';
+import {
+  GetFarmStockInventoryTool,
+  GetSpareStockSummaryTool,
+  GetTaskStatsTool,
+  GetWorkOrderStatsTool,
+  ListEquipmentTool,
+  ListFeederCalibrationsTool,
+  ListLowStockSparePartsTool,
+  ListMaintenanceAlertsTool,
+  ListOverdueWorkOrdersTool,
+  ListTodaysTasksTool,
+} from './operations';
 
 const TOOLS = [
   CreateTaskTool,
@@ -81,6 +93,17 @@ const TOOLS = [
   ListRegulatoryReportsTool,
   GetFinanceSummaryTool,
   GetFinanceBatchTotalsTool,
+  // farm-operations specialist (FARM-MEDIUM-328)
+  ListEquipmentTool,
+  ListFeederCalibrationsTool,
+  ListOverdueWorkOrdersTool,
+  GetWorkOrderStatsTool,
+  ListMaintenanceAlertsTool,
+  ListLowStockSparePartsTool,
+  GetSpareStockSummaryTool,
+  GetFarmStockInventoryTool,
+  ListTodaysTasksTool,
+  GetTaskStatsTool,
 ];
 
 /**

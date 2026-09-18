@@ -57,6 +57,17 @@ export const FARM_AI_QUERY_SUBJECTS = {
   REG_REPORTS: 'request.farm.ai.listRegulatoryReports',
   FINANCE_SUMMARY: 'request.farm.ai.getFinanceSummary',
   FINANCE_BATCH_TOTALS: 'request.farm.ai.getFinanceBatchTotals',
+  // operations: equipment / maintenance / spare parts / farm stock / tasks
+  EQUIPMENT_LIST: 'request.farm.ai.listEquipment',
+  EQUIPMENT_FEEDER_CALIBRATIONS: 'request.farm.ai.listFeederCalibrations',
+  MAINT_OVERDUE_WORK_ORDERS: 'request.farm.ai.listOverdueWorkOrders',
+  MAINT_WORK_ORDER_STATS: 'request.farm.ai.getWorkOrderStats',
+  MAINT_SCHEDULE_ALERTS: 'request.farm.ai.listMaintenanceAlerts',
+  MAINT_LOW_STOCK: 'request.farm.ai.listLowStockSpareParts',
+  MAINT_STOCK_SUMMARY: 'request.farm.ai.getSpareStockSummary',
+  FARM_STOCK_INVENTORY: 'request.farm.ai.getFarmStockInventory',
+  TASKS_TODAY: 'request.farm.ai.listTodaysTasks',
+  TASK_STATS: 'request.farm.ai.getTaskStats',
 } as const;
 
 export type FarmAiQuerySubject =
@@ -182,3 +193,4 @@ export * from './farm-ai-queries/fish-health';
 export * from './farm-ai-queries/production';
 export * from './farm-ai-queries/feeding';
 export * from './farm-ai-queries/harvest-finance';
+export * from './farm-ai-queries/operations';

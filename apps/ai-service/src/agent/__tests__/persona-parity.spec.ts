@@ -164,7 +164,15 @@ describe('persona composition parity', () => {
   it('farm specialists are capped at confirm_required and carry their farm bundle per tier', () => {
     const operatorOps = catalogue.resolve('operator-farm-operations-v1');
     expect(operatorOps.actuationPolicy).toBe('confirm_required');
-    expect(operatorOps.defaultToolNames).toEqual(['get_farm_tanks', 'create_task']);
+    expect(operatorOps.defaultToolNames[0]).toBe('get_farm_tanks');
+    expect(operatorOps.defaultToolNames.at(-1)).toBe('create_task');
+    expect(operatorOps.defaultToolNames).toEqual(
+      expect.arrayContaining([
+        'list_todays_tasks',
+        'list_overdue_work_orders',
+        'get_farm_stock_inventory',
+      ]),
+    );
     const operatorWater = catalogue.resolve('operator-farm-water-health-v1');
     expect(operatorWater.defaultToolNames).not.toContain('calculate_reagent_dosing');
     const expertWater = catalogue.resolve('expert-farm-water-health-v1');

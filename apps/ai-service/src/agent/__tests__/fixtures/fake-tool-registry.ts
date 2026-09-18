@@ -66,6 +66,17 @@ export const REGISTERED_TOOLS: readonly FakeToolSpec[] = [
   { name: 'list_regulatory_reports', requiresModule: 'farm' },
   { name: 'get_finance_summary', requiresModule: 'farm', requiredPermissions: MANAGER_UP },
   { name: 'get_finance_batch_totals', requiresModule: 'farm', requiredPermissions: MANAGER_UP },
+  // farm-operations read surface (PR-5)
+  { name: 'list_equipment', requiresModule: 'farm' },
+  { name: 'list_feeder_calibrations', requiresModule: 'farm' },
+  { name: 'list_overdue_work_orders', requiresModule: 'farm' },
+  { name: 'get_work_order_stats', requiresModule: 'farm' },
+  { name: 'list_maintenance_alerts', requiresModule: 'farm' },
+  { name: 'list_low_stock_spare_parts', requiresModule: 'farm' },
+  { name: 'get_spare_stock_summary', requiresModule: 'farm' },
+  { name: 'get_farm_stock_inventory', requiresModule: 'farm' },
+  { name: 'list_todays_tasks', requiresModule: 'farm' },
+  { name: 'get_task_stats', requiresModule: 'farm' },
 ];
 
 function toMetadata(spec: FakeToolSpec): ToolMetadata {

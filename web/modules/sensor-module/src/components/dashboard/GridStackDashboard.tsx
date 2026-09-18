@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { useConfirm, useClickOutside } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useClickOutside } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -129,80 +129,79 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
     }
   }, [isOpen, defaultName]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {isUpdate ? 'Update Layout' : 'Save New Layout'}
-          </h3>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Layout Name
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter dashboard name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description (Optional)
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Layout description"
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={setAsDefault}
-                onChange={(e) => setSetAsDefault(e.target.checked)}
-                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
-              />
-              <span className="text-sm text-gray-700">Set as default</span>
-            </label>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => onSave(name, description, setAsDefault)}
-              disabled={!name.trim() || saving}
-              className={`
-                flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
-                ${name.trim() && !saving
-                  ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }
-              `}
-            >
-              {saving && <Loader2 size={16} className="animate-spin" />}
-              {isUpdate ? 'Update' : 'Save'}
-            </button>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      title={isUpdate ? 'Update Layout' : 'Save New Layout'}
+      showCloseButton={!saving}
+      closeOnEscape={!saving}
+      closeOnOverlayClick={!saving}
+      bodyClassName="p-6"
+      footer={
+        <>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(name, description, setAsDefault)}
+            disabled={!name.trim() || saving}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
+              ${name.trim() && !saving
+                ? 'bg-cyan-600 text-white hover:bg-cyan-700'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }
+            `}
+          >
+            {saving && <Loader2 size={16} className="animate-spin" />}
+            {isUpdate ? 'Update' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Layout Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter dashboard name"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+          />
         </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Description (Optional)
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Layout description"
+            rows={2}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+          />
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={setAsDefault}
+            onChange={(e) => setSetAsDefault(e.target.checked)}
+            className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
+          />
+          <span className="text-sm text-gray-700">Set as default</span>
+        </label>
       </div>
-    </div>
+    </Modal>
   );
 };
 

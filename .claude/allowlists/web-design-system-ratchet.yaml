@@ -24,7 +24,7 @@
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 39
+  ceiling: 19
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -86,48 +86,6 @@ overlays:
       expiry: 2027-03-31
       findingId: FE-HIGH-065
       reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
-    - site: web/modules/sensor-module/src/components/dashboard/GridStackDashboard.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: layout dropdown backdrop plus save-layout dialog; dialog part moves to Modal
-    - site: web/modules/sensor-module/src/components/dashboard/SensorPicker.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/fleet/EdgeDeviceWizard.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/lora/LoRaDevicesPanel.tsx
-      batch: drawer
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: side panel hand-rolled before shared-ui had a Drawer; move to Drawer (right/left) with the shared dialog behaviour
-    - site: web/modules/sensor-module/src/components/process-editor/panels/PropertiesPanel.tsx
-      batch: drawer
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: side panel hand-rolled before shared-ui had a Drawer; move to Drawer (right/left) with the shared dialog behaviour
-    - site: web/modules/sensor-module/src/components/registration/SensorRegistrationWizard.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/scada-builder/FuxaWidgetBrowser.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
     - site: web/modules/sensor-module/src/components/scada-builder/PidFaceplate.tsx
       batch: runtime
       owner: okan
@@ -170,96 +128,18 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: dark editor-themed dialog; needs a Modal theme variant before migrating
-    - site: web/modules/sensor-module/src/components/vfd/VfdAutomationRuleForm.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/vfd/VfdChangeSetDetail.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/vfd/VfdRegistrationWizard.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/AlertRulesPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/DevicesPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/EdgeDeviceDetailPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/EscalationPoliciesPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/automation/AutomationProgramEditorPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/plc/PlcAlarmsPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/plc/PlcConnectionsPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/plc/PlcFeedingParamsPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/tags/TagRegistryPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
     - site: web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx
-      batch: dialog
+      batch: runtime
       owner: okan
-      expiry: 2027-03-31
+      expiry: 2027-06-30
       findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
+      reason: full-screen dark ST editor surface; needs a Modal theme variant before migrating
     - site: web/shell/src/components/ConsentBanner.tsx
       batch: runtime
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: GDPR consent gate that must block the whole shell until answered; re-evaluate as Modal closeOnEscape=false
-    - site: web/shell/src/components/ai/AiAssistantDrawer.tsx
-      batch: drawer
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: side panel hand-rolled before shared-ui had a Drawer; move to Drawer (right/left) with the shared dialog behaviour
 rawHex:
   entries:
     - package: web/apps/aquamobil
@@ -355,7 +235,7 @@ inlineStyle:
       findingId: FE-MEDIUM-067
       reason: inline style objects bypass the token system and the properties Tailwind can express; keep only genuinely dynamic geometry (canvas, gauges) and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 531
+      ceiling: 530
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-067

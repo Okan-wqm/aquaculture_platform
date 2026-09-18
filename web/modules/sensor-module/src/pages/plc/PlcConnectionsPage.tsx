@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -181,498 +181,497 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="mx-4 max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {connection ? 'PLC Bağlantısını Düzenle' : 'Yeni PLC Bağlantısı'}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title={connection ? 'PLC Bağlantısını Düzenle' : 'Yeni PLC Bağlantısı'}
+      showCloseButton={!isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
+    >
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Basic Info */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bağlantı Adı *</label>
+            <input
+              type="text"
+              required
+              minLength={2}
+              maxLength={255}
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="PLC-Tank-01"
+            />
+          </div>
+          {!connection && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bağlantı Adı *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Site ID *</label>
               <input
                 type="text"
                 required
-                minLength={2}
-                maxLength={255}
-                value={form.name}
-                onChange={(e) => updateField('name', e.target.value)}
+                value={form.siteId}
+                onChange={(e) => updateField('siteId', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="PLC-Tank-01"
+                placeholder="Site UUID"
               />
             </div>
-            {!connection && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Site ID *</label>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            maxLength={1000}
+            rows={2}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            placeholder="Bağlantı açıklaması..."
+          />
+        </div>
+
+        {/* Connection Settings */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Bağlantı Ayarları</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
+              <div className="flex gap-2">
                 <input
                   type="text"
                   required
-                  value={form.siteId}
-                  onChange={(e) => updateField('siteId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="Site UUID"
+                  value={form.endpointUrl}
+                  onChange={(e) => updateField('endpointUrl', e.target.value)}
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  placeholder="opc.tcp://192.168.1.100:4840"
                 />
+                <button
+                  type="button"
+                  onClick={handleDiscover}
+                  disabled={discovering || !form.endpointUrl.startsWith('opc.tcp://')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                  title="Sunucu endpoint'lerini kesfet"
+                >
+                  {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
+                  Kesfet
+                </button>
               </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              maxLength={1000}
-              rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              placeholder="Bağlantı açıklaması..."
-            />
-          </div>
-
-          {/* Connection Settings */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Bağlantı Ayarları</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={form.endpointUrl}
-                    onChange={(e) => updateField('endpointUrl', e.target.value)}
-                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    placeholder="opc.tcp://192.168.1.100:4840"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleDiscover}
-                    disabled={discovering || !form.endpointUrl.startsWith('opc.tcp://')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-                    title="Sunucu endpoint'lerini kesfet"
-                  >
-                    {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
-                    Kesfet
-                  </button>
-                </div>
-                {discoveredEndpoints.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
-                    <h4 className="text-xs font-semibold text-indigo-800 mb-2">Bulunan Endpoint&apos;ler ({discoveredEndpoints.length})</h4>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {discoveredEndpoints.map((ep, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => {
-                            updateField('securityMode', ep.securityMode);
-                            updateField('securityPolicy', ep.securityPolicy);
-                            if (ep.serverCertificate) updateField('serverCertificate', atob(ep.serverCertificate));
-                          }}
-                          className="flex w-full items-center justify-between rounded px-2 py-1 text-xs hover:bg-indigo-100"
-                        >
-                          <span className="font-mono">{ep.securityMode}/{ep.securityPolicy}</span>
-                          <span className="text-indigo-600">Seviye: {ep.securityLevel}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Modu</label>
-                  <select
-                    value={form.securityMode}
-                    onChange={(e) => updateField('securityMode', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="None">Yok</option>
-                    <option value="Sign">Imzali</option>
-                    <option value="SignAndEncrypt">Imzali & Sifreli</option>
-                  </select>
-                </div>
-                {form.securityMode !== 'None' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Politikasi</label>
-                    <select
-                      value={form.securityPolicy}
-                      onChange={(e) => updateField('securityPolicy', e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    >
-                      <option value="Basic256Sha256">Basic256Sha256</option>
-                      <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
-                      <option value="Aes256_Sha256_RsPss">Aes256_Sha256_RsPss</option>
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kimlik Dogrulama</label>
-                  <select
-                    value={form.authMode}
-                    onChange={(e) => updateField('authMode', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="Anonymous">Anonim</option>
-                    <option value="Username">Kullanici Adi</option>
-                    <option value="Certificate">Sertifika</option>
-                  </select>
-                </div>
-              </div>
-              {form.authMode === 'Username' && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kullanici Adi</label>
-                    <input
-                      type="text"
-                      value={form.username}
-                      onChange={(e) => updateField('username', e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Sifre</label>
-                    <input
-                      type="password"
-                      value={form.password}
-                      onChange={(e) => updateField('password', e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-              )}
-              {form.authMode === 'Certificate' && (
-                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <h4 className="text-sm font-medium text-amber-800">Sertifika Kimlik Dogrulama</h4>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Client Sertifikasi (PEM) *
-                    </label>
-                    <div className="flex gap-2">
-                      <textarea
-                        value={form.clientCertificate}
-                        onChange={(e) => updateField('clientCertificate', e.target.value)}
-                        rows={3}
-                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                      />
-                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
-                        <Upload className="h-4 w-4" />
-                        <input
-                          type="file"
-                          accept=".pem,.crt,.cer"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (ev) => updateField('clientCertificate', ev.target?.result as string);
-                              reader.readAsText(file);
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Client Ozel Anahtar (PEM) *
-                    </label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <textarea
-                          value={form.clientPrivateKey}
-                          onChange={(e) => updateField('clientPrivateKey', e.target.value)}
-                          rows={3}
-                          className={`w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${!showPrivateKey ? 'text-security-disc' : ''}`}
-                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                          style={!showPrivateKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPrivateKey(!showPrivateKey)}
-                          className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
-                        >
-                          {showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
-                        <Upload className="h-4 w-4" />
-                        <input
-                          type="file"
-                          accept=".pem,.key"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (ev) => updateField('clientPrivateKey', ev.target?.result as string);
-                              reader.readAsText(file);
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Sunucu Sertifikasi (PEM, opsiyonel)
-                    </label>
-                    <div className="flex gap-2">
-                      <textarea
-                        value={form.serverCertificate}
-                        onChange={(e) => updateField('serverCertificate', e.target.value)}
-                        rows={3}
-                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                      />
-                      <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
-                        <Upload className="h-4 w-4" />
-                        <input
-                          type="file"
-                          accept=".pem,.crt,.cer"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (ev) => updateField('serverCertificate', ev.target?.result as string);
-                              reader.readAsText(file);
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
+              {discoveredEndpoints.length > 0 && (
+                <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <h4 className="text-xs font-semibold text-indigo-800 mb-2">Bulunan Endpoint&apos;ler ({discoveredEndpoints.length})</h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {discoveredEndpoints.map((ep, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          updateField('securityMode', ep.securityMode);
+                          updateField('securityPolicy', ep.securityPolicy);
+                          if (ep.serverCertificate) updateField('serverCertificate', atob(ep.serverCertificate));
+                        }}
+                        className="flex w-full items-center justify-between rounded px-2 py-1 text-xs hover:bg-indigo-100"
+                      >
+                        <span className="font-mono">{ep.securityMode}/{ep.securityPolicy}</span>
+                        <span className="text-indigo-600">Seviye: {ep.securityLevel}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
             </div>
-          </div>
-
-          {/* Timing Settings */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Zamanlama</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Yayinlama (ms)</label>
-                <input
-                  type="number"
-                  min={100} max={60000}
-                  value={form.publishingIntervalMs}
-                  onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Modu</label>
+                <select
+                  value={form.securityMode}
+                  onChange={(e) => updateField('securityMode', e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
+                >
+                  <option value="None">Yok</option>
+                  <option value="Sign">Imzali</option>
+                  <option value="SignAndEncrypt">Imzali & Sifreli</option>
+                </select>
               </div>
+              {form.securityMode !== 'None' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Politikasi</label>
+                  <select
+                    value={form.securityPolicy}
+                    onChange={(e) => updateField('securityPolicy', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="Basic256Sha256">Basic256Sha256</option>
+                    <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
+                    <option value="Aes256_Sha256_RsPss">Aes256_Sha256_RsPss</option>
+                  </select>
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ornekleme (ms)</label>
-                <input
-                  type="number"
-                  min={50} max={60000}
-                  value={form.samplingIntervalMs}
-                  onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Kimlik Dogrulama</label>
+                <select
+                  value={form.authMode}
+                  onChange={(e) => updateField('authMode', e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Oturum Zamani (ms)</label>
-                <input
-                  type="number"
-                  min={5000} max={3600000}
-                  value={form.sessionTimeoutMs}
-                  onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
+                >
+                  <option value="Anonymous">Anonim</option>
+                  <option value="Username">Kullanici Adi</option>
+                  <option value="Certificate">Sertifika</option>
+                </select>
               </div>
             </div>
-          </div>
-
-          {/* Node IDs */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">OPC UA Node ID&apos;leri</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Node</label>
-                <input
-                  type="text"
-                  value={form.parametersNodeId}
-                  onChange={(e) => updateField('parametersNodeId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="ns=2;s=Parameters"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Telemetri Node</label>
-                <input
-                  type="text"
-                  value={form.telemetryNodeId}
-                  onChange={(e) => updateField('telemetryNodeId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="ns=2;s=Telemetry"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Alarm Node</label>
-                <input
-                  type="text"
-                  value={form.alarmsNodeId}
-                  onChange={(e) => updateField('alarmsNodeId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="ns=2;s=Alarms"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Durum Node</label>
-                <input
-                  type="text"
-                  value={form.statusNodeId}
-                  onChange={(e) => updateField('statusNodeId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="ns=2;s=Status"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Advanced Settings */}
-          <div className="border rounded-lg">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-            >
-              <span>Gelismis Ayarlar</span>
-              {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
-            {showAdvanced && (
-              <div className="border-t px-4 py-4 space-y-4">
-                {/* Reconnection */}
+            {form.authMode === 'Username' && (
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Bağlantı</h4>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={form.autoReconnect}
-                        onChange={(e) => updateField('autoReconnect', e.target.checked)}
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span className="text-sm text-gray-700">Otomatik Yeniden Baglan</span>
-                    </label>
-                    {form.autoReconnect && (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Maks Deneme (-1=sinirsiz)</label>
-                          <input
-                            type="number"
-                            min={-1} max={1000}
-                            value={form.maxReconnectAttempts}
-                            onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic Gecikme (ms)</label>
-                          <input
-                            type="number"
-                            min={100} max={60000}
-                            value={form.reconnectDelayMs}
-                            onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Maks Gecikme (ms)</label>
-                          <input
-                            type="number"
-                            min={1000} max={300000}
-                            value={form.maxReconnectDelayMs}
-                            onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Timeouts */}
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Zaman Asimlari</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Baglanti (ms)</label>
-                      <input
-                        type="number"
-                        min={1000} max={60000}
-                        value={form.connectTimeoutMs}
-                        onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Istek (ms)</label>
-                      <input
-                        type="number"
-                        min={5000} max={300000}
-                        value={form.requestTimeoutMs}
-                        onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Keep-Alive (ms)</label>
-                      <input
-                        type="number"
-                        min={1000} max={60000}
-                        value={form.keepAliveIntervalMs}
-                        onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Failover */}
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Bağlantı (Failover)</h4>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kullanici Adi</label>
                   <input
                     type="text"
-                    value={form.failoverEndpointUrl}
-                    onChange={(e) => updateField('failoverEndpointUrl', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    placeholder="opc.tcp://backup-plc:4840"
+                    value={form.username}
+                    onChange={(e) => updateField('username', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sifre</label>
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => updateField('password', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
               </div>
             )}
+            {form.authMode === 'Certificate' && (
+              <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <h4 className="text-sm font-medium text-amber-800">Sertifika Kimlik Dogrulama</h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Client Sertifikasi (PEM) *
+                  </label>
+                  <div className="flex gap-2">
+                    <textarea
+                      value={form.clientCertificate}
+                      onChange={(e) => updateField('clientCertificate', e.target.value)}
+                      rows={3}
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                    />
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                      <Upload className="h-4 w-4" />
+                      <input
+                        type="file"
+                        accept=".pem,.crt,.cer"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => updateField('clientCertificate', ev.target?.result as string);
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Client Ozel Anahtar (PEM) *
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <textarea
+                        value={form.clientPrivateKey}
+                        onChange={(e) => updateField('clientPrivateKey', e.target.value)}
+                        rows={3}
+                        className={`w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${!showPrivateKey ? 'text-security-disc' : ''}`}
+                        placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                        style={!showPrivateKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPrivateKey(!showPrivateKey)}
+                        className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                      <Upload className="h-4 w-4" />
+                      <input
+                        type="file"
+                        accept=".pem,.key"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => updateField('clientPrivateKey', ev.target?.result as string);
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sunucu Sertifikasi (PEM, opsiyonel)
+                  </label>
+                  <div className="flex gap-2">
+                    <textarea
+                      value={form.serverCertificate}
+                      onChange={(e) => updateField('serverCertificate', e.target.value)}
+                      rows={3}
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                    />
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                      <Upload className="h-4 w-4" />
+                      <input
+                        type="file"
+                        accept=".pem,.crt,.cer"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => updateField('serverCertificate', ev.target?.result as string);
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Submit */}
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {connection ? 'Güncelle' : 'Oluştur'}
-            </button>
+        {/* Timing Settings */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Zamanlama</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Yayinlama (ms)</label>
+              <input
+                type="number"
+                min={100} max={60000}
+                value={form.publishingIntervalMs}
+                onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ornekleme (ms)</label>
+              <input
+                type="number"
+                min={50} max={60000}
+                value={form.samplingIntervalMs}
+                onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Oturum Zamani (ms)</label>
+              <input
+                type="number"
+                min={5000} max={3600000}
+                value={form.sessionTimeoutMs}
+                onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+
+        {/* Node IDs */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">OPC UA Node ID&apos;leri</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Node</label>
+              <input
+                type="text"
+                value={form.parametersNodeId}
+                onChange={(e) => updateField('parametersNodeId', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                placeholder="ns=2;s=Parameters"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Telemetri Node</label>
+              <input
+                type="text"
+                value={form.telemetryNodeId}
+                onChange={(e) => updateField('telemetryNodeId', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                placeholder="ns=2;s=Telemetry"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Alarm Node</label>
+              <input
+                type="text"
+                value={form.alarmsNodeId}
+                onChange={(e) => updateField('alarmsNodeId', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                placeholder="ns=2;s=Alarms"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Durum Node</label>
+              <input
+                type="text"
+                value={form.statusNodeId}
+                onChange={(e) => updateField('statusNodeId', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                placeholder="ns=2;s=Status"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Advanced Settings */}
+        <div className="border rounded-lg">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+          >
+            <span>Gelismis Ayarlar</span>
+            {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+          {showAdvanced && (
+            <div className="border-t px-4 py-4 space-y-4">
+              {/* Reconnection */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Bağlantı</h4>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.autoReconnect}
+                      onChange={(e) => updateField('autoReconnect', e.target.checked)}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-sm text-gray-700">Otomatik Yeniden Baglan</span>
+                  </label>
+                  {form.autoReconnect && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Maks Deneme (-1=sinirsiz)</label>
+                        <input
+                          type="number"
+                          min={-1} max={1000}
+                          value={form.maxReconnectAttempts}
+                          onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic Gecikme (ms)</label>
+                        <input
+                          type="number"
+                          min={100} max={60000}
+                          value={form.reconnectDelayMs}
+                          onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Maks Gecikme (ms)</label>
+                        <input
+                          type="number"
+                          min={1000} max={300000}
+                          value={form.maxReconnectDelayMs}
+                          onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Timeouts */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Zaman Asimlari</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Baglanti (ms)</label>
+                    <input
+                      type="number"
+                      min={1000} max={60000}
+                      value={form.connectTimeoutMs}
+                      onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Istek (ms)</label>
+                    <input
+                      type="number"
+                      min={5000} max={300000}
+                      value={form.requestTimeoutMs}
+                      onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Keep-Alive (ms)</label>
+                    <input
+                      type="number"
+                      min={1000} max={60000}
+                      value={form.keepAliveIntervalMs}
+                      onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Failover */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Bağlantı (Failover)</h4>
+                <input
+                  type="text"
+                  value={form.failoverEndpointUrl}
+                  onChange={(e) => updateField('failoverEndpointUrl', e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  placeholder="opc.tcp://backup-plc:4840"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Submit */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            İptal
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {connection ? 'Güncelle' : 'Oluştur'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -685,62 +684,61 @@ const TestResultModal: React.FC<{
   connectionName: string;
   onClose: () => void;
 }> = ({ result, connectionName, onClose }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-    <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Bağlantı Testi</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-
-      <div className="text-center mb-4">
-        {result.success ? (
-          <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-        ) : (
-          <XCircle className="mx-auto h-12 w-12 text-red-500" />
-        )}
-        <h4 className="mt-2 font-semibold text-gray-900">{connectionName}</h4>
-        <p className={`text-sm font-medium ${result.success ? 'text-green-600' : 'text-red-600'}`}>
-          {result.success ? 'Bağlantı başarılı!' : 'Bağlantı başarısız'}
-        </p>
-      </div>
-
-      <div className="space-y-2 text-sm">
-        {result.latencyMs != null && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Gecikme:</span>
-            <span className="font-medium">{result.latencyMs} ms</span>
-          </div>
-        )}
-        {result.serverInfo && (
-          <div className="flex justify-between">
-            <span className="text-gray-500">Sunucu:</span>
-            <span className="font-medium text-right max-w-[200px] truncate">{result.serverInfo}</span>
-          </div>
-        )}
-        {result.error && (
-          <div className="mt-2 rounded-lg bg-red-50 p-3">
-            <p className="text-sm text-red-700">{result.error}</p>
-            {result.errorCode && (
-              <p className="text-xs text-red-500 mt-1">Kod: {result.errorCode}</p>
-            )}
-          </div>
-        )}
-        <div className="flex justify-between">
-          <span className="text-gray-500">Test zamani:</span>
-          <span className="font-medium">{formatDate(result.testedAt)}</span>
-        </div>
-      </div>
-
+  <Modal
+    isOpen
+    onClose={onClose}
+    size="sm"
+    title="Bağlantı Testi"
+    bodyClassName="p-6"
+    footer={
       <button
+        type="button"
         onClick={onClose}
-        className="mt-4 w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+        className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
       >
         Kapat
       </button>
+    }
+  >
+    <div className="text-center mb-4">
+      {result.success ? (
+        <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+      ) : (
+        <XCircle className="mx-auto h-12 w-12 text-red-500" />
+      )}
+      <h4 className="mt-2 font-semibold text-gray-900">{connectionName}</h4>
+      <p className={`text-sm font-medium ${result.success ? 'text-green-600' : 'text-red-600'}`}>
+        {result.success ? 'Bağlantı başarılı!' : 'Bağlantı başarısız'}
+      </p>
     </div>
-  </div>
+
+    <div className="space-y-2 text-sm">
+      {result.latencyMs != null && (
+        <div className="flex justify-between">
+          <span className="text-gray-500">Gecikme:</span>
+          <span className="font-medium">{result.latencyMs} ms</span>
+        </div>
+      )}
+      {result.serverInfo && (
+        <div className="flex justify-between">
+          <span className="text-gray-500">Sunucu:</span>
+          <span className="font-medium text-right max-w-[200px] truncate">{result.serverInfo}</span>
+        </div>
+      )}
+      {result.error && (
+        <div className="mt-2 rounded-lg bg-red-50 p-3">
+          <p className="text-sm text-red-700">{result.error}</p>
+          {result.errorCode && (
+            <p className="text-xs text-red-500 mt-1">Kod: {result.errorCode}</p>
+          )}
+        </div>
+      )}
+      <div className="flex justify-between">
+        <span className="text-gray-500">Test zamani:</span>
+        <span className="font-medium">{formatDate(result.testedAt)}</span>
+      </div>
+    </div>
+  </Modal>
 );
 
 // ============================================================================
@@ -1035,33 +1033,18 @@ const PlcConnectionsPage: React.FC = () => {
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
-            <div className="text-center">
-              <AlertTriangle className="mx-auto h-10 w-10 text-red-500" />
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">Bağlantıyı Sil</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Bu PLC baglantisini silmek istediginizden emin misiniz? Bu islem geri alinamaz.
-              </p>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                İptal
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                disabled={mutations.remove.isPending}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {mutations.remove.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Sil
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          isOpen
+          onClose={() => setDeleteConfirm(null)}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          title="Bağlantıyı Sil"
+          message="Bu PLC baglantisini silmek istediginizden emin misiniz? Bu islem geri alinamaz."
+          confirmText="Sil"
+          cancelText="İptal"
+          variant="danger"
+          isLoading={mutations.remove.isPending}
+          loadingText="Siliniyor..."
+        />
       )}
     </div>
   );

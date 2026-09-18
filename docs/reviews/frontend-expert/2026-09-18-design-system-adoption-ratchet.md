@@ -68,7 +68,15 @@ map. Batch 4a (same cycle): the ten sensor-module menus that dismissed
 themselves through an invisible full-screen layer (builder toolbar, tab bar,
 scene tree, edge toolbar, operator header, dashboard, devices, PLC pages,
 unified editor) use `useClickOutside`; two private mousedown effects go with
-them; overlays 44 → 39. Remaining files are listed
+them; overlays 44 → 39. Batch 4b (same cycle): the remaining sensor-module
+dialogs (sensor picker, edge/sensor/VFD wizards, VFD rule form, FUXA widget
+browser, alert-rule/escalation/PLC/tag/LoRa/I-O/firmware confirmations and
+forms, properties-panel and save-layout dialogs) use `Modal`/`ConfirmModal`;
+the VFD change-set detail and the shell AI assistant use `Drawer`; five
+private Escape listeners, three backdrop handlers and one focus trap go with
+them; overlays 39 → 19. The unified editor's full-screen dark ST editor is
+registered as a runtime surface (needs a Modal theme variant). Remaining
+files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
 decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).

@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { ConfirmModal } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -469,37 +470,23 @@ const DeleteDialog: React.FC<{
   isPending: boolean;
 }> = ({ ruleName, onConfirm, onCancel, isPending }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex items-center justify-center w-10 h-10 bg-red-100 rounded-full">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900">Kuralı Sil</h3>
-        </div>
-        <p className="text-gray-600 mb-6">
+    <ConfirmModal
+      isOpen
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="Kuralı Sil"
+      message={
+        <>
           <strong>"{ruleName}"</strong> alarm kuralini silmek istediginizden emin misiniz?
           Bu işlem geri alınamaz.
-        </p>
-        <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={onCancel}
-            disabled={isPending}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            İptal
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-          >
-            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-            Evet, Sil
-          </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      confirmText="Evet, Sil"
+      cancelText="İptal"
+      variant="danger"
+      isLoading={isPending}
+      loadingText="Siliniyor..."
+    />
   );
 };
 

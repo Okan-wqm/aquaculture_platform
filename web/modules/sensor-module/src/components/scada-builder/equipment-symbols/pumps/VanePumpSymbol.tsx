@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const VanePumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -50,7 +51,8 @@ const VanePumpSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Vanes — 4 radial blades from offset rotor */}
         {[0, 90, 180, 270].map((angle) => {
           const rad = (angle * Math.PI) / 180;
-          const cx2 = 50, cy2 = 52;
+          const cx2 = 50,
+            cy2 = 52;
           const x1 = cx2 + 6 * Math.cos(rad);
           const y1 = cy2 + 6 * Math.sin(rad);
           const x2 = cx2 + 22 * Math.cos(rad);
@@ -92,7 +94,14 @@ const VanePumpSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={50} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

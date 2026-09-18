@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -67,7 +68,7 @@ const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
               y={42}
               width={112}
               height={33}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-clip)`}
             />
@@ -75,7 +76,7 @@ const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
             <path
               d="M 18 42 Q 45 39 70 42 Q 95 45 122 42"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.7}
             />
@@ -92,23 +93,9 @@ const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
           stroke={colors.stroke}
           strokeWidth={1.5}
         />
-        <line
-          x1={70}
-          y1={20}
-          x2={70}
-          y2={10}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={70} y1={20} x2={70} y2={10} stroke={colors.stroke} strokeWidth={2.5} />
         {/* Vent flange */}
-        <line
-          x1={65}
-          y1={10}
-          x2={75}
-          y2={10}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={65} y1={10} x2={75} y2={10} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Bottom drain nozzle */}
         <rect
@@ -120,59 +107,17 @@ const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
           stroke={colors.stroke}
           strokeWidth={1.5}
         />
-        <line
-          x1={70}
-          y1={80}
-          x2={70}
-          y2={90}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={70} y1={80} x2={70} y2={90} stroke={colors.stroke} strokeWidth={2.5} />
         {/* Drain flange */}
-        <line
-          x1={65}
-          y1={90}
-          x2={75}
-          y2={90}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={65} y1={90} x2={75} y2={90} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Left inlet nozzle */}
-        <line
-          x1={0}
-          y1={50}
-          x2={14}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={0}
-          y1={47}
-          x2={0}
-          y2={53}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={0} y1={50} x2={14} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={0} y1={47} x2={0} y2={53} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Right outlet nozzle */}
-        <line
-          x1={126}
-          y1={50}
-          x2={140}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={140}
-          y1={47}
-          x2={140}
-          y2={53}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={126} y1={50} x2={140} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={140} y1={47} x2={140} y2={53} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Saddle supports (legs) */}
         <path
@@ -198,7 +143,7 @@ const HorizontalTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={97}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

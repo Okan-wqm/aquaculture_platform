@@ -5,10 +5,18 @@
 
 import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
-const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
+const PushButtonRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+  onCommand,
+}) => {
   const label = (config.label ?? 'START') as string;
-  const color = (config.color ?? '#3b82f6') as string;
+  const color = (config.color ?? colors.info[500]) as string;
   const mode = (config.mode ?? 'momentary') as string; // 'momentary' | 'toggle'
   const pressed = isEditing ? false : Boolean(value);
 
@@ -45,7 +53,7 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
           width: btnSize,
           height: btnSize,
           borderRadius: 8,
-          background: pressed ? '#22c55e' : color,
+          background: pressed ? colors.success[500] : color,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -66,7 +74,7 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
             width: ledSize,
             height: ledSize,
             borderRadius: '50%',
-            background: pressed ? '#4ade80' : '#9ca3af',
+            background: pressed ? colors.success[500] : colors.neutral[400],
             boxShadow: pressed
               ? '0 0 6px rgba(74,222,128,0.8), 0 0 2px rgba(74,222,128,0.6)'
               : '0 0 2px rgba(0,0,0,0.2)',
@@ -74,7 +82,14 @@ const PushButtonRenderer: React.FC<WidgetRendererProps> = ({ config, value, widt
             transition: 'all 0.2s ease',
           }}
         />
-        <span style={{ color: 'white', fontSize: Math.max(10, btnSize * 0.18), fontWeight: 700, userSelect: 'none' }}>
+        <span
+          style={{
+            color: 'white',
+            fontSize: Math.max(10, btnSize * 0.18),
+            fontWeight: 700,
+            userSelect: 'none',
+          }}
+        >
           {pressed ? 'ON' : label}
         </span>
       </div>

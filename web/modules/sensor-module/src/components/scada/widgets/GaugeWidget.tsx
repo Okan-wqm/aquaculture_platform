@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { SensorReading, SensorStatus } from '../../../store/scadaViewerStore';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 interface GaugeWidgetProps {
   reading: SensorReading;
@@ -20,10 +21,10 @@ const sizeConfig = {
 };
 
 const statusColors: Record<SensorStatus, { stroke: string; fill: string }> = {
-  normal: { stroke: '#22c55e', fill: '#dcfce7' },
-  warning: { stroke: '#eab308', fill: '#fef9c3' },
-  critical: { stroke: '#ef4444', fill: '#fee2e2' },
-  offline: { stroke: '#6b7280', fill: '#f3f4f6' },
+  normal: { stroke: themeColors.success[500], fill: themeColors.success[100] },
+  warning: { stroke: themeColors.warning[500], fill: themeColors.warning[100] },
+  critical: { stroke: themeColors.error[500], fill: themeColors.error[100] },
+  offline: { stroke: themeColors.gray[400], fill: themeColors.neutral[100] },
 };
 
 export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
@@ -74,38 +75,42 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
       zoneList.push({
         start: startAngle,
         end: startAngle + criticalLowPct * totalAngle,
-        color: '#fecaca',
+        color: themeColors.accent[200],
       });
     }
 
     // Warning low zone
     if (reading.warningLow !== undefined) {
       const warningLowPct = (reading.warningLow - minValue) / range;
-      const startPct = reading.criticalLow !== undefined ? (reading.criticalLow - minValue) / range : 0;
+      const startPct =
+        reading.criticalLow !== undefined ? (reading.criticalLow - minValue) / range : 0;
       zoneList.push({
         start: startAngle + startPct * totalAngle,
         end: startAngle + warningLowPct * totalAngle,
-        color: '#fef08a',
+        color: themeColors.warning[100],
       });
     }
 
     // Normal zone
-    const normalStart = reading.warningLow !== undefined ? (reading.warningLow - minValue) / range : 0;
-    const normalEnd = reading.warningHigh !== undefined ? (reading.warningHigh - minValue) / range : 1;
+    const normalStart =
+      reading.warningLow !== undefined ? (reading.warningLow - minValue) / range : 0;
+    const normalEnd =
+      reading.warningHigh !== undefined ? (reading.warningHigh - minValue) / range : 1;
     zoneList.push({
       start: startAngle + normalStart * totalAngle,
       end: startAngle + normalEnd * totalAngle,
-      color: '#bbf7d0',
+      color: themeColors.secondary[100],
     });
 
     // Warning high zone
     if (reading.warningHigh !== undefined) {
       const warningHighPct = (reading.warningHigh - minValue) / range;
-      const endPct = reading.criticalHigh !== undefined ? (reading.criticalHigh - minValue) / range : 1;
+      const endPct =
+        reading.criticalHigh !== undefined ? (reading.criticalHigh - minValue) / range : 1;
       zoneList.push({
         start: startAngle + warningHighPct * totalAngle,
         end: startAngle + endPct * totalAngle,
-        color: '#fef08a',
+        color: themeColors.warning[100],
       });
     }
 
@@ -115,7 +120,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
       zoneList.push({
         start: startAngle + criticalHighPct * totalAngle,
         end: endAngle,
-        color: '#fecaca',
+        color: themeColors.accent[200],
       });
     }
 
@@ -126,7 +131,11 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
 
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      <svg width={config.width} height={config.height} viewBox={`0 0 ${config.width} ${config.height}`}>
+      <svg
+        width={config.width}
+        height={config.height}
+        viewBox={`0 0 ${config.width} ${config.height}`}
+      >
         {/* Zone arcs (background) */}
         {zones.map((zone, index) => (
           <path
@@ -143,7 +152,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
         <path
           d={createArcPath(startAngle, endAngle)}
           fill="none"
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth={config.strokeWidth}
           strokeLinecap="round"
         />
@@ -176,7 +185,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
           dominantBaseline="middle"
           fontSize={config.fontSize}
           fontWeight="bold"
-          fill="#1f2937"
+          fill={themeColors.neutral[800]}
         >
           {value.toFixed(1)}
         </text>
@@ -188,7 +197,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
           textAnchor="middle"
           dominantBaseline="middle"
           fontSize={config.labelSize}
-          fill="#6b7280"
+          fill={themeColors.gray[400]}
         >
           {unit}
         </text>
@@ -199,7 +208,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
           y={getPointOnArc(startAngle).y + 12}
           textAnchor="end"
           fontSize={config.labelSize - 2}
-          fill="#9ca3af"
+          fill={themeColors.neutral[400]}
         >
           {minValue}
         </text>
@@ -208,7 +217,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
           y={getPointOnArc(endAngle).y + 12}
           textAnchor="start"
           fontSize={config.labelSize - 2}
-          fill="#9ca3af"
+          fill={themeColors.neutral[400]}
         >
           {maxValue}
         </text>
@@ -221,10 +230,10 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
               status === 'normal'
                 ? 'bg-green-100 text-green-700'
                 : status === 'warning'
-                ? 'bg-yellow-100 text-yellow-700'
-                : status === 'critical'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-gray-100 text-gray-700'
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : status === 'critical'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-gray-100 text-gray-700'
             }`}
           >
             {reading.type.replace('_', ' ')}

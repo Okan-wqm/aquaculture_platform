@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const ScrewCompressorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -56,13 +57,42 @@ const ScrewCompressorSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Rotor divider line */}
-        <line x1={20} y1={50} x2={100} y2={50} stroke={colors.stroke} strokeWidth={0.8} strokeDasharray="3,3" opacity={0.3} />
+        <line
+          x1={20}
+          y1={50}
+          x2={100}
+          y2={50}
+          stroke={colors.stroke}
+          strokeWidth={0.8}
+          strokeDasharray="3,3"
+          opacity={0.3}
+        />
 
         {/* End plate — left */}
-        <rect x={10} y={19} width={8} height={62} rx={2} fill={colors.fill} fillOpacity={0.9} stroke={colors.stroke} strokeWidth={2} />
+        <rect
+          x={10}
+          y={19}
+          width={8}
+          height={62}
+          rx={2}
+          fill={colors.fill}
+          fillOpacity={0.9}
+          stroke={colors.stroke}
+          strokeWidth={2}
+        />
 
         {/* End plate — right */}
-        <rect x={102} y={19} width={8} height={62} rx={2} fill={colors.fill} fillOpacity={0.9} stroke={colors.stroke} strokeWidth={2} />
+        <rect
+          x={102}
+          y={19}
+          width={8}
+          height={62}
+          rx={2}
+          fill={colors.fill}
+          fillOpacity={0.9}
+          stroke={colors.stroke}
+          strokeWidth={2}
+        />
 
         {/* Inlet line — left */}
         <line x1={0} y1={50} x2={10} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
@@ -84,7 +114,14 @@ const ScrewCompressorSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={60} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={60}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

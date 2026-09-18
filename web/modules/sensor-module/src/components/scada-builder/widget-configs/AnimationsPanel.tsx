@@ -15,10 +15,16 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight, Play, Pause } from 'lucide-react';
-import type { AnimationRule, AnimationRuleType, AnimationOptions, ColorRange } from '../../../engine/animation/types';
+import type {
+  AnimationRule,
+  AnimationRuleType,
+  AnimationOptions,
+  ColorRange,
+} from '../../../engine/animation/types';
 import { TagBrowser } from '../TagBrowser';
 import { RangeColorMapping } from './RangeColorMapping';
 import { TagValueBus } from '../../../engine/tags/TagValueBus';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /**
  * Animation type options extended with FUXA-parity types.
@@ -103,13 +109,10 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
     tagBus.publish(tagName, previewValue);
   }, [previewActive, tagBus, focusedAnimId, animations, previewValue]);
 
-  const handlePreviewSliderChange = useCallback(
-    (value: number) => {
-      setPreviewValue(value);
-      publishPreviewRef.current?.(value);
-    },
-    [],
-  );
+  const handlePreviewSliderChange = useCallback((value: number) => {
+    setPreviewValue(value);
+    publishPreviewRef.current?.(value);
+  }, []);
 
   const addAnimation = () => {
     const newRule: AnimationRule = {
@@ -123,17 +126,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
   };
 
   const updateAnimation = (id: string, updates: Partial<AnimationRule>) => {
-    onChange(
-      animations.map((anim) => (anim.id === id ? { ...anim, ...updates } : anim)),
-    );
+    onChange(animations.map((anim) => (anim.id === id ? { ...anim, ...updates } : anim)));
   };
 
   const updateAnimationOptions = (id: string, optionUpdates: Partial<AnimationOptions>) => {
     onChange(
       animations.map((anim) =>
-        anim.id === id
-          ? { ...anim, options: { ...anim.options, ...optionUpdates } }
-          : anim,
+        anim.id === id ? { ...anim, options: { ...anim.options, ...optionUpdates } } : anim,
       ),
     );
   };
@@ -154,14 +153,18 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
   // Color range helpers (used by the inline colorRange type)
   const addColorRange = (animId: string, currentRanges: ColorRange[]) => {
-    const newRange: ColorRange = { min: 0, max: 100, fill: '#22c55e' };
+    const newRange: ColorRange = { min: 0, max: 100, fill: themeColors.success[500] };
     updateAnimationOptions(animId, { ranges: [...currentRanges, newRange] });
   };
 
-  const updateColorRange = (animId: string, ranges: ColorRange[], index: number, field: keyof ColorRange, value: string | number) => {
-    const updated = ranges.map((r, i) =>
-      i === index ? { ...r, [field]: value } : r,
-    );
+  const updateColorRange = (
+    animId: string,
+    ranges: ColorRange[],
+    index: number,
+    field: keyof ColorRange,
+    value: string | number,
+  ) => {
+    const updated = ranges.map((r, i) => (i === index ? { ...r, [field]: value } : r));
     updateAnimationOptions(animId, { ranges: updated });
   };
 
@@ -195,11 +198,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               data-testid="preview-toggle"
               title={previewActive ? 'Stop animation preview' : 'Start animation preview'}
             >
-              {previewActive ? (
-                <Pause className="w-3 h-3" />
-              ) : (
-                <Play className="w-3 h-3" />
-              )}
+              {previewActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
               Preview
             </button>
           )}
@@ -220,9 +219,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           data-testid="preview-slider-container"
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-cyan-700 uppercase">
-              Preview Value
-            </span>
+            <span className="text-[10px] font-medium text-cyan-700 uppercase">Preview Value</span>
             <span className="text-xs text-cyan-600 font-mono">{previewValue}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -239,9 +236,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               className="flex-1 accent-cyan-600"
               data-testid="preview-slider"
             />
-            <span className="text-[10px] text-cyan-600 min-w-[2rem]">
-              {focusedRange.max}
-            </span>
+            <span className="text-[10px] text-cyan-600 min-w-[2rem]">{focusedRange.max}</span>
           </div>
         </div>
       )}
@@ -288,7 +283,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               <input
                 type="number"
                 value={anim.range.min}
-                onChange={(e) => updateAnimation(anim.id, { range: { ...anim.range, min: Number(e.target.value) } })}
+                onChange={(e) =>
+                  updateAnimation(anim.id, {
+                    range: { ...anim.range, min: Number(e.target.value) },
+                  })
+                }
                 className={INPUT_CLASS}
               />
             </div>
@@ -297,7 +296,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               <input
                 type="number"
                 value={anim.range.max}
-                onChange={(e) => updateAnimation(anim.id, { range: { ...anim.range, max: Number(e.target.value) } })}
+                onChange={(e) =>
+                  updateAnimation(anim.id, {
+                    range: { ...anim.range, max: Number(e.target.value) },
+                  })
+                }
                 className={INPUT_CLASS}
               />
             </div>
@@ -313,7 +316,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               data-testid="animation-type-select"
             >
               {ANIMATION_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </div>
@@ -330,7 +335,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.rotationSpeed ?? 2000}
-                  onChange={(e) => updateAnimationOptions(anim.id, { rotationSpeed: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { rotationSpeed: Number(e.target.value) })
+                  }
                   min={100}
                   className={INPUT_CLASS}
                 />
@@ -339,7 +346,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <label className="block text-xs text-gray-500 mb-1">Direction</label>
                 <select
                   value={anim.options.direction ?? 'cw'}
-                  onChange={(e) => updateAnimationOptions(anim.id, { direction: e.target.value as 'cw' | 'ccw' })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { direction: e.target.value as 'cw' | 'ccw' })
+                  }
                   className={INPUT_CLASS}
                 >
                   <option value="cw">Clockwise</option>
@@ -357,7 +366,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.blinkInterval ?? 1000}
-                  onChange={(e) => updateAnimationOptions(anim.id, { blinkInterval: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { blinkInterval: Number(e.target.value) })
+                  }
                   min={100}
                   className={INPUT_CLASS}
                 />
@@ -368,13 +379,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="color"
-                      value={anim.options.fillA || '#ef4444'}
+                      value={anim.options.fillA || themeColors.error[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
                       className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={anim.options.fillA || '#ef4444'}
+                      value={anim.options.fillA || themeColors.error[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
                       className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
@@ -385,13 +396,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="color"
-                      value={anim.options.fillB || '#22c55e'}
+                      value={anim.options.fillB || themeColors.success[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
                       className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={anim.options.fillB || '#22c55e'}
+                      value={anim.options.fillB || themeColors.success[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
                       className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
@@ -418,21 +429,45 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={cr.min}
-                    onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'min', Number(e.target.value))}
+                    onChange={(e) =>
+                      updateColorRange(
+                        anim.id,
+                        anim.options.ranges ?? [],
+                        idx,
+                        'min',
+                        Number(e.target.value),
+                      )
+                    }
                     className="w-14 px-2 py-1 text-xs border border-gray-300 rounded"
                     placeholder="Min"
                   />
                   <input
                     type="number"
                     value={cr.max}
-                    onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'max', Number(e.target.value))}
+                    onChange={(e) =>
+                      updateColorRange(
+                        anim.id,
+                        anim.options.ranges ?? [],
+                        idx,
+                        'max',
+                        Number(e.target.value),
+                      )
+                    }
                     className="w-14 px-2 py-1 text-xs border border-gray-300 rounded"
                     placeholder="Max"
                   />
                   <input
                     type="color"
                     value={cr.fill}
-                    onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'fill', e.target.value)}
+                    onChange={(e) =>
+                      updateColorRange(
+                        anim.id,
+                        anim.options.ranges ?? [],
+                        idx,
+                        'fill',
+                        e.target.value,
+                      )
+                    }
                     className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
                   />
                   <button
@@ -455,7 +490,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.fillMin ?? 0}
-                    onChange={(e) => updateAnimationOptions(anim.id, { fillMin: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { fillMin: Number(e.target.value) })
+                    }
                     className={INPUT_CLASS}
                   />
                 </div>
@@ -464,7 +501,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.fillMax ?? 100}
-                    onChange={(e) => updateAnimationOptions(anim.id, { fillMax: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { fillMax: Number(e.target.value) })
+                    }
                     className={INPUT_CLASS}
                   />
                 </div>
@@ -475,7 +514,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.fillWarningThreshold ?? 70}
-                    onChange={(e) => updateAnimationOptions(anim.id, { fillWarningThreshold: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, {
+                        fillWarningThreshold: Number(e.target.value),
+                      })
+                    }
                     min={0}
                     max={100}
                     className={INPUT_CLASS}
@@ -486,7 +529,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.fillCriticalThreshold ?? 90}
-                    onChange={(e) => updateAnimationOptions(anim.id, { fillCriticalThreshold: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, {
+                        fillCriticalThreshold: Number(e.target.value),
+                      })
+                    }
                     min={0}
                     max={100}
                     className={INPUT_CLASS}
@@ -505,7 +552,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.toX ?? 0}
-                    onChange={(e) => updateAnimationOptions(anim.id, { toX: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { toX: Number(e.target.value) })
+                    }
                     className={INPUT_CLASS}
                   />
                 </div>
@@ -514,7 +563,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.toY ?? 0}
-                    onChange={(e) => updateAnimationOptions(anim.id, { toY: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { toY: Number(e.target.value) })
+                    }
                     className={INPUT_CLASS}
                   />
                 </div>
@@ -524,7 +575,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.duration ?? 1000}
-                  onChange={(e) => updateAnimationOptions(anim.id, { duration: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { duration: Number(e.target.value) })
+                  }
                   min={100}
                   className={INPUT_CLASS}
                 />
@@ -541,7 +594,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.minAngle ?? 0}
-                    onChange={(e) => updateAnimationOptions(anim.id, { minAngle: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { minAngle: Number(e.target.value) })
+                    }
                     min={-360}
                     max={360}
                     className={INPUT_CLASS}
@@ -553,7 +608,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <input
                     type="number"
                     value={anim.options.maxAngle ?? 360}
-                    onChange={(e) => updateAnimationOptions(anim.id, { maxAngle: Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateAnimationOptions(anim.id, { maxAngle: Number(e.target.value) })
+                    }
                     min={-360}
                     max={360}
                     className={INPUT_CLASS}
@@ -564,20 +621,34 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               {/* Visual hint: SVG needle showing rotation range */}
               <div className="flex justify-center py-2">
                 <svg width="64" height="64" viewBox="0 0 64 64" className="opacity-40">
-                  <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 2" />
-                  <line
-                    x1="32" y1="32"
-                    x2={32 + 20 * Math.cos(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
-                    y2={32 + 20 * Math.sin(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
-                    stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    strokeDasharray="4 2"
                   />
                   <line
-                    x1="32" y1="32"
-                    x2={32 + 24 * Math.cos(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
-                    y2={32 + 24 * Math.sin(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
-                    stroke="#0891b2" strokeWidth="2" strokeLinecap="round"
+                    x1="32"
+                    y1="32"
+                    x2={32 + 20 * Math.cos((((anim.options.minAngle ?? 0) - 90) * Math.PI) / 180)}
+                    y2={32 + 20 * Math.sin((((anim.options.minAngle ?? 0) - 90) * Math.PI) / 180)}
+                    stroke={themeColors.neutral[400]}
+                    strokeWidth="2"
+                    strokeLinecap="round"
                   />
-                  <circle cx="32" cy="32" r="3" fill="#0891b2" />
+                  <line
+                    x1="32"
+                    y1="32"
+                    x2={32 + 24 * Math.cos((((anim.options.maxAngle ?? 360) - 90) * Math.PI) / 180)}
+                    y2={32 + 24 * Math.sin((((anim.options.maxAngle ?? 360) - 90) * Math.PI) / 180)}
+                    stroke={themeColors.primary[600]}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="32" cy="32" r="3" fill={themeColors.primary[600]} />
                 </svg>
               </div>
             </div>
@@ -591,7 +662,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.pistonDistance ?? 20}
-                  onChange={(e) => updateAnimationOptions(anim.id, { pistonDistance: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { pistonDistance: Number(e.target.value) })
+                  }
                   min={5}
                   max={100}
                   className={INPUT_CLASS}
@@ -603,7 +676,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.pistonDuration ?? 1000}
-                  onChange={(e) => updateAnimationOptions(anim.id, { pistonDuration: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { pistonDuration: Number(e.target.value) })
+                  }
                   min={100}
                   max={5000}
                   className={INPUT_CLASS}
@@ -617,7 +692,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {anim.type === 'imageAlongPath' && (
             <div className="space-y-2" data-testid="image-along-path-config">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Motion Path (SVG d-attribute)</label>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Motion Path (SVG d-attribute)
+                </label>
                 <textarea
                   value={anim.options.motionPath ?? ''}
                   onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })}
@@ -632,7 +709,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.motionDuration ?? 3000}
-                  onChange={(e) => updateAnimationOptions(anim.id, { motionDuration: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { motionDuration: Number(e.target.value) })
+                  }
                   min={500}
                   max={30000}
                   className={INPUT_CLASS}
@@ -650,7 +729,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="text"
                   value={anim.options.colorVariable ?? '--scada-fill'}
-                  onChange={(e) => updateAnimationOptions(anim.id, { colorVariable: e.target.value })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { colorVariable: e.target.value })
+                  }
                   placeholder="--scada-fill"
                   className={INPUT_CLASS}
                   data-testid="color-variable-input"
@@ -671,7 +752,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.minScale ?? 0.5}
-                  onChange={(e) => updateAnimationOptions(anim.id, { minScale: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { minScale: Number(e.target.value) })
+                  }
                   min={0.1}
                   max={5}
                   step={0.1}
@@ -684,7 +767,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.maxScale ?? 2.0}
-                  onChange={(e) => updateAnimationOptions(anim.id, { maxScale: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { maxScale: Number(e.target.value) })
+                  }
                   min={0.1}
                   max={5}
                   step={0.1}
@@ -703,7 +788,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.minOpacity ?? 0}
-                  onChange={(e) => updateAnimationOptions(anim.id, { minOpacity: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { minOpacity: Number(e.target.value) })
+                  }
                   min={0}
                   max={1}
                   step={0.05}
@@ -716,7 +803,9 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 <input
                   type="number"
                   value={anim.options.maxOpacity ?? 1}
-                  onChange={(e) => updateAnimationOptions(anim.id, { maxOpacity: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateAnimationOptions(anim.id, { maxOpacity: Number(e.target.value) })
+                  }
                   min={0}
                   max={1}
                   step={0.05}
@@ -733,7 +822,11 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               <label className="block text-xs text-gray-500 mb-1">Video Action</label>
               <select
                 value={anim.options.videoAction ?? 'play'}
-                onChange={(e) => updateAnimationOptions(anim.id, { videoAction: e.target.value as 'play' | 'pause' | 'stop' })}
+                onChange={(e) =>
+                  updateAnimationOptions(anim.id, {
+                    videoAction: e.target.value as 'play' | 'pause' | 'stop',
+                  })
+                }
                 className={INPUT_CLASS}
                 data-testid="video-action-select"
               >
@@ -759,9 +852,16 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                 />
               </div>
               <div className="text-[10px] text-gray-400 space-y-0.5 px-1">
-                <p><code className="bg-gray-100 px-1 rounded">%.2f</code> &rarr; 3.14</p>
-                <p><code className="bg-gray-100 px-1 rounded">%d%%</code> &rarr; 75%</p>
-                <p><code className="bg-gray-100 px-1 rounded">Temp: %.1f&deg;C</code> &rarr; Temp: 23.5&deg;C</p>
+                <p>
+                  <code className="bg-gray-100 px-1 rounded">%.2f</code> &rarr; 3.14
+                </p>
+                <p>
+                  <code className="bg-gray-100 px-1 rounded">%d%%</code> &rarr; 75%
+                </p>
+                <p>
+                  <code className="bg-gray-100 px-1 rounded">Temp: %.1f&deg;C</code> &rarr; Temp:
+                  23.5&deg;C
+                </p>
               </div>
             </div>
           )}

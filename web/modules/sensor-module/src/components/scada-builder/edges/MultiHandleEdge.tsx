@@ -13,12 +13,20 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { type JSX, useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
+import {
+  type JSX,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  MouseEvent as ReactMouseEvent,
+} from 'react';
 import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
 import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -48,9 +56,7 @@ const HIT_AREA_WIDTH = 20;
 /* -------------------------------------------------- */
 const buildPath = (pts: Point[]): string => {
   if (pts.length < 2) return '';
-  return pts
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`)
-    .join(' ');
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
 };
 
 /**
@@ -87,12 +93,13 @@ const getPointOnPolyline = (
   return {
     x: pts[last].x,
     y: pts[last].y,
-    angle: Math.atan2(pts[last].y - pts[last - 1].y, pts[last].x - pts[last - 1].x) * (180 / Math.PI),
+    angle:
+      Math.atan2(pts[last].y - pts[last - 1].y, pts[last].x - pts[last - 1].x) * (180 / Math.PI),
   };
 };
 
 /** P&ID style: animated flow-direction chevron on the line at 50% */
-const renderFlowArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
+const renderFlowArrow = (pts: Point[], color: string = colors.neutral[700]): JSX.Element | null => {
   if (pts.length < 2) return null;
   const mid = getPointOnPolyline(pts, 0.5);
   return (
@@ -146,35 +153,22 @@ const findSegmentIndex = (pts: Point[], clickX: number, clickY: number): number 
 /*  Component                                         */
 /* -------------------------------------------------- */
 const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) => {
-  const {
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    style = {},
-    markerEnd,
-    data,
-    selected,
-  } = props;
+  const { id, sourceX, sourceY, targetX, targetY, style = {}, markerEnd, data, selected } = props;
 
   const { updateEdgeData } = useEdgeStoreContext();
   const pathRef = useRef<SVGPathElement>(null);
 
   /* Tag-driven flow state (falls back to static animated flag) */
   const flowState = useEdgeFlowState(data?.flowConfig);
-  const shouldAnimate = data?.flowConfig
-    ? flowState.isFlowing
-    : !!data?.animated;
+  const shouldAnimate = data?.flowConfig ? flowState.isFlowing : !!data?.animated;
 
   /* ---------- Initial points ----------------- */
-  const initialPoints: Point[] =
-    data?.points ?? [
-      { x: sourceX, y: sourceY, locked: true },
-      { x: (sourceX + targetX) / 2, y: sourceY, locked: false },
-      { x: (sourceX + targetX) / 2, y: targetY, locked: false },
-      { x: targetX, y: targetY, locked: true },
-    ];
+  const initialPoints: Point[] = data?.points ?? [
+    { x: sourceX, y: sourceY, locked: true },
+    { x: (sourceX + targetX) / 2, y: sourceY, locked: false },
+    { x: (sourceX + targetX) / 2, y: targetY, locked: false },
+    { x: targetX, y: targetY, locked: true },
+  ];
 
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
@@ -187,7 +181,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
 
   /* ---------- Sync with source/target movement ------- */
   useEffect(() => {
-    setPoints(prev => {
+    setPoints((prev) => {
       const copy = [...prev];
       if (copy.length < 2) return copy;
       copy[0] = { ...copy[0], x: sourceX, y: sourceY };
@@ -212,96 +206,105 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
   }, [points, id, updateEdgeData]);
 
   /* ---------- Drag handling ------------------------ */
-  const handleMouseDown = useCallback((e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleMouseDown = useCallback(
+    (e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    if (points[idx].locked) return;
+      if (points[idx].locked) return;
 
-    const svg = (e.target as SVGCircleElement).ownerSVGElement;
-    if (!svg) return;
+      const svg = (e.target as SVGCircleElement).ownerSVGElement;
+      if (!svg) return;
 
-    // Convert initial mouse position to SVG space via CTM
-    const toSVG = (clientX: number, clientY: number) => {
-      const pt = svg.createSVGPoint();
-      pt.x = clientX;
-      pt.y = clientY;
-      return pt.matrixTransform(svg.getScreenCTM()?.inverse());
-    };
+      // Convert initial mouse position to SVG space via CTM
+      const toSVG = (clientX: number, clientY: number) => {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        return pt.matrixTransform(svg.getScreenCTM()?.inverse());
+      };
 
-    const startSVG = toSVG(e.clientX, e.clientY);
-    const { x: initX, y: initY } = points[idx];
+      const startSVG = toSVG(e.clientX, e.clientY);
+      const { x: initX, y: initY } = points[idx];
 
-    const onMove = (mv: globalThis.MouseEvent) => {
-      const curSVG = toSVG(mv.clientX, mv.clientY);
-      const dx = curSVG.x - startSVG.x;
-      const dy = curSVG.y - startSVG.y;
-      const newX = Math.round((initX + dx) / SNAP) * SNAP;
-      const newY = Math.round((initY + dy) / SNAP) * SNAP;
+      const onMove = (mv: globalThis.MouseEvent) => {
+        const curSVG = toSVG(mv.clientX, mv.clientY);
+        const dx = curSVG.x - startSVG.x;
+        const dy = curSVG.y - startSVG.y;
+        const newX = Math.round((initX + dx) / SNAP) * SNAP;
+        const newY = Math.round((initY + dy) / SNAP) * SNAP;
 
-      setPoints(prev => {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], x: newX, y: newY };
-        return copy;
-      });
-    };
+        setPoints((prev) => {
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx], x: newX, y: newY };
+          return copy;
+        });
+      };
 
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [points]);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [points],
+  );
 
   /* ---------- Double-click to add point ------------ */
-  const handlePathDoubleClick = useCallback((e: ReactMouseEvent<SVGPathElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handlePathDoubleClick = useCallback(
+    (e: ReactMouseEvent<SVGPathElement>) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    // Get SVG coordinates
-    const svg = (e.target as SVGPathElement).ownerSVGElement;
-    if (!svg) return;
+      // Get SVG coordinates
+      const svg = (e.target as SVGPathElement).ownerSVGElement;
+      if (!svg) return;
 
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const svgPoint = pt.matrixTransform(svg.getScreenCTM()?.inverse());
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const svgPoint = pt.matrixTransform(svg.getScreenCTM()?.inverse());
 
-    const clickX = svgPoint.x;
-    const clickY = svgPoint.y;
+      const clickX = svgPoint.x;
+      const clickY = svgPoint.y;
 
-    // Find which segment was clicked
-    const segmentIdx = findSegmentIndex(points, clickX, clickY);
+      // Find which segment was clicked
+      const segmentIdx = findSegmentIndex(points, clickX, clickY);
 
-    // Add new point after the segment start
-    const newPoint: Point = {
-      x: Math.round(clickX / SNAP) * SNAP,
-      y: Math.round(clickY / SNAP) * SNAP,
-      locked: false,
-    };
+      // Add new point after the segment start
+      const newPoint: Point = {
+        x: Math.round(clickX / SNAP) * SNAP,
+        y: Math.round(clickY / SNAP) * SNAP,
+        locked: false,
+      };
 
-    setPoints(prev => {
-      const copy = [...prev];
-      copy.splice(segmentIdx + 1, 0, newPoint);
-      return copy;
-    });
-  }, [points]);
+      setPoints((prev) => {
+        const copy = [...prev];
+        copy.splice(segmentIdx + 1, 0, newPoint);
+        return copy;
+      });
+    },
+    [points],
+  );
 
   /* ---------- Right-click to delete point ---------- */
-  const handlePointRightClick = useCallback((e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handlePointRightClick = useCallback(
+    (e: ReactMouseEvent<SVGCircleElement>, idx: number) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    // Cannot delete locked points (first and last)
-    if (points[idx].locked) return;
+      // Cannot delete locked points (first and last)
+      if (points[idx].locked) return;
 
-    // Need at least 2 points (source and target)
-    if (points.length <= 2) return;
+      // Need at least 2 points (source and target)
+      if (points.length <= 2) return;
 
-    setPoints(prev => prev.filter((_, i) => i !== idx));
-  }, [points]);
+      setPoints((prev) => prev.filter((_, i) => i !== idx));
+    },
+    [points],
+  );
 
   /* ---------- Path hover for insertion preview ----- */
   const handlePathMouseMove = useCallback((e: ReactMouseEvent<SVGPathElement>) => {
@@ -348,13 +351,13 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           pointerEvents: 'none',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: (data?.flowConfig && shouldAnimate)
-            ? '8 4'
-            : edgeStyle.strokeDasharray,
-          ...(data?.flowConfig && shouldAnimate ? {
-            animation: `edge-flow ${flowState.speed}s linear infinite`,
-            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
-          } : {}),
+          strokeDasharray: data?.flowConfig && shouldAnimate ? '8 4' : edgeStyle.strokeDasharray,
+          ...(data?.flowConfig && shouldAnimate
+            ? {
+                animation: `edge-flow ${flowState.speed}s linear infinite`,
+                animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+              }
+            : {}),
           ...style,
         }}
       />
@@ -364,7 +367,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
         <path
           d={edgePath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
           style={{ pointerEvents: 'none' }}
@@ -380,37 +383,38 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           cx={hoverSegment.x}
           cy={hoverSegment.y}
           r={4}
-          fill="#10b981"
+          fill={colors.success[500]}
           fillOpacity={0.5}
-          stroke="#10b981"
+          stroke={colors.success[500]}
           strokeWidth={1}
           style={{ pointerEvents: 'none' }}
         />
       )}
 
       {/* Control points (visible only when selected) */}
-      {selected && points.map((pt, idx) => (
-        <circle
-          key={idx}
-          cx={pt.x}
-          cy={pt.y}
-          r={hoveredPoint === idx ? POINT_RADIUS_HOVER : POINT_RADIUS}
-          fill={pt.locked ? '#6b7280' : '#f97316'}
-          stroke={pt.locked ? '#374151' : '#ea580c'}
-          strokeWidth={1.5}
-          style={{
-            pointerEvents: 'all',
-            cursor: pt.locked ? 'not-allowed' : 'grab',
-            transition: 'r 0.1s ease-out',
-          }}
-          onMouseDown={e => handleMouseDown(e, idx)}
-          onContextMenu={e => handlePointRightClick(e, idx)}
-          onMouseEnter={() => setHoveredPoint(idx)}
-          onMouseLeave={() => setHoveredPoint(null)}
-        >
-          <title>{pt.locked ? 'Sabit nokta' : 'Surukle: tasima | Sag-tikla: sil'}</title>
-        </circle>
-      ))}
+      {selected &&
+        points.map((pt, idx) => (
+          <circle
+            key={idx}
+            cx={pt.x}
+            cy={pt.y}
+            r={hoveredPoint === idx ? POINT_RADIUS_HOVER : POINT_RADIUS}
+            fill={pt.locked ? colors.gray[400] : colors.accent[600]}
+            stroke={pt.locked ? colors.neutral[700] : colors.warning[600]}
+            strokeWidth={1.5}
+            style={{
+              pointerEvents: 'all',
+              cursor: pt.locked ? 'not-allowed' : 'grab',
+              transition: 'r 0.1s ease-out',
+            }}
+            onMouseDown={(e) => handleMouseDown(e, idx)}
+            onContextMenu={(e) => handlePointRightClick(e, idx)}
+            onMouseEnter={() => setHoveredPoint(idx)}
+            onMouseLeave={() => setHoveredPoint(null)}
+          >
+            <title>{pt.locked ? 'Sabit nokta' : 'Surukle: tasima | Sag-tikla: sil'}</title>
+          </circle>
+        ))}
 
       {/* Endpoint indicators when selected */}
       {selected && (
@@ -419,8 +423,8 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             cx={sourceX}
             cy={sourceY}
             r={4}
-            fill="#22c55e"
-            stroke="#16a34a"
+            fill={colors.success[500]}
+            stroke={colors.success[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -428,8 +432,8 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             cx={targetX}
             cy={targetY}
             r={4}
-            fill="#ef4444"
-            stroke="#dc2626"
+            fill={colors.error[500]}
+            stroke={colors.error[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -445,7 +449,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             textAnchor="middle"
             style={{
               fontSize: 11,
-              fill: '#374151',
+              fill: colors.neutral[700],
               fontWeight: 500,
             }}
           >
@@ -453,7 +457,6 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           </textPath>
         </text>
       )}
-
     </g>
   );
 };

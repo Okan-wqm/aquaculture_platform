@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface PieSource {
   tagName: string;
@@ -20,8 +21,14 @@ interface WidgetConfigProps {
 }
 
 const DEFAULT_COLORS = [
-  '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#22c55e',
-  '#ec4899', '#3b82f6', '#14b8a6',
+  colors.primary[400],
+  colors.primary[700],
+  colors.warning[500],
+  colors.error[500],
+  colors.success[500],
+  colors.accent[500],
+  colors.info[500],
+  colors.secondary[600],
 ];
 
 export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
@@ -32,15 +39,17 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
     onChange({
       sources: [
         ...sources,
-        { tagName: '', label: `Slice ${idx + 1}`, color: DEFAULT_COLORS[idx % DEFAULT_COLORS.length] },
+        {
+          tagName: '',
+          label: `Slice ${idx + 1}`,
+          color: DEFAULT_COLORS[idx % DEFAULT_COLORS.length],
+        },
       ],
     });
   };
 
   const updateSource = (index: number, field: keyof PieSource, value: string) => {
-    const updated = sources.map((s, i) =>
-      i === index ? { ...s, [field]: value } : s,
-    );
+    const updated = sources.map((s, i) => (i === index ? { ...s, [field]: value } : s));
     onChange({ sources: updated });
   };
 
@@ -134,10 +143,7 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       <div className="pt-2 border-t border-gray-100">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 font-medium">Data Sources (Slices)</label>
-          <button
-            onClick={addSource}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
-          >
+          <button onClick={addSource} className="text-xs text-cyan-600 hover:text-cyan-700">
             + Add Slice
           </button>
         </div>

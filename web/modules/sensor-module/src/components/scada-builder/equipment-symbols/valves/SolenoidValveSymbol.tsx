@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -27,12 +28,22 @@ const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
         <line
-          x1={0} y1={40} x2={20} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={20}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={80} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={80}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Bowtie body — left triangle */}
@@ -57,13 +68,22 @@ const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Stem — from body center up to solenoid coil */}
         <line
-          x1={50} y1={22} x2={50} y2={18}
-          stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+          x1={50}
+          y1={22}
+          x2={50}
+          y2={18}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
         />
 
         {/* Solenoid coil housing — rectangle */}
         <rect
-          x={38} y={0} width={24} height={18} rx={2}
+          x={38}
+          y={0}
+          width={24}
+          height={18}
+          rx={2}
           fill={colors.fill}
           fillOpacity={0.8}
           stroke={colors.stroke}
@@ -82,12 +102,22 @@ const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Electrical terminals — two small lines from top of coil */}
         <line
-          x1={44} y1={0} x2={44} y2={-4}
-          stroke={colors.stroke} strokeWidth={1.5} strokeLinecap="round"
+          x1={44}
+          y1={0}
+          x2={44}
+          y2={-4}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          strokeLinecap="round"
         />
         <line
-          x1={56} y1={0} x2={56} y2={-4}
-          stroke={colors.stroke} strokeWidth={1.5} strokeLinecap="round"
+          x1={56}
+          y1={0}
+          x2={56}
+          y2={-4}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          strokeLinecap="round"
         />
 
         {/* Terminal dots */}
@@ -96,18 +126,19 @@ const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Lightning bolt symbol — small electricity indicator */}
         {isOpen && (
-          <path
-            d="M 48 12 L 50 9 L 52 12 L 50 15 Z"
-            fill={colors.stroke}
-            fillOpacity={0.6}
-          />
+          <path d="M 48 12 L 50 9 L 52 12 L 50 15 Z" fill={colors.stroke} fillOpacity={0.6} />
         )}
 
         {/* Closed indicator — gate across flow */}
         {isClosed && (
           <line
-            x1={50} y1={30} x2={50} y2={50}
-            stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round"
+            x1={50}
+            y1={30}
+            x2={50}
+            y2={50}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            strokeLinecap="round"
             opacity={0.6}
           />
         )}
@@ -115,9 +146,12 @@ const SolenoidValveSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

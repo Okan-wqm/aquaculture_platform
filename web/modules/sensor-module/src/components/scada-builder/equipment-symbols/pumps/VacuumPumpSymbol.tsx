@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const VacuumPumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -52,7 +53,14 @@ const VacuumPumpSymbol: React.FC<EquipmentSymbolProps> = ({
             <polyline points="62,48 64,42 58,43" />
           </g>
         ) : (
-          <g stroke={colors.stroke} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" opacity={0.4}>
+          <g
+            stroke={colors.stroke}
+            strokeWidth={2}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={0.4}
+          >
             {/* Static V shape */}
             <polyline points="36,42 50,62 64,42" />
           </g>
@@ -92,47 +100,45 @@ const VacuumPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Gauge center dot */}
-        <circle
-          cx={50}
-          cy={18}
-          r={1.5}
-          fill={colors.stroke}
-        />
+        <circle cx={50} cy={18} r={1.5} fill={colors.stroke} />
 
         {/* Gauge tick marks */}
-        <line x1={44} y1={15} x2={45} y2={16} stroke={colors.stroke} strokeWidth={1} opacity={0.5} />
-        <line x1={56} y1={15} x2={55} y2={16} stroke={colors.stroke} strokeWidth={1} opacity={0.5} />
-        <line x1={50} y1={11} x2={50} y2={12.5} stroke={colors.stroke} strokeWidth={1} opacity={0.5} />
-
-        {/* Connection pipe from gauge to pump body */}
+        <line
+          x1={44}
+          y1={15}
+          x2={45}
+          y2={16}
+          stroke={colors.stroke}
+          strokeWidth={1}
+          opacity={0.5}
+        />
+        <line
+          x1={56}
+          y1={15}
+          x2={55}
+          y2={16}
+          stroke={colors.stroke}
+          strokeWidth={1}
+          opacity={0.5}
+        />
         <line
           x1={50}
-          y1={25}
+          y1={11}
           x2={50}
-          y2={25}
+          y2={12.5}
           stroke={colors.stroke}
-          strokeWidth={1.5}
+          strokeWidth={1}
+          opacity={0.5}
         />
+
+        {/* Connection pipe from gauge to pump body */}
+        <line x1={50} y1={25} x2={50} y2={25} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Inlet line — left */}
-        <line
-          x1={0}
-          y1={55}
-          x2={20}
-          y2={55}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={0} y1={55} x2={20} y2={55} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Outlet line — right */}
-        <line
-          x1={80}
-          y1={55}
-          x2={100}
-          y2={55}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={80} y1={55} x2={100} y2={55} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* P label */}
         <text
@@ -154,7 +160,7 @@ const VacuumPumpSymbol: React.FC<EquipmentSymbolProps> = ({
             y={8}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

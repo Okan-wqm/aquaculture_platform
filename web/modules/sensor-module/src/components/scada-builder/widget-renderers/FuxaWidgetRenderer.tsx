@@ -30,6 +30,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import { FuxaMessageBridge } from '../fuxa-bridge/FuxaMessageBridge';
 import type { FuxaWidgetConfig, FuxaStateRule } from '../fuxa-bridge/types';
 import { evaluateStateRules, parseFuxaExportVariables } from '../fuxa-bridge/types';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  srcdoc template builder                                            */
@@ -146,10 +147,7 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
   const [isVisible, setIsVisible] = useState(false);
 
   // Parse export variables once from SVG content
-  const exportVariables = useMemo(
-    () => parseFuxaExportVariables(svgContent),
-    [svgContent],
-  );
+  const exportVariables = useMemo(() => parseFuxaExportVariables(svgContent), [svgContent]);
 
   // Build srcdoc only when SVG content changes (not on every variable update)
   const srcdoc = useMemo(() => {
@@ -193,8 +191,9 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
     // Dispose previous bridge if any (defensive)
     bridgeRef.current?.dispose();
 
-    // Create new bridge (tagBus is null for now -- will be connected
-    // when ScadaRuntimeContext provides it via a future hook)
+    // Create new bridge. The tag bus is null until ScadaRuntimeContext
+    // provides one through its hook; the bridge runs in variable-only mode
+    // without it.
     const bridge = new FuxaMessageBridge(iframe, null);
     bridgeRef.current = bridge;
 
@@ -253,10 +252,10 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#f0fdf4',
-          border: '1px dashed #86efac',
+          background: colors.success[50],
+          border: `1px dashed ${themeColors.secondary[200]}`,
           borderRadius: 6,
-          color: '#166534',
+          color: colors.secondary[800],
           fontFamily: 'sans-serif',
           fontSize: 12,
           gap: 6,
@@ -267,7 +266,7 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
       >
         <span style={{ fontSize: 22 }}>{'\u2699'}</span>
         <span style={{ fontWeight: 600 }}>FUXA Widget</span>
-        <span style={{ fontSize: 11, color: '#15803d' }}>
+        <span style={{ fontSize: 11, color: colors.success[700] }}>
           Upload an SVG from the FUXA community library
         </span>
       </div>
@@ -288,12 +287,12 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#f0fdf4',
-          border: '1px solid #bbf7d0',
+          background: colors.success[50],
+          border: `1px solid ${themeColors.secondary[100]}`,
           borderRadius: 6,
           fontFamily: 'sans-serif',
           fontSize: 12,
-          color: '#166534',
+          color: colors.secondary[800],
           gap: 4,
           padding: 12,
           textAlign: 'center',
@@ -303,11 +302,11 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
       >
         <span style={{ fontSize: 20 }}>{'\u2699'}</span>
         <span style={{ fontWeight: 600 }}>FUXA Widget</span>
-        {label && <span style={{ fontSize: 11, color: '#15803d' }}>{label}</span>}
-        <span style={{ fontSize: 10, color: '#64748b' }}>
+        {label && <span style={{ fontSize: 11, color: colors.success[700] }}>{label}</span>}
+        <span style={{ fontSize: 10, color: colors.neutral[500] }}>
           {exportVariables.length} variable{exportVariables.length !== 1 ? 's' : ''} detected
         </span>
-        <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+        <span style={{ fontSize: 10, color: colors.neutral[400], marginTop: 2 }}>
           Live preview in runtime mode
         </span>
       </div>

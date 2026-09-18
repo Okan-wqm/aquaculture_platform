@@ -6,17 +6,54 @@
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const BANNER_STYLES: Record<string, { bg: string; border: string; text: string; icon: string }> = {
-  critical: { bg: '#fef2f2', border: ALARM_SEVERITY_COLORS.critical.bg, text: '#991b1b', icon: '!!' },
-  high:     { bg: '#fff7ed', border: ALARM_SEVERITY_COLORS.high.bg,     text: '#9a3412', icon: '!' },
-  medium:   { bg: '#fffbeb', border: ALARM_SEVERITY_COLORS.medium.bg,   text: '#92400e', icon: '!' },
-  warning:  { bg: '#fffbeb', border: ALARM_SEVERITY_COLORS.medium.bg,   text: '#92400e', icon: '!' },
-  low:      { bg: '#eff6ff', border: ALARM_SEVERITY_COLORS.low.bg,      text: '#1e40af', icon: 'i' },
-  info:     { bg: '#eff6ff', border: ALARM_SEVERITY_COLORS.info.bg,     text: '#1e40af', icon: 'i' },
+  critical: {
+    bg: themeColors.error[50],
+    border: ALARM_SEVERITY_COLORS.critical.bg,
+    text: themeColors.error[700],
+    icon: '!!',
+  },
+  high: {
+    bg: themeColors.warning[50],
+    border: ALARM_SEVERITY_COLORS.high.bg,
+    text: themeColors.error[700],
+    icon: '!',
+  },
+  medium: {
+    bg: themeColors.warning[50],
+    border: ALARM_SEVERITY_COLORS.medium.bg,
+    text: themeColors.warning[700],
+    icon: '!',
+  },
+  warning: {
+    bg: themeColors.warning[50],
+    border: ALARM_SEVERITY_COLORS.medium.bg,
+    text: themeColors.warning[700],
+    icon: '!',
+  },
+  low: {
+    bg: themeColors.info[50],
+    border: ALARM_SEVERITY_COLORS.low.bg,
+    text: themeColors.primary[600],
+    icon: 'i',
+  },
+  info: {
+    bg: themeColors.info[50],
+    border: ALARM_SEVERITY_COLORS.info.bg,
+    text: themeColors.primary[600],
+    icon: 'i',
+  },
 };
 
-const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const severity = isEditing ? String(config.demoSeverity ?? 'warning') : String(value ?? 'info');
   const message = (config.message as string) ?? (isEditing ? 'pH level high' : '');
   const colors = BANNER_STYLES[severity.toLowerCase()] ?? BANNER_STYLES.info;
@@ -56,10 +93,26 @@ const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({ config, value, wid
       </div>
       {/* Message */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 9, fontWeight: 600, color: colors.text, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 600,
+            color: colors.text,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+          }}
+        >
           {severity}
         </div>
-        <div style={{ fontSize: 11, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: themeColors.neutral[700],
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
           {message || 'Alarm message'}
         </div>
       </div>

@@ -16,25 +16,36 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
-const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const raw = isEditing ? (config.demoLevel ?? 75) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
 
-  const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
+  const status = (
+    isEditing
+      ? (config.demoStatus ?? 'running')
+      : String(value !== undefined ? 'running' : 'stopped')
+  ) as string;
   const isRunning = status === 'running';
-  const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const statusColor = isRunning ? colors.success[500] : colors.neutral[400];
 
   const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
   const pct = effectiveLevel / 100;
 
   // --- Main tank geometry (side view cross-section) ---
-  const tankL = 14;     // tank left x
-  const tankR = 156;    // tank right x
-  const tankW = tankR - tankL;  // 142
-  const tankTop = 32;   // top of tank wall
-  const tankBot = 112;  // bottom reference line (floor level at walls)
+  const tankL = 14; // tank left x
+  const tankR = 156; // tank right x
+  const tankW = tankR - tankL; // 142
+  const tankTop = 32; // top of tank wall
+  const tankBot = 112; // bottom reference line (floor level at walls)
   const tankH = tankBot - tankTop; // 80
 
   // Bottom slope: walls at tankBot, center 4px lower (approx 3 deg grade)
@@ -50,13 +61,13 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
   // --- Sideflow box geometry (right side) ---
   const sfBoxW = 18;
   const sfBoxH = 65;
-  const sfBoxX = tankR;          // flush with right tank wall
+  const sfBoxX = tankR; // flush with right tank wall
   const sfBoxTop = tankBot - sfBoxH; // top of sideflow box
   const sfBoxBot = tankBot;
 
   // Standpipe inside sideflow box
   const spX = sfBoxX + sfBoxW / 2; // center of sideflow box
-  const spTop = sfBoxTop + 4;      // top of standpipe
+  const spTop = sfBoxTop + 4; // top of standpipe
   const spBot = sfBoxBot - 2;
 
   // Overflow weir level (where water spills from tank into sideflow box)
@@ -68,7 +79,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
   const drainPipeBot = 148;
 
   // Water color
-  const waterColor = '#4FB3F6';
+  const waterColor = colors.primary[300];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
@@ -87,26 +98,41 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           </linearGradient>
           {/* Tank wall gradient (slight metallic) */}
           <linearGradient id="cornellTankWall" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#b0bec5" />
-            <stop offset="50%" stopColor="#cfd8dc" />
-            <stop offset="100%" stopColor="#b0bec5" />
+            <stop offset="0%" stopColor={colors.neutral[400]} />
+            <stop offset="50%" stopColor={colors.neutral[300]} />
+            <stop offset="100%" stopColor={colors.neutral[400]} />
           </linearGradient>
           {/* Clip for water fill inside tank */}
           <clipPath id="cornellWaterClip">
-            <polygon points={`
+            <polygon
+              points={`
               ${tankL + 2},${tankTop + 1}
               ${tankR - 1},${tankTop + 1}
               ${tankR - 1},${tankBot}
               ${centerX},${centerBotY}
               ${tankL + 2},${tankBot}
-            `} />
+            `}
+            />
           </clipPath>
         </defs>
 
-
         {/* Inlet connection points at top */}
-        <circle cx={centerX - 25} cy={tankTop} r={3} fill={statusColor} stroke="#333" strokeWidth={1.5} />
-        <circle cx={centerX + 25} cy={tankTop} r={3} fill={statusColor} stroke="#333" strokeWidth={1.5} />
+        <circle
+          cx={centerX - 25}
+          cy={tankTop}
+          r={3}
+          fill={statusColor}
+          stroke="#333"
+          strokeWidth={1.5}
+        />
+        <circle
+          cx={centerX + 25}
+          cy={tankTop}
+          r={3}
+          fill={statusColor}
+          stroke="#333"
+          strokeWidth={1.5}
+        />
 
         {/* ==================== TANK BODY ==================== */}
         {/* Tank walls + sloped bottom */}
@@ -155,26 +181,35 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
             {/* ==================== FISH SILHOUETTES ==================== */}
             {/* Fish 1 - facing right */}
             {pct > 0.25 && (
-              <g transform={`translate(${centerX - 28}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.4})`} opacity={0.5}>
-                <ellipse cx={0} cy={0} rx={8} ry={3.5} fill="#1e6091" />
-                <polygon points="-8,-3.5 -13,0 -8,3.5" fill="#1e6091" />
-                <circle cx={5} cy={-1} r={0.8} fill="#0d3b66" />
+              <g
+                transform={`translate(${centerX - 28}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.4})`}
+                opacity={0.5}
+              >
+                <ellipse cx={0} cy={0} rx={8} ry={3.5} fill={colors.primary[600]} />
+                <polygon points="-8,-3.5 -13,0 -8,3.5" fill={colors.primary[600]} />
+                <circle cx={5} cy={-1} r={0.8} fill={colors.primary[700]} />
               </g>
             )}
             {/* Fish 2 - facing left */}
             {pct > 0.35 && (
-              <g transform={`translate(${centerX + 20}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.55}) scale(-1,1)`} opacity={0.45}>
-                <ellipse cx={0} cy={0} rx={7} ry={3} fill="#1e6091" />
-                <polygon points="-7,-3 -11,0 -7,3" fill="#1e6091" />
-                <circle cx={4} cy={-1} r={0.7} fill="#0d3b66" />
+              <g
+                transform={`translate(${centerX + 20}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.55}) scale(-1,1)`}
+                opacity={0.45}
+              >
+                <ellipse cx={0} cy={0} rx={7} ry={3} fill={colors.primary[600]} />
+                <polygon points="-7,-3 -11,0 -7,3" fill={colors.primary[600]} />
+                <circle cx={4} cy={-1} r={0.7} fill={colors.primary[700]} />
               </g>
             )}
             {/* Fish 3 - small, facing right */}
             {pct > 0.45 && (
-              <g transform={`translate(${centerX - 5}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.7})`} opacity={0.4}>
-                <ellipse cx={0} cy={0} rx={5.5} ry={2.5} fill="#1e6091" />
-                <polygon points="-5.5,-2.5 -9,0 -5.5,2.5" fill="#1e6091" />
-                <circle cx={3} cy={-0.8} r={0.6} fill="#0d3b66" />
+              <g
+                transform={`translate(${centerX - 5}, ${waterSurfaceY + (centerBotY - waterSurfaceY) * 0.7})`}
+                opacity={0.4}
+              >
+                <ellipse cx={0} cy={0} rx={5.5} ry={2.5} fill={colors.primary[600]} />
+                <polygon points="-5.5,-2.5 -9,0 -5.5,2.5" fill={colors.primary[600]} />
+                <circle cx={3} cy={-0.8} r={0.6} fill={colors.primary[700]} />
               </g>
             )}
           </g>
@@ -188,14 +223,35 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           width={12}
           height={3}
           rx={1}
-          fill="#78909c"
+          fill={colors.neutral[500]}
           stroke="#333"
           strokeWidth={1}
         />
         {/* Drain grate lines */}
-        <line x1={centerX - 3} y1={centerBotY - 1.5} x2={centerX - 3} y2={centerBotY + 0.5} stroke="#333" strokeWidth={0.5} />
-        <line x1={centerX} y1={centerBotY - 1.5} x2={centerX} y2={centerBotY + 0.5} stroke="#333" strokeWidth={0.5} />
-        <line x1={centerX + 3} y1={centerBotY - 1.5} x2={centerX + 3} y2={centerBotY + 0.5} stroke="#333" strokeWidth={0.5} />
+        <line
+          x1={centerX - 3}
+          y1={centerBotY - 1.5}
+          x2={centerX - 3}
+          y2={centerBotY + 0.5}
+          stroke="#333"
+          strokeWidth={0.5}
+        />
+        <line
+          x1={centerX}
+          y1={centerBotY - 1.5}
+          x2={centerX}
+          y2={centerBotY + 0.5}
+          stroke="#333"
+          strokeWidth={0.5}
+        />
+        <line
+          x1={centerX + 3}
+          y1={centerBotY - 1.5}
+          x2={centerX + 3}
+          y2={centerBotY + 0.5}
+          stroke="#333"
+          strokeWidth={0.5}
+        />
 
         {/* Drain pipe going down */}
         <rect
@@ -203,7 +259,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           y={drainPipeTop}
           width={drainPipeW}
           height={drainPipeBot - drainPipeTop}
-          fill="#cfd8dc"
+          fill={colors.neutral[300]}
           stroke="#333"
           strokeWidth={1.5}
         />
@@ -221,7 +277,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           y={sfBoxTop}
           width={sfBoxW}
           height={sfBoxH}
-          fill="#e8edf0"
+          fill={colors.neutral[200]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -239,14 +295,29 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
         )}
 
         {/* Overflow weir opening in tank wall */}
-        <line x1={tankR - 1} y1={weirY - 3} x2={tankR - 1} y2={weirY + 3} stroke="#f8fafc" strokeWidth={3} />
+        <line
+          x1={tankR - 1}
+          y1={weirY - 3}
+          x2={tankR - 1}
+          y2={weirY + 3}
+          stroke={colors.neutral[50]}
+          strokeWidth={3}
+        />
         <line x1={tankR} y1={weirY - 4} x2={tankR} y2={weirY - 4} stroke="#333" strokeWidth={1} />
         <line x1={tankR} y1={weirY + 4} x2={tankR} y2={weirY + 4} stroke="#333" strokeWidth={1} />
 
         {/* Overflow flow arrows (from tank into sideflow box) */}
         {waterSurfaceY < weirY && isRunning && (
           <>
-            <line x1={tankR - 4} y1={weirY} x2={sfBoxX + 3} y2={weirY} stroke={waterColor} strokeWidth={1} strokeOpacity={0.7} />
+            <line
+              x1={tankR - 4}
+              y1={weirY}
+              x2={sfBoxX + 3}
+              y2={weirY}
+              stroke={waterColor}
+              strokeWidth={1}
+              strokeOpacity={0.7}
+            />
             <polygon
               points={`${sfBoxX + 1},${weirY - 2} ${sfBoxX + 4},${weirY} ${sfBoxX + 1},${weirY + 2}`}
               fill={waterColor}
@@ -261,7 +332,7 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           y={spTop}
           width={4}
           height={spBot - spTop}
-          fill="#b0bec5"
+          fill={colors.neutral[400]}
           stroke="#333"
           strokeWidth={1}
         />
@@ -269,14 +340,27 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
         <line x1={spX - 3} y1={spTop} x2={spX + 3} y2={spTop} stroke="#333" strokeWidth={1.5} />
 
         {/* Sideflow outlet pipe (exits right) */}
-        <line x1={sfBoxX + sfBoxW} y1={sfBoxBot - 10} x2={sfBoxX + sfBoxW + 16} y2={sfBoxBot - 10} stroke="#333" strokeWidth={2} />
+        <line
+          x1={sfBoxX + sfBoxW}
+          y1={sfBoxBot - 10}
+          x2={sfBoxX + sfBoxW + 16}
+          y2={sfBoxBot - 10}
+          stroke="#333"
+          strokeWidth={2}
+        />
         {/* Sideflow outlet arrow */}
         <polygon
           points={`${sfBoxX + sfBoxW + 12},${sfBoxBot - 13} ${sfBoxX + sfBoxW + 16},${sfBoxBot - 10} ${sfBoxX + sfBoxW + 12},${sfBoxBot - 7}`}
           fill={statusColor}
         />
         {/* Sideflow label */}
-        <text x={sfBoxX + sfBoxW / 2} y={sfBoxBot + 10} textAnchor="middle" fontSize={7} fill="#6b7280">
+        <text
+          x={sfBoxX + sfBoxW / 2}
+          y={sfBoxBot + 10}
+          textAnchor="middle"
+          fontSize={7}
+          fill={colors.gray[400]}
+        >
           Sideflow
         </text>
 
@@ -288,17 +372,31 @@ const CornellDualDrainRenderer: React.FC<WidgetRendererProps> = ({ config, value
           textAnchor="middle"
           fontSize={14}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
         >
           {Math.round(effectiveLevel)}%
         </text>
 
         {/* Tank wall thickness indicators (small horizontal lines at top) */}
-        <line x1={tankL - 2} y1={tankTop} x2={tankL + 3} y2={tankTop} stroke="#333" strokeWidth={2} />
-        <line x1={tankR - 3} y1={tankTop} x2={tankR + 2} y2={tankTop} stroke="#333" strokeWidth={2} />
+        <line
+          x1={tankL - 2}
+          y1={tankTop}
+          x2={tankL + 3}
+          y2={tankTop}
+          stroke="#333"
+          strokeWidth={2}
+        />
+        <line
+          x1={tankR - 3}
+          y1={tankTop}
+          x2={tankR + 2}
+          y2={tankTop}
+          stroke="#333"
+          strokeWidth={2}
+        />
 
         {/* Bottom slope angle indicator */}
-        <text x={tankL + 14} y={tankBot + 6} fontSize={6} fill="#9ca3af">
+        <text x={tankL + 14} y={tankBot + 6} fontSize={6} fill={colors.neutral[400]}>
           3°
         </text>
 

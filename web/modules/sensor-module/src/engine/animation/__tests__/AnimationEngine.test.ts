@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-ui';
 import { describe, it, expect } from 'vitest';
 import { evaluate } from '../AnimationEngine';
 import { DEFAULT_ANIMATION_STATE } from '../types';
@@ -20,9 +21,7 @@ describe('AnimationEngine.evaluate', () => {
   });
 
   it('hides widget when hide rule matches', () => {
-    const rules: AnimationRule[] = [
-      makeRule({ type: 'hide', range: { min: 1, max: 1 } }),
-    ];
+    const rules: AnimationRule[] = [makeRule({ type: 'hide', range: { min: 1, max: 1 } })];
     const state = evaluate(rules, { sensor1: 1 });
     expect(state.visible).toBe(false);
   });
@@ -50,9 +49,7 @@ describe('AnimationEngine.evaluate', () => {
   });
 
   it('uses default rotation speed and direction when not specified', () => {
-    const rules: AnimationRule[] = [
-      makeRule({ type: 'rotate', options: {} }),
-    ];
+    const rules: AnimationRule[] = [makeRule({ type: 'rotate', options: {} })];
     const state = evaluate(rules, { sensor1: 50 });
     expect(state.rotating).toBe(true);
     expect(state.rotationSpeed).toBe(2000);
@@ -155,10 +152,10 @@ describe('AnimationEngine.evaluate', () => {
     ];
 
     const warning = evaluate(rules, { sensor1: 75 });
-    expect(warning.fillColor).toBe('#eab308');
+    expect(warning.fillColor).toBe(colors.warning[500]);
 
     const critical = evaluate(rules, { sensor1: 95 });
-    expect(critical.fillColor).toBe('#ef4444');
+    expect(critical.fillColor).toBe(colors.error[500]);
   });
 
   it('activates blink when rule matches (interval + colors)', () => {
@@ -184,9 +181,7 @@ describe('AnimationEngine.evaluate', () => {
   });
 
   it('uses default blink interval when not specified', () => {
-    const rules: AnimationRule[] = [
-      makeRule({ type: 'blink', options: {} }),
-    ];
+    const rules: AnimationRule[] = [makeRule({ type: 'blink', options: {} })];
     const state = evaluate(rules, { sensor1: 50 });
     expect(state.blinking).toBe(true);
     expect(state.blinkInterval).toBe(1000);
@@ -197,7 +192,7 @@ describe('AnimationEngine.evaluate', () => {
     const rules: AnimationRule[] = [
       makeRule({
         type: 'colorRange',
-        bitmask: 0xF0,
+        bitmask: 0xf0,
         range: { min: 0, max: 15 },
         options: {
           ranges: [
@@ -207,7 +202,7 @@ describe('AnimationEngine.evaluate', () => {
         },
       }),
     ];
-    const state = evaluate(rules, { sensor1: 0xFF });
+    const state = evaluate(rules, { sensor1: 0xff });
     expect(state.fill).toBe('#red');
   });
 
@@ -216,7 +211,7 @@ describe('AnimationEngine.evaluate', () => {
     const rules: AnimationRule[] = [
       makeRule({
         type: 'colorRange',
-        bitmask: 0x0F,
+        bitmask: 0x0f,
         range: { min: 0, max: 15 },
         options: {
           ranges: [
@@ -226,7 +221,7 @@ describe('AnimationEngine.evaluate', () => {
         },
       }),
     ];
-    const state = evaluate(rules, { sensor1: 0xFF });
+    const state = evaluate(rules, { sensor1: 0xff });
     expect(state.fill).toBe('#red');
   });
 
@@ -244,9 +239,7 @@ describe('AnimationEngine.evaluate', () => {
   });
 
   it('uses default move values when not specified', () => {
-    const rules: AnimationRule[] = [
-      makeRule({ type: 'move', options: {} }),
-    ];
+    const rules: AnimationRule[] = [makeRule({ type: 'move', options: {} })];
     const state = evaluate(rules, { sensor1: 50 });
     expect(state.translateX).toBe(0);
     expect(state.translateY).toBe(0);
@@ -295,9 +288,7 @@ describe('AnimationEngine.evaluate', () => {
   });
 
   it('handles NaN tag values gracefully (skip rule)', () => {
-    const rules: AnimationRule[] = [
-      makeRule({ type: 'hide', range: { min: 0, max: 100 } }),
-    ];
+    const rules: AnimationRule[] = [makeRule({ type: 'hide', range: { min: 0, max: 100 } })];
     const state = evaluate(rules, { sensor1: 'not-a-number' });
     expect(state.visible).toBe(true); // rule skipped because NaN
   });

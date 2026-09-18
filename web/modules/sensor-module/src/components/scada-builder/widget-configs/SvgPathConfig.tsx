@@ -18,11 +18,18 @@ import { TransformConfig } from './TransformConfig';
 import { GradientEditor } from './GradientEditor';
 import { SvgFilterEditor } from './SvgFilterEditor';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import type {
+  StrokeDashPattern,
+  StrokeLineCap,
+  StrokeLineJoin,
+  GradientConfig,
+  SvgFilterConfig,
+} from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -93,13 +100,15 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       {/* Fill -- only meaningful when closed */}
       {closed && (
         <div>
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Fill</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Fill
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Fill</label>
               <input
                 type="color"
-                value={(config.fill as string) || '#3b82f6'}
+                value={(config.fill as string) || themeColors.info[500]}
                 onChange={(e) => onChange({ fill: e.target.value })}
                 className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
                 aria-label="Fill color"
@@ -136,7 +145,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
       {/* Stroke section */}
       <StrokeConfig
-        stroke={(config.stroke as string) || '#1d4ed8'}
+        stroke={(config.stroke as string) || themeColors.info[700]}
         strokeWidth={(config.strokeWidth as number) ?? 2}
         strokeOpacity={(config.strokeOpacity as number) ?? 1}
         dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}

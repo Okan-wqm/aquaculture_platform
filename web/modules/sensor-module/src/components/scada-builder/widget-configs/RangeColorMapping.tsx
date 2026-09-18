@@ -14,6 +14,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { ColorRange } from '../../../engine/animation/types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 export type { ColorRange } from '../../../engine/animation/types';
 
@@ -31,8 +32,8 @@ interface RangeColorMappingProps {
 }
 
 /** Default fill color for newly created ranges */
-const DEFAULT_FILL = '#22c55e';
-const DEFAULT_STROKE = '#16a34a';
+const DEFAULT_FILL = themeColors.success[500];
+const DEFAULT_STROKE = themeColors.success[600];
 
 /**
  * Detects overlapping ranges. Two ranges overlap when one starts before
@@ -98,9 +99,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
 
   const updateRange = useCallback(
     (index: number, field: keyof ColorRange, value: string | number) => {
-      const updated = ranges.map((r, i) =>
-        i === index ? { ...r, [field]: value } : r,
-      );
+      const updated = ranges.map((r, i) => (i === index ? { ...r, [field]: value } : r));
       // Re-sort by min value whenever min changes to maintain visual order
       if (field === 'min') {
         updated.sort((a, b) => a.min - b.min);

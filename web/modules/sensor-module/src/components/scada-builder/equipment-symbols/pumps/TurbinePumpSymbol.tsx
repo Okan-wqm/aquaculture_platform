@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const TurbinePumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -56,13 +57,7 @@ const TurbinePumpSymbol: React.FC<EquipmentSymbolProps> = ({
         })}
 
         {/* Center hub */}
-        <circle
-          cx={50}
-          cy={50}
-          r={6}
-          fill={colors.stroke}
-          fillOpacity={0.7}
-        />
+        <circle cx={50} cy={50} r={6} fill={colors.stroke} fillOpacity={0.7} />
 
         {/* Inlet line — left */}
         <line x1={0} y1={50} x2={20} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
@@ -84,7 +79,14 @@ const TurbinePumpSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={50} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

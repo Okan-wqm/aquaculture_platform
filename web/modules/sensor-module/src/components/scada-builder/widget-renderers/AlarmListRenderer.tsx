@@ -6,6 +6,7 @@
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 const DEMO_ALARMS = [
   { time: '14:32', severity: 'critical', msg: 'pH > 8.5' },
@@ -17,11 +18,11 @@ const DEMO_ALARMS = [
 
 const SEV_COLOR_MAP: Record<string, string> = {
   critical: ALARM_SEVERITY_COLORS.critical.bg,
-  high:     ALARM_SEVERITY_COLORS.high.bg,
-  medium:   ALARM_SEVERITY_COLORS.medium.bg,
-  warning:  ALARM_SEVERITY_COLORS.medium.bg,
-  low:      ALARM_SEVERITY_COLORS.low.bg,
-  info:     ALARM_SEVERITY_COLORS.info.bg,
+  high: ALARM_SEVERITY_COLORS.high.bg,
+  medium: ALARM_SEVERITY_COLORS.medium.bg,
+  warning: ALARM_SEVERITY_COLORS.medium.bg,
+  low: ALARM_SEVERITY_COLORS.low.bg,
+  info: ALARM_SEVERITY_COLORS.info.bg,
 };
 
 const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
@@ -33,7 +34,17 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
   const visibleCount = Math.max(1, Math.floor((h - headerH) / rowH));
 
   return (
-    <div style={{ width, height, padding: 8, boxSizing: 'border-box' as const, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div
+      style={{
+        width,
+        height,
+        padding: 8,
+        boxSizing: 'border-box' as const,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -41,15 +52,15 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
           display: 'flex',
           alignItems: 'center',
           padding: '0 8px',
-          background: '#f8fafc',
-          borderBottom: '1px solid #e2e8f0',
+          background: colors.neutral[50],
+          borderBottom: `1px solid ${themeColors.neutral[200]}`,
           fontSize: 11,
           fontWeight: 600,
-          color: '#374151',
+          color: colors.neutral[700],
         }}
       >
         {label}
-        <span style={{ marginLeft: 'auto', fontSize: 9, color: '#9ca3af' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 9, color: colors.neutral[400] }}>
           {alarms.length} alarm
         </span>
       </div>
@@ -65,7 +76,7 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
               alignItems: 'center',
               padding: '0 8px',
               gap: 6,
-              borderBottom: '1px solid #f3f4f6',
+              borderBottom: `1px solid ${themeColors.neutral[100]}`,
               fontSize: 10,
             }}
           >
@@ -74,12 +85,22 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: SEV_COLOR_MAP[alarm.severity] ?? '#9ca3af',
+                background: SEV_COLOR_MAP[alarm.severity] ?? colors.neutral[400],
                 flexShrink: 0,
               }}
             />
-            <span style={{ color: '#9ca3af', fontSize: 9, flexShrink: 0 }}>{alarm.time}</span>
-            <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: colors.neutral[400], fontSize: 9, flexShrink: 0 }}>
+              {alarm.time}
+            </span>
+            <span
+              style={{
+                color: colors.neutral[700],
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {alarm.msg}
             </span>
           </div>

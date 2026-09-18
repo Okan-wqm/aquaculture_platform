@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface GaugeWidgetContentProps {
   config: WidgetConfig;
@@ -41,7 +42,7 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
   // Update time display every second
   useEffect(() => {
-    const interval = setInterval(() => forceUpdate(n => n + 1), 1000);
+    const interval = setInterval(() => forceUpdate((n) => n + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -76,10 +77,10 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
   // Status colors
   const statusColors = {
-    normal: { stroke: '#10B981', bg: '#D1FAE5' },
-    warning: { stroke: '#F59E0B', bg: '#FEF3C7' },
-    critical: { stroke: '#EF4444', bg: '#FEE2E2' },
-    offline: { stroke: '#6B7280', bg: '#F3F4F6' },
+    normal: { stroke: themeColors.success[500], bg: themeColors.success[100] },
+    warning: { stroke: themeColors.warning[500], bg: themeColors.warning[100] },
+    critical: { stroke: themeColors.error[500], bg: themeColors.error[100] },
+    offline: { stroke: themeColors.gray[400], bg: themeColors.neutral[100] },
   };
 
   const colors = statusColors[status] || statusColors.normal;
@@ -95,7 +96,7 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#E5E7EB"
+            stroke={themeColors.neutral[200]}
             strokeWidth={strokeWidth}
             strokeDasharray={`${circumference * 0.75} ${circumference}`}
             strokeLinecap="round"
@@ -126,10 +127,7 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
       {/* Status and timestamp */}
       <div className="mt-2 flex items-center gap-2">
-        <div
-          className="w-2 h-2 rounded-full"
-          style={{ backgroundColor: colors.stroke }}
-        />
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.stroke }} />
         <span className="text-xs text-gray-600 capitalize">{status}</span>
       </div>
 

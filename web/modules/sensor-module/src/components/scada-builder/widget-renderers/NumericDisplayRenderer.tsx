@@ -11,15 +11,16 @@
 
 import React, { memo, useRef, useEffect, useState, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Threshold color helpers                                            */
 /* ------------------------------------------------------------------ */
 
-const COLOR_NORMAL   = '#22c55e'; // green
-const COLOR_WARNING  = '#eab308'; // amber
-const COLOR_CRITICAL = '#ef4444'; // red
-const COLOR_DEFAULT  = '#111827'; // dark (no thresholds configured)
+const COLOR_NORMAL = colors.success[500]; // green
+const COLOR_WARNING = colors.warning[500]; // amber
+const COLOR_CRITICAL = colors.error[500]; // red
+const COLOR_DEFAULT = colors.neutral[900]; // dark (no thresholds configured)
 
 function getThresholdColor(
   value: number,
@@ -46,7 +47,13 @@ function getThresholdColor(
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const unit = (config.unit ?? '') as string;
   const label = (config.label ?? 'Value') as string;
   const decimals = (config.decimals ?? 1) as number;
@@ -118,7 +125,15 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         transition: 'background-color 0.4s ease-out',
       }}
     >
-      <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+      <span
+        style={{
+          fontSize: 10,
+          color: colors.gray[400],
+          fontWeight: 500,
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+        }}
+      >
         {label}
       </span>
 
@@ -139,7 +154,7 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           <span
             style={{
               fontSize: Math.max(fontSize * 0.35, 10),
-              color: trend === 'up' ? '#22c55e' : '#ef4444',
+              color: trend === 'up' ? colors.success[500] : colors.error[500],
               lineHeight: 1,
               fontWeight: 700,
             }}
@@ -149,9 +164,7 @@ const NumericDisplayRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         )}
       </span>
 
-      {unit && (
-        <span style={{ fontSize: 12, color: '#9ca3af' }}>{unit}</span>
-      )}
+      {unit && <span style={{ fontSize: 12, color: colors.neutral[400] }}>{unit}</span>}
     </div>
   );
 };

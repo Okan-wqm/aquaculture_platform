@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const DiaphragmValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -29,8 +30,24 @@ const DiaphragmValveSymbol: React.FC<EquipmentSymbolProps> = ({
     >
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
-        <line x1={0} y1={50} x2={20} y2={50} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
-        <line x1={80} y1={50} x2={100} y2={50} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
+        <line
+          x1={0}
+          y1={50}
+          x2={20}
+          y2={50}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
+        <line
+          x1={80}
+          y1={50}
+          x2={100}
+          y2={50}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
 
         {/* Valve body — lower portion */}
         <path
@@ -64,27 +81,43 @@ const DiaphragmValveSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Handwheel */}
-        <line x1={38} y1={12} x2={62} y2={12} stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round" />
+        <line
+          x1={38}
+          y1={12}
+          x2={62}
+          y2={12}
+          stroke={colors.stroke}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />
         <circle cx={50} cy={12} r={2.5} fill={colors.stroke} fillOpacity={0.6} />
 
         {/* Stem line inside bonnet */}
-        <line x1={50} y1={12} x2={50} y2={38} stroke={colors.stroke} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.4} />
+        <line
+          x1={50}
+          y1={12}
+          x2={50}
+          y2={38}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          strokeDasharray="3,2"
+          opacity={0.4}
+        />
 
         {/* Closed indicator — full block */}
         {isClosed && (
-          <rect
-            x={22}
-            y={44}
-            width={56}
-            height={4}
-            rx={1}
-            fill={colors.stroke}
-            fillOpacity={0.3}
-          />
+          <rect x={22} y={44} width={56} height={4} rx={1} fill={colors.stroke} fillOpacity={0.3} />
         )}
 
         {label && (
-          <text x={50} y={75} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const ButterflyValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -26,12 +27,22 @@ const ButterflyValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
         <line
-          x1={0} y1={40} x2={20} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={20}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={80} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={80}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Bowtie body — left triangle */}
@@ -56,44 +67,63 @@ const ButterflyValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Stem — from body center upward */}
         <line
-          x1={50} y1={20} x2={50} y2={8}
-          stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+          x1={50}
+          y1={20}
+          x2={50}
+          y2={8}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
         />
 
         {/* Stem cap */}
         <circle
-          cx={50} cy={6} r={3}
-          fill={colors.stroke} fillOpacity={0.5}
-          stroke={colors.stroke} strokeWidth={1.5}
+          cx={50}
+          cy={6}
+          r={3}
+          fill={colors.stroke}
+          fillOpacity={0.5}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
         />
 
         {/* Butterfly disk — rotates between open/closed */}
         {isOpen ? (
           // Horizontal thin line = disk fully open (parallel to flow)
           <line
-            x1={40} y1={40} x2={60} y2={40}
-            stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+            x1={40}
+            y1={40}
+            x2={60}
+            y2={40}
+            stroke={colors.stroke}
+            strokeWidth={2}
+            strokeLinecap="round"
           />
         ) : (
           // Vertical thick line = disk fully closed (perpendicular to flow)
           <line
-            x1={50} y1={25} x2={50} y2={55}
-            stroke={colors.stroke} strokeWidth={3.5} strokeLinecap="round"
+            x1={50}
+            y1={25}
+            x2={50}
+            y2={55}
+            stroke={colors.stroke}
+            strokeWidth={3.5}
+            strokeLinecap="round"
           />
         )}
 
         {/* Disk pivot point */}
-        <circle
-          cx={50} cy={40} r={2.5}
-          fill={colors.stroke} fillOpacity={0.7}
-        />
+        <circle cx={50} cy={40} r={2.5} fill={colors.stroke} fillOpacity={0.7} />
 
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

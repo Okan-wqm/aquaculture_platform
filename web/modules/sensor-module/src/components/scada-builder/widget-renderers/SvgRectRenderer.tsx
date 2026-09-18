@@ -18,12 +18,21 @@ import React, { memo, useState, useEffect } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
-import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import {
+  DEFAULT_GRADIENT,
+  DEFAULT_FILTER,
+  buildGradientId,
+  buildFilterId,
+} from '../../../types/scada-svg-properties.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? themeColors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const rx = (config.cornerRadius ?? 0) as number;
   const opacity = (config.opacity ?? 1) as number;
@@ -45,7 +54,10 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
    */
   const cssVarFill = animationState?.cssVariables?.['--scada-fill'];
   const cssVarStroke = animationState?.cssVariables?.['--scada-stroke'];
-  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ??
+    cssVarFill ??
+    config.fill ??
+    themeColors.info[500]) as string;
   const effectiveStroke = cssVarStroke ?? stroke;
 
   /**
@@ -57,17 +69,18 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
    * When they are NOT set, fall back to opacity blink (backward compat).
    */
   const hasColorBlink = Boolean(
-    animationState?.blinking &&
-    animationState?.blinkFillA &&
-    animationState?.blinkFillB,
+    animationState?.blinking && animationState?.blinkFillA && animationState?.blinkFillB,
   );
   const [blinkPhase, setBlinkPhase] = useState(false);
 
   useEffect(() => {
     if (!hasColorBlink || !animationState) return;
-    const interval = setInterval(() => {
-      setBlinkPhase((prev) => !prev);
-    }, (animationState.blinkInterval ?? 1000) / 2);
+    const interval = setInterval(
+      () => {
+        setBlinkPhase((prev) => !prev);
+      },
+      (animationState.blinkInterval ?? 1000) / 2,
+    );
     return () => clearInterval(interval);
   }, [hasColorBlink, animationState?.blinkInterval, animationState]);
 
@@ -128,11 +141,7 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
-      <SvgGradientDefs
-        widgetId={widgetId}
-        fillGradient={fillGradient}
-        filter={filterConfig}
-      />
+      <SvgGradientDefs widgetId={widgetId} fillGradient={fillGradient} filter={filterConfig} />
 
       {/* ClipPath definition for fill level -- clips to bottom percentage */}
       {hasFillLevel && (
@@ -140,7 +149,7 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
           <clipPath id={clipId}>
             <rect
               x={innerX}
-              y={innerY + innerH * (1 - (fillPercent / 100))}
+              y={innerY + innerH * (1 - fillPercent / 100)}
               width={innerW}
               height={innerH * (fillPercent / 100)}
               rx={rx}
@@ -173,7 +182,7 @@ const SvgRectRenderer: React.FC<WidgetRendererProps> = ({
         rx={rx}
         ry={rx}
         fill={fillValue}
-        fillOpacity={useGradient ? undefined : (hasFillLevel ? 0.3 : opacity)}
+        fillOpacity={useGradient ? undefined : hasFillLevel ? 0.3 : opacity}
         stroke={effectiveStroke}
         strokeWidth={strokeWidth}
         filter={filterAttr}

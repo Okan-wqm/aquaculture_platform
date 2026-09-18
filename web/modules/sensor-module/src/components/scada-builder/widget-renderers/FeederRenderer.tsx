@@ -7,11 +7,12 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const STATUS_COLORS: Record<string, string> = {
-  running: '#22c55e',
-  stopped: '#9ca3af',
-  error: '#ef4444',
+  running: colors.success[500],
+  stopped: colors.neutral[400],
+  error: colors.error[500],
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -20,19 +21,24 @@ const STATUS_LABELS: Record<string, string> = {
   error: 'Error',
 };
 
-const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const rawLevel = isEditing
-    ? ((config.demoFeedLevel ?? 65) as number)
-    : Number(value ?? 0);
+const FeederRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
+  const rawLevel = isEditing ? ((config.demoFeedLevel ?? 65) as number) : Number(value ?? 0);
   const feedLevel = Math.max(0, Math.min(100, isNaN(rawLevel) ? 0 : rawLevel));
   const status = (
     isEditing ? ((config.demoStatus ?? 'running') as string) : String(value ?? 'stopped')
   ).toLowerCase();
-  const statusColor = STATUS_COLORS[status] ?? '#9ca3af';
+  const statusColor = STATUS_COLORS[status] ?? colors.neutral[400];
   const statusLabel = STATUS_LABELS[status] ?? status;
 
   // When stopped/maintenance → show empty; when running → show ~90% if no specific value
-  const effectiveLevel = status === 'stopped' ? 0 : (status === 'error' ? feedLevel : Math.max(feedLevel, 90));
+  const effectiveLevel =
+    status === 'stopped' ? 0 : status === 'error' ? feedLevel : Math.max(feedLevel, 90);
   const pct = effectiveLevel / 100;
 
   // --- Hopper geometry (viewBox 0 0 120 160) ---
@@ -43,7 +49,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const motorH = 18;
 
   // Hopper body: trapezoid from wide top to narrow bottom
-  const hopperTopY = motorY + motorH;            // 26
+  const hopperTopY = motorY + motorH; // 26
   const hopperTopLeft = 18;
   const hopperTopRight = 102;
   const hopperBottomY = 118;
@@ -66,9 +72,9 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const fillTopRight = hopperBottomRight + tFill * (hopperTopRight - hopperBottomRight);
 
   // Fill color: brown normally, yellow when low, red when critically low
-  let fillColor = '#8B6914'; // feed/grain brown
-  if (pct < 0.15) fillColor = '#ef4444';
-  else if (pct < 0.3) fillColor = '#eab308';
+  let fillColor = colors.warning[700]; // feed/grain brown
+  if (pct < 0.15) fillColor = colors.error[500];
+  else if (pct < 0.3) fillColor = colors.warning[500];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
@@ -86,7 +92,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           width={motorW}
           height={motorH}
           rx={3}
-          fill="#e0e0e0"
+          fill={colors.neutral[200]}
           stroke="#444"
           strokeWidth={2}
         />
@@ -113,7 +119,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         {/* ---- Hopper body (trapezoid outline) ---- */}
         <polygon
           points={`${hopperTopLeft},${hopperTopY} ${hopperTopRight},${hopperTopY} ${hopperBottomRight},${hopperBottomY} ${hopperBottomLeft},${hopperBottomY}`}
-          fill="#f1f5f9"
+          fill={colors.neutral[100]}
           stroke="#444"
           strokeWidth={2}
           strokeLinejoin="round"
@@ -136,17 +142,11 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           dominantBaseline="middle"
           fontSize={16}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
         >
           {Math.round(effectiveLevel)}
         </text>
-        <text
-          x={60}
-          y={93}
-          textAnchor="middle"
-          fontSize={10}
-          fill="#6b7280"
-        >
+        <text x={60} y={93} textAnchor="middle" fontSize={10} fill={colors.gray[400]}>
           %
         </text>
 
@@ -157,7 +157,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           width={chuteW}
           height={chuteH}
           rx={1}
-          fill="#cfd8dc"
+          fill={colors.neutral[300]}
           stroke="#444"
           strokeWidth={1.5}
         />
@@ -166,29 +166,54 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         {status === 'running' && (
           <>
             <circle cx={57} cy={chuteY + chuteH + 4} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                repeatCount="indefinite"
+              />
               <animate attributeName="opacity" values="0.8;0" dur="0.8s" repeatCount="indefinite" />
             </circle>
             <circle cx={60} cy={chuteY + chuteH + 6} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" begin="0.25s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.8;0" dur="0.8s" begin="0.25s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                begin="0.25s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.8;0"
+                dur="0.8s"
+                begin="0.25s"
+                repeatCount="indefinite"
+              />
             </circle>
             <circle cx={63} cy={chuteY + chuteH + 4} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" begin="0.5s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.8;0" dur="0.8s" begin="0.5s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                begin="0.5s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.8;0"
+                dur="0.8s"
+                begin="0.5s"
+                repeatCount="indefinite"
+              />
             </circle>
           </>
         )}
 
         {/* ---- Status text ---- */}
-        <text
-          x={60}
-          y={154}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight={600}
-          fill={statusColor}
-        >
+        <text x={60} y={154} textAnchor="middle" fontSize={10} fontWeight={600} fill={statusColor}>
           {statusLabel}
         </text>
 

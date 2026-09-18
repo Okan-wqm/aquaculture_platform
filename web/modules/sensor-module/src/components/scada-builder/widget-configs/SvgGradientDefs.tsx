@@ -22,6 +22,7 @@ import {
   buildFilterId,
   angleToGradientCoords,
 } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -63,13 +64,7 @@ const GradientDef: React.FC<{
   if (gradient.type === 'linear') {
     const coords = angleToGradientCoords(gradient.angle);
     return (
-      <linearGradient
-        id={id}
-        x1={coords.x1}
-        y1={coords.y1}
-        x2={coords.x2}
-        y2={coords.y2}
-      >
+      <linearGradient id={id} x1={coords.x1} y1={coords.y1} x2={coords.x2} y2={coords.y2}>
         {stops}
       </linearGradient>
     );
@@ -103,10 +98,7 @@ const FilterDef: React.FC<{
   if (filter.type === 'blur') {
     return (
       <filter id={id} x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur
-          in="SourceGraphic"
-          stdDeviation={filter.blurRadius ?? 4}
-        />
+        <feGaussianBlur in="SourceGraphic" stdDeviation={filter.blurRadius ?? 4} />
       </filter>
     );
   }
@@ -115,7 +107,7 @@ const FilterDef: React.FC<{
     const dx = filter.shadowX ?? 2;
     const dy = filter.shadowY ?? 2;
     const blur = filter.blurRadius ?? 4;
-    const color = filter.shadowColor ?? '#000000';
+    const color = filter.shadowColor ?? colors.black;
     const opacity = filter.shadowOpacity ?? 0.5;
 
     return (
@@ -137,7 +129,7 @@ const FilterDef: React.FC<{
   // Glow: centered (no offset) blur in the glow color
   if (filter.type === 'glow') {
     const blur = filter.blurRadius ?? 6;
-    const color = filter.shadowColor ?? '#3b82f6';
+    const color = filter.shadowColor ?? colors.info[500];
     const opacity = filter.shadowOpacity ?? 0.8;
 
     return (
@@ -177,23 +169,12 @@ const SvgGradientDefs: React.FC<SvgGradientDefsProps> = ({
   return (
     <defs>
       {hasFillGradient && (
-        <GradientDef
-          gradient={fillGradient}
-          id={buildGradientId(widgetId, 'fill')}
-        />
+        <GradientDef gradient={fillGradient} id={buildGradientId(widgetId, 'fill')} />
       )}
       {hasStrokeGradient && (
-        <GradientDef
-          gradient={strokeGradient}
-          id={buildGradientId(widgetId, 'stroke')}
-        />
+        <GradientDef gradient={strokeGradient} id={buildGradientId(widgetId, 'stroke')} />
       )}
-      {hasFilter && (
-        <FilterDef
-          filter={filter}
-          id={buildFilterId(widgetId)}
-        />
-      )}
+      {hasFilter && <FilterDef filter={filter} id={buildFilterId(widgetId)} />}
     </defs>
   );
 };

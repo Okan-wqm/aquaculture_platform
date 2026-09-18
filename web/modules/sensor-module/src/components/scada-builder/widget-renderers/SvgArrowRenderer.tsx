@@ -20,7 +20,13 @@ import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
-import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import {
+  DEFAULT_GRADIENT,
+  DEFAULT_FILTER,
+  buildGradientId,
+  buildFilterId,
+} from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 type ArrowDirection = 'right' | 'left' | 'up' | 'down';
 
@@ -61,24 +67,24 @@ function computeArrowPoints(
     if (direction === 'right') {
       const neckX = w - headLen;
       points = [
-        [0, cy - bodyHalf],          // body top-left
-        [neckX, cy - bodyHalf],      // body top-right (neck)
-        [neckX, 0],                  // head top
-        [w, cy],                     // tip
-        [neckX, h],                  // head bottom
-        [neckX, cy + bodyHalf],      // body bottom-right (neck)
-        [0, cy + bodyHalf],          // body bottom-left
+        [0, cy - bodyHalf], // body top-left
+        [neckX, cy - bodyHalf], // body top-right (neck)
+        [neckX, 0], // head top
+        [w, cy], // tip
+        [neckX, h], // head bottom
+        [neckX, cy + bodyHalf], // body bottom-right (neck)
+        [0, cy + bodyHalf], // body bottom-left
       ];
     } else {
       const neckX = headLen;
       points = [
-        [w, cy - bodyHalf],          // body top-right
-        [neckX, cy - bodyHalf],      // body top-left (neck)
-        [neckX, 0],                  // head top
-        [0, cy],                     // tip
-        [neckX, h],                  // head bottom
-        [neckX, cy + bodyHalf],      // body bottom-left (neck)
-        [w, cy + bodyHalf],          // body bottom-right
+        [w, cy - bodyHalf], // body top-right
+        [neckX, cy - bodyHalf], // body top-left (neck)
+        [neckX, 0], // head top
+        [0, cy], // tip
+        [neckX, h], // head bottom
+        [neckX, cy + bodyHalf], // body bottom-left (neck)
+        [w, cy + bodyHalf], // body bottom-right
       ];
     }
 
@@ -95,24 +101,24 @@ function computeArrowPoints(
   if (direction === 'down') {
     const neckY = h - headLen;
     points = [
-      [cx - bodyHalf, 0],          // body top-left
-      [cx + bodyHalf, 0],          // body top-right
-      [cx + bodyHalf, neckY],      // body bottom-right (neck)
-      [w, neckY],                  // head right
-      [cx, h],                     // tip
-      [0, neckY],                  // head left
-      [cx - bodyHalf, neckY],      // body bottom-left (neck)
+      [cx - bodyHalf, 0], // body top-left
+      [cx + bodyHalf, 0], // body top-right
+      [cx + bodyHalf, neckY], // body bottom-right (neck)
+      [w, neckY], // head right
+      [cx, h], // tip
+      [0, neckY], // head left
+      [cx - bodyHalf, neckY], // body bottom-left (neck)
     ];
   } else {
     const neckY = headLen;
     points = [
-      [cx - bodyHalf, h],          // body bottom-left
-      [cx + bodyHalf, h],          // body bottom-right
-      [cx + bodyHalf, neckY],      // body top-right (neck)
-      [w, neckY],                  // head right
-      [cx, 0],                     // tip
-      [0, neckY],                  // head left
-      [cx - bodyHalf, neckY],      // body top-left (neck)
+      [cx - bodyHalf, h], // body bottom-left
+      [cx + bodyHalf, h], // body bottom-right
+      [cx + bodyHalf, neckY], // body top-right (neck)
+      [w, neckY], // head right
+      [cx, 0], // tip
+      [0, neckY], // head left
+      [cx - bodyHalf, neckY], // body top-left (neck)
     ];
   }
 
@@ -120,10 +126,13 @@ function computeArrowPoints(
 }
 
 const SvgArrowRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
-  const flatFill = (animationState?.fill ?? config.fill ?? '#6366f1') as string;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#4f46e5') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? colors.primary[500]) as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.primary[600]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
@@ -137,9 +146,7 @@ const SvgArrowRenderer: React.FC<WidgetRendererProps> = ({
   const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
 
   const useGradient = fillGradient.type !== 'none';
-  const fillValue = useGradient
-    ? `url(#${buildGradientId(widgetId, 'fill')})`
-    : flatFill;
+  const fillValue = useGradient ? `url(#${buildGradientId(widgetId, 'fill')})` : flatFill;
 
   const useFilter = filterConfig.type !== 'none';
   const filterAttr = useFilter ? `url(#${buildFilterId(widgetId)})` : undefined;
@@ -168,11 +175,7 @@ const SvgArrowRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
-      <SvgGradientDefs
-        widgetId={widgetId}
-        fillGradient={fillGradient}
-        filter={filterConfig}
-      />
+      <SvgGradientDefs widgetId={widgetId} fillGradient={fillGradient} filter={filterConfig} />
       <polygon
         points={pointsStr}
         fill={fillValue}

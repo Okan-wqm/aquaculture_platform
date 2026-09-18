@@ -14,15 +14,9 @@
  * it when an input field receives/loses focus.
  */
 
-import React, {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  memo,
-} from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { X, Delete, CornerDownLeft } from 'lucide-react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -164,14 +158,10 @@ const NUMERIC_ROWS: KeyDef[][] = [
 /* ------------------------------------------------------------------ */
 
 const VARIANT_CLASSES: Record<string, string> = {
-  default:
-    'bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 border-gray-600',
-  action:
-    'bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-gray-200 border-gray-500',
-  submit:
-    'bg-blue-700 hover:bg-blue-600 active:bg-blue-500 text-white border-blue-600',
-  danger:
-    'bg-red-800/60 hover:bg-red-700/60 active:bg-red-600/60 text-red-200 border-red-700/50',
+  default: 'bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 border-gray-600',
+  action: 'bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-gray-200 border-gray-500',
+  submit: 'bg-blue-700 hover:bg-blue-600 active:bg-blue-500 text-white border-blue-600',
+  danger: 'bg-red-800/60 hover:bg-red-700/60 active:bg-red-600/60 text-red-200 border-red-700/50',
 };
 
 interface KeyButtonProps {
@@ -190,8 +180,7 @@ const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
     [keyDef, onPress],
   );
 
-  const displayLabel =
-    keyDef.value && shifted ? keyDef.label.toUpperCase() : keyDef.label;
+  const displayLabel = keyDef.value && shifted ? keyDef.label.toUpperCase() : keyDef.label;
 
   const variantClass = VARIANT_CLASSES[keyDef.variant ?? 'default'];
 
@@ -261,9 +250,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         // If keyboard would go below viewport, position above
         const maxKbHeight = mode === 'numeric' ? 300 : 320;
         const adjustedY =
-          y + maxKbHeight > window.innerHeight
-            ? Math.max(8, anchorRect.top - maxKbHeight - 8)
-            : y;
+          y + maxKbHeight > window.innerHeight ? Math.max(8, anchorRect.top - maxKbHeight - 8) : y;
         return { x, y: adjustedY };
       }
       return position ?? { x: 0, y: 0 };
@@ -344,8 +331,9 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         aria-label={label ? `Keyboard: ${label}` : 'Virtual keyboard'}
         aria-modal="false"
       >
-        <div className="bg-gray-850 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
-          style={{ backgroundColor: '#1a1d23' }}
+        <div
+          className="bg-gray-850 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
+          style={{ backgroundColor: themeColors.neutral[900] }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700">
@@ -403,9 +391,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               {mode === 'numeric' ? 'Numeric' : 'Text'}
             </span>
             {shifted && mode === 'text' && (
-              <span className="text-[9px] text-blue-400 uppercase tracking-wider">
-                SHIFT
-              </span>
+              <span className="text-[9px] text-blue-400 uppercase tracking-wider">SHIFT</span>
             )}
           </div>
         </div>

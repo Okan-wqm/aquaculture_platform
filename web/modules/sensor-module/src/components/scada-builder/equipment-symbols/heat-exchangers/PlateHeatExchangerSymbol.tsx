@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const PlateHeatExchangerSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -81,7 +82,7 @@ const PlateHeatExchangerSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Hot flow — chevron/zigzag between plates (left channels) */}
         {isRunning ? (
-          <g stroke="#ef4444" strokeWidth={1.2} fill="none" opacity={0.7}>
+          <g stroke={themeColors.error[500]} strokeWidth={1.2} fill="none" opacity={0.7}>
             {/* Channel between plates at x=42-52 */}
             <path d="M 44 22 L 48 30 L 44 38 L 48 46 L 44 54 L 48 62 L 44 70 L 48 78" />
             {/* Channel between plates at x=62-72 */}
@@ -99,7 +100,7 @@ const PlateHeatExchangerSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Cold flow — chevron/zigzag between plates (right channels) */}
         {isRunning ? (
-          <g stroke="#3b82f6" strokeWidth={1.2} fill="none" opacity={0.7}>
+          <g stroke={themeColors.info[500]} strokeWidth={1.2} fill="none" opacity={0.7}>
             {/* Channel between plates at x=52-62 */}
             <path d="M 56 78 L 54 70 L 58 62 L 54 54 L 58 46 L 54 38 L 58 30 L 54 22" />
             {/* Channel between plates at x=72-82 */}
@@ -116,60 +117,48 @@ const PlateHeatExchangerSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Nozzle — hot-in (left-top) */}
-        <line
-          x1={0}
-          y1={28}
-          x2={30}
-          y2={28}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={0} y1={28} x2={30} y2={28} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="16,25 22,28 16,31" fill="#ef4444" opacity={0.8} />
+          <polygon points="16,25 22,28 16,31" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — hot-out (right-bottom) */}
-        <line
-          x1={110}
-          y1={72}
-          x2={140}
-          y2={72}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={110} y1={72} x2={140} y2={72} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="126,69 132,72 126,75" fill="#ef4444" opacity={0.8} />
+          <polygon points="126,69 132,72 126,75" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — cold-in (right-top) */}
-        <line
-          x1={110}
-          y1={28}
-          x2={140}
-          y2={28}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={110} y1={28} x2={140} y2={28} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="120,25 114,28 120,31" fill="#3b82f6" opacity={0.8} />
+          <polygon points="120,25 114,28 120,31" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — cold-out (left-bottom) */}
-        <line
-          x1={0}
-          y1={72}
-          x2={30}
-          y2={72}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={0} y1={72} x2={30} y2={72} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="8,69 2,72 8,75" fill="#3b82f6" opacity={0.8} />
+          <polygon points="8,69 2,72 8,75" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* Tie bolts (top and bottom) */}
-        <line x1={36} y1={13} x2={104} y2={13} stroke={colors.stroke} strokeWidth={1.5} opacity={0.5} />
-        <line x1={36} y1={87} x2={104} y2={87} stroke={colors.stroke} strokeWidth={1.5} opacity={0.5} />
+        <line
+          x1={36}
+          y1={13}
+          x2={104}
+          y2={13}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          opacity={0.5}
+        />
+        <line
+          x1={36}
+          y1={87}
+          x2={104}
+          y2={87}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          opacity={0.5}
+        />
 
         {/* P&ID label — PHE */}
         <text
@@ -191,7 +180,7 @@ const PlateHeatExchangerSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -29,7 +30,16 @@ const DAY_OPTIONS = [
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
 
-const DEFAULT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+const DEFAULT_COLORS = [
+  themeColors.info[500],
+  themeColors.success[500],
+  themeColors.warning[500],
+  themeColors.error[500],
+  themeColors.primary[700],
+  themeColors.accent[500],
+  themeColors.primary[400],
+  themeColors.accent[600],
+];
 
 function generateId(): string {
   return `sch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -40,10 +50,13 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
   const title = (config.title ?? 'Schedule') as string;
   const showHourLabels = (config.showHourLabels ?? true) as boolean;
 
-  const updateEntry = useCallback((idx: number, patch: Partial<ScheduleEntry>) => {
-    const updated = entries.map((e, i) => (i === idx ? { ...e, ...patch } : e));
-    onChange({ entries: updated });
-  }, [entries, onChange]);
+  const updateEntry = useCallback(
+    (idx: number, patch: Partial<ScheduleEntry>) => {
+      const updated = entries.map((e, i) => (i === idx ? { ...e, ...patch } : e));
+      onChange({ entries: updated });
+    },
+    [entries, onChange],
+  );
 
   const addEntry = useCallback(() => {
     const newEntry: ScheduleEntry = {
@@ -57,9 +70,12 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
     onChange({ entries: [...entries, newEntry] });
   }, [entries, onChange]);
 
-  const removeEntry = useCallback((idx: number) => {
-    onChange({ entries: entries.filter((_, i) => i !== idx) });
-  }, [entries, onChange]);
+  const removeEntry = useCallback(
+    (idx: number) => {
+      onChange({ entries: entries.filter((_, i) => i !== idx) });
+    },
+    [entries, onChange],
+  );
 
   return (
     <div className="space-y-3">
@@ -100,12 +116,17 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
         </div>
 
         {entries.length === 0 && (
-          <p className="text-xs text-gray-400 italic">No schedule entries yet. Click &quot;Add Entry&quot; to begin.</p>
+          <p className="text-xs text-gray-400 italic">
+            No schedule entries yet. Click &quot;Add Entry&quot; to begin.
+          </p>
         )}
 
         <div className="space-y-3">
           {entries.map((entry, idx) => (
-            <div key={entry.id} className="p-2 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
+            <div
+              key={entry.id}
+              className="p-2 border border-gray-200 rounded-lg bg-gray-50 space-y-2"
+            >
               {/* Header row with label + remove */}
               <div className="flex items-center gap-2">
                 <input
@@ -135,7 +156,9 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                     className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {DAY_OPTIONS.map((d) => (
-                      <option key={d.value} value={d.value}>{d.label}</option>
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -147,7 +170,9 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                     className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                      <option key={h} value={h}>
+                        {String(h).padStart(2, '0')}:00
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -159,7 +184,9 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                     className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {HOUR_OPTIONS.map((h) => (
-                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                      <option key={h} value={h}>
+                        {String(h).padStart(2, '0')}:00
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -171,13 +198,13 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={entry.color || '#3b82f6'}
+                    value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
                     className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
                   />
                   <input
                     type="text"
-                    value={entry.color || '#3b82f6'}
+                    value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
                     className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
@@ -187,7 +214,9 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
               {/* Optional: Tag Name + Tag Value */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Tag Name (optional)</label>
+                  <label className="block text-[10px] text-gray-400 mb-0.5">
+                    Tag Name (optional)
+                  </label>
                   <input
                     type="text"
                     value={entry.tagName ?? ''}
@@ -197,7 +226,9 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Tag Value (optional)</label>
+                  <label className="block text-[10px] text-gray-400 mb-0.5">
+                    Tag Value (optional)
+                  </label>
                   <input
                     type="text"
                     value={entry.tagValue ?? ''}

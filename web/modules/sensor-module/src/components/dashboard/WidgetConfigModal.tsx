@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors as themeColors } from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -89,21 +89,21 @@ const WidgetIcon: React.FC<{ type: WidgetType; size?: number }> = ({ type, size 
 // ============================================================================
 
 const CHANNEL_COLORS: Record<string, string> = {
-  temperature: '#EF4444',
-  ph: '#8B5CF6',
-  dissolvedOxygen: '#0EA5E9',
-  dissolved_oxygen: '#0EA5E9',
-  salinity: '#10B981',
-  ammonia: '#F59E0B',
-  nitrite: '#EC4899',
-  nitrate: '#6366F1',
-  turbidity: '#78716C',
-  waterLevel: '#14B8A6',
-  water_level: '#14B8A6',
+  temperature: themeColors.error[500],
+  ph: themeColors.primary[700],
+  dissolvedOxygen: themeColors.primary[400],
+  dissolved_oxygen: themeColors.primary[400],
+  salinity: themeColors.success[500],
+  ammonia: themeColors.warning[500],
+  nitrite: themeColors.accent[500],
+  nitrate: themeColors.primary[500],
+  turbidity: themeColors.gray[400],
+  waterLevel: themeColors.secondary[600],
+  water_level: themeColors.secondary[600],
 };
 
 function getChannelColor(channelKey: string): string {
-  return CHANNEL_COLORS[channelKey] || '#6B7280';
+  return CHANNEL_COLORS[channelKey] || themeColors.gray[400];
 }
 
 // ============================================================================

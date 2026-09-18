@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const LevelTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -87,7 +88,7 @@ const LevelTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
           width={26}
           height={7}
           rx={2}
-          fill="#93c5fd"
+          fill={themeColors.primary[200]}
           fillOpacity={isRunning ? 0.5 : 0.2}
         />
 
@@ -96,18 +97,42 @@ const LevelTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
         <line x1={54} y1={80} x2={80} y2={80} stroke={colors.stroke} strokeWidth={2} />
 
         {/* Signal line — top */}
-        <line x1={40} y1={10} x2={40} y2={0} stroke={colors.stroke} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.6} />
+        <line
+          x1={40}
+          y1={10}
+          x2={40}
+          y2={0}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          strokeDasharray="3,2"
+          opacity={0.6}
+        />
 
-        {isRunning && (
-          <circle cx={40} cy={38} r={4} fill={colors.stroke} fillOpacity={0.25} />
-        )}
+        {isRunning && <circle cx={40} cy={38} r={4} fill={colors.stroke} fillOpacity={0.25} />}
 
         {state === 'fault' && (
-          <text x={40} y={42} textAnchor="middle" fontSize={10} fill="#ef4444" fontFamily="sans-serif" fontWeight="bold">!</text>
+          <text
+            x={40}
+            y={42}
+            textAnchor="middle"
+            fontSize={10}
+            fill={themeColors.error[500]}
+            fontFamily="sans-serif"
+            fontWeight="bold"
+          >
+            !
+          </text>
         )}
 
         {label && (
-          <text x={40} y={97} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={40}
+            y={97}
+            textAnchor="middle"
+            fontSize={8}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

@@ -6,16 +6,17 @@
  * differential) indicator.
  *
  * Status colors follow platform convention:
- *   Running: #22c55e   Stopped: #9ca3af   Error: #ef4444
+ *   Running: success-500   Stopped: neutral-400   Error: error-500
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const STATUS_COLORS: Record<string, { fill: string; accent: string }> = {
-  running: { fill: '#22c55e', accent: '#16a34a' },
-  stopped: { fill: '#9ca3af', accent: '#6b7280' },
-  error:   { fill: '#ef4444', accent: '#dc2626' },
+  running: { fill: themeColors.success[500], accent: themeColors.success[600] },
+  stopped: { fill: themeColors.neutral[400], accent: themeColors.gray[400] },
+  error: { fill: themeColors.error[500], accent: themeColors.error[600] },
 };
 
 const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
@@ -26,7 +27,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
   isEditing,
 }) => {
   const demoStatus = (config.demoStatus ?? 'running') as string;
-  const status = isEditing ? demoStatus : (String(value ?? 'stopped'));
+  const status = isEditing ? demoStatus : String(value ?? 'stopped');
   const colors = STATUS_COLORS[status] ?? STATUS_COLORS.stopped;
 
   // Build the pleated zigzag filter path
@@ -67,7 +68,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
           width={64}
           height={66}
           rx={3}
-          fill="#cfd8dc"
+          fill={themeColors.neutral[300]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -79,7 +80,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
           width={56}
           height={58}
           rx={2}
-          fill="#f1f5f9"
+          fill={themeColors.neutral[100]}
           stroke="#999"
           strokeWidth={1}
         />
@@ -98,13 +99,31 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         <line x1={82} y1={10} x2={82} y2={68} stroke="#777" strokeWidth={1} />
 
         {/* Inlet pipe (left) */}
-        <rect x={8} y={32} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect
+          x={8}
+          y={32}
+          width={32}
+          height={12}
+          fill={themeColors.neutral[300]}
+          stroke="#333"
+          strokeWidth={1.5}
+          rx={1}
+        />
         {/* Inlet airflow arrows */}
         <polygon points="18,38 24,34 24,42" fill={colors.fill} />
         <polygon points="28,38 34,34 34,42" fill={colors.fill} opacity={0.6} />
 
         {/* Outlet pipe (right) */}
-        <rect x={100} y={32} width={32} height={12} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect
+          x={100}
+          y={32}
+          width={32}
+          height={12}
+          fill={themeColors.neutral[300]}
+          stroke="#333"
+          strokeWidth={1.5}
+          rx={1}
+        />
         {/* Outlet airflow arrows */}
         <polygon points="112,38 118,34 118,42" fill={colors.fill} />
         <polygon points="122,38 128,34 128,42" fill={colors.fill} opacity={0.6} />
@@ -126,7 +145,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
           textAnchor="middle"
           fontSize={8}
           fontWeight={600}
-          fill={status === 'error' ? '#ef4444' : '#374151'}
+          fill={status === 'error' ? themeColors.error[500] : themeColors.neutral[700]}
         >
           {'\u0394'}P
         </text>

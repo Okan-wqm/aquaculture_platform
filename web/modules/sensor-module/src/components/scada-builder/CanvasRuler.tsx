@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import { colors } from '@aquaculture/shared-ui';
 
 interface CanvasRulerProps {
   /** Current viewport offset in pixels */
@@ -21,10 +22,10 @@ interface CanvasRulerProps {
   thickness?: number;
 }
 
-const RULER_BG = '#f8fafc';
-const RULER_BORDER = '#e2e8f0';
-const TICK_COLOR = '#94a3b8';
-const LABEL_COLOR = '#64748b';
+const RULER_BG = colors.neutral[50];
+const RULER_BORDER = colors.neutral[200];
+const TICK_COLOR = colors.neutral[400];
+const LABEL_COLOR = colors.neutral[500];
 
 export const CanvasRuler: React.FC<CanvasRulerProps> = ({
   viewportX,
@@ -124,13 +125,7 @@ export const CanvasRuler: React.FC<CanvasRulerProps> = ({
                 stroke={TICK_COLOR}
                 strokeWidth={1}
               />
-              <text
-                x={2}
-                y={y + 11}
-                fill={LABEL_COLOR}
-                fontSize={9}
-                fontFamily="monospace"
-              >
+              <text x={2} y={y + 11} fill={LABEL_COLOR} fontSize={9} fontFamily="monospace">
                 {row}
               </text>
             </g>

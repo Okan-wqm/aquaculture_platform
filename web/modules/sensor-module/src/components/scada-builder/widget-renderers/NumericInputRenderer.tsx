@@ -4,21 +4,32 @@
 
 import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
-const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
+const NumericInputRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+  onCommand,
+}) => {
   const label = (config.label ?? 'Setpoint') as string;
   const unit = (config.unit ?? '') as string;
   const raw = isEditing ? (config.demoValue ?? 7.2) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const safeValue = isNaN(numValue) ? 0 : numValue;
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isEditing) return;
-    const parsed = parseFloat(e.target.value);
-    if (!isNaN(parsed)) {
-      onCommand?.('setValue', parsed);
-    }
-  }, [isEditing, onCommand]);
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (isEditing) return;
+      const parsed = parseFloat(e.target.value);
+      if (!isNaN(parsed)) {
+        onCommand?.('setValue', parsed);
+      }
+    },
+    [isEditing, onCommand],
+  );
 
   return (
     <div
@@ -34,7 +45,7 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         boxSizing: 'border-box' as const,
       }}
     >
-      <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: 10, color: colors.gray[400], fontWeight: 500 }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
@@ -48,14 +59,14 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
             textAlign: 'center',
             fontSize: 16,
             fontWeight: 600,
-            border: '1px solid #d1d5db',
+            border: `1px solid ${themeColors.neutral[300]}`,
             borderRadius: 4,
-            background: isEditing ? '#f9fafb' : '#ffffff',
-            color: '#111827',
+            background: isEditing ? colors.neutral[50] : colors.white,
+            color: colors.neutral[900],
             outline: 'none',
           }}
         />
-        {unit && <span style={{ fontSize: 12, color: '#6b7280' }}>{unit}</span>}
+        {unit && <span style={{ fontSize: 12, color: colors.gray[400] }}>{unit}</span>}
       </div>
     </div>
   );

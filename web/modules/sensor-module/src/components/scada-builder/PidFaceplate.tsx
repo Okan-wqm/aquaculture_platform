@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Activity, Zap, CircleDot } from 'lucide-react';
-import { Drawer } from '@aquaculture/shared-ui';
+import { Drawer, colors as themeColors } from '@aquaculture/shared-ui';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
 import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -33,11 +33,11 @@ interface PidFaceplateProps {
 /* ------------------------------------------------------------------ */
 
 const STATE_COLORS: Record<string, string> = {
-  running: '#22c55e',
-  open: '#22c55e',
-  stopped: '#9ca3af',
-  closed: '#9ca3af',
-  fault: '#ef4444',
+  running: themeColors.success[500],
+  open: themeColors.success[500],
+  stopped: themeColors.neutral[400],
+  closed: themeColors.neutral[400],
+  fault: themeColors.error[500],
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -50,7 +50,7 @@ const STATE_LABELS: Record<string, string> = {
 
 function getStatusColor(state: unknown): string {
   if (typeof state === 'string' && STATE_COLORS[state]) return STATE_COLORS[state];
-  return '#9ca3af'; // default gray
+  return themeColors.neutral[400]; // default gray
 }
 
 function getStatusLabel(state: unknown): string {

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const BallValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -26,12 +27,22 @@ const BallValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
         <line
-          x1={0} y1={40} x2={20} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={20}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={80} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={80}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Bowtie body — left triangle */}
@@ -56,7 +67,9 @@ const BallValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Ball — filled circle at center */}
         <circle
-          cx={50} cy={40} r={8}
+          cx={50}
+          cy={40}
+          r={8}
           fill={colors.fill}
           fillOpacity={0.8}
           stroke={colors.stroke}
@@ -66,43 +79,71 @@ const BallValveSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Ball bore indicator — horizontal when open, vertical when closed */}
         {isOpen ? (
           <line
-            x1={42} y1={40} x2={58} y2={40}
-            stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round"
+            x1={42}
+            y1={40}
+            x2={58}
+            y2={40}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            strokeLinecap="round"
           />
         ) : (
           <line
-            x1={50} y1={32} x2={50} y2={48}
-            stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round"
+            x1={50}
+            y1={32}
+            x2={50}
+            y2={48}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            strokeLinecap="round"
           />
         )}
 
         {/* Stem — from ball up */}
         <line
-          x1={50} y1={32} x2={50} y2={12}
-          stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+          x1={50}
+          y1={32}
+          x2={50}
+          y2={12}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
         />
 
         {/* Handle — lever style, rotates with state */}
         {isOpen ? (
           // Horizontal handle = open
           <line
-            x1={38} y1={12} x2={62} y2={12}
-            stroke={colors.stroke} strokeWidth={3} strokeLinecap="round"
+            x1={38}
+            y1={12}
+            x2={62}
+            y2={12}
+            stroke={colors.stroke}
+            strokeWidth={3}
+            strokeLinecap="round"
           />
         ) : (
           // Vertical handle = closed (perpendicular to flow)
           <line
-            x1={50} y1={4} x2={50} y2={12}
-            stroke={colors.stroke} strokeWidth={3} strokeLinecap="round"
+            x1={50}
+            y1={4}
+            x2={50}
+            y2={12}
+            stroke={colors.stroke}
+            strokeWidth={3}
+            strokeLinecap="round"
           />
         )}
 
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

@@ -8,13 +8,18 @@
  */
 
 import React from 'react';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin } from '../../../types/scada-svg-properties.types';
+import type {
+  StrokeDashPattern,
+  StrokeLineCap,
+  StrokeLineJoin,
+} from '../../../types/scada-svg-properties.types';
 import {
   DASH_PATTERN_MAP,
   DASH_PATTERN_OPTIONS,
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -119,7 +124,7 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
             }
           }}
           maxLength={7}
-          placeholder="#000000"
+          placeholder={themeColors.black}
           className={INPUT_CLASS}
           aria-label="Stroke hex color"
         />
@@ -154,9 +159,7 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
         className="w-full"
         aria-label="Stroke opacity"
       />
-      <div className="text-xs text-gray-400 text-right">
-        {Math.round(strokeOpacity * 100)}%
-      </div>
+      <div className="text-xs text-gray-400 text-right">{Math.round(strokeOpacity * 100)}%</div>
     </div>
 
     {/* Dash pattern */}

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const PressureTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -80,20 +81,44 @@ const PressureTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Signal line — top (4-20mA output) */}
-        <line x1={40} y1={10} x2={40} y2={0} stroke={colors.stroke} strokeWidth={1.5} strokeDasharray="3,2" opacity={0.6} />
+        <line
+          x1={40}
+          y1={10}
+          x2={40}
+          y2={0}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          strokeDasharray="3,2"
+          opacity={0.6}
+        />
 
         {/* Running indicator */}
-        {isRunning && (
-          <circle cx={40} cy={38} r={4} fill={colors.stroke} fillOpacity={0.25} />
-        )}
+        {isRunning && <circle cx={40} cy={38} r={4} fill={colors.stroke} fillOpacity={0.25} />}
 
         {/* Fault indicator */}
         {state === 'fault' && (
-          <text x={40} y={42} textAnchor="middle" fontSize={10} fill="#ef4444" fontFamily="sans-serif" fontWeight="bold">!</text>
+          <text
+            x={40}
+            y={42}
+            textAnchor="middle"
+            fontSize={10}
+            fill={themeColors.error[500]}
+            fontFamily="sans-serif"
+            fontWeight="bold"
+          >
+            !
+          </text>
         )}
 
         {label && (
-          <text x={40} y={97} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={40}
+            y={97}
+            textAnchor="middle"
+            fontSize={8}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

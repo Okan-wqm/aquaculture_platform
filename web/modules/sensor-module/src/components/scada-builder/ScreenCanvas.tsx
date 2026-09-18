@@ -14,7 +14,8 @@
 import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import { ScadaRuntime } from '../../engine/ScadaRuntime';
 import { OverlayStack } from '../../engine/views/OverlayStack';
-import { ReactFlow,
+import {
+  ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
@@ -60,6 +61,7 @@ import {
   pixelToGrid,
   getWidgetSize,
 } from '../../constants/scada-widget-sizes';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Node type registry                                                 */
@@ -128,7 +130,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   // Default edge creation settings
   const [defaultEdgeType, setDefaultEdgeType] = useState<ScadaEdgeType>('orthogonal');
-  const [defaultConnectionType, setDefaultConnectionType] = useState<ConnectionType>('process-pipe');
+  const [defaultConnectionType, setDefaultConnectionType] =
+    useState<ConnectionType>('process-pipe');
 
   // Canvas settings
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -179,26 +182,28 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     saveScreenViewport,
     getScreenViewport,
     updateScreen,
-  } = useScadaPackageStore(useShallow((s) => ({
-    activeScreenId: s.activeScreenId,
-    screens: s.screens,
-    selectedWidgetId: s.selectedWidgetId,
-    selectedWidgetIds: s.selectedWidgetIds,
-    selectedEdgeId: s.selectedEdgeId,
-    setSelectedWidget: s.setSelectedWidget,
-    setSelectedEdge: s.setSelectedEdge,
-    toggleWidgetSelection: s.toggleWidgetSelection,
-    addWidget: s.addWidget,
-    removeWidget: s.removeWidget,
-    updateWidgetPosition: s.updateWidgetPosition,
-    addEdge: s.addEdge,
-    removeEdge: s.removeEdge,
-    updateEdgeData: s.updateEdgeData,
-    updateEdgeType: s.updateEdgeType,
-    saveScreenViewport: s.saveScreenViewport,
-    getScreenViewport: s.getScreenViewport,
-    updateScreen: s.updateScreen,
-  })));
+  } = useScadaPackageStore(
+    useShallow((s) => ({
+      activeScreenId: s.activeScreenId,
+      screens: s.screens,
+      selectedWidgetId: s.selectedWidgetId,
+      selectedWidgetIds: s.selectedWidgetIds,
+      selectedEdgeId: s.selectedEdgeId,
+      setSelectedWidget: s.setSelectedWidget,
+      setSelectedEdge: s.setSelectedEdge,
+      toggleWidgetSelection: s.toggleWidgetSelection,
+      addWidget: s.addWidget,
+      removeWidget: s.removeWidget,
+      updateWidgetPosition: s.updateWidgetPosition,
+      addEdge: s.addEdge,
+      removeEdge: s.removeEdge,
+      updateEdgeData: s.updateEdgeData,
+      updateEdgeType: s.updateEdgeType,
+      saveScreenViewport: s.saveScreenViewport,
+      getScreenViewport: s.getScreenViewport,
+      updateScreen: s.updateScreen,
+    })),
+  );
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
   const widgets = activeScreen?.widgets ?? EMPTY_WIDGETS;
@@ -226,36 +231,36 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   // EdgeStoreContext value: bridges edge components → scadaPackageStore
   // Uses getState() to avoid stale activeScreenId closure
-  const edgeStoreValue = useMemo(() => ({
-    updateEdgeData: (edgeId: string, data: Record<string, unknown>) => {
-      const currentScreenId = useScadaPackageStore.getState().activeScreenId;
-      if (currentScreenId) {
-        storeUpdateEdgeData(currentScreenId, edgeId, data);
-      }
-    },
-  }), [storeUpdateEdgeData]);
+  const edgeStoreValue = useMemo(
+    () => ({
+      updateEdgeData: (edgeId: string, data: Record<string, unknown>) => {
+        const currentScreenId = useScadaPackageStore.getState().activeScreenId;
+        if (currentScreenId) {
+          storeUpdateEdgeData(currentScreenId, edgeId, data);
+        }
+      },
+    }),
+    [storeUpdateEdgeData],
+  );
 
   // onResize callback for ScadaWidgetNode
-  const handleWidgetResize = useCallback(
-    (widgetId: string, width: number, height: number) => {
-      const state = useScadaPackageStore.getState();
-      const currentScreenId = state.activeScreenId;
-      if (!currentScreenId) return;
-      const widget = state.screens
-        .find((s) => s.id === currentScreenId)
-        ?.widgets.find((w) => w.id === widgetId);
-      if (!widget) return;
+  const handleWidgetResize = useCallback((widgetId: string, width: number, height: number) => {
+    const state = useScadaPackageStore.getState();
+    const currentScreenId = state.activeScreenId;
+    if (!currentScreenId) return;
+    const widget = state.screens
+      .find((s) => s.id === currentScreenId)
+      ?.widgets.find((w) => w.id === widgetId);
+    if (!widget) return;
 
-      const newPos = pixelToGrid(
-        widget.position.col * GRID_CELL_W,
-        widget.position.row * GRID_CELL_H,
-        width,
-        height,
-      );
-      state.updateWidgetPosition(currentScreenId, widgetId, newPos);
-    },
-    [],
-  );
+    const newPos = pixelToGrid(
+      widget.position.col * GRID_CELL_W,
+      widget.position.row * GRID_CELL_H,
+      width,
+      height,
+    );
+    state.updateWidgetPosition(currentScreenId, widgetId, newPos);
+  }, []);
 
   // Convert store widgets → ReactFlow nodes (source of truth)
   // NOTE: selectedWidgetId is intentionally excluded from deps to prevent
@@ -265,47 +270,48 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const storeNodes: Node<ScadaWidgetNodeData>[] = useMemo(() => {
     // Filter out hidden widgets (visible === false) so they don't appear on the canvas.
     // Widgets with visible === undefined or true are shown.
-    return widgets.filter((w) => w.visible !== false).map((w) => {
-      const px = gridToPixel(w.position);
-      // Resolve live tag value in preview/simulation mode — single binding
-      // accessor (config.tagRef → legacy keys) shared with the operator
-      // runtime, indexed into the Layer-B values map by the same key.
-      const tagName = getWidgetTagBinding(w.config);
-      let liveValue: number | string | boolean | undefined;
-      if (isPreview && tagName) {
-        const rawValue = liveValues[tagName]?.value;
-        liveValue =
-          typeof rawValue === 'string' ||
-          typeof rawValue === 'number' ||
-          typeof rawValue === 'boolean'
-            ? rawValue
-            : undefined;
-      }
-      return {
-        id: w.id,
-        type: 'scadaWidget',
-        position: { x: px.x, y: px.y },
-        data: {
-          widgetType: w.widgetType as ScadaWidgetType,
-          config: w.config,
-          screenId: activeScreenId,
-          width: px.width,
-          height: px.height,
-          label: (w.config?.label as string) || w.widgetType,
-          tagName,
-          liveValue,
-          onResize: (_wt: string, newW: number, newH: number) => {
-            handleWidgetResize(w.id, newW, newH);
+    return widgets
+      .filter((w) => w.visible !== false)
+      .map((w) => {
+        const px = gridToPixel(w.position);
+        // Resolve live tag value in preview/simulation mode — single binding
+        // accessor (config.tagRef → legacy keys) shared with the operator
+        // runtime, indexed into the Layer-B values map by the same key.
+        const tagName = getWidgetTagBinding(w.config);
+        let liveValue: number | string | boolean | undefined;
+        if (isPreview && tagName) {
+          const rawValue = liveValues[tagName]?.value;
+          liveValue =
+            typeof rawValue === 'string' ||
+            typeof rawValue === 'number' ||
+            typeof rawValue === 'boolean'
+              ? rawValue
+              : undefined;
+        }
+        return {
+          id: w.id,
+          type: 'scadaWidget',
+          position: { x: px.x, y: px.y },
+          data: {
+            widgetType: w.widgetType as ScadaWidgetType,
+            config: w.config,
+            screenId: activeScreenId,
+            width: px.width,
+            height: px.height,
+            label: (w.config?.label as string) || w.widgetType,
+            tagName,
+            liveValue,
+            onResize: (_wt: string, newW: number, newH: number) => {
+              handleWidgetResize(w.id, newW, newH);
+            },
+            isPreview,
+            groupId: w.groupId,
+            zIndex: w.zIndex,
           },
-          isPreview,
-          groupId: w.groupId,
-          zIndex: w.zIndex,
-        },
-        draggable: !w.locked,
-        dragHandle: undefined,
-      };
-    });
-     
+          draggable: !w.locked,
+          dragHandle: undefined,
+        };
+      });
   }, [widgets, activeScreenId, handleWidgetResize, isPreview, liveValues]);
 
   /**
@@ -341,7 +347,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         style,
         // Only apply the static CSS class for legacy edges (animated:true, no flowConfig).
         // Tag-driven edges handle animation internally via useEdgeFlowState.
-        className: (!hasFlowConfig && e.data.animated) ? 'animated-flow' : undefined,
+        className: !hasFlowConfig && e.data.animated ? 'animated-flow' : undefined,
       };
     });
   }, [storeEdges, selectedEdgeId]);
@@ -400,11 +406,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       const state = useScadaPackageStore.getState();
       const currentScreenId = state.activeScreenId;
       const currentWidgets = currentScreenId
-        ? state.screens.find((s) => s.id === currentScreenId)?.widgets ?? []
+        ? (state.screens.find((s) => s.id === currentScreenId)?.widgets ?? [])
         : [];
-      const lockedIds = new Set(
-        currentWidgets.filter((w) => w.locked).map((w) => w.id),
-      );
+      const lockedIds = new Set(currentWidgets.filter((w) => w.locked).map((w) => w.id));
 
       const filteredChanges = changes.filter((change) => {
         if (change.type === 'position' && lockedIds.has(change.id)) {
@@ -438,9 +442,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
               if (dx !== 0 || dy !== 0) {
                 // Find all sibling group members (excluding the dragged node and locked nodes)
                 const siblings = currentWidgets.filter(
-                  (w) => w.groupId === draggedWidget.groupId
-                    && w.id !== change.id
-                    && !lockedIds.has(w.id),
+                  (w) =>
+                    w.groupId === draggedWidget.groupId &&
+                    w.id !== change.id &&
+                    !lockedIds.has(w.id),
                 );
 
                 for (const sibling of siblings) {
@@ -464,9 +469,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       }
 
       // Batch all changes (original + group propagation) into a single setNodes call
-      const allChanges = groupDragChanges.length > 0
-        ? [...filteredChanges, ...groupDragChanges]
-        : filteredChanges;
+      const allChanges =
+        groupDragChanges.length > 0 ? [...filteredChanges, ...groupDragChanges] : filteredChanges;
 
       setNodes((nds) => applyNodeChanges<Node<ScadaWidgetNodeData>>(allChanges, nds));
 
@@ -498,16 +502,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           const widget = currentWidgets.find((w) => w.id === change.id);
           if (!widget) continue;
           const px = gridToPixel(widget.position);
-          const newGrid = pixelToGrid(
-            change.position.x,
-            change.position.y,
-            px.width,
-            px.height,
-          );
+          const newGrid = pixelToGrid(change.position.x, change.position.y, px.width, px.height);
           // Only push to store if grid position actually changed
           const posChanged =
-            newGrid.col !== widget.position.col ||
-            newGrid.row !== widget.position.row;
+            newGrid.col !== widget.position.col || newGrid.row !== widget.position.row;
           if (posChanged) {
             syncingFromStore.current = true;
             state.updateWidgetPosition(currentScreenId!, change.id, newGrid);
@@ -516,9 +514,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           // Commit group sibling positions to store on drag end
           if (widget.groupId) {
             const siblings = currentWidgets.filter(
-              (w) => w.groupId === widget.groupId
-                && w.id !== change.id
-                && !lockedIds.has(w.id),
+              (w) => w.groupId === widget.groupId && w.id !== change.id && !lockedIds.has(w.id),
             );
             for (const sibling of siblings) {
               const sibNode = nodes.find((n) => n.id === sibling.id);
@@ -531,8 +527,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
                 sibPx.height,
               );
               const sibPosChanged =
-                sibNewGrid.col !== sibling.position.col ||
-                sibNewGrid.row !== sibling.position.row;
+                sibNewGrid.col !== sibling.position.col || sibNewGrid.row !== sibling.position.row;
               if (sibPosChanged) {
                 state.updateWidgetPosition(currentScreenId!, sibling.id, sibNewGrid);
               }
@@ -596,8 +591,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       if (connection.source === connection.target) return false;
 
       // Prevent duplicate edges between same source handle → target handle
-      const currentEdges = useScadaPackageStore.getState().screens
-        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)?.edges ?? [];
+      const currentEdges =
+        useScadaPackageStore
+          .getState()
+          .screens.find((s) => s.id === useScadaPackageStore.getState().activeScreenId)?.edges ??
+        [];
       const duplicate = currentEdges.some(
         (e) =>
           e.source === connection.source &&
@@ -608,37 +606,41 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       if (duplicate) return false;
 
       // Validate handle direction using CONNECTION_POINTS registry
-      const sourceNode = useScadaPackageStore.getState().screens
-        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
+      const sourceNode = useScadaPackageStore
+        .getState()
+        .screens.find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
         ?.widgets.find((w) => w.id === connection.source);
-      const targetNode = useScadaPackageStore.getState().screens
-        .find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
+      const targetNode = useScadaPackageStore
+        .getState()
+        .screens.find((s) => s.id === useScadaPackageStore.getState().activeScreenId)
         ?.widgets.find((w) => w.id === connection.target);
 
       if (sourceNode && targetNode) {
-        const srcKey = sourceNode.widgetType === 'equipment'
-          ? (sourceNode.config?.equipmentSubType as string) || ''
-          : sourceNode.widgetType;
-        const tgtKey = targetNode.widgetType === 'equipment'
-          ? (targetNode.config?.equipmentSubType as string) || ''
-          : targetNode.widgetType;
+        const srcKey =
+          sourceNode.widgetType === 'equipment'
+            ? (sourceNode.config?.equipmentSubType as string) || ''
+            : sourceNode.widgetType;
+        const tgtKey =
+          targetNode.widgetType === 'equipment'
+            ? (targetNode.config?.equipmentSubType as string) || ''
+            : targetNode.widgetType;
 
         const srcPoints =
-          srcKey in CONNECTION_POINTS
-            ? CONNECTION_POINTS[srcKey as ConnectionPointKey]
-            : [];
+          srcKey in CONNECTION_POINTS ? CONNECTION_POINTS[srcKey as ConnectionPointKey] : [];
         const tgtPoints =
-          tgtKey in CONNECTION_POINTS
-            ? CONNECTION_POINTS[tgtKey as ConnectionPointKey]
-            : [];
+          tgtKey in CONNECTION_POINTS ? CONNECTION_POINTS[tgtKey as ConnectionPointKey] : [];
 
         // Find the source handle's direction
         const srcHandleId = connection.sourceHandle || '';
-        const srcPoint = srcPoints.find((p) => p.id === srcHandleId || `${p.id}-out` === srcHandleId);
+        const srcPoint = srcPoints.find(
+          (p) => p.id === srcHandleId || `${p.id}-out` === srcHandleId,
+        );
 
         // Find the target handle's direction
         const tgtHandleId = connection.targetHandle || '';
-        const tgtPoint = tgtPoints.find((p) => p.id === tgtHandleId || `${p.id}-in` === tgtHandleId);
+        const tgtPoint = tgtPoints.find(
+          (p) => p.id === tgtHandleId || `${p.id}-in` === tgtHandleId,
+        );
 
         // Block if source handle direction is 'in' only (not 'out' or 'inout')
         if (srcPoint && srcPoint.direction === 'in') return false;
@@ -683,18 +685,24 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   }, []);
 
   // Track viewport during pan/zoom for CanvasRuler (fires continuously)
-  const onMove = useCallback((_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
-    setViewportX(viewport.x);
-    setViewportY(viewport.y);
-    setCurrentZoom(viewport.zoom);
-  }, []);
+  const onMove = useCallback(
+    (_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+      setViewportX(viewport.x);
+      setViewportY(viewport.y);
+      setCurrentZoom(viewport.zoom);
+    },
+    [],
+  );
 
   // Track zoom level for CanvasSettings (fires at end of move)
-  const onMoveEnd = useCallback((_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
-    setViewportX(viewport.x);
-    setViewportY(viewport.y);
-    setCurrentZoom(viewport.zoom);
-  }, []);
+  const onMoveEnd = useCallback(
+    (_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+      setViewportX(viewport.x);
+      setViewportY(viewport.y);
+      setCurrentZoom(viewport.zoom);
+    },
+    [],
+  );
 
   // Handle node click for selection (shift+click for multi-select)
   const onNodeClick = useCallback(
@@ -726,29 +734,35 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     });
   }, []);
 
-  const onNodeContextMenu = useCallback((_e: React.MouseEvent, node: Node) => {
-    _e.preventDefault();
-    // Preserve multi-selection: only reset if right-clicked widget is NOT in current selection
-    const currentIds = useScadaPackageStore.getState().selectedWidgetIds;
-    if (!currentIds.includes(node.id)) {
-      setSelectedWidget(node.id);
-    }
-    setSelectedEdge(null);
-    setContextMenu({
-      position: { x: _e.clientX, y: _e.clientY },
-      target: 'widget',
-    });
-  }, [setSelectedWidget, setSelectedEdge]);
+  const onNodeContextMenu = useCallback(
+    (_e: React.MouseEvent, node: Node) => {
+      _e.preventDefault();
+      // Preserve multi-selection: only reset if right-clicked widget is NOT in current selection
+      const currentIds = useScadaPackageStore.getState().selectedWidgetIds;
+      if (!currentIds.includes(node.id)) {
+        setSelectedWidget(node.id);
+      }
+      setSelectedEdge(null);
+      setContextMenu({
+        position: { x: _e.clientX, y: _e.clientY },
+        target: 'widget',
+      });
+    },
+    [setSelectedWidget, setSelectedEdge],
+  );
 
-  const onEdgeContextMenu = useCallback((_e: React.MouseEvent, edge: Edge) => {
-    _e.preventDefault();
-    setSelectedEdge(edge.id);
-    setSelectedWidget(null);
-    setContextMenu({
-      position: { x: _e.clientX, y: _e.clientY },
-      target: 'edge',
-    });
-  }, [setSelectedEdge, setSelectedWidget]);
+  const onEdgeContextMenu = useCallback(
+    (_e: React.MouseEvent, edge: Edge) => {
+      _e.preventDefault();
+      setSelectedEdge(edge.id);
+      setSelectedWidget(null);
+      setContextMenu({
+        position: { x: _e.clientX, y: _e.clientY },
+        target: 'edge',
+      });
+    },
+    [setSelectedEdge, setSelectedWidget],
+  );
 
   const onNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node<ScadaWidgetNodeData>) => {
     const state = useScadaPackageStore.getState();
@@ -815,7 +829,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       const data = e.dataTransfer.getData('application/reactflow-widget');
       if (!data) return;
 
-      let parsed: { widgetType: string; label: string; defaultWidth: number; defaultHeight: number; defaultConfig?: Record<string, unknown> };
+      let parsed: {
+        widgetType: string;
+        label: string;
+        defaultWidth: number;
+        defaultHeight: number;
+        defaultConfig?: Record<string, unknown>;
+      };
       try {
         parsed = JSON.parse(data);
       } catch {
@@ -834,7 +854,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
       const snappedY = Math.round(position.y / GRID_CELL_H) * GRID_CELL_H;
 
       // Get default size from constants
-      const sizeDef = getWidgetSize(parsed.widgetType, parsed.defaultConfig?.equipmentSubType as string | undefined);
+      const sizeDef = getWidgetSize(
+        parsed.widgetType,
+        parsed.defaultConfig?.equipmentSubType as string | undefined,
+      );
 
       const gridPos = pixelToGrid(
         snappedX,
@@ -863,7 +886,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   // B2: Toolbar reflects selected edge's actual values
   const toolbarEdgeType = useMemo(() => {
     if (selectedEdgeId) {
-      const edge = storeEdges.find(e => e.id === selectedEdgeId);
+      const edge = storeEdges.find((e) => e.id === selectedEdgeId);
       return (edge?.type as ScadaEdgeType) ?? defaultEdgeType;
     }
     return defaultEdgeType;
@@ -871,7 +894,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   const toolbarConnectionType = useMemo(() => {
     if (selectedEdgeId) {
-      const edge = storeEdges.find(e => e.id === selectedEdgeId);
+      const edge = storeEdges.find((e) => e.id === selectedEdgeId);
       return (edge?.data.connectionType as ConnectionType) ?? defaultConnectionType;
     }
     return defaultConnectionType;
@@ -888,7 +911,13 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   return (
     <EdgeStoreContextProvider value={edgeStoreValue}>
       <style>{ANIMATED_EDGE_CSS}</style>
-      <div ref={containerRef} className="w-full h-full relative" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
+      <div
+        ref={containerRef}
+        className="w-full h-full relative"
+        aria-label="SCADA tasarim alani"
+        onDragOver={isPreview ? undefined : onDragOver}
+        onDrop={isPreview ? undefined : onDrop}
+      >
         {/* Edge Toolbar (edit mode only) */}
         {!isPreview && (
           <EdgeToolbar
@@ -932,7 +961,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           nodesDraggable={!isPreview}
           nodesConnectable={!isPreview}
           elementsSelectable={!isPreview}
-          connectionLineStyle={{ stroke: '#06b6d4', strokeWidth: 2 }}
+          connectionLineStyle={{ stroke: themeColors.primary[400], strokeWidth: 2 }}
           connectionLineType={ConnectionLineType.SmoothStep}
           connectionRadius={20}
           onMove={onMove}
@@ -943,26 +972,23 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
               variant={BackgroundVariant.Dots}
               gap={GRID_CELL_W}
               size={1.5}
-              color="#d1d5db"
+              color={themeColors.neutral[300]}
             />
           )}
-          <Controls
-            showInteractive={false}
-            position="bottom-right"
-          />
+          <Controls showInteractive={false} position="bottom-right" />
           <MiniMap
             nodeColor={(node: Node) => {
               const data = node.data as ScadaWidgetNodeData | undefined;
-              if (!data) return '#06b6d4';
+              if (!data) return themeColors.primary[400];
               const type = data.widgetType;
               // Equipment types get industrial colors
-              if (type === 'equipment') return '#f59e0b'; // amber
-              if (type === 'gauge') return '#10b981'; // emerald
-              if (type === 'alarmBanner' || type === 'alarmList') return '#ef4444'; // red
-              if (type === 'trendChart') return '#8b5cf6'; // violet
-              if (type === 'screenLink') return '#3b82f6'; // blue
-              if (type === 'staticText') return '#6b7280'; // gray
-              return '#06b6d4'; // cyan default
+              if (type === 'equipment') return themeColors.warning[500]; // amber
+              if (type === 'gauge') return themeColors.success[500]; // emerald
+              if (type === 'alarmBanner' || type === 'alarmList') return themeColors.error[500]; // red
+              if (type === 'trendChart') return themeColors.primary[700]; // violet
+              if (type === 'screenLink') return themeColors.info[500]; // blue
+              if (type === 'staticText') return themeColors.gray[400]; // gray
+              return themeColors.primary[400]; // cyan default
             }}
             maskColor="rgba(0,0,0,0.1)"
             position="bottom-left"
@@ -1044,10 +1070,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
         {/* PID Faceplate */}
         {faceplateWidget && (
-          <PidFaceplate
-            widget={faceplateWidget}
-            onClose={() => setFaceplateWidget(null)}
-          />
+          <PidFaceplate widget={faceplateWidget} onClose={() => setFaceplateWidget(null)} />
         )}
       </div>
     </EdgeStoreContextProvider>

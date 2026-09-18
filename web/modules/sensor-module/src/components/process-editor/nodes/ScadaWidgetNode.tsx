@@ -23,7 +23,11 @@ import type {
   ScadaWidgetNodeData,
 } from '../../../types/scada-widget.types';
 import { getWidgetPixelConstraints } from '../../../constants/scada-widget-sizes';
-import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from '../../scada-builder/equipment-symbols/types';
+import {
+  CONNECTION_POINTS,
+  CONNECTION_POINT_COLORS,
+} from '../../scada-builder/equipment-symbols/types';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -61,10 +65,10 @@ const HANDLE_META: Record<HandleDir, { cursor: string; style: React.CSSPropertie
   ne: { cursor: 'nesw-resize', style: { top: -5, right: -5 } },
   sw: { cursor: 'nesw-resize', style: { bottom: -5, left: -5 } },
   se: { cursor: 'nwse-resize', style: { bottom: -5, right: -5 } },
-  n:  { cursor: 'ns-resize',   style: { top: -4, left: '50%', transform: 'translateX(-50%)' } },
-  s:  { cursor: 'ns-resize',   style: { bottom: -4, left: '50%', transform: 'translateX(-50%)' } },
-  e:  { cursor: 'ew-resize',   style: { right: -4, top: '50%', transform: 'translateY(-50%)' } },
-  w:  { cursor: 'ew-resize',   style: { left: -4, top: '50%', transform: 'translateY(-50%)' } },
+  n: { cursor: 'ns-resize', style: { top: -4, left: '50%', transform: 'translateX(-50%)' } },
+  s: { cursor: 'ns-resize', style: { bottom: -4, left: '50%', transform: 'translateX(-50%)' } },
+  e: { cursor: 'ew-resize', style: { right: -4, top: '50%', transform: 'translateY(-50%)' } },
+  w: { cursor: 'ew-resize', style: { left: -4, top: '50%', transform: 'translateY(-50%)' } },
 };
 
 /* ------------------------------------------------------------------ */
@@ -81,8 +85,8 @@ const BADGE_STYLE: React.CSSProperties = {
   lineHeight: '14px',
   padding: '1px 5px',
   borderRadius: 4,
-  background: '#0e7490',
-  color: '#ecfeff',
+  background: colors.primary[600],
+  color: colors.primary[50],
   pointerEvents: 'none',
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -128,7 +132,9 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
   } | null>(null);
 
   const sizeRef = useRef(size);
-  useEffect(() => { sizeRef.current = size; }, [size]);
+  useEffect(() => {
+    sizeRef.current = size;
+  }, [size]);
 
   const clamp = useCallback(
     (w: number, h: number) => ({
@@ -184,38 +190,37 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
   }, [data]);
 
   /* ---------- Memoized styles ------------------------------------- */
-  const containerStyle = useMemo(() => ({
-    width: size.width,
-    height: size.height,
-    position: 'relative' as const,
-    zIndex: 500,
-    borderRadius: 8,
-    border: selected ? '2px solid #06b6d4' : '1px solid #e5e7eb',
-    boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
-    background: '#ffffff',
-    overflow: 'hidden' as const,
-    userSelect: 'none' as const,
-  }), [size.width, size.height, selected]);
+  const containerStyle = useMemo(
+    () => ({
+      width: size.width,
+      height: size.height,
+      position: 'relative' as const,
+      zIndex: 500,
+      borderRadius: 8,
+      border: selected
+        ? `2px solid ${themeColors.primary[400]}`
+        : `1px solid ${themeColors.neutral[200]}`,
+      boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : '0 1px 3px rgba(0,0,0,0.1)',
+      background: colors.white,
+      overflow: 'hidden' as const,
+      userSelect: 'none' as const,
+    }),
+    [size.width, size.height, selected],
+  );
 
   /* ---------- Connection handles for equipment widgets ------------- */
   const connectionHandles = useMemo(() => {
     if (data.widgetType !== 'equipment') return null;
     const subType = (data.config.equipmentSubType as string) || '';
     const points =
-      subType in CONNECTION_POINTS
-        ? CONNECTION_POINTS[subType as ConnectionPointKey]
-        : undefined;
+      subType in CONNECTION_POINTS ? CONNECTION_POINTS[subType as ConnectionPointKey] : undefined;
     if (!points || points.length === 0) return null;
     return points;
   }, [data.widgetType, data.config.equipmentSubType]);
 
   /* ---------- Render ---------------------------------------------- */
   return (
-    <div
-      style={containerStyle}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
+    <div style={containerStyle} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
       {/* Handle hover CSS is now injected globally via AnimationStyles — no per-widget <style> needed */}
 
       {/* Widget type badge (edit mode, top-left) */}
@@ -239,7 +244,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
 
       {/* Resize handles (only when selected) */}
       {selected &&
-        (Object.entries(HANDLE_META) as [HandleDir, typeof HANDLE_META[HandleDir]][]).map(
+        (Object.entries(HANDLE_META) as [HandleDir, (typeof HANDLE_META)[HandleDir]][]).map(
           ([dir, meta]) => {
             const isCorner = dir.length === 2;
             return (
@@ -250,7 +255,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
                   position: 'absolute',
                   width: isCorner ? 10 : 6,
                   height: isCorner ? 10 : 6,
-                  background: '#06b6d4',
+                  background: colors.primary[400],
                   border: '2px solid white',
                   borderRadius: isCorner ? 3 : 2,
                   cursor: meta.cursor,
@@ -264,66 +269,67 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data,
         )}
 
       {/* Connection handles for equipment widgets */}
-      {connectionHandles && connectionHandles.map((pt) => {
-        const posMap: Record<string, Position> = {
-          top: Position.Top,
-          right: Position.Right,
-          bottom: Position.Bottom,
-          left: Position.Left,
-        };
-        const position = posMap[pt.side] || Position.Left;
+      {connectionHandles &&
+        connectionHandles.map((pt) => {
+          const posMap: Record<string, Position> = {
+            top: Position.Top,
+            right: Position.Right,
+            bottom: Position.Bottom,
+            left: Position.Left,
+          };
+          const position = posMap[pt.side] || Position.Left;
 
-        // Calculate offset percentage
-        const style: React.CSSProperties = {};
-        if (pt.side === 'top' || pt.side === 'bottom') {
-          style.left = `${pt.offset * 100}%`;
-        } else {
-          style.top = `${pt.offset * 100}%`;
-        }
+          // Calculate offset percentage
+          const style: React.CSSProperties = {};
+          if (pt.side === 'top' || pt.side === 'bottom') {
+            style.left = `${pt.offset * 100}%`;
+          } else {
+            style.top = `${pt.offset * 100}%`;
+          }
 
-        const color = CONNECTION_POINT_COLORS[pt.direction];
-        const handleStyle: React.CSSProperties = {
-          width: 10,
-          height: 10,
-          background: color,
-          border: '2px solid white',
-          borderRadius: '50%',
-          ...style,
-        };
+          const color = CONNECTION_POINT_COLORS[pt.direction];
+          const handleStyle: React.CSSProperties = {
+            width: 10,
+            height: 10,
+            background: color,
+            border: '2px solid white',
+            borderRadius: '50%',
+            ...style,
+          };
 
-        if (pt.direction === 'inout') {
-          // Render both source and target handles at same position
-          return [
+          if (pt.direction === 'inout') {
+            // Render both source and target handles at same position
+            return [
+              <Handle
+                key={`${pt.id}-source`}
+                id={`${pt.id}`}
+                type="source"
+                position={position}
+                style={handleStyle}
+                title={pt.label}
+              />,
+              <Handle
+                key={`${pt.id}-target`}
+                id={`${pt.id}`}
+                type="target"
+                position={position}
+                style={{ ...handleStyle, opacity: 0, pointerEvents: 'all' as const }}
+                title={pt.label}
+              />,
+            ];
+          }
+
+          return (
             <Handle
-              key={`${pt.id}-source`}
-              id={`${pt.id}`}
-              type="source"
+              key={pt.id}
+              id={pt.id}
+              type={pt.direction === 'out' ? 'source' : 'target'}
               position={position}
               style={handleStyle}
               title={pt.label}
-            />,
-            <Handle
-              key={`${pt.id}-target`}
-              id={`${pt.id}`}
-              type="target"
-              position={position}
-              style={{ ...handleStyle, opacity: 0, pointerEvents: 'all' as const }}
-              title={pt.label}
-            />,
-          ];
-        }
-
-        return (
-          <Handle
-            key={pt.id}
-            id={pt.id}
-            type={pt.direction === 'out' ? 'source' : 'target'}
-            position={position}
-            style={handleStyle}
-            title={pt.label}
-          />
-        );
-      })}
+            />
+          );
+        })}
     </div>
   );
 };

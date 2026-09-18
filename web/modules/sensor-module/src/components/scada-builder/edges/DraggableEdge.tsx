@@ -17,6 +17,7 @@ import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
 import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -54,25 +55,13 @@ const cubicBezier = (t: number, p0: number, p1: number, p2: number, p3: number) 
 /*  Component                                         */
 /* -------------------------------------------------- */
 const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
-  const {
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    markerEnd,
-    style = {},
-    data,
-    selected,
-  } = props;
+  const { id, sourceX, sourceY, targetX, targetY, markerEnd, style = {}, data, selected } = props;
 
   const { updateEdgeData } = useEdgeStoreContext();
 
   /* Tag-driven flow state (falls back to static animated flag) */
   const flowState = useEdgeFlowState(data?.flowConfig);
-  const shouldAnimate = data?.flowConfig
-    ? flowState.isFlowing
-    : !!data?.animated;
+  const shouldAnimate = data?.flowConfig ? flowState.isFlowing : !!data?.animated;
 
   const curveType = data?.curveType || 'quadratic';
   const showGuides = data?.showGuides ?? true;
@@ -92,12 +81,10 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
     y: (sourceY + targetY) / 2 + 40,
   };
 
-  const [controlPoint, setControlPoint] = useState<ControlPoint>(
-    data?.controlPoint ?? defaultCP1
-  );
+  const [controlPoint, setControlPoint] = useState<ControlPoint>(data?.controlPoint ?? defaultCP1);
 
   const [controlPoint2, setControlPoint2] = useState<ControlPoint>(
-    data?.controlPoint2 ?? defaultCP2
+    data?.controlPoint2 ?? defaultCP2,
   );
 
   // Track whether user has manually dragged control points
@@ -129,12 +116,12 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
     if (curveType === 'cubic') {
       // Cubic Bezier: M start C cp1 cp2 end
       setEdgePath(
-        `M${sourceX},${sourceY} C${controlPoint.x},${controlPoint.y} ${controlPoint2.x},${controlPoint2.y} ${targetX},${targetY}`
+        `M${sourceX},${sourceY} C${controlPoint.x},${controlPoint.y} ${controlPoint2.x},${controlPoint2.y} ${targetX},${targetY}`,
       );
     } else {
       // Quadratic Bezier: M start Q cp end
       setEdgePath(
-        `M${sourceX},${sourceY} Q${controlPoint.x},${controlPoint.y} ${targetX},${targetY}`
+        `M${sourceX},${sourceY} Q${controlPoint.x},${controlPoint.y} ${targetX},${targetY}`,
       );
     }
   }, [sourceX, sourceY, targetX, targetY, controlPoint, controlPoint2, curveType]);
@@ -154,54 +141,52 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
   }, [controlPoint, controlPoint2, id, curveType, updateEdgeData]);
 
   /* ---------- Drag handling --------------------- */
-  const handleMouseDown = useCallback(
-    (e: ReactMouseEvent<SVGCircleElement>, cpIndex: 1 | 2) => {
-      e.stopPropagation();
-      e.preventDefault();
+  const handleMouseDown = useCallback((e: ReactMouseEvent<SVGCircleElement>, cpIndex: 1 | 2) => {
+    e.stopPropagation();
+    e.preventDefault();
 
-      const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
-      if (!svg) return;
+    const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
+    if (!svg) return;
 
-      // Mark this control point as user-customized
+    // Mark this control point as user-customized
+    if (cpIndex === 1) {
+      userDraggedCP1.current = true;
+    } else {
+      userDraggedCP2.current = true;
+    }
+
+    const onMove = (mv: globalThis.MouseEvent) => {
+      const ctm = svg.getScreenCTM()?.inverse();
+      if (!ctm) return;
+
+      const pt = svg.createSVGPoint();
+      pt.x = mv.clientX;
+      pt.y = mv.clientY;
+      const svgPt = pt.matrixTransform(ctm);
+
+      const newCP = { x: svgPt.x, y: svgPt.y };
+
       if (cpIndex === 1) {
-        userDraggedCP1.current = true;
+        setControlPoint(newCP);
       } else {
-        userDraggedCP2.current = true;
+        setControlPoint2(newCP);
       }
+    };
 
-      const onMove = (mv: globalThis.MouseEvent) => {
-        const ctm = svg.getScreenCTM()?.inverse();
-        if (!ctm) return;
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
 
-        const pt = svg.createSVGPoint();
-        pt.x = mv.clientX;
-        pt.y = mv.clientY;
-        const svgPt = pt.matrixTransform(ctm);
-
-        const newCP = { x: svgPt.x, y: svgPt.y };
-
-        if (cpIndex === 1) {
-          setControlPoint(newCP);
-        } else {
-          setControlPoint2(newCP);
-        }
-      };
-
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    },
-    []
-  );
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   /* ---------- Guide lines path ------------------ */
-  const guidePath = curveType === 'cubic'
-    ? `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${controlPoint2.x},${controlPoint2.y} L${targetX},${targetY}`
-    : `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${targetX},${targetY}`;
+  const guidePath =
+    curveType === 'cubic'
+      ? `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${controlPoint2.x},${controlPoint2.y} L${targetX},${targetY}`
+      : `M${sourceX},${sourceY} L${controlPoint.x},${controlPoint.y} L${targetX},${targetY}`;
 
   /* ---------- Render ---------------------------- */
   return (
@@ -211,7 +196,7 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
         <path
           d={guidePath}
           fill="none"
-          stroke="#d1d5db"
+          stroke={colors.neutral[300]}
           strokeWidth={1}
           strokeDasharray="4,3"
           style={{ pointerEvents: 'none' }}
@@ -229,14 +214,14 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
           pointerEvents: 'stroke',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: (data?.flowConfig && shouldAnimate)
-            ? '8 4'
-            : edgeStyle.strokeDasharray,
+          strokeDasharray: data?.flowConfig && shouldAnimate ? '8 4' : edgeStyle.strokeDasharray,
           strokeLinecap: 'round',
-          ...(data?.flowConfig && shouldAnimate ? {
-            animation: `edge-flow ${flowState.speed}s linear infinite`,
-            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
-          } : {}),
+          ...(data?.flowConfig && shouldAnimate
+            ? {
+                animation: `edge-flow ${flowState.speed}s linear infinite`,
+                animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+              }
+            : {}),
           ...style,
         }}
       />
@@ -246,7 +231,7 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
         <path
           d={edgePath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
           style={{ pointerEvents: 'none' }}
@@ -254,34 +239,40 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
       )}
 
       {/* P&ID flow direction indicator -- only rendered when actively flowing */}
-      {shouldAnimate && (() => {
-        const T = 0.5;
-        const DELTA = 0.01;
-        let mx: number, my: number, angle: number;
-        if (curveType === 'cubic') {
-          mx = cubicBezier(T, sourceX, controlPoint.x, controlPoint2.x, targetX);
-          my = cubicBezier(T, sourceY, controlPoint.y, controlPoint2.y, targetY);
-          const nx = cubicBezier(T + DELTA, sourceX, controlPoint.x, controlPoint2.x, targetX);
-          const ny = cubicBezier(T + DELTA, sourceY, controlPoint.y, controlPoint2.y, targetY);
-          angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
-        } else {
-          mx = quadBezier(T, sourceX, controlPoint.x, targetX);
-          my = quadBezier(T, sourceY, controlPoint.y, targetY);
-          const nx = quadBezier(T + DELTA, sourceX, controlPoint.x, targetX);
-          const ny = quadBezier(T + DELTA, sourceY, controlPoint.y, targetY);
-          angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
-        }
-        return (
-          <polygon
-            points="-7,-5 0,0 -7,5"
-            fill={edgeStyle.stroke}
-            transform={`translate(${mx},${my}) rotate(${angle})`}
-            style={{ pointerEvents: 'none' }}
-          >
-            <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
-          </polygon>
-        );
-      })()}
+      {shouldAnimate &&
+        (() => {
+          const T = 0.5;
+          const DELTA = 0.01;
+          let mx: number, my: number, angle: number;
+          if (curveType === 'cubic') {
+            mx = cubicBezier(T, sourceX, controlPoint.x, controlPoint2.x, targetX);
+            my = cubicBezier(T, sourceY, controlPoint.y, controlPoint2.y, targetY);
+            const nx = cubicBezier(T + DELTA, sourceX, controlPoint.x, controlPoint2.x, targetX);
+            const ny = cubicBezier(T + DELTA, sourceY, controlPoint.y, controlPoint2.y, targetY);
+            angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
+          } else {
+            mx = quadBezier(T, sourceX, controlPoint.x, targetX);
+            my = quadBezier(T, sourceY, controlPoint.y, targetY);
+            const nx = quadBezier(T + DELTA, sourceX, controlPoint.x, targetX);
+            const ny = quadBezier(T + DELTA, sourceY, controlPoint.y, targetY);
+            angle = Math.atan2(ny - my, nx - mx) * (180 / Math.PI);
+          }
+          return (
+            <polygon
+              points="-7,-5 0,0 -7,5"
+              fill={edgeStyle.stroke}
+              transform={`translate(${mx},${my}) rotate(${angle})`}
+              style={{ pointerEvents: 'none' }}
+            >
+              <animate
+                attributeName="opacity"
+                values="1;0.2;1"
+                dur="1.5s"
+                repeatCount="indefinite"
+              />
+            </polygon>
+          );
+        })()}
 
       {/* Control point handles - only visible when selected */}
       {selected && (
@@ -291,8 +282,8 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             cx={controlPoint.x}
             cy={controlPoint.y}
             r={hoveredCP === 1 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-            fill="#f97316"
-            stroke="#ea580c"
+            fill={colors.accent[600]}
+            stroke={colors.warning[600]}
             strokeWidth={2}
             style={{
               pointerEvents: 'all',
@@ -312,8 +303,8 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
               cx={controlPoint2.x}
               cy={controlPoint2.y}
               r={hoveredCP === 2 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-              fill="#8b5cf6"
-              stroke="#7c3aed"
+              fill={colors.primary[700]}
+              stroke={colors.primary[800]}
               strokeWidth={2}
               style={{
                 pointerEvents: 'all',
@@ -337,8 +328,8 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             cx={sourceX}
             cy={sourceY}
             r={4}
-            fill="#22c55e"
-            stroke="#16a34a"
+            fill={colors.success[500]}
+            stroke={colors.success[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -346,8 +337,8 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             cx={targetX}
             cy={targetY}
             r={4}
-            fill="#ef4444"
-            stroke="#dc2626"
+            fill={colors.error[500]}
+            stroke={colors.error[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -363,7 +354,7 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             textAnchor="middle"
             style={{
               fontSize: 11,
-              fill: '#374151',
+              fill: colors.neutral[700],
               fontWeight: 500,
             }}
           >

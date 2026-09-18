@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -43,7 +44,7 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={63}
           x2={115}
           y2={63}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.7 : 0.4}
@@ -53,7 +54,7 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={70}
           x2={115}
           y2={70}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.7 : 0.4}
@@ -63,7 +64,7 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
           y1={77}
           x2={115}
           y2={77}
-          stroke={isRunning ? '#ef4444' : colors.stroke}
+          stroke={isRunning ? themeColors.error[500] : colors.stroke}
           strokeWidth={1.5}
           strokeDasharray="4 3"
           opacity={isRunning ? 0.7 : 0.4}
@@ -127,17 +128,11 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Fan center hub */}
-        <circle
-          cx={70}
-          cy={29}
-          r={3}
-          fill={colors.stroke}
-          fillOpacity={0.6}
-        />
+        <circle cx={70} cy={29} r={3} fill={colors.stroke} fillOpacity={0.6} />
 
         {/* Air flow direction arrows (upward) */}
         {isRunning && (
-          <g fill="#60a5fa" opacity={0.6}>
+          <g fill={themeColors.info[500]} opacity={0.6}>
             <polygon points="56,10 58,4 60,10" />
             <polygon points="69,6 71,0 73,6" />
             <polygon points="80,10 82,4 84,10" />
@@ -145,33 +140,35 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Support structure between fan and bundle */}
-        <line x1={45} y1={50} x2={45} y2={55} stroke={colors.stroke} strokeWidth={1.5} opacity={0.5} />
-        <line x1={95} y1={50} x2={95} y2={55} stroke={colors.stroke} strokeWidth={1.5} opacity={0.5} />
+        <line
+          x1={45}
+          y1={50}
+          x2={45}
+          y2={55}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          opacity={0.5}
+        />
+        <line
+          x1={95}
+          y1={50}
+          x2={95}
+          y2={55}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
+          opacity={0.5}
+        />
 
         {/* Nozzle — inlet (left) */}
-        <line
-          x1={0}
-          y1={70}
-          x2={20}
-          y2={70}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={0} y1={70} x2={20} y2={70} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="10,67 16,70 10,73" fill="#ef4444" opacity={0.8} />
+          <polygon points="10,67 16,70 10,73" fill={themeColors.error[500]} opacity={0.8} />
         )}
 
         {/* Nozzle — outlet (right) */}
-        <line
-          x1={120}
-          y1={70}
-          x2={140}
-          y2={70}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
+        <line x1={120} y1={70} x2={140} y2={70} stroke={colors.stroke} strokeWidth={3} />
         {isRunning && (
-          <polygon points="128,67 134,70 128,73" fill="#3b82f6" opacity={0.8} />
+          <polygon points="128,67 134,70 128,73" fill={themeColors.info[500]} opacity={0.8} />
         )}
 
         {/* P&ID label — AC */}
@@ -194,7 +191,7 @@ const AirCoolerSymbol: React.FC<EquipmentSymbolProps> = ({
             y={7}
             textAnchor="start"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

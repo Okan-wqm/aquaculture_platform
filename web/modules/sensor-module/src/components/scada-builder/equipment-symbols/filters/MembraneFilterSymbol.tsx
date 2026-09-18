@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const MembraneFilterSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -38,8 +39,26 @@ const MembraneFilterSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* End caps */}
-        <ellipse cx={10} cy={50} rx={6} ry={22} fill={colors.fill} fillOpacity={0.9} stroke={colors.stroke} strokeWidth={2} />
-        <ellipse cx={110} cy={50} rx={6} ry={22} fill={colors.fill} fillOpacity={0.9} stroke={colors.stroke} strokeWidth={2} />
+        <ellipse
+          cx={10}
+          cy={50}
+          rx={6}
+          ry={22}
+          fill={colors.fill}
+          fillOpacity={0.9}
+          stroke={colors.stroke}
+          strokeWidth={2}
+        />
+        <ellipse
+          cx={110}
+          cy={50}
+          rx={6}
+          ry={22}
+          fill={colors.fill}
+          fillOpacity={0.9}
+          stroke={colors.stroke}
+          strokeWidth={2}
+        />
 
         {/* Membrane module dividers — vertical lines inside vessel */}
         {[35, 55, 75, 95].map((x) => (
@@ -92,7 +111,14 @@ const MembraneFilterSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={60} y={96} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={60}
+            y={96}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

@@ -15,6 +15,7 @@
 
 import React, { memo, useCallback, useRef, useState, useEffect } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -49,12 +50,7 @@ function snapToStep(value: number, step: number, min: number): number {
  * Calculate the angle (in degrees, 0 = top, clockwise positive)
  * from a center point to a pointer position.
  */
-function pointerAngle(
-  cx: number,
-  cy: number,
-  px: number,
-  py: number,
-): number {
+function pointerAngle(cx: number, cy: number, px: number, py: number): number {
   const dx = px - cx;
   const dy = py - cy;
   // atan2 returns radians where 0 = right, positive = counter-clockwise
@@ -85,9 +81,9 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
   const showValue = (config.showValue as boolean) ?? true;
   const showTicks = (config.showTicks as boolean) ?? true;
   const tickCount = (config.tickCount as number) ?? 11;
-  const knobColor = (config.knobColor as string) ?? '#374151';
-  const trackColor = (config.trackColor as string) ?? '#e5e7eb';
-  const indicatorColor = (config.indicatorColor as string) ?? '#06b6d4';
+  const knobColor = (config.knobColor as string) ?? colors.neutral[700];
+  const trackColor = (config.trackColor as string) ?? colors.neutral[200];
+  const indicatorColor = (config.indicatorColor as string) ?? colors.primary[400];
   const label = (config.label as string) ?? 'Knob';
 
   /* ---- State ---- */
@@ -97,7 +93,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
 
   // Resolve displayed value: local drag value takes priority during interaction
   const rawValue = isEditing
-    ? (config.demoValue as number) ?? 42
+    ? ((config.demoValue as number) ?? 42)
     : typeof value === 'number'
       ? value
       : typeof value === 'string'
@@ -260,19 +256,13 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
           cx={cx}
           cy={cy}
           r={outerR}
-          fill="#f9fafb"
-          stroke="#e5e7eb"
+          fill={colors.neutral[50]}
+          stroke={chartChrome.grid}
           strokeWidth={1}
         />
 
         {/* Track arc (background) */}
-        <path
-          d={trackPath}
-          fill="none"
-          stroke={trackColor}
-          strokeWidth={6}
-          strokeLinecap="round"
-        />
+        <path d={trackPath} fill="none" stroke={trackColor} strokeWidth={6} strokeLinecap="round" />
 
         {/* Active arc (colored portion showing current value) */}
         <path
@@ -293,7 +283,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
               y1={tick.y1}
               x2={tick.x2}
               y2={tick.y2}
-              stroke="#9ca3af"
+              stroke={colors.neutral[400]}
               strokeWidth={1}
               strokeLinecap="round"
             />
@@ -301,7 +291,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
 
         {/* Knob center circle */}
         <circle cx={cx} cy={cy} r={indicatorR - 4} fill={knobColor} />
-        <circle cx={cx} cy={cy} r={indicatorR - 8} fill="#4b5563" />
+        <circle cx={cx} cy={cy} r={indicatorR - 8} fill={colors.neutral[600]} />
 
         {/* Indicator line (rotating pointer) */}
         <line
@@ -318,14 +308,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
         />
 
         {/* Indicator dot at tip */}
-        <circle
-          cx={indX}
-          cy={indY}
-          r={3}
-          fill={indicatorColor}
-          stroke="white"
-          strokeWidth={1}
-        />
+        <circle cx={indX} cy={indY} r={3} fill={indicatorColor} stroke="white" strokeWidth={1} />
 
         {/* Center value display */}
         {showValue && (
@@ -348,7 +331,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
           y={size - 2}
           textAnchor="middle"
           fontSize={Math.min(10, size * 0.08)}
-          fill="#6b7280"
+          fill={colors.gray[400]}
         >
           {label}
         </text>
@@ -359,7 +342,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
           y={(ticks[0]?.y2 ?? 0) + 10}
           textAnchor="middle"
           fontSize={7}
-          fill="#9ca3af"
+          fill={colors.neutral[400]}
         >
           {min}
         </text>
@@ -368,7 +351,7 @@ const KnobRenderer: React.FC<WidgetRendererProps> = ({
           y={(ticks[ticks.length - 1]?.y2 ?? 0) + 10}
           textAnchor="middle"
           fontSize={7}
-          fill="#9ca3af"
+          fill={colors.neutral[400]}
         >
           {max}
         </text>

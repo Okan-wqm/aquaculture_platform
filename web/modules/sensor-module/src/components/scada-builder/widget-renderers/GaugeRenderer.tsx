@@ -6,6 +6,7 @@
 
 import React, { memo, useRef, useEffect, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Inject animation keyframes once                                    */
@@ -31,15 +32,15 @@ function injectGaugeStyles() {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const CX = 100;           // center x in viewBox
-const CY = 95;            // center y in viewBox
-const R = 70;             // arc radius
-const ARC_WIDTH = 12;     // main arc stroke width
-const BAND_WIDTH = 14;    // background band stroke width (slightly wider)
-const NEEDLE_LEN = 62;    // needle length (shorter than R so it doesn't overlap arc)
-const START_ANGLE = Math.PI;  // 180 deg (left)
-const END_ANGLE = 0;          // 0 deg (right)
-const ARC_SPAN = Math.PI;     // total sweep = 180 deg
+const CX = 100; // center x in viewBox
+const CY = 95; // center y in viewBox
+const R = 70; // arc radius
+const ARC_WIDTH = 12; // main arc stroke width
+const BAND_WIDTH = 14; // background band stroke width (slightly wider)
+const NEEDLE_LEN = 62; // needle length (shorter than R so it doesn't overlap arc)
+const START_ANGLE = Math.PI; // 180 deg (left)
+const END_ANGLE = 0; // 0 deg (right)
+const ARC_SPAN = Math.PI; // total sweep = 180 deg
 
 // Half-circle arc length
 const ARC_LENGTH = Math.PI * R; // pi * r for 180 deg
@@ -80,7 +81,13 @@ const TICK_OUTER = R + 8;
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const GaugeRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   // Inject CSS once
   useEffect(injectGaugeStyles, []);
 
@@ -103,9 +110,9 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
   const criticalPct = Math.max(0, Math.min(1, (criticalThreshold - min) / (max - min || 1)));
 
   /* ---- active color ---- */
-  let activeColor = '#22c55e'; // green
-  if (pct >= criticalPct) activeColor = '#ef4444';
-  else if (pct >= warningPct) activeColor = '#eab308';
+  let activeColor = colors.success[500]; // green
+  if (pct >= criticalPct) activeColor = colors.error[500];
+  else if (pct >= warningPct) activeColor = colors.warning[500];
 
   /* ---- responsive font sizes ---- */
   const h = height - 16;
@@ -146,13 +153,10 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
   // Green band: 0% → warningPct
   const greenBandPath = arcPath(pctToAngle(0), pctToAngle(warningPct), R);
   // Yellow band: warningPct → criticalPct
-  const yellowBandPath = warningPct < criticalPct
-    ? arcPath(pctToAngle(warningPct), pctToAngle(criticalPct), R)
-    : '';
+  const yellowBandPath =
+    warningPct < criticalPct ? arcPath(pctToAngle(warningPct), pctToAngle(criticalPct), R) : '';
   // Red band: criticalPct → 100%
-  const redBandPath = criticalPct < 1
-    ? arcPath(pctToAngle(criticalPct), pctToAngle(1), R)
-    : '';
+  const redBandPath = criticalPct < 1 ? arcPath(pctToAngle(criticalPct), pctToAngle(1), R) : '';
 
   /* ---- full background arc (for the dasharray-based value arc) ---- */
   const fullArcPath = arcPath(START_ANGLE, END_ANGLE, R);
@@ -174,7 +178,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
         <path
           d={greenBandPath}
           fill="none"
-          stroke="#22c55e"
+          stroke={colors.success[500]}
           strokeWidth={BAND_WIDTH}
           strokeLinecap="butt"
           opacity={0.15}
@@ -183,7 +187,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           <path
             d={yellowBandPath}
             fill="none"
-            stroke="#eab308"
+            stroke={colors.warning[500]}
             strokeWidth={BAND_WIDTH}
             strokeLinecap="butt"
             opacity={0.15}
@@ -193,7 +197,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           <path
             d={redBandPath}
             fill="none"
-            stroke="#ef4444"
+            stroke={colors.error[500]}
             strokeWidth={BAND_WIDTH}
             strokeLinecap="butt"
             opacity={0.15}
@@ -204,7 +208,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
         <path
           d={fullArcPath}
           fill="none"
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth={ARC_WIDTH}
           strokeLinecap="round"
         />
@@ -226,8 +230,14 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
         {/* ---- Tick marks ---- */}
         {TICK_PCTS.map((t) => {
           const angle = pctToAngle(t);
-          const inner = { x: CX + TICK_INNER * Math.cos(angle), y: CY - TICK_INNER * Math.sin(angle) };
-          const outer = { x: CX + TICK_OUTER * Math.cos(angle), y: CY - TICK_OUTER * Math.sin(angle) };
+          const inner = {
+            x: CX + TICK_INNER * Math.cos(angle),
+            y: CY - TICK_INNER * Math.sin(angle),
+          };
+          const outer = {
+            x: CX + TICK_OUTER * Math.cos(angle),
+            y: CY - TICK_OUTER * Math.sin(angle),
+          };
           return (
             <line
               key={t}
@@ -235,7 +245,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
               y1={inner.y}
               x2={outer.x}
               y2={outer.y}
-              stroke="#9ca3af"
+              stroke={colors.neutral[400]}
               strokeWidth={1.5}
               strokeLinecap="round"
             />
@@ -256,18 +266,18 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
             y1={CY}
             x2={CX + NEEDLE_LEN}
             y2={CY}
-            stroke="#374151"
+            stroke={colors.neutral[700]}
             strokeWidth={2}
             strokeLinecap="round"
           />
           {/* Needle tip — small triangle */}
           <polygon
             points={`${CX + NEEDLE_LEN},${CY} ${CX + NEEDLE_LEN - 5},${CY - 2.5} ${CX + NEEDLE_LEN - 5},${CY + 2.5}`}
-            fill="#374151"
+            fill={colors.neutral[700]}
           />
           {/* Center pivot circle */}
-          <circle cx={CX} cy={CY} r={4} fill="#374151" />
-          <circle cx={CX} cy={CY} r={2} fill="#ffffff" />
+          <circle cx={CX} cy={CY} r={4} fill={colors.neutral[700]} />
+          <circle cx={CX} cy={CY} r={2} fill={colors.white} />
         </g>
 
         {/* ---- Value text (with pulse animation) ---- */}
@@ -277,7 +287,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           textAnchor="middle"
           fontSize={valueFontSize}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
           style={{
             transformOrigin: `${CX}px ${CY - 14}px`,
             animation: pulsing ? 'gaugePulse 300ms ease-out' : 'none',
@@ -287,12 +297,24 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
         </text>
 
         {/* ---- Unit ---- */}
-        <text x={CX} y={CY + 4} textAnchor="middle" fontSize={labelFontSize} fill="#6b7280">
+        <text
+          x={CX}
+          y={CY + 4}
+          textAnchor="middle"
+          fontSize={labelFontSize}
+          fill={colors.gray[400]}
+        >
           {unit}
         </text>
 
         {/* ---- Label ---- */}
-        <text x={CX} y={125} textAnchor="middle" fontSize={minMaxFontSize} fill="#9ca3af">
+        <text
+          x={CX}
+          y={125}
+          textAnchor="middle"
+          fontSize={minMaxFontSize}
+          fill={colors.neutral[400]}
+        >
           {label}
         </text>
 
@@ -302,7 +324,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           y={leftPt.y + 14}
           textAnchor="end"
           fontSize={minMaxFontSize}
-          fill="#9ca3af"
+          fill={colors.neutral[400]}
         >
           {min}
         </text>
@@ -311,7 +333,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           y={rightPt.y + 14}
           textAnchor="start"
           fontSize={minMaxFontSize}
-          fill="#9ca3af"
+          fill={colors.neutral[400]}
         >
           {max}
         </text>

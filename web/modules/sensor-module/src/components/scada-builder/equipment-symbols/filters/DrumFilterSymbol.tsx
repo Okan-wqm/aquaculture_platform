@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const DrumFilterSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -40,9 +41,9 @@ const DrumFilterSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Liquid surface */}
         <path
           d="M 10 58 Q 35 54 60 58 Q 85 62 110 58"
-          fill="#93c5fd"
+          fill={themeColors.primary[200]}
           fillOpacity={0.25}
-          stroke="#60a5fa"
+          stroke={themeColors.info[500]}
           strokeWidth={0.8}
         />
 
@@ -82,8 +83,24 @@ const DrumFilterSymbol: React.FC<EquipmentSymbolProps> = ({
         <circle cx={60} cy={55} r={5} fill={colors.stroke} fillOpacity={0.7} />
 
         {/* Shaft bearing stubs */}
-        <line x1={10} y1={55} x2={28} y2={55} stroke={colors.stroke} strokeWidth={3} strokeLinecap="round" />
-        <line x1={92} y1={55} x2={110} y2={55} stroke={colors.stroke} strokeWidth={3} strokeLinecap="round" />
+        <line
+          x1={10}
+          y1={55}
+          x2={28}
+          y2={55}
+          stroke={colors.stroke}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
+        <line
+          x1={92}
+          y1={55}
+          x2={110}
+          y2={55}
+          stroke={colors.stroke}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
 
         {/* Scraper blade */}
         <line
@@ -116,7 +133,14 @@ const DrumFilterSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={60} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={60}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

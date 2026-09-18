@@ -10,6 +10,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import { colors } from '@aquaculture/shared-ui';
 
 interface SmartGuidesProps {
   /** Currently dragging widget ID, or null when not dragging */
@@ -25,8 +26,8 @@ interface SmartGuidesProps {
 interface GuideLine {
   orientation: 'horizontal' | 'vertical';
   position: number; // px value for top or left
-  start: number;    // px value for where line starts
-  end: number;      // px value for where line ends
+  start: number; // px value for where line starts
+  end: number; // px value for where line ends
 }
 
 export const SmartGuides: React.FC<SmartGuidesProps> = ({
@@ -136,7 +137,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
             y1={guide.start}
             x2={guide.position}
             y2={guide.end}
-            stroke="#06b6d4"
+            stroke={colors.primary[400]}
             strokeWidth={1}
             strokeDasharray="4 3"
             opacity={0.7}
@@ -148,7 +149,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
             y1={guide.position}
             x2={guide.end}
             y2={guide.position}
-            stroke="#06b6d4"
+            stroke={colors.primary[400]}
             strokeWidth={1}
             strokeDasharray="4 3"
             opacity={0.7}

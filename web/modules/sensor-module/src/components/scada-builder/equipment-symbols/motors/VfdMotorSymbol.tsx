@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const VfdMotorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -60,7 +61,15 @@ const VfdMotorSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Connection cable between VFD and motor */}
-        <line x1={43} y1={50} x2={55} y2={50} stroke={colors.stroke} strokeWidth={2} strokeDasharray="3,2" />
+        <line
+          x1={43}
+          y1={50}
+          x2={55}
+          y2={50}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeDasharray="3,2"
+        />
 
         {/* Motor body — circle */}
         <circle
@@ -100,10 +109,25 @@ const VfdMotorSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {/* Shaft */}
-        <line x1={105} y1={50} x2={120} y2={50} stroke={colors.stroke} strokeWidth={3} strokeLinecap="round" />
+        <line
+          x1={105}
+          y1={50}
+          x2={120}
+          y2={50}
+          stroke={colors.stroke}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
 
         {label && (
-          <text x={60} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={60}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

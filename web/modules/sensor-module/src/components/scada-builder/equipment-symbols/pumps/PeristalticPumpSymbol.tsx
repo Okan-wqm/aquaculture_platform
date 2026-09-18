@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const PeristalticPumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -46,25 +47,11 @@ const PeristalticPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Roller 1 — top-right position */}
-        <circle
-          cx={60}
-          cy={38}
-          r={6}
-          fill={colors.fill}
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
+        <circle cx={60} cy={38} r={6} fill={colors.fill} stroke={colors.stroke} strokeWidth={2} />
         <circle cx={60} cy={38} r={2} fill={colors.stroke} opacity={0.6} />
 
         {/* Roller 2 — bottom-right position */}
-        <circle
-          cx={60}
-          cy={62}
-          r={6}
-          fill={colors.fill}
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
+        <circle cx={60} cy={62} r={6} fill={colors.fill} stroke={colors.stroke} strokeWidth={2} />
         <circle cx={60} cy={62} r={2} fill={colors.stroke} opacity={0.6} />
 
         {/* Hose tube arc — right side */}
@@ -99,7 +86,14 @@ const PeristalticPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={50} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

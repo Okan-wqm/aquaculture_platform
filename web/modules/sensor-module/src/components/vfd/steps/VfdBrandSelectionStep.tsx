@@ -7,6 +7,7 @@ import {
   VFD_MODEL_SERIES,
 } from '../../../types/vfd.types';
 import { useVfdBrands } from '../../../hooks/useVfdBrands';
+import { colors } from '@aquaculture/shared-ui';
 
 interface VfdBrandSelectionStepProps {
   selectedBrand?: VfdBrandInfo;
@@ -15,14 +16,14 @@ interface VfdBrandSelectionStepProps {
 
 // Brand logos/icons (using text placeholders - can be replaced with actual logos)
 const BRAND_LOGOS: Record<VfdBrand, { color: string; bgColor: string }> = {
-  [VfdBrand.DANFOSS]: { color: '#E30613', bgColor: '#FEE2E2' },
-  [VfdBrand.ABB]: { color: '#FF000F', bgColor: '#FEE2E2' },
-  [VfdBrand.SIEMENS]: { color: '#009999', bgColor: '#D1FAE5' },
-  [VfdBrand.SCHNEIDER]: { color: '#3DCD58', bgColor: '#D1FAE5' },
-  [VfdBrand.YASKAWA]: { color: '#0066B3', bgColor: '#DBEAFE' },
-  [VfdBrand.DELTA]: { color: '#003399', bgColor: '#DBEAFE' },
-  [VfdBrand.MITSUBISHI]: { color: '#E60012', bgColor: '#FEE2E2' },
-  [VfdBrand.ROCKWELL]: { color: '#C8102E', bgColor: '#FEE2E2' },
+  [VfdBrand.DANFOSS]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.ABB]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.SIEMENS]: { color: colors.success[500], bgColor: colors.success[100] },
+  [VfdBrand.SCHNEIDER]: { color: colors.success[500], bgColor: colors.success[100] },
+  [VfdBrand.YASKAWA]: { color: colors.primary[600], bgColor: colors.info[100] },
+  [VfdBrand.DELTA]: { color: colors.primary[700], bgColor: colors.info[100] },
+  [VfdBrand.MITSUBISHI]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.ROCKWELL]: { color: colors.error[700], bgColor: colors.error[100] },
 };
 
 // Popular brands to highlight
@@ -44,8 +45,8 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
       <div>
         <h3 className="text-lg font-medium text-gray-900 mb-2">VFD Markası Seçin</h3>
         <p className="text-sm text-gray-500">
-          Frekans konvertörünüzün markasını seçin. Marka seçimi, register mapping ve
-          varsayılan ayarları otomatik olarak yapılandıracaktır.
+          Frekans konvertörünüzün markasını seçin. Marka seçimi, register mapping ve varsayılan
+          ayarları otomatik olarak yapılandıracaktır.
         </p>
       </div>
 
@@ -91,7 +92,9 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
           <div className="flex items-start">
             <div
               className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg mr-4"
-              style={{ backgroundColor: BRAND_LOGOS[selectedBrand.code]?.color || '#6366F1' }}
+              style={{
+                backgroundColor: BRAND_LOGOS[selectedBrand.code]?.color || colors.primary[500],
+              }}
             >
               {selectedBrand.name.substring(0, 2).toUpperCase()}
             </div>
@@ -145,7 +148,10 @@ interface BrandCardProps {
 }
 
 function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
-  const { color, bgColor } = BRAND_LOGOS[brand.code] || { color: '#6366F1', bgColor: '#E0E7FF' };
+  const { color, bgColor } = BRAND_LOGOS[brand.code] || {
+    color: colors.primary[500],
+    bgColor: colors.info[100],
+  };
 
   return (
     <button

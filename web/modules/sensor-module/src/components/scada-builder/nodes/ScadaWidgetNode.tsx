@@ -31,7 +31,11 @@ import {
   DEFAULT_SVG_TRANSFORM,
 } from '../../../types/scada-transform.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
-import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
+import {
+  CONNECTION_POINTS,
+  CONNECTION_POINT_COLORS,
+  EQUIPMENT_VIEWBOX,
+} from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scada';
 import type { SimTagValue } from '../../../store/scada/types';
 // FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
@@ -41,6 +45,7 @@ import { useAnimationState } from '../../../engine/animation/useAnimationState';
 import { useWidgetEvents } from '../../../engine/events/useWidgetEvents';
 import type { WidgetEventBus } from '../../../engine/events/WidgetEventBus';
 import type { AnimationState } from '../../../engine/animation/types';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 export type { ScadaWidgetNodeData } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -94,10 +99,10 @@ const HANDLE_META: Record<HandleDir, { cursor: string; style: React.CSSPropertie
   ne: { cursor: 'nesw-resize', style: { top: -5, right: -5 } },
   sw: { cursor: 'nesw-resize', style: { bottom: -5, left: -5 } },
   se: { cursor: 'nwse-resize', style: { bottom: -5, right: -5 } },
-  n:  { cursor: 'ns-resize',   style: { top: -4, left: '50%', transform: 'translateX(-50%)' } },
-  s:  { cursor: 'ns-resize',   style: { bottom: -4, left: '50%', transform: 'translateX(-50%)' } },
-  e:  { cursor: 'ew-resize',   style: { right: -4, top: '50%', transform: 'translateY(-50%)' } },
-  w:  { cursor: 'ew-resize',   style: { left: -4, top: '50%', transform: 'translateY(-50%)' } },
+  n: { cursor: 'ns-resize', style: { top: -4, left: '50%', transform: 'translateX(-50%)' } },
+  s: { cursor: 'ns-resize', style: { bottom: -4, left: '50%', transform: 'translateX(-50%)' } },
+  e: { cursor: 'ew-resize', style: { right: -4, top: '50%', transform: 'translateY(-50%)' } },
+  w: { cursor: 'ew-resize', style: { left: -4, top: '50%', transform: 'translateY(-50%)' } },
 };
 
 /* ------------------------------------------------------------------ */
@@ -114,8 +119,8 @@ const BADGE_STYLE: React.CSSProperties = {
   lineHeight: '14px',
   padding: '1px 5px',
   borderRadius: 4,
-  background: '#0e7490',
-  color: '#ecfeff',
+  background: colors.primary[600],
+  color: colors.primary[50],
   pointerEvents: 'none',
   textTransform: 'uppercase',
   letterSpacing: 0.5,
@@ -141,7 +146,11 @@ const CONTENT_STYLE: React.CSSProperties = {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, data, selected }) => {
+const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({
+  id,
+  data,
+  selected,
+}) => {
   const constraints = WIDGET_SIZE_CONSTRAINTS[data.widgetType] || DEFAULT_CONSTRAINTS;
 
   /* ---------- Locked state from store -------------------------------- */
@@ -219,36 +228,43 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
     };
   }, []);
 
-  const handleCommand = useCallback((command: string, value?: unknown) => {
-    if (command === 'navigate' && typeof value === 'string') {
-      useScadaPackageStore.getState().setActiveScreen(value);
-      return;
-    }
-
-    // Simulation mode commands: toggle, press, writeTag
-    const store = useScadaPackageStore.getState();
-    if (store.simulationMode && tagName) {
-      if (command === 'toggle') {
-        store.setSimTagValue(tagName, !store.simTagValues[tagName]);
-      } else if (command === 'press') {
-        store.setSimTagValue(tagName, true);
-        if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
-        pressTimerRef.current = setTimeout(() => {
-          pressTimerRef.current = null;
-          useScadaPackageStore.getState().setSimTagValue(tagName, false);
-        }, 200);
-      } else if (command === 'writeTag' && value !== undefined && value !== null) {
-        store.setSimTagValue(tagName, value as SimTagValue);
+  const handleCommand = useCallback(
+    (command: string, value?: unknown) => {
+      if (command === 'navigate' && typeof value === 'string') {
+        useScadaPackageStore.getState().setActiveScreen(value);
+        return;
       }
-    }
-  }, [tagName]);
+
+      // Simulation mode commands: toggle, press, writeTag
+      const store = useScadaPackageStore.getState();
+      if (store.simulationMode && tagName) {
+        if (command === 'toggle') {
+          store.setSimTagValue(tagName, !store.simTagValues[tagName]);
+        } else if (command === 'press') {
+          store.setSimTagValue(tagName, true);
+          if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+          pressTimerRef.current = setTimeout(() => {
+            pressTimerRef.current = null;
+            useScadaPackageStore.getState().setSimTagValue(tagName, false);
+          }, 200);
+        } else if (command === 'writeTag' && value !== undefined && value !== null) {
+          store.setSimTagValue(tagName, value as SimTagValue);
+        }
+      }
+    },
+    [tagName],
+  );
 
   /* ---------- SVG Transform (applied on container div) ------------- */
   // Compute CSS transform from widget config — allows rotation, scale, skew
   // on any widget type without modifying individual renderers.
-  const widgetTransform: SvgTransform = (data.config?.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
+  const widgetTransform: SvgTransform =
+    (data.config?.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
   const svgTransformCSS = useMemo(() => buildTransformCSS(widgetTransform), [widgetTransform]);
-  const svgTransformOrigin = useMemo(() => buildTransformOrigin(widgetTransform), [widgetTransform]);
+  const svgTransformOrigin = useMemo(
+    () => buildTransformOrigin(widgetTransform),
+    [widgetTransform],
+  );
 
   /* ---------- Equipment aspect ratio ------------------------------ */
   const isEquipment = data.widgetType === 'equipment';
@@ -328,7 +344,9 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
   }, []);
 
   const sizeRef = useRef(size);
-  useEffect(() => { sizeRef.current = size; }, [size]);
+  useEffect(() => {
+    sizeRef.current = size;
+  }, [size]);
 
   const clamp = useCallback(
     (w: number, h: number, dir?: HandleDir) => {
@@ -337,8 +355,16 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
 
       // Equipment widgets: lock aspect ratio to viewBox so SVG never letterboxes
       if (isEquipment && svgAspectRatio > 0) {
-        const isHorizontalDrag = dir && (dir.includes('e') || dir.includes('w')) && !dir.includes('n') && !dir.includes('s');
-        const isVerticalDrag = dir && (dir.includes('n') || dir.includes('s')) && !dir.includes('e') && !dir.includes('w');
+        const isHorizontalDrag =
+          dir &&
+          (dir.includes('e') || dir.includes('w')) &&
+          !dir.includes('n') &&
+          !dir.includes('s');
+        const isVerticalDrag =
+          dir &&
+          (dir.includes('n') || dir.includes('s')) &&
+          !dir.includes('e') &&
+          !dir.includes('w');
 
         if (isHorizontalDrag) {
           ch = Math.round(cw / svgAspectRatio);
@@ -443,36 +469,41 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
 
   const showGroupIndicator = !!data.groupId && (selected || isHighlighted);
 
-  const containerStyle = useMemo(() => ({
-    width: size.width,
-    height: size.height,
-    position: 'relative' as const,
-    zIndex: 500 + widgetZIndex,
-    borderRadius: 4,
-    border: selected
-      ? '2px solid #06b6d4'
-      : '1px solid transparent',
-    boxShadow: selected
-      ? '0 0 0 2px rgba(6,182,212,0.35)'
-      : 'none',
-    // Highlight outline from Layers panel hover -- uses outline instead of border
-    // to avoid layout shift when hovering layer rows
-    outline: isHighlighted && !selected
-      ? '2px dashed #3b82f6'
-      : undefined,
-    outlineOffset: isHighlighted && !selected ? 2 : undefined,
-    background: 'transparent',
-    overflow: 'visible' as const,
-    userSelect: 'none' as const,
-    // Group indicator: colored left border stripe when group is active
-    borderLeft: showGroupIndicator && groupColor
-      ? `4px solid ${groupColor}`
-      : undefined,
-    // SVG transform applied at container level -- benefits all widget types
-    // without touching individual renderers
-    transform: svgTransformCSS || undefined,
-    transformOrigin: svgTransformOrigin,
-  }), [size.width, size.height, selected, isHighlighted, widgetZIndex, svgTransformCSS, svgTransformOrigin, showGroupIndicator, groupColor]);
+  const containerStyle = useMemo(
+    () => ({
+      width: size.width,
+      height: size.height,
+      position: 'relative' as const,
+      zIndex: 500 + widgetZIndex,
+      borderRadius: 4,
+      border: selected ? `2px solid ${themeColors.primary[400]}` : '1px solid transparent',
+      boxShadow: selected ? '0 0 0 2px rgba(6,182,212,0.35)' : 'none',
+      // Highlight outline from Layers panel hover -- uses outline instead of border
+      // to avoid layout shift when hovering layer rows
+      outline: isHighlighted && !selected ? `2px dashed ${themeColors.info[500]}` : undefined,
+      outlineOffset: isHighlighted && !selected ? 2 : undefined,
+      background: 'transparent',
+      overflow: 'visible' as const,
+      userSelect: 'none' as const,
+      // Group indicator: colored left border stripe when group is active
+      borderLeft: showGroupIndicator && groupColor ? `4px solid ${groupColor}` : undefined,
+      // SVG transform applied at container level -- benefits all widget types
+      // without touching individual renderers
+      transform: svgTransformCSS || undefined,
+      transformOrigin: svgTransformOrigin,
+    }),
+    [
+      size.width,
+      size.height,
+      selected,
+      isHighlighted,
+      widgetZIndex,
+      svgTransformCSS,
+      svgTransformOrigin,
+      showGroupIndicator,
+      groupColor,
+    ],
+  );
 
   const animatedContainerStyle = useMemo(() => {
     // No animations applied without runtime — preserves default appearance
@@ -493,9 +524,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
     if (animationState.translateX || animationState.translateY) {
       // Compose SVG transform with animation translate so both apply simultaneously
       const translatePart = `translate(${animationState.translateX}px, ${animationState.translateY}px)`;
-      style.transform = svgTransformCSS
-        ? `${svgTransformCSS} ${translatePart}`
-        : translatePart;
+      style.transform = svgTransformCSS ? `${svgTransformCSS} ${translatePart}` : translatePart;
       style.transition = `transform ${animationState.transitionDuration}ms ease`;
     }
 
@@ -531,9 +560,10 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
 
   /* ---------- Connection handles for all widget types --------------- */
   const connectionHandles = useMemo(() => {
-    const lookupKey = data.widgetType === 'equipment'
-      ? (data.config.equipmentSubType as string) || ''
-      : data.widgetType;
+    const lookupKey =
+      data.widgetType === 'equipment'
+        ? (data.config.equipmentSubType as string) || ''
+        : data.widgetType;
     const points =
       lookupKey in CONNECTION_POINTS
         ? CONNECTION_POINTS[lookupKey as ConnectionPointKey]
@@ -559,17 +589,22 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
       onMouseEnter={onMouseEnterNode}
       onMouseMove={onMouseMoveNode}
       onMouseLeave={onMouseLeaveNode}
-      onClick={(e) => { eventHandlers.onClick?.(e); }}
-      onDoubleClick={(e) => { eventHandlers.onDoubleClick?.(e); }}
+      onClick={(e) => {
+        eventHandlers.onClick?.(e);
+      }}
+      onDoubleClick={(e) => {
+        eventHandlers.onDoubleClick?.(e);
+      }}
     >
       {/* Handle hover CSS is now injected globally via AnimationStyles — no per-widget <style> needed */}
 
       {/* Widget type badge (edit mode only, top-left) */}
       {!data.isPreview && (
         <span style={BADGE_STYLE}>
-          {(data.config.label as string) || (data.widgetType === 'equipment'
-            ? (data.config.equipmentSubType as string) || 'equipment'
-            : data.widgetType)}
+          {(data.config.label as string) ||
+            (data.widgetType === 'equipment'
+              ? (data.config.equipmentSubType as string) || 'equipment'
+              : data.widgetType)}
         </span>
       )}
 
@@ -588,7 +623,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
           }}
           title="Kilitli"
         >
-          <Lock style={{ width: 12, height: 12, color: '#ffffff' }} />
+          <Lock style={{ width: 12, height: 12, color: colors.white }} />
         </div>
       )}
 
@@ -607,8 +642,9 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
       </div>
 
       {/* Resize handles (only when selected and not locked) */}
-      {selected && !locked &&
-        (Object.entries(HANDLE_META) as [HandleDir, typeof HANDLE_META[HandleDir]][]).map(
+      {selected &&
+        !locked &&
+        (Object.entries(HANDLE_META) as [HandleDir, (typeof HANDLE_META)[HandleDir]][]).map(
           ([dir, meta]) => {
             const isCorner = dir.length === 2;
             return (
@@ -619,7 +655,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
                   position: 'absolute',
                   width: isCorner ? 10 : 6,
                   height: isCorner ? 10 : 6,
-                  background: '#06b6d4',
+                  background: colors.primary[400],
                   border: '2px solid white',
                   borderRadius: isCorner ? 3 : 2,
                   cursor: meta.cursor,
@@ -633,68 +669,69 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
         )}
 
       {/* Connection handles for all widget types */}
-      {connectionHandles && connectionHandles.map((pt) => {
-        const posMap: Record<string, Position> = {
-          top: Position.Top,
-          right: Position.Right,
-          bottom: Position.Bottom,
-          left: Position.Left,
-        };
-        const position = posMap[pt.side] || Position.Left;
+      {connectionHandles &&
+        connectionHandles.map((pt) => {
+          const posMap: Record<string, Position> = {
+            top: Position.Top,
+            right: Position.Right,
+            bottom: Position.Bottom,
+            left: Position.Left,
+          };
+          const position = posMap[pt.side] || Position.Left;
 
-        // Simple percentage offset — equipment widgets maintain their aspect
-        // ratio via clamp so SVG never letterboxes; no compensation needed.
-        const posStyle: React.CSSProperties = {};
-        if (pt.side === 'top' || pt.side === 'bottom') {
-          posStyle.left = `${pt.offset * 100}%`;
-        } else {
-          posStyle.top = `${pt.offset * 100}%`;
-        }
+          // Simple percentage offset — equipment widgets maintain their aspect
+          // ratio via clamp so SVG never letterboxes; no compensation needed.
+          const posStyle: React.CSSProperties = {};
+          if (pt.side === 'top' || pt.side === 'bottom') {
+            posStyle.left = `${pt.offset * 100}%`;
+          } else {
+            posStyle.top = `${pt.offset * 100}%`;
+          }
 
-        const color = CONNECTION_POINT_COLORS[pt.direction];
-        const handleStyle: React.CSSProperties = {
-          width: 10,
-          height: 10,
-          background: color,
-          border: '2px solid white',
-          borderRadius: '50%',
-          ...posStyle,
-        };
+          const color = CONNECTION_POINT_COLORS[pt.direction];
+          const handleStyle: React.CSSProperties = {
+            width: 10,
+            height: 10,
+            background: color,
+            border: '2px solid white',
+            borderRadius: '50%',
+            ...posStyle,
+          };
 
-        if (pt.direction === 'inout') {
-          // Render both source and target handles at same position
-          // Use distinct IDs so ReactFlow can distinguish them
-          return [
+          if (pt.direction === 'inout') {
+            // Render both source and target handles at same position
+            // Use distinct IDs so ReactFlow can distinguish them
+            return [
+              <Handle
+                key={`${pt.id}-source`}
+                id={`${pt.id}-out`}
+                type="source"
+                position={position}
+                style={handleStyle}
+                title={pt.label}
+              />,
+              <Handle
+                key={`${pt.id}-target`}
+                id={`${pt.id}-in`}
+                type="target"
+                position={position}
+                style={{ ...handleStyle, opacity: 0, pointerEvents: 'all' as const }}
+                title={pt.label}
+              />,
+            ];
+          }
+
+          return (
             <Handle
-              key={`${pt.id}-source`}
-              id={`${pt.id}-out`}
-              type="source"
+              key={pt.id}
+              id={pt.id}
+              type={pt.direction === 'out' ? 'source' : 'target'}
               position={position}
               style={handleStyle}
               title={pt.label}
-            />,
-            <Handle
-              key={`${pt.id}-target`}
-              id={`${pt.id}-in`}
-              type="target"
-              position={position}
-              style={{ ...handleStyle, opacity: 0, pointerEvents: 'all' as const }}
-              title={pt.label}
-            />,
-          ];
-        }
-
-        return (
-          <Handle
-            key={pt.id}
-            id={pt.id}
-            type={pt.direction === 'out' ? 'source' : 'target'}
-            position={position}
-            style={handleStyle}
-            title={pt.label}
-          />
-        );
-      })}
+            />
+          );
+        })}
 
       {/* Hover tooltip (edit mode only, with 300ms delay) */}
       <WidgetTooltip

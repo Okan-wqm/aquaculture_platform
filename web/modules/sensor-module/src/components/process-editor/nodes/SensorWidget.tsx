@@ -14,6 +14,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import type { NodeProps, Node } from '@xyflow/react';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -61,7 +62,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
   const etagRef = useRef<string>('');
   // BUG-014: unique gradient ID per widget instance to prevent shared-ID color bleed
   const gradientId = useRef<string>(
-    `barGradient-${(data.widgetName || '').replace(/\s/g, '-') || Math.random().toString(36).slice(2)}`
+    `barGradient-${(data.widgetName || '').replace(/\s/g, '-') || Math.random().toString(36).slice(2)}`,
   );
 
   /* ---------- MQTT Push Mode ----------------------- */
@@ -160,9 +161,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
 
     const checkForChanges = async () => {
       try {
-        const headers: HeadersInit = etagRef.current
-          ? { 'If-None-Match': etagRef.current }
-          : {};
+        const headers: HeadersInit = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
 
         const res = await fetch(data.httpUrl!, { headers });
 
@@ -203,11 +202,11 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
   const subtitle = data.subtitle?.trim() || `0 - ${scaleMax}`;
 
   // Color based on thresholds
-  let fillColor = '#22c55e'; // green - normal
+  let fillColor = colors.success[500]; // green - normal
   if (percentage < lowThreshold) {
-    fillColor = '#3b82f6'; // blue - low
+    fillColor = colors.info[500]; // blue - low
   } else if (percentage > highThreshold) {
-    fillColor = '#ef4444'; // red - high
+    fillColor = colors.error[500]; // red - high
   }
 
   /* ---------- Render ------------------------------- */
@@ -216,7 +215,9 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
       style={{
         background: 'white',
         borderRadius: 8,
-        border: selected ? '2px solid #3b82f6' : '2px solid #e5e7eb',
+        border: selected
+          ? `2px solid ${themeColors.info[500]}`
+          : `2px solid ${themeColors.neutral[200]}`,
         boxShadow: selected ? '0 0 0 2px rgba(59, 130, 246, 0.3)' : '0 1px 3px rgba(0,0,0,0.1)',
         overflow: 'hidden',
       }}
@@ -237,7 +238,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
         </defs>
 
         {/* Header background */}
-        <rect x="0" y="0" width={W} height="55" fill="#f8fafc" />
+        <rect x="0" y="0" width={W} height="55" fill={colors.neutral[50]} />
 
         {/* Title */}
         <text
@@ -247,7 +248,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           style={{
             fontSize: 16,
             fontWeight: 600,
-            fill: '#1f2937',
+            fill: colors.neutral[800],
           }}
         >
           {title}
@@ -261,7 +262,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           style={{
             fontSize: 36,
             fontWeight: 700,
-            fill: '#111827',
+            fill: colors.neutral[900],
           }}
         >
           {displayValue}
@@ -274,7 +275,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           textAnchor="middle"
           style={{
             fontSize: 14,
-            fill: '#6b7280',
+            fill: colors.gray[400],
           }}
         >
           {data.unit || ''}
@@ -287,7 +288,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           width={BAR_WIDTH}
           height={BAR_HEIGHT}
           rx={4}
-          fill="#e5e7eb"
+          fill={colors.neutral[200]}
         />
 
         {/* Bar fill */}
@@ -306,7 +307,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           y1={BAR_Y - 2}
           x2={lowX}
           y2={BAR_Y + BAR_HEIGHT + 2}
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={2}
           strokeDasharray="2,2"
         />
@@ -317,7 +318,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           y1={BAR_Y - 2}
           x2={highX}
           y2={BAR_Y + BAR_HEIGHT + 2}
-          stroke="#ef4444"
+          stroke={colors.error[500]}
           strokeWidth={2}
           strokeDasharray="2,2"
         />
@@ -329,7 +330,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           textAnchor="middle"
           style={{
             fontSize: 12,
-            fill: '#9ca3af',
+            fill: colors.neutral[400],
           }}
         >
           {subtitle}
@@ -340,14 +341,14 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
           cx={20}
           cy={20}
           r={6}
-          fill={data.mode ? '#22c55e' : '#9ca3af'}
+          fill={data.mode ? colors.success[500] : colors.neutral[400]}
         />
         <text
           x={32}
           y={24}
           style={{
             fontSize: 10,
-            fill: '#6b7280',
+            fill: colors.gray[400],
           }}
         >
           {data.mode || 'static'}

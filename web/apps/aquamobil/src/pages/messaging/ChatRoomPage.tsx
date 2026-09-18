@@ -463,10 +463,7 @@ export function ChatRoomPage(): JSX.Element {
     : null;
 
   return (
-    <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
-      style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
-    >
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">

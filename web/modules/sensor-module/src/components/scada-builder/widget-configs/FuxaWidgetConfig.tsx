@@ -20,6 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -67,10 +68,7 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   const label = (config.label as string) || '';
 
   // Parse export variables from SVG content for dynamic UI generation
-  const exportVariables = useMemo(
-    () => parseFuxaExportVariables(svgContent),
-    [svgContent],
-  );
+  const exportVariables = useMemo(() => parseFuxaExportVariables(svgContent), [svgContent]);
 
   /* ---------------------------------------------------------------- */
   /*  File upload handler                                              */
@@ -201,7 +199,10 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           }
           break;
         case 'state':
-          rule.state = Math.min(5, Math.max(0, parseInt(rawValue, 10) || 0)) as FuxaStateRule['state'];
+          rule.state = Math.min(
+            5,
+            Math.max(0, parseInt(rawValue, 10) || 0),
+          ) as FuxaStateRule['state'];
           break;
         case 'value':
           if (rule.condition === 'between') {
@@ -306,9 +307,7 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* State Machine Tag Binding */}
       <div className="pt-2 border-t border-gray-100">
-        <label className="text-xs text-gray-500 font-medium mb-2 block">
-          State Machine
-        </label>
+        <label className="text-xs text-gray-500 font-medium mb-2 block">State Machine</label>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Tag Name</label>
           <input
@@ -415,7 +414,7 @@ const VariableInput: React.FC<VariableInputProps> = ({
               value={String(value)}
               onChange={(e) => onChange(variable.id, e.target.value)}
               className={`${INPUT_CLS} flex-1`}
-              placeholder="#000000"
+              placeholder={themeColors.black}
             />
           </div>
         );
@@ -472,7 +471,10 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
     : String(rule.value);
 
   return (
-    <div className="flex items-center gap-1.5 p-1.5 bg-gray-50 rounded" data-testid={`fuxa-rule-${index}`}>
+    <div
+      className="flex items-center gap-1.5 p-1.5 bg-gray-50 rounded"
+      data-testid={`fuxa-rule-${index}`}
+    >
       {/* Condition */}
       <select
         value={rule.condition}
@@ -512,10 +514,7 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       </select>
 
       {/* Remove */}
-      <button
-        onClick={() => onRemove(index)}
-        className="text-red-400 hover:text-red-600 ml-auto"
-      >
+      <button onClick={() => onRemove(index)} className="text-red-400 hover:text-red-600 ml-auto">
         <X size={12} />
       </button>
     </div>

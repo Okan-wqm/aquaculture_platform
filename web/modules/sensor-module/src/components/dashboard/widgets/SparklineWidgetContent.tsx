@@ -30,14 +30,13 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface SparklineWidgetContentProps {
   config: WidgetConfig;
 }
 
-export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
-  config,
-}) => {
+export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({ config }) => {
   const { data, history, loading, error } = useWidgetData(config);
   const [, forceUpdate] = useState(0);
 
@@ -146,8 +145,8 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
             {/* Gradient fill */}
             <defs>
               <linearGradient id={`gradient-${config.id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0EA5E9" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#0EA5E9" stopOpacity={0} />
+                <stop offset="0%" stopColor={themeColors.primary[400]} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={themeColors.primary[400]} stopOpacity={0} />
               </linearGradient>
             </defs>
 
@@ -161,7 +160,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
             <polyline
               points={points}
               fill="none"
-              stroke="#0EA5E9"
+              stroke={themeColors.primary[400]}
               strokeWidth={1.5}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -174,11 +173,10 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
                 cy={
                   height -
                   padding -
-                  ((validValues[validValues.length - 1] - min) / range) *
-                    (height - padding * 2)
+                  ((validValues[validValues.length - 1] - min) / range) * (height - padding * 2)
                 }
                 r={3}
-                fill="#0EA5E9"
+                fill={themeColors.primary[400]}
               />
             )}
           </svg>

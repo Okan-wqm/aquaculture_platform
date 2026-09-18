@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const DiaphragmPumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -58,37 +59,15 @@ const DiaphragmPumpSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Check valve indicators — small triangles at inlet/outlet */}
         {/* Inlet check valve (left) */}
-        <polygon
-          points="22,44 28,47 22,50"
-          fill={colors.stroke}
-          fillOpacity={0.5}
-        />
+        <polygon points="22,44 28,47 22,50" fill={colors.stroke} fillOpacity={0.5} />
         {/* Outlet check valve (right) */}
-        <polygon
-          points="78,44 72,47 78,50"
-          fill={colors.stroke}
-          fillOpacity={0.5}
-        />
+        <polygon points="78,44 72,47 78,50" fill={colors.stroke} fillOpacity={0.5} />
 
         {/* Inlet line — left */}
-        <line
-          x1={0}
-          y1={50}
-          x2={20}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={0} y1={50} x2={20} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Outlet line — right */}
-        <line
-          x1={80}
-          y1={50}
-          x2={100}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={80} y1={50} x2={100} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* P label */}
         <text
@@ -110,7 +89,7 @@ const DiaphragmPumpSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { colors } from '@aquaculture/shared-ui';
 
 interface RadialGaugeWidgetContentProps {
   config: WidgetConfig;
@@ -48,9 +49,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   return <span className="text-xs text-gray-500">{label}</span>;
 };
 
-export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> = ({
-  config,
-}) => {
+export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> = ({ config }) => {
   const { data, loading, error } = useWidgetData(config);
 
   if (loading) {
@@ -74,8 +73,14 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
 
   // Get thresholds from settings or use defaults based on range
   const thresholds = config.settings?.thresholds || {
-    warning: { low: minValue + (maxValue - minValue) * 0.2, high: minValue + (maxValue - minValue) * 0.8 },
-    critical: { low: minValue + (maxValue - minValue) * 0.1, high: minValue + (maxValue - minValue) * 0.9 },
+    warning: {
+      low: minValue + (maxValue - minValue) * 0.2,
+      high: minValue + (maxValue - minValue) * 0.8,
+    },
+    critical: {
+      low: minValue + (maxValue - minValue) * 0.1,
+      high: minValue + (maxValue - minValue) * 0.9,
+    },
   };
 
   // Calculate percentage
@@ -94,15 +99,15 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
       (thresholds.critical?.low !== undefined && value < thresholds.critical.low) ||
       (thresholds.critical?.high !== undefined && value > thresholds.critical.high)
     ) {
-      return '#EF4444'; // Critical - Red
+      return colors.error[500]; // Critical - Red
     }
     if (
       (thresholds.warning?.low !== undefined && value < thresholds.warning.low) ||
       (thresholds.warning?.high !== undefined && value > thresholds.warning.high)
     ) {
-      return '#F59E0B'; // Warning - Amber
+      return colors.warning[500]; // Warning - Amber
     }
-    return '#10B981'; // Normal - Green
+    return colors.success[500]; // Normal - Green
   };
 
   const valueColor = getColor();
@@ -113,31 +118,35 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
   const toPct = (v: number | undefined, fallback: number) =>
     v !== undefined ? Math.min(100, Math.max(0, ((v - minValue) / range) * 100)) : fallback;
 
-  const critLowPct  = toPct(thresholds.critical?.low,   0);
-  const warnLowPct  = toPct(thresholds.warning?.low,   20);
-  const warnHighPct = toPct(thresholds.warning?.high,  80);
+  const critLowPct = toPct(thresholds.critical?.low, 0);
+  const warnLowPct = toPct(thresholds.warning?.low, 20);
+  const warnHighPct = toPct(thresholds.warning?.high, 80);
   const critHighPct = toPct(thresholds.critical?.high, 100);
 
   return (
     <div className="flex flex-col items-center justify-center h-full">
       {/* Radial Gauge SVG */}
       <div className="relative" style={{ width: size, height: size / 2 + 30 }}>
-        <svg
-          width={size}
-          height={size / 2 + strokeWidth}
-          className="overflow-visible"
-        >
+        <svg width={size} height={size / 2 + strokeWidth} className="overflow-visible">
           {/* Background gradient — zone positions derived from actual thresholds (BUG-013) */}
           <defs>
             <linearGradient id={`radial-bg-${config.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset={`${critLowPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset={`${warnLowPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
-              <stop offset={`${Math.min(warnLowPct + 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset={`${Math.max(warnHighPct - 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset={`${warnHighPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
-              <stop offset={`${critHighPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset="100%" stopColor="#EF4444" stopOpacity={0.15} />
+              <stop offset="0%" stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset={`${critLowPct}%`} stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset={`${warnLowPct}%`} stopColor={colors.warning[500]} stopOpacity={0.15} />
+              <stop
+                offset={`${Math.min(warnLowPct + 5, 50)}%`}
+                stopColor={colors.success[500]}
+                stopOpacity={0.15}
+              />
+              <stop
+                offset={`${Math.max(warnHighPct - 5, 50)}%`}
+                stopColor={colors.success[500]}
+                stopOpacity={0.15}
+              />
+              <stop offset={`${warnHighPct}%`} stopColor={colors.warning[500]} stopOpacity={0.15} />
+              <stop offset={`${critHighPct}%`} stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset="100%" stopColor={colors.error[500]} stopOpacity={0.15} />
             </linearGradient>
           </defs>
 
@@ -173,10 +182,7 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
             transform: 'translate(-50%, -50%)',
           }}
         >
-          <span
-            className="text-3xl font-bold"
-            style={{ color: valueColor }}
-          >
+          <span className="text-3xl font-bold" style={{ color: valueColor }}>
             {value.toFixed(config.settings?.decimalPlaces ?? 1)}
           </span>
           <span className="text-sm text-gray-500">{unit}</span>
@@ -198,10 +204,7 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
 
       {/* Status indicator */}
       <div className="flex items-center gap-2 mt-2">
-        <div
-          className="w-2 h-2 rounded-full"
-          style={{ backgroundColor: valueColor }}
-        />
+        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: valueColor }} />
         <span className="text-xs text-gray-600 capitalize">{status}</span>
       </div>
 

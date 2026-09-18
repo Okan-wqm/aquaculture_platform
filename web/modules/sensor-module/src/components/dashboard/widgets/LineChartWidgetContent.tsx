@@ -41,13 +41,21 @@ function formatTimeSince(dateInput: Date | string): string {
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
 import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface LineChartWidgetContentProps {
   config: WidgetConfig;
 }
 
 // Color palette for multiple sensors
-const COLORS = ['#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = [
+  colors.primary[400],
+  colors.success[500],
+  colors.warning[500],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[500],
+];
 
 // PERF-004: isolated timer — only this leaf re-renders every second
 const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) => {
@@ -62,9 +70,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   return <span className="text-xs text-gray-500">{label}</span>;
 };
 
-export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
-  config,
-}) => {
+export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({ config }) => {
   const { data, history, loading, error } = useWidgetData(config);
 
   if (loading) {
@@ -77,25 +83,26 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-        {error}
-      </div>
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm">{error}</div>
     );
   }
 
   // Transform history data for Recharts
   // Bug #3 fix: Filter out invalid data points
-  const chartData = history?.filter((point) =>
-    point.sensorName && point.value !== undefined && !Number.isNaN(point.value)
-  ).map((point) => ({
-    time: new Date(point.timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }),
-    timestamp: point.timestamp,
-    [point.sensorName]: point.value,
-  })) || [];
+  const chartData =
+    history
+      ?.filter(
+        (point) => point.sensorName && point.value !== undefined && !Number.isNaN(point.value),
+      )
+      .map((point) => ({
+        time: new Date(point.timestamp).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+        timestamp: point.timestamp,
+        [point.sensorName]: point.value,
+      })) || [];
 
   // Group by timestamp for multi-sensor charts
   // PERF-010: round to nearest minute bucket so readings from different sensors that differ
@@ -126,7 +133,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   });
 
   const sortedChartData = Object.values(groupedData).sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
 
   // PERF-RISK-002: Downsample to prevent SVG DOM explosion with large datasets
@@ -134,9 +141,9 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   const finalChartData = downsampleChartData(sortedChartData, MAX_CHART_POINTS);
 
   // Get unique sensor names (filter out undefined/null)
-  const sensorNames = [...new Set(
-    history?.filter((h) => h.sensorName).map((h) => h.sensorName) || []
-  )];
+  const sensorNames = [
+    ...new Set(history?.filter((h) => h.sensorName).map((h) => h.sensorName) || []),
+  ];
 
   if (finalChartData.length === 0) {
     return (
@@ -154,31 +161,29 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   ];
 
   // Get latest timestamp from history
-  const latestTimestamp = history && history.length > 0
-    ? new Date(Math.max(...history.map(h => new Date(h.timestamp).getTime())))
-    : null;
+  const latestTimestamp =
+    history && history.length > 0
+      ? new Date(Math.max(...history.map((h) => new Date(h.timestamp).getTime())))
+      : null;
 
   return (
     <div className="flex flex-col h-full w-full">
       <div className="flex-1">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={finalChartData}
-            margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
-          >
+          <LineChart data={finalChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             {config.settings?.showGrid !== false && (
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral[200]} />
             )}
             <XAxis
               dataKey="time"
-              tick={{ fontSize: 10, fill: '#6B7280' }}
-              tickLine={{ stroke: '#E5E7EB' }}
-              axisLine={{ stroke: '#E5E7EB' }}
+              tick={{ fontSize: 10, fill: colors.gray[400] }}
+              tickLine={{ stroke: colors.neutral[200] }}
+              axisLine={{ stroke: colors.neutral[200] }}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#6B7280' }}
-              tickLine={{ stroke: '#E5E7EB' }}
-              axisLine={{ stroke: '#E5E7EB' }}
+              tick={{ fontSize: 10, fill: colors.gray[400] }}
+              tickLine={{ stroke: colors.neutral[200] }}
+              axisLine={{ stroke: colors.neutral[200] }}
               width={yAxisConfig?.label ? 60 : 40}
               domain={yAxisDomain}
               label={
@@ -187,7 +192,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
                       value: yAxisConfig.label,
                       angle: -90,
                       position: 'insideLeft',
-                      style: { fontSize: 10, fill: '#6B7280' },
+                      style: { fontSize: 10, fill: colors.gray[400] },
                     }
                   : undefined
               }
@@ -196,18 +201,14 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
             <Tooltip
               contentStyle={{
                 backgroundColor: 'white',
-                border: '1px solid #E5E7EB',
+                border: `1px solid ${themeColors.neutral[200]}`,
                 borderRadius: '8px',
                 fontSize: '12px',
               }}
-              labelStyle={{ color: '#374151', fontWeight: 'bold' }}
+              labelStyle={{ color: colors.neutral[700], fontWeight: 'bold' }}
             />
             {config.settings?.showLegend !== false && sensorNames.length > 1 && (
-              <Legend
-                wrapperStyle={{ fontSize: '10px' }}
-                iconType="circle"
-                iconSize={8}
-              />
+              <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" iconSize={8} />
             )}
             {sensorNames.map((name, index) => (
               <Line

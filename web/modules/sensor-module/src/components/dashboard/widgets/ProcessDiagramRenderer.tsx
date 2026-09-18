@@ -7,6 +7,7 @@
  */
 
 import React, { useMemo } from 'react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types (matching backend process.entity.ts)
@@ -74,16 +75,16 @@ const NODE_DIMENSIONS: Record<string, { w: number; h: number }> = {
 
 // Status colors
 const STATUS_COLORS: Record<string, string> = {
-  operational: '#10B981',
-  active: '#10B981',
-  running: '#10B981',
-  maintenance: '#F59E0B',
-  warning: '#F59E0B',
-  repair: '#EF4444',
-  critical: '#EF4444',
-  offline: '#6B7280',
-  inactive: '#6B7280',
-  default: '#0EA5E9',
+  operational: themeColors.success[500],
+  active: themeColors.success[500],
+  running: themeColors.success[500],
+  maintenance: themeColors.warning[500],
+  warning: themeColors.warning[500],
+  repair: themeColors.error[500],
+  critical: themeColors.error[500],
+  offline: themeColors.gray[400],
+  inactive: themeColors.gray[400],
+  default: themeColors.primary[400],
 };
 
 // ============================================================================
@@ -98,84 +99,148 @@ const renderAutomaticFeeder = (x: number, y: number, displayName: string) => (
     <svg width="87" height="150" viewBox="0 0 220 380" preserveAspectRatio="xMidYMid meet">
       <defs>
         <linearGradient id="hopperGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#4a5568"/>
-          <stop offset="50%" stopColor="#718096"/>
-          <stop offset="100%" stopColor="#4a5568"/>
+          <stop offset="0%" stopColor={themeColors.neutral[600]} />
+          <stop offset="50%" stopColor={themeColors.neutral[500]} />
+          <stop offset="100%" stopColor={themeColors.neutral[600]} />
         </linearGradient>
         <linearGradient id="motorGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#2d3748"/>
-          <stop offset="100%" stopColor="#1a202c"/>
+          <stop offset="0%" stopColor={themeColors.neutral[700]} />
+          <stop offset="100%" stopColor={themeColors.neutral[900]} />
         </linearGradient>
         <linearGradient id="pelletGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#d69e2e"/>
-          <stop offset="100%" stopColor="#b7791f"/>
+          <stop offset="0%" stopColor={themeColors.warning[500]} />
+          <stop offset="100%" stopColor={themeColors.warning[600]} />
         </linearGradient>
       </defs>
 
       {/* Main Hopper */}
-      <path d="M40 20 L180 20 L160 140 L60 140 Z" fill="url(#hopperGradient)" stroke="#2d3748" strokeWidth="3"/>
-      <ellipse cx="110" cy="20" rx="70" ry="15" fill="#718096" stroke="#2d3748" strokeWidth="2"/>
+      <path
+        d="M40 20 L180 20 L160 140 L60 140 Z"
+        fill="url(#hopperGradient)"
+        stroke={themeColors.neutral[700]}
+        strokeWidth="3"
+      />
+      <ellipse
+        cx="110"
+        cy="20"
+        rx="70"
+        ry="15"
+        fill={themeColors.neutral[500]}
+        stroke={themeColors.neutral[700]}
+        strokeWidth="2"
+      />
 
       {/* Pellets in hopper */}
       <g>
-        <circle cx="90" cy="50" r="8" fill="url(#pelletGradient)"/>
-        <circle cx="110" cy="45" r="7" fill="url(#pelletGradient)"/>
-        <circle cx="130" cy="52" r="8" fill="url(#pelletGradient)"/>
-        <circle cx="100" cy="70" r="6" fill="url(#pelletGradient)"/>
-        <circle cx="120" cy="68" r="7" fill="url(#pelletGradient)"/>
-        <circle cx="105" cy="90" r="5" fill="url(#pelletGradient)"/>
-        <circle cx="115" cy="88" r="6" fill="url(#pelletGradient)"/>
+        <circle cx="90" cy="50" r="8" fill="url(#pelletGradient)" />
+        <circle cx="110" cy="45" r="7" fill="url(#pelletGradient)" />
+        <circle cx="130" cy="52" r="8" fill="url(#pelletGradient)" />
+        <circle cx="100" cy="70" r="6" fill="url(#pelletGradient)" />
+        <circle cx="120" cy="68" r="7" fill="url(#pelletGradient)" />
+        <circle cx="105" cy="90" r="5" fill="url(#pelletGradient)" />
+        <circle cx="115" cy="88" r="6" fill="url(#pelletGradient)" />
       </g>
 
       {/* Motor Housing */}
-      <rect x="70" y="145" width="80" height="60" rx="5" fill="url(#motorGradient)" stroke="#1a202c" strokeWidth="2"/>
-      <circle cx="110" cy="175" r="20" fill="#4a5568" stroke="#2d3748" strokeWidth="2"/>
-      <circle cx="110" cy="175" r="8" fill="#1a202c"/>
+      <rect
+        x="70"
+        y="145"
+        width="80"
+        height="60"
+        rx="5"
+        fill="url(#motorGradient)"
+        stroke={themeColors.neutral[900]}
+        strokeWidth="2"
+      />
+      <circle
+        cx="110"
+        cy="175"
+        r="20"
+        fill={themeColors.neutral[600]}
+        stroke={themeColors.neutral[700]}
+        strokeWidth="2"
+      />
+      <circle cx="110" cy="175" r="8" fill={themeColors.neutral[900]} />
 
       {/* Ventilation slots */}
-      <g stroke="#1a202c" strokeWidth="2">
-        <line x1="75" y1="155" x2="95" y2="155"/>
-        <line x1="75" y1="162" x2="95" y2="162"/>
-        <line x1="125" y1="155" x2="145" y2="155"/>
-        <line x1="125" y1="162" x2="145" y2="162"/>
+      <g stroke={themeColors.neutral[900]} strokeWidth="2">
+        <line x1="75" y1="155" x2="95" y2="155" />
+        <line x1="75" y1="162" x2="95" y2="162" />
+        <line x1="125" y1="155" x2="145" y2="155" />
+        <line x1="125" y1="162" x2="145" y2="162" />
       </g>
 
       {/* Auger Tube */}
-      <rect x="95" y="205" width="30" height="120" fill="#718096" stroke="#4a5568" strokeWidth="2"/>
+      <rect
+        x="95"
+        y="205"
+        width="30"
+        height="120"
+        fill={themeColors.neutral[500]}
+        stroke={themeColors.neutral[600]}
+        strokeWidth="2"
+      />
 
       {/* Auger spiral */}
-      <g stroke="#2d3748" strokeWidth="3" fill="none">
-        <path d="M95 220 Q110 225 125 220"/>
-        <path d="M95 245 Q110 250 125 245"/>
-        <path d="M95 270 Q110 275 125 270"/>
-        <path d="M95 295 Q110 300 125 295"/>
+      <g stroke={themeColors.neutral[700]} strokeWidth="3" fill="none">
+        <path d="M95 220 Q110 225 125 220" />
+        <path d="M95 245 Q110 250 125 245" />
+        <path d="M95 270 Q110 275 125 270" />
+        <path d="M95 295 Q110 300 125 295" />
       </g>
 
       {/* Discharge outlet */}
-      <path d="M95 325 L80 360 L140 360 L125 325 Z" fill="#4a5568" stroke="#2d3748" strokeWidth="2"/>
+      <path
+        d="M95 325 L80 360 L140 360 L125 325 Z"
+        fill={themeColors.neutral[600]}
+        stroke={themeColors.neutral[700]}
+        strokeWidth="2"
+      />
 
       {/* Falling pellets */}
       <g>
-        <circle cx="105" cy="345" r="4" fill="url(#pelletGradient)"/>
-        <circle cx="115" cy="352" r="3" fill="url(#pelletGradient)"/>
-        <circle cx="108" cy="358" r="4" fill="url(#pelletGradient)"/>
+        <circle cx="105" cy="345" r="4" fill="url(#pelletGradient)" />
+        <circle cx="115" cy="352" r="3" fill="url(#pelletGradient)" />
+        <circle cx="108" cy="358" r="4" fill="url(#pelletGradient)" />
       </g>
 
       {/* Power connector */}
-      <rect x="155" y="155" width="25" height="20" rx="3" fill="#e53e3e" stroke="#c53030" strokeWidth="2"/>
-      <text x="167" y="169" textAnchor="middle" fontSize="10" fill="white" fontWeight="bold">PWR</text>
+      <rect
+        x="155"
+        y="155"
+        width="25"
+        height="20"
+        rx="3"
+        fill={themeColors.error[500]}
+        stroke={themeColors.error[600]}
+        strokeWidth="2"
+      />
+      <text x="167" y="169" textAnchor="middle" fontSize="10" fill="white" fontWeight="bold">
+        PWR
+      </text>
 
       {/* Signal connector */}
-      <rect x="155" y="180" width="25" height="20" rx="3" fill="#3182ce" stroke="#2b6cb0" strokeWidth="2"/>
-      <text x="167" y="194" textAnchor="middle" fontSize="10" fill="white" fontWeight="bold">SIG</text>
+      <rect
+        x="155"
+        y="180"
+        width="25"
+        height="20"
+        rx="3"
+        fill={themeColors.info[500]}
+        stroke={themeColors.primary[600]}
+        strokeWidth="2"
+      />
+      <text x="167" y="194" textAnchor="middle" fontSize="10" fill="white" fontWeight="bold">
+        SIG
+      </text>
 
       {/* Mounting brackets */}
-      <rect x="30" y="130" width="15" height="30" fill="#2d3748"/>
-      <rect x="175" y="130" width="15" height="30" fill="#2d3748"/>
-      <circle cx="37" cy="137" r="4" fill="#718096"/>
-      <circle cx="37" cy="153" r="4" fill="#718096"/>
-      <circle cx="183" cy="137" r="4" fill="#718096"/>
-      <circle cx="183" cy="153" r="4" fill="#718096"/>
+      <rect x="30" y="130" width="15" height="30" fill={themeColors.neutral[700]} />
+      <rect x="175" y="130" width="15" height="30" fill={themeColors.neutral[700]} />
+      <circle cx="37" cy="137" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="37" cy="153" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="183" cy="137" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="183" cy="153" r="4" fill={themeColors.neutral[500]} />
     </svg>
 
     {/* Label */}
@@ -185,7 +250,7 @@ const renderAutomaticFeeder = (x: number, y: number, displayName: string) => (
       textAnchor="middle"
       fontSize={10}
       fontFamily="system-ui, sans-serif"
-      fill="#374151"
+      fill={themeColors.neutral[700]}
       fontWeight={500}
     >
       {displayName.length > 12 ? displayName.substring(0, 10) + '...' : displayName}
@@ -201,69 +266,120 @@ const renderDemandFeeder = (x: number, y: number, displayName: string) => (
     <svg width="86" height="150" viewBox="0 0 200 350" preserveAspectRatio="xMidYMid meet">
       <defs>
         <linearGradient id="dfHopperGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#4a5568"/>
-          <stop offset="50%" stopColor="#718096"/>
-          <stop offset="100%" stopColor="#4a5568"/>
+          <stop offset="0%" stopColor={themeColors.neutral[600]} />
+          <stop offset="50%" stopColor={themeColors.neutral[500]} />
+          <stop offset="100%" stopColor={themeColors.neutral[600]} />
         </linearGradient>
         <linearGradient id="dfPelletGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#d69e2e"/>
-          <stop offset="100%" stopColor="#b7791f"/>
+          <stop offset="0%" stopColor={themeColors.warning[500]} />
+          <stop offset="100%" stopColor={themeColors.warning[600]} />
         </linearGradient>
       </defs>
 
       {/* Main Hopper */}
-      <path d="M30 20 L170 20 L140 160 L60 160 Z" fill="url(#dfHopperGradient)" stroke="#2d3748" strokeWidth="3"/>
-      <ellipse cx="100" cy="20" rx="70" ry="15" fill="#718096" stroke="#2d3748" strokeWidth="2"/>
+      <path
+        d="M30 20 L170 20 L140 160 L60 160 Z"
+        fill="url(#dfHopperGradient)"
+        stroke={themeColors.neutral[700]}
+        strokeWidth="3"
+      />
+      <ellipse
+        cx="100"
+        cy="20"
+        rx="70"
+        ry="15"
+        fill={themeColors.neutral[500]}
+        stroke={themeColors.neutral[700]}
+        strokeWidth="2"
+      />
 
       {/* Pellets in hopper */}
       <g>
-        <circle cx="80" cy="50" r="8" fill="url(#dfPelletGradient)"/>
-        <circle cx="100" cy="45" r="7" fill="url(#dfPelletGradient)"/>
-        <circle cx="120" cy="52" r="8" fill="url(#dfPelletGradient)"/>
-        <circle cx="90" cy="75" r="6" fill="url(#dfPelletGradient)"/>
-        <circle cx="110" cy="72" r="7" fill="url(#dfPelletGradient)"/>
-        <circle cx="95" cy="100" r="5" fill="url(#dfPelletGradient)"/>
-        <circle cx="105" cy="98" r="6" fill="url(#dfPelletGradient)"/>
-        <circle cx="100" cy="125" r="4" fill="url(#dfPelletGradient)"/>
+        <circle cx="80" cy="50" r="8" fill="url(#dfPelletGradient)" />
+        <circle cx="100" cy="45" r="7" fill="url(#dfPelletGradient)" />
+        <circle cx="120" cy="52" r="8" fill="url(#dfPelletGradient)" />
+        <circle cx="90" cy="75" r="6" fill="url(#dfPelletGradient)" />
+        <circle cx="110" cy="72" r="7" fill="url(#dfPelletGradient)" />
+        <circle cx="95" cy="100" r="5" fill="url(#dfPelletGradient)" />
+        <circle cx="105" cy="98" r="6" fill="url(#dfPelletGradient)" />
+        <circle cx="100" cy="125" r="4" fill="url(#dfPelletGradient)" />
       </g>
 
       {/* Discharge tube */}
-      <rect x="85" y="160" width="30" height="40" fill="#4a5568" stroke="#2d3748" strokeWidth="2"/>
+      <rect
+        x="85"
+        y="160"
+        width="30"
+        height="40"
+        fill={themeColors.neutral[600]}
+        stroke={themeColors.neutral[700]}
+        strokeWidth="2"
+      />
 
       {/* Discharge opening */}
-      <ellipse cx="100" cy="200" rx="15" ry="8" fill="#2d3748" stroke="#1a202c" strokeWidth="2"/>
+      <ellipse
+        cx="100"
+        cy="200"
+        rx="15"
+        ry="8"
+        fill={themeColors.neutral[700]}
+        stroke={themeColors.neutral[900]}
+        strokeWidth="2"
+      />
 
       {/* Pendulum assembly */}
       <g>
         {/* Pendulum rod */}
-        <line x1="100" y1="200" x2="100" y2="280" stroke="#718096" strokeWidth="6"/>
+        <line
+          x1="100"
+          y1="200"
+          x2="100"
+          y2="280"
+          stroke={themeColors.neutral[500]}
+          strokeWidth="6"
+        />
 
         {/* Activation plate */}
-        <ellipse cx="100" cy="290" rx="35" ry="12" fill="#e2e8f0" stroke="#a0aec0" strokeWidth="2"/>
+        <ellipse
+          cx="100"
+          cy="290"
+          rx="35"
+          ry="12"
+          fill={themeColors.neutral[200]}
+          stroke={themeColors.neutral[400]}
+          strokeWidth="2"
+        />
 
         {/* Pendulum pivot */}
-        <circle cx="100" cy="200" r="8" fill="#2d3748" stroke="#1a202c" strokeWidth="2"/>
+        <circle
+          cx="100"
+          cy="200"
+          r="8"
+          fill={themeColors.neutral[700]}
+          stroke={themeColors.neutral[900]}
+          strokeWidth="2"
+        />
       </g>
 
       {/* Falling pellets */}
       <g>
-        <circle cx="95" cy="220" r="4" fill="url(#dfPelletGradient)"/>
-        <circle cx="105" cy="235" r="3" fill="url(#dfPelletGradient)"/>
-        <circle cx="100" cy="250" r="4" fill="url(#dfPelletGradient)"/>
+        <circle cx="95" cy="220" r="4" fill="url(#dfPelletGradient)" />
+        <circle cx="105" cy="235" r="3" fill="url(#dfPelletGradient)" />
+        <circle cx="100" cy="250" r="4" fill="url(#dfPelletGradient)" />
       </g>
 
       {/* Mounting hardware */}
-      <rect x="20" y="10" width="12" height="25" fill="#2d3748"/>
-      <rect x="168" y="10" width="12" height="25" fill="#2d3748"/>
-      <circle cx="26" cy="17" r="4" fill="#718096"/>
-      <circle cx="26" cy="28" r="4" fill="#718096"/>
-      <circle cx="174" cy="17" r="4" fill="#718096"/>
-      <circle cx="174" cy="28" r="4" fill="#718096"/>
+      <rect x="20" y="10" width="12" height="25" fill={themeColors.neutral[700]} />
+      <rect x="168" y="10" width="12" height="25" fill={themeColors.neutral[700]} />
+      <circle cx="26" cy="17" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="26" cy="28" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="174" cy="17" r="4" fill={themeColors.neutral[500]} />
+      <circle cx="174" cy="28" r="4" fill={themeColors.neutral[500]} />
 
       {/* Support chains */}
-      <g stroke="#718096" strokeWidth="3" fill="none">
-        <path d="M26 35 L26 0"/>
-        <path d="M174 35 L174 0"/>
+      <g stroke={themeColors.neutral[500]} strokeWidth="3" fill="none">
+        <path d="M26 35 L26 0" />
+        <path d="M174 35 L174 0" />
       </g>
     </svg>
 
@@ -274,7 +390,7 @@ const renderDemandFeeder = (x: number, y: number, displayName: string) => (
       textAnchor="middle"
       fontSize={10}
       fontFamily="system-ui, sans-serif"
-      fill="#374151"
+      fill={themeColors.neutral[700]}
       fontWeight={500}
     >
       {displayName.length > 12 ? displayName.substring(0, 10) + '...' : displayName}
@@ -287,7 +403,7 @@ const renderDemandFeeder = (x: number, y: number, displayName: string) => (
  */
 const renderConnectionPoint = (x: number, y: number, displayName: string) => (
   <g key={`cp-${x}-${y}`} transform={`translate(${x}, ${y})`}>
-    <circle cx={15} cy={15} r={12} fill="#ffcc00" stroke="#333" strokeWidth={2} />
+    <circle cx={15} cy={15} r={12} fill={themeColors.warning[500]} stroke="#333" strokeWidth={2} />
     <text
       x={15}
       y={19}
@@ -321,9 +437,10 @@ const renderDefaultNode = (node: ProcessNode, displayName: string, statusColor: 
     default: 'M4 4h16v16H4V4z',
   };
 
-  const iconPath = EQUIPMENT_ICONS[equipmentType?.toLowerCase() || '']
-    || EQUIPMENT_ICONS[equipmentCategory?.toLowerCase() || '']
-    || EQUIPMENT_ICONS.default;
+  const iconPath =
+    EQUIPMENT_ICONS[equipmentType?.toLowerCase() || ''] ||
+    EQUIPMENT_ICONS[equipmentCategory?.toLowerCase() || ''] ||
+    EQUIPMENT_ICONS.default;
 
   const ICON_SIZE = 32;
 
@@ -344,12 +461,7 @@ const renderDefaultNode = (node: ProcessNode, displayName: string, statusColor: 
       />
 
       {/* Status indicator */}
-      <circle
-        cx={dims.w - 12}
-        cy={12}
-        r={5}
-        fill={statusColor}
-      />
+      <circle cx={dims.w - 12} cy={12} r={5} fill={statusColor} />
 
       {/* Equipment icon */}
       <g transform={`translate(${(dims.w - ICON_SIZE) / 2}, 12)`}>
@@ -374,7 +486,7 @@ const renderDefaultNode = (node: ProcessNode, displayName: string, statusColor: 
         textAnchor="middle"
         fontSize={10}
         fontFamily="system-ui, sans-serif"
-        fill="#374151"
+        fill={themeColors.neutral[700]}
         fontWeight={500}
       >
         {displayName.length > 14 ? displayName.substring(0, 12) + '...' : displayName}
@@ -426,8 +538,8 @@ interface ProcessEdgePathProps {
 }
 
 const ProcessEdgePath: React.FC<ProcessEdgePathProps> = ({ edge, nodes }) => {
-  const sourceNode = nodes.find(n => n.id === edge.source);
-  const targetNode = nodes.find(n => n.id === edge.target);
+  const sourceNode = nodes.find((n) => n.id === edge.source);
+  const targetNode = nodes.find((n) => n.id === edge.target);
 
   if (!sourceNode || !targetNode) return null;
 
@@ -460,7 +572,11 @@ const ProcessEdgePath: React.FC<ProcessEdgePathProps> = ({ edge, nodes }) => {
     }
 
     // Automatic Feeder specific handles
-    if (nodeType === 'automaticfeeder' || nodeType === 'automatic-feeder' || nodeType === 'autofeeder') {
+    if (
+      nodeType === 'automaticfeeder' ||
+      nodeType === 'automatic-feeder' ||
+      nodeType === 'autofeeder'
+    ) {
       switch (handle) {
         case 'power':
           return { x: x + 87, y: y + 60 };
@@ -503,9 +619,7 @@ const ProcessEdgePath: React.FC<ProcessEdgePathProps> = ({ edge, nodes }) => {
         return { x, y: y + dims.h / 2 };
       default:
         // Default to right for source, left for target
-        return isSource
-          ? { x: x + dims.w, y: y + dims.h / 2 }
-          : { x, y: y + dims.h / 2 };
+        return isSource ? { x: x + dims.w, y: y + dims.h / 2 } : { x, y: y + dims.h / 2 };
     }
   };
 
@@ -522,17 +636,12 @@ const ProcessEdgePath: React.FC<ProcessEdgePathProps> = ({ edge, nodes }) => {
       <path
         d={d}
         fill="none"
-        stroke="#94A3B8"
+        stroke={themeColors.neutral[400]}
         strokeWidth={2}
         strokeLinecap="round"
       />
       {/* Arrow marker at end */}
-      <circle
-        cx={end.x}
-        cy={end.y}
-        r={4}
-        fill="#94A3B8"
-      />
+      <circle cx={end.x} cy={end.y} r={4} fill={themeColors.neutral[400]} />
     </g>
   );
 };
@@ -595,9 +704,7 @@ export const ProcessDiagramRenderer: React.FC<ProcessDiagramRendererProps> = ({
   return (
     <svg
       viewBox={
-        fitView
-          ? `${bounds.minX - padding} ${bounds.minY - padding} ${width} ${height}`
-          : undefined
+        fitView ? `${bounds.minX - padding} ${bounds.minY - padding} ${width} ${height}` : undefined
       }
       className={`w-full h-full ${className}`}
       preserveAspectRatio="xMidYMid meet"
@@ -605,37 +712,32 @@ export const ProcessDiagramRenderer: React.FC<ProcessDiagramRendererProps> = ({
     >
       {/* Background grid pattern */}
       <defs>
-        <pattern
-          id="process-grid"
-          width="20"
-          height="20"
-          patternUnits="userSpaceOnUse"
-        >
-          <circle cx="1" cy="1" r="1" fill="#E5E7EB" />
+        <pattern id="process-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="1" fill={themeColors.neutral[200]} />
         </pattern>
 
         {/* Gradients for feeders (defined once) */}
         <linearGradient id="hopperGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#4a5568"/>
-          <stop offset="50%" stopColor="#718096"/>
-          <stop offset="100%" stopColor="#4a5568"/>
+          <stop offset="0%" stopColor={themeColors.neutral[600]} />
+          <stop offset="50%" stopColor={themeColors.neutral[500]} />
+          <stop offset="100%" stopColor={themeColors.neutral[600]} />
         </linearGradient>
         <linearGradient id="motorGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#2d3748"/>
-          <stop offset="100%" stopColor="#1a202c"/>
+          <stop offset="0%" stopColor={themeColors.neutral[700]} />
+          <stop offset="100%" stopColor={themeColors.neutral[900]} />
         </linearGradient>
         <linearGradient id="pelletGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#d69e2e"/>
-          <stop offset="100%" stopColor="#b7791f"/>
+          <stop offset="0%" stopColor={themeColors.warning[500]} />
+          <stop offset="100%" stopColor={themeColors.warning[600]} />
         </linearGradient>
         <linearGradient id="dfHopperGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#4a5568"/>
-          <stop offset="50%" stopColor="#718096"/>
-          <stop offset="100%" stopColor="#4a5568"/>
+          <stop offset="0%" stopColor={themeColors.neutral[600]} />
+          <stop offset="50%" stopColor={themeColors.neutral[500]} />
+          <stop offset="100%" stopColor={themeColors.neutral[600]} />
         </linearGradient>
         <linearGradient id="dfPelletGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#d69e2e"/>
-          <stop offset="100%" stopColor="#b7791f"/>
+          <stop offset="0%" stopColor={themeColors.warning[500]} />
+          <stop offset="100%" stopColor={themeColors.warning[600]} />
         </linearGradient>
       </defs>
 

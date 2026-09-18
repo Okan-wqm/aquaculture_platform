@@ -71,7 +71,7 @@ async function fetchSchemas(): Promise<string[]> {
 // Fix: C13 -- backend ExecuteQueryDto expects { sql, params }, not { schema, query }
 async function executeQuery(
   _schema: string,
-  query: string
+  query: string,
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; columns: string[] }> {
   const response = await fetch(`${API_BASE}/query`, {
     method: 'POST',
@@ -147,7 +147,7 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 
     const updatedHistory = [newItem, ...history.filter((h) => h.query !== preview)].slice(
       0,
-      MAX_HISTORY_ITEMS
+      MAX_HISTORY_ITEMS,
     );
 
     localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(updatedHistory));
@@ -160,7 +160,20 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 const isSelectOnlyQuery = (query: string): boolean => {
   const normalized = query.trim().replace(/\s+/g, ' ').toLowerCase();
   // Reject any statement that starts with a DML/DDL keyword
-  const forbiddenPrefixes = ['insert', 'update', 'delete', 'drop', 'truncate', 'alter', 'create', 'grant', 'revoke', 'exec', 'execute', 'call'];
+  const forbiddenPrefixes = [
+    'insert',
+    'update',
+    'delete',
+    'drop',
+    'truncate',
+    'alter',
+    'create',
+    'grant',
+    'revoke',
+    'exec',
+    'execute',
+    'call',
+  ];
   return !forbiddenPrefixes.some((kw) => normalized.startsWith(kw));
 };
 
@@ -178,7 +191,7 @@ const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void =
 
   const header = columns.map(escapeCsvValue).join(',');
   const dataRows = rows.map((row) =>
-    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(',')
+    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(','),
   );
 
   const csvContent = [header, ...dataRows].join('\n');
@@ -196,7 +209,7 @@ const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void =
 
 const copyResultsToClipboard = async (
   columns: string[],
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
 ): Promise<boolean> => {
   try {
     const header = columns.join('\t');
@@ -219,7 +232,10 @@ interface LineNumbersProps {
 }
 
 const LineNumbers: React.FC<LineNumbersProps> = React.memo(({ lineCount, height }) => {
-  const lines = useMemo(() => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1), [lineCount]);
+  const lines = useMemo(
+    () => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1),
+    [lineCount],
+  );
 
   return (
     <div
@@ -260,7 +276,7 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize }) => {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [onResize]
+    [onResize],
   );
 
   return (
@@ -405,8 +421,18 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           <Button variant="outline" size="sm" onClick={onCopyToClipboard}>
             {copySuccess ? (
               <>
-                <svg className="w-4 h-4 mr-1 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-4 h-4 mr-1 text-green-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
                 Copied!
               </>
@@ -493,7 +519,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 // Main Component
 // ============================================================================
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'public', onQueryResult }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({
+  defaultSchema = 'public',
+  onQueryResult,
+}) => {
   // State
   const [query, setQuery] = useState('');
   const [selectedSchema, setSelectedSchema] = useState(defaultSchema);
@@ -545,7 +574,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     }
 
     if (!isSelectOnlyQuery(trimmedQuery)) {
-      setError('Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.');
+      setError(
+        'Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.',
+      );
       return;
     }
 
@@ -608,7 +639,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
         handleExecute();
       }
     },
-    [query, handleExecute]
+    [query, handleExecute],
   );
 
   // Clear editor
@@ -639,7 +670,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, []);  
+  }, []);
 
   // Handle history selection
   const handleHistorySelect = useCallback((selectedQuery: string) => {
@@ -670,7 +701,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
       {/* Safety Warning */}
       <Alert type="warning">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-5 h-5 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -679,8 +715,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
             />
           </svg>
           <span>
-            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification queries
-            (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
+            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification
+            queries (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
           </span>
         </div>
       </Alert>
@@ -761,11 +797,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
 
 Example:
 SELECT * FROM users LIMIT 10;"
-            className="absolute left-10 top-0 right-0 bottom-0 w-[calc(100%-40px)] h-full p-3 bg-gray-900 text-gray-100 font-mono text-sm resize-none focus:outline-hidden focus:ring-0 border-0"
-            style={{
-              lineHeight: '1.5',
-              tabSize: 2,
-            }}
+            className="absolute left-10 top-0 right-0 bottom-0 w-[calc(100%-40px)] h-full p-3 bg-gray-900 text-gray-100 font-mono text-sm leading-normal [tab-size:2] resize-none focus:outline-hidden focus:ring-0 border-0"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"

@@ -21,7 +21,13 @@ import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
-import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import {
+  DEFAULT_GRADIENT,
+  DEFAULT_FILTER,
+  buildGradientId,
+  buildFilterId,
+} from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /**
  * Computes regular polygon vertices within a width x height box using the
@@ -46,9 +52,7 @@ function computePolygonPoints(
   for (let i = 0; i < totalVertices; i++) {
     const angle = (2 * Math.PI * i) / totalVertices - Math.PI / 2;
     // In star mode, even indices use outer radius, odd indices use inner
-    const r = starMode && i % 2 === 1
-      ? outerRadius * innerRadiusRatio
-      : outerRadius;
+    const r = starMode && i % 2 === 1 ? outerRadius * innerRadiusRatio : outerRadius;
     const x = cx + r * Math.cos(angle);
     const y = cy + r * Math.sin(angle);
     points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
@@ -58,10 +62,13 @@ function computePolygonPoints(
 }
 
 const SvgPolygonRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
-  const flatFill = (animationState?.fill ?? config.fill ?? '#3b82f6') as string;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? colors.info[500]) as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
@@ -75,9 +82,7 @@ const SvgPolygonRenderer: React.FC<WidgetRendererProps> = ({
   const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
 
   const useGradient = fillGradient.type !== 'none';
-  const fillValue = useGradient
-    ? `url(#${buildGradientId(widgetId, 'fill')})`
-    : flatFill;
+  const fillValue = useGradient ? `url(#${buildGradientId(widgetId, 'fill')})` : flatFill;
 
   const useFilter = filterConfig.type !== 'none';
   const filterAttr = useFilter ? `url(#${buildFilterId(widgetId)})` : undefined;
@@ -111,11 +116,7 @@ const SvgPolygonRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
-      <SvgGradientDefs
-        widgetId={widgetId}
-        fillGradient={fillGradient}
-        filter={filterConfig}
-      />
+      <SvgGradientDefs widgetId={widgetId} fillGradient={fillGradient} filter={filterConfig} />
       <polygon
         points={pointsStr}
         fill={fillValue}

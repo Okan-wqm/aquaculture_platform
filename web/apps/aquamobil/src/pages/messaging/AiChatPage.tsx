@@ -182,10 +182,7 @@ function AiChannelHeader({
   const IconComponent = PERSONA_ICONS[meta.icon];
 
   return (
-    <div
-      className="bg-white dark:bg-gray-900 border-b-2 flex-shrink-0 z-10"
-      style={{ borderColor: 'inherit' }}
-    >
+    <div className="bg-white dark:bg-gray-900 border-b-2 border-inherit flex-shrink-0 z-10">
       <div className={clsx('border-b-2', colors.border)}>
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
           <button
@@ -488,10 +485,7 @@ export function AiChatPage(): JSX.Element {
     : null;
 
   return (
-    <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
-      style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
-    >
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]">
       {/* AI-specific header — persona-aware */}
       <AiChannelHeader
         channelName={channelName}

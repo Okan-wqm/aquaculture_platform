@@ -7,6 +7,7 @@ import React, { useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import { rotatePoint } from '../utils/rotatePoint';
 import { useProcessStore } from '../../../store/processStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /**
  * Determine the closest cardinal Position based on handle's rotated position
@@ -16,7 +17,7 @@ function getCardinalPosition(
   centerX: number,
   centerY: number,
   handleX: number,
-  handleY: number
+  handleY: number,
 ): Position {
   const angle = Math.atan2(handleY - centerY, handleX - centerX) * (180 / Math.PI);
 
@@ -67,9 +68,7 @@ const BaseNode: React.FC<BaseNodeProps> = ({
     if (!currentHandle) return;
 
     const newType: HandleType = currentHandle.type === 'source' ? 'target' : 'source';
-    const updatedHandles = handles.map((h) =>
-      h.id === handleId ? { ...h, type: newType } : h
-    );
+    const updatedHandles = handles.map((h) => (h.id === handleId ? { ...h, type: newType } : h));
 
     updateNodeData(id, { handles: updatedHandles } as any);
     updateNodeInternals(id);
@@ -90,7 +89,7 @@ const BaseNode: React.FC<BaseNodeProps> = ({
         height,
         position: 'relative',
         pointerEvents: 'none',
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
         transition: 'border-color 0.2s',
       }}
@@ -102,15 +101,19 @@ const BaseNode: React.FC<BaseNodeProps> = ({
         viewBox={`0 0 ${width} ${height}`}
         style={{ pointerEvents: 'auto' }}
       >
-        <g transform={`rotate(${rotation}, ${centerX}, ${centerY})`}>
-          {render()}
-        </g>
+        <g transform={`rotate(${rotation}, ${centerX}, ${centerY})`}>{render()}</g>
       </svg>
 
       {/* Dynamic Handles */}
       {handles.map((handle) => {
-        const rotated = rotatePoint(centerX, centerY, handle.position.x, handle.position.y, rotation);
-        const handleColor = handle.type === 'source' ? '#22c55e' : '#3b82f6';
+        const rotated = rotatePoint(
+          centerX,
+          centerY,
+          handle.position.x,
+          handle.position.y,
+          rotation,
+        );
+        const handleColor = handle.type === 'source' ? colors.success[500] : colors.info[500];
 
         return (
           <div

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const ScrewPumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -46,7 +47,16 @@ const ScrewPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Shaft line */}
-        <line x1={15} y1={50} x2={85} y2={50} stroke={colors.stroke} strokeWidth={0.8} strokeDasharray="2,3" opacity={0.3} />
+        <line
+          x1={15}
+          y1={50}
+          x2={85}
+          y2={50}
+          stroke={colors.stroke}
+          strokeWidth={0.8}
+          strokeDasharray="2,3"
+          opacity={0.3}
+        />
 
         {/* Inlet line — left */}
         <line x1={0} y1={50} x2={15} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
@@ -68,7 +78,14 @@ const ScrewPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={50} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={10}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

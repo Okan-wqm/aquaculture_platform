@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -43,7 +44,8 @@ const FORMAT_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS =
+  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 const SMALL_INPUT_CLS = 'w-full px-2 py-1 text-xs border border-gray-300 rounded';
 
 export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
@@ -51,10 +53,10 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
   const showHeader = (config.showHeader ?? true) as boolean;
-  const headerBgColor = (config.headerBgColor ?? '#1e293b') as string;
-  const headerTextColor = (config.headerTextColor ?? '#ffffff') as string;
-  const rowBgColor = (config.rowBgColor ?? '#ffffff') as string;
-  const alternateRowColor = (config.alternateRowColor ?? '#f8fafc') as string;
+  const headerBgColor = (config.headerBgColor ?? colors.neutral[800]) as string;
+  const headerTextColor = (config.headerTextColor ?? colors.white) as string;
+  const rowBgColor = (config.rowBgColor ?? colors.white) as string;
+  const alternateRowColor = (config.alternateRowColor ?? colors.neutral[50]) as string;
   const fontSize = (config.fontSize ?? 12) as number;
   const rowColorRules = (config.rowColorRules ?? []) as RowColorRule[];
 
@@ -63,14 +65,22 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   /* ---------------------------------------------------------------- */
 
   const addColumn = () => {
-    const newCol: ColumnDef = { tagName: '', label: '', width: 120, format: 'auto', sortable: true };
+    const newCol: ColumnDef = {
+      tagName: '',
+      label: '',
+      width: 120,
+      format: 'auto',
+      sortable: true,
+    };
     onChange({ columns: [...columns, newCol] });
   };
 
-  const updateColumn = (index: number, field: keyof ColumnDef, value: string | number | boolean) => {
-    const updated = columns.map((c, i) =>
-      i === index ? { ...c, [field]: value } : c,
-    );
+  const updateColumn = (
+    index: number,
+    field: keyof ColumnDef,
+    value: string | number | boolean,
+  ) => {
+    const updated = columns.map((c, i) => (i === index ? { ...c, [field]: value } : c));
     onChange({ columns: updated });
   };
 
@@ -83,14 +93,12 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   /* ---------------------------------------------------------------- */
 
   const addRule = () => {
-    const newRule: RowColorRule = { tagName: '', min: 0, max: 100, color: '#ef4444' };
+    const newRule: RowColorRule = { tagName: '', min: 0, max: 100, color: colors.error[500] };
     onChange({ rowColorRules: [...rowColorRules, newRule] });
   };
 
   const updateRule = (index: number, field: keyof RowColorRule, value: string | number) => {
-    const updated = rowColorRules.map((r, i) =>
-      i === index ? { ...r, [field]: value } : r,
-    );
+    const updated = rowColorRules.map((r, i) => (i === index ? { ...r, [field]: value } : r));
     onChange({ rowColorRules: updated });
   };
 
@@ -113,7 +121,10 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
             <div key={i} className="p-2 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600">Column {i + 1}</span>
-                <button onClick={() => removeColumn(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
+                <button
+                  onClick={() => removeColumn(i)}
+                  className="text-red-400 hover:text-red-600 text-xs px-1"
+                >
                   X
                 </button>
               </div>
@@ -164,7 +175,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                     className={SMALL_INPUT_CLS}
                   >
                     {FORMAT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -198,7 +211,9 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
               className={INPUT_CLS}
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size}</option>
+                <option key={size} value={size}>
+                  {size}
+                </option>
               ))}
             </select>
           </div>
@@ -318,7 +333,10 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                 onChange={(e) => updateRule(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
               />
-              <button onClick={() => removeRule(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
+              <button
+                onClick={() => removeRule(i)}
+                className="text-red-400 hover:text-red-600 text-xs px-1"
+              >
                 X
               </button>
             </div>

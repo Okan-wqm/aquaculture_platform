@@ -154,10 +154,7 @@ const HRAnalyticsPage: React.FC = () => {
                   <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
                     {dept.name}
                   </span>
-                  <div
-                    className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700"
-                    style={{ height: 6 }}
-                  >
+                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
                     <div
                       className="h-full rounded-full"
                       style={{

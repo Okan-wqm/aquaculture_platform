@@ -3,7 +3,7 @@
  */
 
 import React, { memo, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, colors } from '@aquaculture/shared-ui';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({
@@ -55,7 +55,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({
             cy={96}
             r={80}
             fill="none"
-            stroke="#ef4444"
+            stroke={colors.error[500]}
             strokeWidth={2}
             opacity={0.6}
           >
@@ -64,14 +64,21 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({
           </circle>
         )}
         {/* Outer ring */}
-        <circle cx={100} cy={96} r={72} fill="#fef2f2" stroke="#fca5a5" strokeWidth={3} />
+        <circle
+          cx={100}
+          cy={96}
+          r={72}
+          fill={colors.error[50]}
+          stroke={colors.error[100]}
+          strokeWidth={3}
+        />
         {/* Button body */}
         <circle
           cx={100}
           cy={96}
           r={64}
-          fill={activated ? '#991b1b' : '#dc2626'}
-          stroke="#7f1d1d"
+          fill={activated ? colors.error[700] : colors.error[600]}
+          stroke={colors.accent[800]}
           strokeWidth={2}
         />
         {/* Shadow inset for 3D effect */}
@@ -103,7 +110,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({
           textAnchor="middle"
           fontSize={statusFontSize}
           fontWeight={600}
-          fill={activated ? '#dc2626' : '#6b7280'}
+          fill={activated ? colors.error[600] : colors.gray[400]}
         >
           {activated ? 'ACTIVATED' : 'READY'}
         </text>

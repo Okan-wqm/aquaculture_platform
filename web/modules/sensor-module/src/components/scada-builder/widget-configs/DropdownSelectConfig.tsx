@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface DropdownOption {
   label: string;
@@ -18,15 +19,16 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({
+  config,
+  onChange,
+  deviceId,
+}) => {
   const options: DropdownOption[] = (config.options as DropdownOption[]) || [];
 
   const addOption = () => {
     onChange({
-      options: [
-        ...options,
-        { label: `Option ${options.length + 1}`, value: options.length },
-      ],
+      options: [...options, { label: `Option ${options.length + 1}`, value: options.length }],
     });
   };
 
@@ -116,7 +118,7 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           <label className="block text-xs text-gray-500 mb-1">Border Color</label>
           <input
             type="color"
-            value={(config.borderColor as string) ?? '#d1d5db'}
+            value={(config.borderColor as string) ?? colors.neutral[300]}
             onChange={(e) => onChange({ borderColor: e.target.value })}
             className="w-full h-8 border border-gray-300 rounded cursor-pointer"
           />
@@ -125,7 +127,7 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
           <label className="block text-xs text-gray-500 mb-1">Background</label>
           <input
             type="color"
-            value={(config.backgroundColor as string) ?? '#ffffff'}
+            value={(config.backgroundColor as string) ?? colors.white}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
             className="w-full h-8 border border-gray-300 rounded cursor-pointer"
           />
@@ -136,10 +138,7 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       <div className="pt-2 border-t border-gray-100">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 font-medium">Options</label>
-          <button
-            onClick={addOption}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
-          >
+          <button onClick={addOption} className="text-xs text-cyan-600 hover:text-cyan-700">
             + Add Option
           </button>
         </div>

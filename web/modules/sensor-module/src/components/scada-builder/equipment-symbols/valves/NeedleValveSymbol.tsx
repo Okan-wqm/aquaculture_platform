@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const NeedleValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -30,12 +31,22 @@ const NeedleValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
         <line
-          x1={0} y1={40} x2={20} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={20}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={80} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={80}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Bowtie body — left triangle */}
@@ -60,8 +71,13 @@ const NeedleValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Stem — vertical line from handwheel down to needle */}
         <line
-          x1={50} y1={stemTopY} x2={50} y2={needleTipY - 8}
-          stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+          x1={50}
+          y1={stemTopY}
+          x2={50}
+          y2={needleTipY - 8}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
         />
 
         {/* Needle tip — conical point */}
@@ -75,30 +91,29 @@ const NeedleValveSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Handwheel — small circle at top */}
-        <circle
-          cx={50} cy={stemTopY} r={3.5}
-          fill="none"
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
-        <circle
-          cx={50} cy={stemTopY} r={1.2}
-          fill={colors.stroke}
-        />
+        <circle cx={50} cy={stemTopY} r={3.5} fill="none" stroke={colors.stroke} strokeWidth={2} />
+        <circle cx={50} cy={stemTopY} r={1.2} fill={colors.stroke} />
 
         {/* Orifice seat — small gap indicator at center */}
         <line
-          x1={46} y1={40} x2={54} y2={40}
-          stroke={colors.stroke} strokeWidth={1.5}
+          x1={46}
+          y1={40}
+          x2={54}
+          y2={40}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
           opacity={0.5}
         />
 
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

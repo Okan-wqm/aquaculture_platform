@@ -27,13 +27,18 @@ import {
   type StrokeLineCap,
   type StrokeLineJoin,
 } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 const SvgPathRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, isEditing, animationState,
+  config,
+  width,
+  height,
+  isEditing,
+  animationState,
 }) => {
   const points = (config.points ?? []) as PathPoint[];
   const closed = (config.closed ?? false) as boolean;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const fillOpacity = (config.fillOpacity ?? 1) as number;
   const strokeOpacity = (config.strokeOpacity ?? 1) as number;
@@ -54,17 +59,18 @@ const SvgPathRenderer: React.FC<WidgetRendererProps> = ({
 
   // Color-alternating blink state
   const hasColorBlink = Boolean(
-    animationState?.blinking &&
-    animationState?.blinkFillA &&
-    animationState?.blinkFillB,
+    animationState?.blinking && animationState?.blinkFillA && animationState?.blinkFillB,
   );
   const [blinkPhase, setBlinkPhase] = useState(false);
 
   useEffect(() => {
     if (!hasColorBlink || !animationState) return;
-    const interval = setInterval(() => {
-      setBlinkPhase((prev) => !prev);
-    }, (animationState.blinkInterval ?? 1000) / 2);
+    const interval = setInterval(
+      () => {
+        setBlinkPhase((prev) => !prev);
+      },
+      (animationState.blinkInterval ?? 1000) / 2,
+    );
     return () => clearInterval(interval);
   }, [hasColorBlink, animationState?.blinkInterval, animationState]);
 
@@ -106,7 +112,7 @@ const SvgPathRenderer: React.FC<WidgetRendererProps> = ({
           width={width - 8}
           height={height - 8}
           fill="none"
-          stroke="#d1d5db"
+          stroke={colors.neutral[300]}
           strokeWidth={2}
           strokeDasharray="6 4"
           rx={6}
@@ -117,7 +123,7 @@ const SvgPathRenderer: React.FC<WidgetRendererProps> = ({
           textAnchor="middle"
           dominantBaseline="central"
           fontSize={12}
-          fill="#9ca3af"
+          fill={colors.neutral[400]}
           fontFamily="sans-serif"
         >
           Draw path

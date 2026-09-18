@@ -25,20 +25,21 @@ import type {
   DaqAggregation,
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
+  themeColors.info[500],
+  themeColors.success[500],
+  themeColors.warning[500],
+  themeColors.error[500],
+  themeColors.primary[700],
+  themeColors.primary[400],
+  themeColors.accent[600],
+  themeColors.secondary[500],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -48,10 +49,7 @@ const DEFAULT_COLORS = [
 /**
  * Compute a single aggregate value from a series of data points.
  */
-function aggregatePoints(
-  points: HistoricalDataPoint[],
-  fn: DaqAggregation['function'],
-): number {
+function aggregatePoints(points: HistoricalDataPoint[], fn: DaqAggregation['function']): number {
   const nums = points
     .map((p) => (typeof p.value === 'number' ? p.value : parseFloat(String(p.value))))
     .filter((v) => !isNaN(v));
@@ -87,18 +85,18 @@ function getThemeColors(theme: 'light' | 'dark'): ThemeColors {
   if (theme === 'dark') {
     return {
       gridColor: 'rgba(255,255,255,0.1)',
-      axisColor: '#9ca3af',
-      tooltipBg: '#1f2937',
-      tooltipBorder: '#374151',
-      tooltipText: '#f3f4f6',
+      axisColor: themeColors.neutral[400],
+      tooltipBg: themeColors.neutral[800],
+      tooltipBorder: themeColors.neutral[700],
+      tooltipText: themeColors.neutral[100],
     };
   }
   return {
     gridColor: 'rgba(0,0,0,0.06)',
-    axisColor: '#6b7280',
-    tooltipBg: '#ffffff',
-    tooltipBorder: '#e5e7eb',
-    tooltipText: '#374151',
+    axisColor: themeColors.gray[400],
+    tooltipBg: themeColors.white,
+    tooltipBorder: themeColors.neutral[200],
+    tooltipText: themeColors.neutral[700],
   };
 }
 
@@ -165,10 +163,7 @@ export const BarChart: React.FC<BarChartProps> = ({
 
   /** Resolve bar colors, falling back to defaults. */
   const resolvedColors = useMemo<string[]>(
-    () =>
-      series.map(
-        (s, i) => s.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-      ),
+    () => series.map((s, i) => s.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]),
     [series],
   );
 
@@ -257,11 +252,7 @@ export const BarChart: React.FC<BarChartProps> = ({
               cursor={{ fill: 'rgba(14, 165, 233, 0.08)' }}
             />
             {showLegend && series.length > 1 && (
-              <Legend
-                wrapperStyle={{ fontSize: '11px' }}
-                iconType="rect"
-                iconSize={10}
-              />
+              <Legend wrapperStyle={{ fontSize: '11px' }} iconType="rect" iconSize={10} />
             )}
             {series.map((s, i) => (
               <Bar

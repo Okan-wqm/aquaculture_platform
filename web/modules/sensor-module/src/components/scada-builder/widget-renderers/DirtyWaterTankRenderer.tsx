@@ -5,15 +5,26 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
-const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const raw = isEditing ? (config.demoLevel ?? 55) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
 
-  const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
+  const status = (
+    isEditing
+      ? (config.demoStatus ?? 'running')
+      : String(value !== undefined ? 'running' : 'stopped')
+  ) as string;
   const isRunning = status === 'running';
-  const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const statusColor = isRunning ? themeColors.success[500] : themeColors.neutral[400];
   const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
   const pct = effectiveLevel / 100;
 
@@ -26,8 +37,8 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
   const fillH = tankH * pct;
 
   // Water colors
-  const dirtyColor = '#8B7355';
-  const sedimentColor = '#6B5335';
+  const dirtyColor = themeColors.accent[700];
+  const sedimentColor = themeColors.accent[800];
 
   // Sediment layer height (fixed at 10% of tank)
   const sedimentH = tankH * 0.1;
@@ -54,14 +65,19 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           </linearGradient>
           {/* Tank body gradient */}
           <linearGradient id="dirtyTankGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#e2e8f0" />
-            <stop offset="50%" stopColor="#f8fafc" />
-            <stop offset="100%" stopColor="#e2e8f0" />
+            <stop offset="0%" stopColor={themeColors.neutral[200]} />
+            <stop offset="50%" stopColor={themeColors.neutral[50]} />
+            <stop offset="100%" stopColor={themeColors.neutral[200]} />
           </linearGradient>
           {/* Clip path for water fill inside tank */}
           <clipPath id="dirtyTankClip">
             <rect x={tankX + 1} y={tankY + capRy} width={tankW - 2} height={tankH - capRy * 2} />
-            <ellipse cx={tankX + tankW / 2} cy={tankY + tankH - capRy} rx={tankW / 2 - 1} ry={capRy} />
+            <ellipse
+              cx={tankX + tankW / 2}
+              cy={tankY + tankH - capRy}
+              rx={tankW / 2 - 1}
+              ry={capRy}
+            />
           </clipPath>
         </defs>
 
@@ -82,7 +98,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#e2e8f0"
+          fill={themeColors.neutral[200]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -93,7 +109,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + tankH - capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#cfd8dc"
+          fill={themeColors.neutral[300]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -117,10 +133,34 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
             fill="url(#sedimentGrad)"
           />
           {/* Sediment particles (small dots) */}
-          <circle cx={tankX + 15} cy={tankY + tankH - capRy - 4} r={1.5} fill={sedimentColor} opacity={0.6} />
-          <circle cx={tankX + 30} cy={tankY + tankH - capRy - 6} r={1} fill={sedimentColor} opacity={0.5} />
-          <circle cx={tankX + 50} cy={tankY + tankH - capRy - 3} r={1.5} fill={sedimentColor} opacity={0.7} />
-          <circle cx={tankX + 65} cy={tankY + tankH - capRy - 5} r={1} fill={sedimentColor} opacity={0.5} />
+          <circle
+            cx={tankX + 15}
+            cy={tankY + tankH - capRy - 4}
+            r={1.5}
+            fill={sedimentColor}
+            opacity={0.6}
+          />
+          <circle
+            cx={tankX + 30}
+            cy={tankY + tankH - capRy - 6}
+            r={1}
+            fill={sedimentColor}
+            opacity={0.5}
+          />
+          <circle
+            cx={tankX + 50}
+            cy={tankY + tankH - capRy - 3}
+            r={1.5}
+            fill={sedimentColor}
+            opacity={0.7}
+          />
+          <circle
+            cx={tankX + 65}
+            cy={tankY + tankH - capRy - 5}
+            r={1}
+            fill={sedimentColor}
+            opacity={0.5}
+          />
           {/* Water surface line */}
           {pct > 0.02 && pct < 0.98 && (
             <line
@@ -136,11 +176,32 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         </g>
 
         {/* Outline over water (re-draw side walls) */}
-        <line x1={tankX} y1={tankY + capRy} x2={tankX} y2={tankY + tankH - capRy} stroke="#333" strokeWidth={2} />
-        <line x1={tankX + tankW} y1={tankY + capRy} x2={tankX + tankW} y2={tankY + tankH - capRy} stroke="#333" strokeWidth={2} />
+        <line
+          x1={tankX}
+          y1={tankY + capRy}
+          x2={tankX}
+          y2={tankY + tankH - capRy}
+          stroke="#333"
+          strokeWidth={2}
+        />
+        <line
+          x1={tankX + tankW}
+          y1={tankY + capRy}
+          x2={tankX + tankW}
+          y2={tankY + tankH - capRy}
+          stroke="#333"
+          strokeWidth={2}
+        />
 
         {/* Drain valve at bottom-center */}
-        <line x1={tankX + tankW / 2} y1={tankY + tankH - capRy + 4} x2={tankX + tankW / 2} y2={tankY + tankH + 6} stroke="#333" strokeWidth={2} />
+        <line
+          x1={tankX + tankW / 2}
+          y1={tankY + tankH - capRy + 4}
+          x2={tankX + tankW / 2}
+          y2={tankY + tankH + 6}
+          stroke="#333"
+          strokeWidth={2}
+        />
         {/* Valve body */}
         <rect
           x={tankX + tankW / 2 - 6}
@@ -162,7 +223,14 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           strokeWidth={1.5}
         />
         {/* Drain arrow */}
-        <line x1={tankX + tankW / 2} y1={tankY + tankH + 12} x2={tankX + tankW / 2} y2={tankY + tankH + 20} stroke="#333" strokeWidth={1.5} />
+        <line
+          x1={tankX + tankW / 2}
+          y1={tankY + tankH + 12}
+          x2={tankX + tankW / 2}
+          y2={tankY + tankH + 20}
+          stroke="#333"
+          strokeWidth={1.5}
+        />
         <polygon
           points={`${tankX + tankW / 2 - 3},${tankY + tankH + 17} ${tankX + tankW / 2},${tankY + tankH + 21} ${tankX + tankW / 2 + 3},${tankY + tankH + 17}`}
           fill={statusColor}
@@ -175,15 +243,39 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           textAnchor="middle"
           fontSize={16}
           fontWeight={700}
-          fill="#111827"
+          fill={themeColors.neutral[900]}
         >
           {Math.round(effectiveLevel)}%
         </text>
 
         {/* "Kirli" badge */}
-        <rect x={34} y={110} width={52} height={16} rx={8} fill="#d97706" opacity={0.15} />
-        <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke="#d97706" strokeWidth={1} />
-        <text x={60} y={121} textAnchor="middle" fontSize={9} fill="#92400e" fontWeight={600}>
+        <rect
+          x={34}
+          y={110}
+          width={52}
+          height={16}
+          rx={8}
+          fill={themeColors.warning[600]}
+          opacity={0.15}
+        />
+        <rect
+          x={34}
+          y={110}
+          width={52}
+          height={16}
+          rx={8}
+          fill="none"
+          stroke={themeColors.warning[600]}
+          strokeWidth={1}
+        />
+        <text
+          x={60}
+          y={121}
+          textAnchor="middle"
+          fontSize={9}
+          fill={themeColors.warning[700]}
+          fontWeight={600}
+        >
           Dirty
         </text>
 

@@ -9,6 +9,7 @@
 
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /** Threshold above which data URLs are converted to Blob URLs for performance */
 const BLOB_THRESHOLD_BYTES = 500 * 1024;
@@ -53,7 +54,11 @@ function dataUrlToBlobUrl(dataUrl: string): string | null {
 }
 
 const RasterImageRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, isEditing, animationState,
+  config,
+  width,
+  height,
+  isEditing,
+  animationState,
 }) => {
   const imageData = (config.imageData ?? '') as string;
   const objectFit = (config.objectFit ?? 'contain') as ObjectFitValue;
@@ -111,13 +116,32 @@ const RasterImageRenderer: React.FC<WidgetRendererProps> = ({
       return <div style={{ width, height }} />;
     }
     return (
-      <div style={{
-        width, height, display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: '#f8fafc', border: '2px dashed #d1d5db', borderRadius: 8,
-        color: '#9ca3af', fontSize: 11, textAlign: 'center', padding: 8, gap: 4,
-      }}>
-        <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <div
+        style={{
+          width,
+          height,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: colors.neutral[50],
+          border: `2px dashed ${themeColors.neutral[300]}`,
+          borderRadius: 8,
+          color: colors.neutral[400],
+          fontSize: 11,
+          textAlign: 'center',
+          padding: 8,
+          gap: 4,
+        }}
+      >
+        <svg
+          width={24}
+          height={24}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+        >
           <rect x={3} y={3} width={18} height={18} rx={2} />
           <circle cx={8.5} cy={8.5} r={1.5} />
           <path d="M21 15l-5-5L5 21" />

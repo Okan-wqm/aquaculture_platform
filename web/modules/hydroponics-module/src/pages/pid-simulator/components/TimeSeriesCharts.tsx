@@ -33,7 +33,7 @@ const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({
     <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
       {title}
     </h4>
-    <div style={{ height: 110 }}>{children}</div>
+    <div className="h-[110px]">{children}</div>
   </div>
 );
 

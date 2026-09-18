@@ -10,6 +10,7 @@
 
 import React, { memo, useState, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,9 +32,9 @@ type DeviceStatus = DeviceMarker['status'];
 /* ------------------------------------------------------------------ */
 
 const STATUS_COLORS: Record<DeviceStatus, string> = {
-  online: '#22c55e',
-  offline: '#ef4444',
-  unknown: '#9ca3af',
+  online: themeColors.success[500],
+  offline: themeColors.error[500],
+  unknown: themeColors.neutral[400],
 };
 
 const HEADER_HEIGHT = 24;
@@ -70,14 +71,23 @@ GridLines.displayName = 'GridLines';
 const PulseRing: React.FC<{ cx: number; cy: number; color: string }> = ({ cx, cy, color }) => (
   <circle cx={cx} cy={cy} r={12} fill="none" stroke={color} strokeWidth={1.5} opacity={0.3}>
     <animate attributeName="r" from="8" to="16" dur={PULSE_DURATION} repeatCount="indefinite" />
-    <animate attributeName="opacity" from="0.4" to="0" dur={PULSE_DURATION} repeatCount="indefinite" />
+    <animate
+      attributeName="opacity"
+      from="0.4"
+      to="0"
+      dur={PULSE_DURATION}
+      repeatCount="indefinite"
+    />
   </circle>
 );
 
 PulseRing.displayName = 'PulseRing';
 
 const MarkerTooltip: React.FC<{ cx: number; cy: number; r: number; marker: DeviceMarker }> = ({
-  cx, cy, r, marker,
+  cx,
+  cy,
+  r,
+  marker,
 }) => {
   const tooltipX = cx - TOOLTIP_WIDTH / 2;
   const tooltipY = cy - r - TOOLTIP_OFFSET;
@@ -119,7 +129,7 @@ MarkerTooltip.displayName = 'MarkerTooltip';
 
 const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height }) => {
   const markers = (config.markers ?? []) as DeviceMarker[];
-  const bgColor = (config.bgColor ?? '#0c4a6e') as string;
+  const bgColor = (config.bgColor ?? themeColors.primary[700]) as string;
   const showGrid = (config.showGrid ?? true) as boolean;
   const title = (config.title ?? 'Site Map') as string;
 
@@ -174,9 +184,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
               style={{ cursor: 'pointer' }}
             >
               {/* Pulse ring for online devices */}
-              {marker.status === 'online' && (
-                <PulseRing cx={cx} cy={cy} color={color} />
-              )}
+              {marker.status === 'online' && <PulseRing cx={cx} cy={cy} color={color} />}
 
               {/* Marker circle */}
               <circle
@@ -203,9 +211,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
               </text>
 
               {/* Hover tooltip */}
-              {isHovered && (
-                <MarkerTooltip cx={cx} cy={cy} r={r} marker={marker} />
-              )}
+              {isHovered && <MarkerTooltip cx={cx} cy={cy} r={r} marker={marker} />}
             </g>
           );
         })}

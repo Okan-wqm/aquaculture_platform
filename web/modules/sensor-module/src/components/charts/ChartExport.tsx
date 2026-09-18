@@ -21,6 +21,7 @@
 import React, { useCallback } from 'react';
 import type { ChartLine, HistoricalDataPoint } from '../../types/scada-runtime.types';
 import type { TrendTimeRange } from '../../hooks/useTrendData';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -62,12 +63,12 @@ function sanitiseFilename(s: string): string {
 function resolveRangeDates(range: TrendTimeRange): { from: Date; to: Date } {
   if (typeof range === 'object' && 'from' in range) return range;
   const MS: Record<string, number> = {
-    last1h:  3_600_000,
-    last8h:  28_800_000,
-    last1d:  86_400_000,
-    last3d:  259_200_000,
-    last1w:  604_800_000,
-    last1m:  2_592_000_000,
+    last1h: 3_600_000,
+    last8h: 28_800_000,
+    last1d: 86_400_000,
+    last3d: 259_200_000,
+    last1w: 604_800_000,
+    last1m: 2_592_000_000,
   };
   const to = new Date();
   const fromMs = MS[range as string] ?? 3_600_000;
@@ -222,7 +223,7 @@ async function svgToCanvas(
       }
 
       // White background
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = themeColors.white;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.scale(2, 2);
@@ -303,7 +304,7 @@ export const ChartExport: React.FC<ChartExportProps> = ({
         disabled={!hasPngTarget}
         className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        <span className="text-base leading-none">&#128247;</span>
+        <span className="text-base leading-none">📷</span>
         Export as PNG
       </button>
 

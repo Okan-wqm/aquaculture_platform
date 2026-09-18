@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const DiaphragmCompressorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -94,7 +95,14 @@ const DiaphragmCompressorSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {label && (
-          <text x={50} y={7} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={7}
+            textAnchor="middle"
+            fontSize={8}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

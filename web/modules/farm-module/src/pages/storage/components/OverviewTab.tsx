@@ -366,7 +366,7 @@ export const OverviewTab: React.FC = () => {
           </div>
 
           {categoryValueChartData.length > 0 && categoryValueChartData.some((d) => d.value > 0) ? (
-            <div className="flex justify-center" style={{ marginTop: 36 }}>
+            <div className="flex justify-center mt-9">
               <DonutChart
                 data={categoryValueChartData}
                 size={220}

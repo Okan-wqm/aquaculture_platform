@@ -8,6 +8,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 type LineDirection = 'horizontal' | 'vertical' | 'diagonal-tl' | 'diagonal-tr';
 
@@ -31,9 +32,12 @@ function getLineCoords(
 }
 
 const SvgLineRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 3) as number;
   const direction = (config.lineDirection ?? 'horizontal') as LineDirection;
   const dashArray = (config.dashArray ?? '') as string;

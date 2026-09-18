@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
@@ -19,7 +20,11 @@ interface RadialSettlerNodeData extends Record<string, unknown> {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ id, data, selected }) => {
+const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({
+  id,
+  data,
+  selected,
+}) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 
@@ -27,16 +32,13 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
   const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'target');
   const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
 
-  const leftColor = leftType === 'source' ? '#22c55e' : '#3b82f6';
-  const rightColor = rightType === 'source' ? '#22c55e' : '#3b82f6';
-  const bottomColor = bottomType === 'source' ? '#22c55e' : '#3b82f6';
+  const leftColor = leftType === 'source' ? colors.success[500] : colors.info[500];
+  const rightColor = rightType === 'source' ? colors.success[500] : colors.info[500];
+  const bottomColor = bottomType === 'source' ? colors.success[500] : colors.info[500];
 
   const toggleType = (type: HandleType): HandleType => (type === 'source' ? 'target' : 'source');
 
-  const handleRightClick = (
-    e: React.MouseEvent,
-    side: 'left' | 'right' | 'bottom'
-  ) => {
+  const handleRightClick = (e: React.MouseEvent, side: 'left' | 'right' | 'bottom') => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -61,15 +63,15 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
         height: HEIGHT,
         position: 'relative',
         pointerEvents: 'none',
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
       }}
     >
       <svg width={WIDTH} height={HEIGHT} style={{ pointerEvents: 'auto' }}>
         {/* Tank Body */}
-        <rect x="20" y="40" width="80" height="80" fill="#8e7c66" opacity="0.8" />
+        <rect x="20" y="40" width="80" height="80" fill={colors.gray[400]} opacity="0.8" />
         {/* Settling Cone */}
-        <polygon points="20,120 60,160 100,120" fill="#8e7c66" opacity="0.8" />
+        <polygon points="20,120 60,160 100,120" fill={colors.gray[400]} opacity="0.8" />
         {/* Top Ring */}
         <ellipse cx="60" cy="20" rx="40" ry="10" fill="#bbb" stroke="#333" strokeWidth="2" />
         <line x1="20" y1="20" x2="20" y2="120" stroke="#333" strokeWidth="2" />

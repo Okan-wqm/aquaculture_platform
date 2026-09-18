@@ -139,7 +139,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       <h3 className="text-sm font-semibold text-gray-700 mb-2 text-center">
         Deffeyes Diagram (ALK vs DIC)
       </h3>
-      <div style={{ height: 460 }}>
+      <div className="h-[460px]">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ top: 5, right: 15, left: 0, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />

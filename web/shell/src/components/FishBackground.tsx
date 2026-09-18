@@ -14,7 +14,7 @@ import React, { useEffect, useRef } from 'react';
 // ============================================================================
 
 const SeaBass: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 120 50" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 120 50" className="w-full h-full">
     <defs>
       <linearGradient id={`seabass-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(70,80,90,0.5)" />
@@ -39,7 +39,7 @@ const SeaBass: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const SeaBream: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 100 60" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 100 60" className="w-full h-full">
     <defs>
       <linearGradient id={`bream-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(80,90,100,0.5)" />
@@ -65,7 +65,7 @@ const SeaBream: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Salmon: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 140 55" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 140 55" className="w-full h-full">
     <defs>
       <linearGradient id={`salmon-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(70,90,100,0.5)" />
@@ -95,7 +95,7 @@ const Salmon: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Halibut: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 130 40" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 130 40" className="w-full h-full">
     <defs>
       <linearGradient id={`halibut-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(100,80,60,0.5)" />
@@ -120,7 +120,7 @@ const Halibut: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Wrasse: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 80 40" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 80 40" className="w-full h-full">
     <defs>
       <linearGradient id={`wrasse-body-${fishId}`} x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stopColor="rgba(60,150,130,0.5)" />
@@ -149,7 +149,7 @@ const Wrasse: React.FC<{ fishId: number }> = ({ fishId }) => (
 // to a silver belly, a tall first dorsal, a sickle pectoral fin, the signature
 // row of yellow finlets toward the tail, and a deep crescent (lunate) caudal.
 const BluefinTuna: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 160 60" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 160 60" className="w-full h-full">
     <defs>
       <linearGradient id={`tuna-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(28,58,108,0.55)" />
@@ -159,7 +159,10 @@ const BluefinTuna: React.FC<{ fishId: number }> = ({ fishId }) => (
       </linearGradient>
     </defs>
     {/* torpedo body — pointed snout on the right, narrow caudal peduncle on the left */}
-    <path d="M150 30 Q150 22 142 19 Q120 11 92 12 Q58 13 30 24 Q24 27 24 30 Q24 33 30 36 Q58 47 92 48 Q120 49 142 41 Q150 38 150 30 Z" fill={`url(#tuna-body-${fishId})`} />
+    <path
+      d="M150 30 Q150 22 142 19 Q120 11 92 12 Q58 13 30 24 Q24 27 24 30 Q24 33 30 36 Q58 47 92 48 Q120 49 142 41 Q150 38 150 30 Z"
+      fill={`url(#tuna-body-${fishId})`}
+    />
     {/* crescent caudal fin */}
     <g className="fish-tail">
       <path d="M30 30 L5 9 Q14 22 12 30 Q14 38 5 51 L30 30 Z" fill="rgba(38,68,118,0.5)" />
@@ -188,7 +191,7 @@ const BluefinTuna: React.FC<{ fishId: number }> = ({ fishId }) => (
 // Shrimp / prawn — an aquaculture species, swims with the school. Front (head,
 // eye, antennae) on the RIGHT to match the fish default orientation.
 const Shrimp: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 90 50" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 90 50" className="w-full h-full">
     <defs>
       <linearGradient id={`shrimp-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(255,140,120,0.5)" />
@@ -197,35 +200,96 @@ const Shrimp: React.FC<{ fishId: number }> = ({ fishId }) => (
       </linearGradient>
     </defs>
     {/* curved segmented body, head on the right */}
-    <path d="M72 18 Q78 26 72 34 Q60 44 42 42 Q26 40 20 30 Q16 22 26 18 Q34 15 42 18 Q36 24 40 30 Q48 36 62 32 Q70 29 72 18 Z" fill={`url(#shrimp-body-${fishId})`} />
+    <path
+      d="M72 18 Q78 26 72 34 Q60 44 42 42 Q26 40 20 30 Q16 22 26 18 Q34 15 42 18 Q36 24 40 30 Q48 36 62 32 Q70 29 72 18 Z"
+      fill={`url(#shrimp-body-${fishId})`}
+    />
     {/* carapace segments */}
     <path d="M60 20 Q58 30 50 36" stroke="rgba(220,120,100,0.4)" strokeWidth="1.5" fill="none" />
     <path d="M50 18 Q48 30 40 37" stroke="rgba(220,120,100,0.4)" strokeWidth="1.5" fill="none" />
     {/* tail fan on the left */}
-    <path d="M20 24 L6 16 M20 30 L4 30 M20 34 L6 42" stroke="rgba(255,160,140,0.45)" strokeWidth="2" strokeLinecap="round" />
+    <path
+      d="M20 24 L6 16 M20 30 L4 30 M20 34 L6 42"
+      stroke="rgba(255,160,140,0.45)"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
     {/* swimmerets / legs */}
-    <path d="M34 40 L33 48 M44 41 L44 49 M54 38 L55 46" stroke="rgba(220,140,120,0.4)" strokeWidth="1.2" strokeLinecap="round" />
+    <path
+      d="M34 40 L33 48 M44 41 L44 49 M54 38 L55 46"
+      stroke="rgba(220,140,120,0.4)"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
     {/* antennae sweeping forward (right) */}
-    <path d="M72 22 Q86 18 90 24 M70 28 Q84 30 90 38" stroke="rgba(255,185,165,0.45)" strokeWidth="1" fill="none" strokeLinecap="round" />
+    <path
+      d="M72 22 Q86 18 90 24 M70 28 Q84 30 90 38"
+      stroke="rgba(255,185,165,0.45)"
+      strokeWidth="1"
+      fill="none"
+      strokeLinecap="round"
+    />
     {/* eye */}
     <circle cx="70" cy="22" r="2.6" fill="rgba(40,30,30,0.75)" />
   </svg>
 );
 
 type FishComponentType = React.FC<{ fishId: number }>;
-const FishComponents: FishComponentType[] = [SeaBass, SeaBream, Salmon, Halibut, Wrasse, Shrimp, BluefinTuna];
+const FishComponents: FishComponentType[] = [
+  SeaBass,
+  SeaBream,
+  Salmon,
+  Halibut,
+  Wrasse,
+  Shrimp,
+  BluefinTuna,
+];
 
 // ============================================================================
 // Sea Floor Decorations (static, no animation)
 // ============================================================================
 
-const BranchCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
+const BranchCoral: React.FC<{ color: string; x: number; scale?: number }> = ({
+  color,
+  x,
+  scale = 1,
+}) => (
   <g transform={`translate(${x}, 0) scale(${scale})`}>
-    <path d="M20 100 Q20 70 15 50 Q10 30 5 20 Q0 10 5 5" stroke={color} strokeWidth="4" fill="none" strokeLinecap="round" />
-    <path d="M20 100 Q25 75 30 55 Q35 35 40 25" stroke={color} strokeWidth="3.5" fill="none" strokeLinecap="round" />
-    <path d="M20 100 Q22 80 28 65 Q35 50 45 40 Q50 35 55 32" stroke={color} strokeWidth="3" fill="none" strokeLinecap="round" />
-    <path d="M15 50 Q8 45 3 35" stroke={color} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-    <path d="M30 55 Q38 48 45 45" stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" />
+    <path
+      d="M20 100 Q20 70 15 50 Q10 30 5 20 Q0 10 5 5"
+      stroke={color}
+      strokeWidth="4"
+      fill="none"
+      strokeLinecap="round"
+    />
+    <path
+      d="M20 100 Q25 75 30 55 Q35 35 40 25"
+      stroke={color}
+      strokeWidth="3.5"
+      fill="none"
+      strokeLinecap="round"
+    />
+    <path
+      d="M20 100 Q22 80 28 65 Q35 50 45 40 Q50 35 55 32"
+      stroke={color}
+      strokeWidth="3"
+      fill="none"
+      strokeLinecap="round"
+    />
+    <path
+      d="M15 50 Q8 45 3 35"
+      stroke={color}
+      strokeWidth="2.5"
+      fill="none"
+      strokeLinecap="round"
+    />
+    <path
+      d="M30 55 Q38 48 45 45"
+      stroke={color}
+      strokeWidth="2"
+      fill="none"
+      strokeLinecap="round"
+    />
     <circle cx="5" cy="5" r="4" fill={color} />
     <circle cx="40" cy="25" r="3.5" fill={color} />
     <circle cx="55" cy="32" r="3" fill={color} />
@@ -234,27 +298,57 @@ const BranchCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ c
   </g>
 );
 
-const BrainCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
+const BrainCoral: React.FC<{ color: string; x: number; scale?: number }> = ({
+  color,
+  x,
+  scale = 1,
+}) => (
   <g transform={`translate(${x}, 0) scale(${scale})`}>
     <ellipse cx="30" cy="85" rx="28" ry="18" fill={color} opacity="0.9" />
     <ellipse cx="30" cy="82" rx="24" ry="14" fill={color} opacity="0.7" />
-    <path d="M10 82 Q18 78 25 82 Q32 86 40 82 Q48 78 50 82" stroke={color} strokeWidth="2" fill="none" opacity="0.5" />
-    <path d="M15 88 Q22 84 30 88 Q38 92 45 88" stroke={color} strokeWidth="1.5" fill="none" opacity="0.4" />
+    <path
+      d="M10 82 Q18 78 25 82 Q32 86 40 82 Q48 78 50 82"
+      stroke={color}
+      strokeWidth="2"
+      fill="none"
+      opacity="0.5"
+    />
+    <path
+      d="M15 88 Q22 84 30 88 Q38 92 45 88"
+      stroke={color}
+      strokeWidth="1.5"
+      fill="none"
+      opacity="0.4"
+    />
   </g>
 );
 
-const TubeCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
+const TubeCoral: React.FC<{ color: string; x: number; scale?: number }> = ({
+  color,
+  x,
+  scale = 1,
+}) => (
   <g transform={`translate(${x}, 0) scale(${scale})`}>
     {[0, 8, 16, 24, 32].map((offset, i) => (
       <g key={i}>
-        <path d={`M${10 + offset} 100 Q${12 + offset} ${70 - i * 5} ${10 + offset} ${50 - i * 8}`} stroke={color} strokeWidth="5" fill="none" strokeLinecap="round" />
+        <path
+          d={`M${10 + offset} 100 Q${12 + offset} ${70 - i * 5} ${10 + offset} ${50 - i * 8}`}
+          stroke={color}
+          strokeWidth="5"
+          fill="none"
+          strokeLinecap="round"
+        />
         <circle cx={10 + offset} cy={48 - i * 8} r="4" fill={color} opacity="0.8" />
       </g>
     ))}
   </g>
 );
 
-const FanCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
+const FanCoral: React.FC<{ color: string; x: number; scale?: number }> = ({
+  color,
+  x,
+  scale = 1,
+}) => (
   <g transform={`translate(${x}, 0) scale(${scale})`}>
     <path d="M25 100 L25 70" stroke={color} strokeWidth="4" strokeLinecap="round" />
     <path d="M25 70 Q5 50 10 25 Q15 10 25 5 Q35 10 40 25 Q45 50 25 70" fill={color} opacity="0.6" />
@@ -268,11 +362,20 @@ const FanCoral: React.FC<{ color: string; x: number; scale?: number }> = ({ colo
 // Giant kelp — a central stipe with leaf-like blades down its length and a
 // gas-bladder float at the tip. Sways as one strand. Blade opacity lightens
 // toward the tip for depth (more realistic than the old flat ellipses).
-const Kelp: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({ color, x, height, delay = 0 }) => {
+const Kelp: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({
+  color,
+  x,
+  height,
+  delay = 0,
+}) => {
   const top = 100 - height;
   const blades = [0.28, 0.42, 0.55, 0.68, 0.79, 0.89, 0.96];
   return (
-    <g transform={`translate(${x}, 0)`} className="kelp-strand" style={{ animationDelay: `${delay}s` }}>
+    <g
+      transform={`translate(${x}, 0)`}
+      className="kelp-strand"
+      style={{ animationDelay: `${delay}s` }}
+    >
       <path
         d={`M10 100 C2 ${100 - height * 0.34} 18 ${100 - height * 0.62} 9 ${top}`}
         stroke={color}
@@ -299,8 +402,17 @@ const Kelp: React.FC<{ color: string; x: number; height: number; delay?: number 
 };
 
 // Bushy red/green seaweed — several branching fronds from a common base.
-const Seaweed: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({ color, x, height, delay = 0 }) => (
-  <g transform={`translate(${x}, 0)`} className="seaweed-strand" style={{ animationDelay: `${delay}s` }}>
+const Seaweed: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({
+  color,
+  x,
+  height,
+  delay = 0,
+}) => (
+  <g
+    transform={`translate(${x}, 0)`}
+    className="seaweed-strand"
+    style={{ animationDelay: `${delay}s` }}
+  >
     {[-5, 0, 6, 12].map((dx, i) => {
       const h = height * (0.7 + (i % 3) * 0.16);
       const bend = i % 2 === 0 ? 7 : -7;
@@ -319,8 +431,17 @@ const Seaweed: React.FC<{ color: string; x: number; height: number; delay?: numb
 );
 
 // Eelgrass — a clump of thin tall blades (the "yosun" the floor was missing).
-const SeaGrass: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({ color, x, height, delay = 0 }) => (
-  <g transform={`translate(${x}, 0)`} className="seaweed-strand" style={{ animationDelay: `${delay}s` }}>
+const SeaGrass: React.FC<{ color: string; x: number; height: number; delay?: number }> = ({
+  color,
+  x,
+  height,
+  delay = 0,
+}) => (
+  <g
+    transform={`translate(${x}, 0)`}
+    className="seaweed-strand"
+    style={{ animationDelay: `${delay}s` }}
+  >
     {[-7, -3, 1, 5, 9, 13].map((dx, i) => {
       const h = height * (0.65 + (i % 4) * 0.12);
       const tip = i % 2 ? 5 : -4;
@@ -339,7 +460,11 @@ const SeaGrass: React.FC<{ color: string; x: number; height: number; delay?: num
 );
 
 // Starfish resting on the sea floor.
-const StarFish: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
+const StarFish: React.FC<{ color: string; x: number; scale?: number }> = ({
+  color,
+  x,
+  scale = 1,
+}) => (
   <g transform={`translate(${x}, 92) scale(${scale})`}>
     <path
       d="M0 -14 L4.1 -4.6 L14 -4.3 L6.2 2.6 L9 13 L0 7.2 L-9 13 L-6.2 2.6 L-14 -4.3 L-4.1 -4.6 Z"
@@ -357,7 +482,13 @@ const StarFish: React.FC<{ color: string; x: number; scale?: number }> = ({ colo
 const Crab: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x, scale = 1 }) => (
   <g transform={`translate(${x}, 96) scale(${scale})`}>
     <ellipse cx="0" cy="0" rx="12" ry="7" fill={color} opacity="0.55" />
-    <path d="M-10 2 L-18 6 M-9 5 L-16 11 M9 5 L16 11 M10 2 L18 6" stroke={color} strokeWidth="1.6" strokeLinecap="round" opacity="0.5" />
+    <path
+      d="M-10 2 L-18 6 M-9 5 L-16 11 M9 5 L16 11 M10 2 L18 6"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      opacity="0.5"
+    />
     <path d="M-11 -3 Q-19 -7 -21 -2 Q-18 -1 -14 -2 Z" fill={color} opacity="0.5" />
     <path d="M11 -3 Q19 -7 21 -2 Q18 -1 14 -2 Z" fill={color} opacity="0.5" />
     <circle cx="-3.5" cy="-5" r="1.7" fill="rgba(30,30,30,0.6)" />
@@ -367,7 +498,7 @@ const Crab: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x
 
 // Drifting jellyfish — used in the ambient layer (not the swim system).
 const Jellyfish: React.FC<{ tint: string }> = ({ tint }) => (
-  <svg viewBox="0 0 60 92" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 60 92" className="w-full h-full">
     <path
       d="M6 32 Q6 6 30 6 Q54 6 54 32 Q54 38 48 40 Q42 34 36 40 Q30 34 24 40 Q18 34 12 40 Q6 38 6 32 Z"
       fill={tint}
@@ -390,7 +521,11 @@ const Jellyfish: React.FC<{ tint: string }> = ({ tint }) => (
 );
 
 const SeaFloor: React.FC = () => (
-  <svg className="absolute bottom-0 left-0 w-full" style={{ height: 'clamp(140px, 22vh, 240px)' }} viewBox="0 0 1200 120" preserveAspectRatio="xMidYMax slice">
+  <svg
+    className="absolute bottom-0 left-0 w-full h-[clamp(140px,_22vh,_240px)]"
+    viewBox="0 0 1200 120"
+    preserveAspectRatio="xMidYMax slice"
+  >
     <rect x="0" y="100" width="1200" height="20" fill="rgba(194,178,128,0.15)" />
     <ellipse cx="100" cy="105" rx="80" ry="8" fill="rgba(194,178,128,0.1)" />
     <ellipse cx="400" cy="108" rx="120" ry="10" fill="rgba(194,178,128,0.12)" />
@@ -438,11 +573,11 @@ const SeaFloor: React.FC = () => (
 
 const FishTraits = {
   0: { speed: 0.72, speedVariance: 0.32, sizeMin: 70, sizeMax: 110, wobbleSpeed: 0.035 },
-  1: { speed: 0.48, speedVariance: 0.20, sizeMin: 80, sizeMax: 120, wobbleSpeed: 0.025 },
+  1: { speed: 0.48, speedVariance: 0.2, sizeMin: 80, sizeMax: 120, wobbleSpeed: 0.025 },
   2: { speed: 1.12, speedVariance: 0.48, sizeMin: 90, sizeMax: 150, wobbleSpeed: 0.05 },
   3: { speed: 0.32, speedVariance: 0.12, sizeMin: 100, sizeMax: 160, wobbleSpeed: 0.018 },
-  4: { speed: 0.88, speedVariance: 0.40, sizeMin: 50, sizeMax: 80, wobbleSpeed: 0.06 },
-  5: { speed: 0.62, speedVariance: 0.30, sizeMin: 38, sizeMax: 60, wobbleSpeed: 0.07 },
+  4: { speed: 0.88, speedVariance: 0.4, sizeMin: 50, sizeMax: 80, wobbleSpeed: 0.06 },
+  5: { speed: 0.62, speedVariance: 0.3, sizeMin: 38, sizeMax: 60, wobbleSpeed: 0.07 },
   // Bluefin tuna — MUCH faster than the rest, large, and a stiff (low-wobble) body.
   6: { speed: 2.45, speedVariance: 0.85, sizeMin: 95, sizeMax: 145, wobbleSpeed: 0.02 },
 };
@@ -529,7 +664,15 @@ function stepFish(fish: FishState, width: number, height: number): FishState {
     };
   }
 
-  return { ...fish, x: newX, y: newY, vx: newVx, vy: newVy, wobble: newWobble, facingRight: newFacingRight };
+  return {
+    ...fish,
+    x: newX,
+    y: newY,
+    vx: newVx,
+    vy: newVy,
+    wobble: newWobble,
+    facingRight: newFacingRight,
+  };
 }
 
 // ============================================================================
@@ -619,13 +762,14 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
     const animate = () => {
       if (!initializedRef.current) return;
       const { width: w, height: h } = dimensionsRef.current;
-      fishesRef.current = fishesRef.current.map(fish => stepFish(fish, w, h));
+      fishesRef.current = fishesRef.current.map((fish) => stepFish(fish, w, h));
       fishesRef.current.forEach((fish, i) => {
         const el = domRefs.current[i];
         if (el) {
           positionFish(el, fish);
           const tailSpeed = 0.8 + Math.abs(fish.vx) * 3;
-          (el.style as CSSStyleDeclaration & Record<string, string>)['--tail-speed'] = `${tailSpeed}s`;
+          (el.style as CSSStyleDeclaration & Record<string, string>)['--tail-speed'] =
+            `${tailSpeed}s`;
         }
       });
       animationRef.current = requestAnimationFrame(animate);
@@ -674,16 +818,10 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
     return (
       <div
         key={i}
-        ref={el => { domRefs.current[i] = el; }}
-        className="swimming-fish"
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: 80,
-          height: 40,
-          transition: 'transform 0.5s ease-out',
+        ref={(el) => {
+          domRefs.current[i] = el;
         }}
+        className="swimming-fish absolute left-0 top-0 w-20 h-10 transition-transform duration-500 ease-out"
       >
         <FishComponent fishId={i} />
       </div>
@@ -695,10 +833,6 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
       ref={containerRef}
       className="industrial-reef absolute inset-0 overflow-hidden pointer-events-none"
       aria-hidden="true"
-      style={{
-        background:
-          'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(127, 214, 224, 0.18), transparent 60%), radial-gradient(ellipse 60% 40% at 50% 5%, rgba(200, 240, 238, 0.10), transparent 70%), linear-gradient(180deg, #0b324a 0%, #0a2b40 18%, #061b2c 40%, #04111c 70%, #020a12 100%)',
-      }}
     >
       <div className="industrial-reef-rays" />
       <div className="industrial-reef-snow" />

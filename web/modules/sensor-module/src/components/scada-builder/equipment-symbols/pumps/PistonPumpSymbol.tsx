@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const PistonPumpSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -89,38 +90,16 @@ const PistonPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Inlet check valve — left side */}
-        <polygon
-          points="18,45 26,50 18,55"
-          fill={colors.stroke}
-          fillOpacity={0.6}
-        />
+        <polygon points="18,45 26,50 18,55" fill={colors.stroke} fillOpacity={0.6} />
 
         {/* Outlet check valve — right side */}
-        <polygon
-          points="82,45 74,50 82,55"
-          fill={colors.stroke}
-          fillOpacity={0.6}
-        />
+        <polygon points="82,45 74,50 82,55" fill={colors.stroke} fillOpacity={0.6} />
 
         {/* Inlet line — left */}
-        <line
-          x1={0}
-          y1={50}
-          x2={15}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={0} y1={50} x2={15} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Outlet line — right */}
-        <line
-          x1={85}
-          y1={50}
-          x2={100}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={85} y1={50} x2={100} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Compression area shading (running state) */}
         {state === 'running' && (
@@ -155,7 +134,7 @@ const PistonPumpSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

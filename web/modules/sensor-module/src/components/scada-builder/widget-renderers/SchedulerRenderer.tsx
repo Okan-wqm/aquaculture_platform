@@ -1,11 +1,12 @@
 import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
-  day: number;       // 0=Mon, 6=Sun
+  day: number; // 0=Mon, 6=Sun
   startHour: number; // 0-23
-  endHour: number;   // 0-23
+  endHour: number; // 0-23
   label: string;
   color: string;
   tagName?: string;
@@ -37,26 +38,58 @@ const SchedulerRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
   }, [entries]);
 
   return (
-    <div style={{ width, height, display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif', overflow: 'hidden' }}>
+    <div
+      style={{
+        width,
+        height,
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'sans-serif',
+        overflow: 'hidden',
+      }}
+    >
       {/* Title bar */}
-      <div style={{
-        height: headerH, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#0e7490', color: '#fff', fontSize: 11, fontWeight: 600,
-        borderRadius: '4px 4px 0 0',
-      }}>
+      <div
+        style={{
+          height: headerH,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: colors.primary[600],
+          color: '#fff',
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: '4px 4px 0 0',
+        }}
+      >
         {title}
       </div>
 
       {/* Grid */}
-      <div style={{ flex: 1, position: 'relative', background: '#f8fafc', overflow: 'hidden' }}>
+      <div
+        style={{
+          flex: 1,
+          position: 'relative',
+          background: colors.neutral[50],
+          overflow: 'hidden',
+        }}
+      >
         {/* Hour labels */}
         {showHourLabels && (
           <div style={{ display: 'flex', paddingLeft: dayLabelW, height: hourLabelH }}>
             {HOURS.filter((h) => h % 3 === 0).map((h) => (
-              <div key={h} style={{
-                position: 'absolute', left: dayLabelW + h * cellW, top: 0,
-                fontSize: 8, color: '#9ca3af', width: cellW * 3, textAlign: 'center',
-              }}>
+              <div
+                key={h}
+                style={{
+                  position: 'absolute',
+                  left: dayLabelW + h * cellW,
+                  top: 0,
+                  fontSize: 8,
+                  color: colors.neutral[400],
+                  width: cellW * 3,
+                  textAlign: 'center',
+                }}
+              >
                 {String(h).padStart(2, '0')}
               </div>
             ))}
@@ -65,28 +98,49 @@ const SchedulerRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
 
         {/* Day rows */}
         {DAYS.map((day, dayIdx) => (
-          <div key={day} style={{
-            position: 'absolute',
-            top: hourLabelH + dayIdx * cellH,
-            left: 0, right: 0, height: cellH,
-            display: 'flex', borderBottom: '1px solid #e5e7eb',
-          }}>
+          <div
+            key={day}
+            style={{
+              position: 'absolute',
+              top: hourLabelH + dayIdx * cellH,
+              left: 0,
+              right: 0,
+              height: cellH,
+              display: 'flex',
+              borderBottom: `1px solid ${themeColors.neutral[200]}`,
+            }}
+          >
             {/* Day label */}
-            <div style={{
-              width: dayLabelW, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 9, fontWeight: 600, color: '#374151', background: '#f1f5f9',
-              borderRight: '1px solid #e5e7eb',
-            }}>
+            <div
+              style={{
+                width: dayLabelW,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 9,
+                fontWeight: 600,
+                color: colors.neutral[700],
+                background: colors.neutral[100],
+                borderRight: `1px solid ${themeColors.neutral[200]}`,
+              }}
+            >
               {day}
             </div>
             {/* Time grid background */}
             <div style={{ flex: 1, position: 'relative' }}>
               {/* Vertical hour lines */}
               {HOURS.filter((h) => h % 6 === 0).map((h) => (
-                <div key={h} style={{
-                  position: 'absolute', left: h * cellW, top: 0, bottom: 0,
-                  width: 1, background: '#e5e7eb',
-                }} />
+                <div
+                  key={h}
+                  style={{
+                    position: 'absolute',
+                    left: h * cellW,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    background: colors.neutral[200],
+                  }}
+                />
               ))}
               {/* Schedule blocks — gece vardiyası desteği dahil */}
               {/* Schedule blocks — includes overnight shift support */}
@@ -114,13 +168,19 @@ const SchedulerRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
 
                 const blockStyle = {
                   position: 'absolute' as const,
-                  top: 2, bottom: 2,
-                  background: entry.color || '#3b82f6',
+                  top: 2,
+                  bottom: 2,
+                  background: entry.color || colors.info[500],
                   borderRadius: 3,
                   opacity: 0.85,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 8, color: '#fff', fontWeight: 500,
-                  overflow: 'hidden' as const, whiteSpace: 'nowrap' as const,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 8,
+                  color: '#fff',
+                  fontWeight: 500,
+                  overflow: 'hidden' as const,
+                  whiteSpace: 'nowrap' as const,
                   cursor: isEditing ? 'default' : 'pointer',
                 };
 

@@ -6,10 +6,15 @@
 import React, { memo, useState, useCallback } from 'react';
 import { Handle, Position, NodeProps, type Node } from '@xyflow/react';
 import { getEquipmentIcon } from '../../equipment-icons/EquipmentIconLoader';
-import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../../equipment-icons/equipmentTypes';
+import {
+  getEquipmentSize,
+  ConnectionPointPosition,
+  ConnectionPointType,
+} from '../../equipment-icons/equipmentTypes';
 import { EquipmentNodeData, IoBinding, useProcessStore } from '../../../store/processStore';
 import { ConnectionPointContextMenu } from '../components/ConnectionPointContextMenu';
 import { EquipmentNodeOverlay } from './EquipmentNodeOverlay';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // Status colors for equipment
 const statusColors: Record<string, { bg: string; border: string; text: string }> = {
@@ -35,12 +40,12 @@ const getStatusStyle = (status: string) => {
 const getConnectionPointStyle = (type: ConnectionPointType) => {
   if (type === 'input') {
     return {
-      background: '#3b82f6', // blue-500
+      background: themeColors.info[500], // blue-500
       border: '2px solid white',
     };
   }
   return {
-    background: '#22c55e', // green-500
+    background: themeColors.success[500], // green-500
     border: '2px solid white',
   };
 };
@@ -76,7 +81,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
         pointId,
       });
     },
-    []
+    [],
   );
 
   // Handle connection point type change
@@ -84,7 +89,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
     (pointId: ConnectionPointPosition, newType: ConnectionPointType) => {
       updateConnectionPointType(id, pointId, newType);
     },
-    [id, updateConnectionPointType]
+    [id, updateConnectionPointType],
   );
 
   // Close context menu
@@ -94,7 +99,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
   // Get connection point type
   const getPointType = (pointId: ConnectionPointPosition): ConnectionPointType => {
-    return data.connectionPoints?.[pointId] || (pointId === 'top' || pointId === 'left' ? 'input' : 'output');
+    return (
+      data.connectionPoints?.[pointId] ||
+      (pointId === 'top' || pointId === 'left' ? 'input' : 'output')
+    );
   };
 
   // Calculate icon size based on node size (roughly 40% of smaller dimension)
@@ -186,7 +194,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
           {/* Equipment Info */}
           <div className="mt-2">
-            <div className="font-medium text-sm text-gray-900 truncate text-center" title={data.equipmentName}>
+            <div
+              className="font-medium text-sm text-gray-900 truncate text-center"
+              title={data.equipmentName}
+            >
               {data.equipmentName}
             </div>
             <div className="text-xs text-gray-500 truncate text-center" title={data.equipmentCode}>
@@ -209,7 +220,8 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
                     : statusStyle.text.replace('text-', 'bg-')
                 }`}
               />
-              {(data.status || 'standby').charAt(0).toUpperCase() + (data.status || 'standby').slice(1).replace('_', ' ')}
+              {(data.status || 'standby').charAt(0).toUpperCase() +
+                (data.status || 'standby').slice(1).replace('_', ' ')}
             </span>
           </div>
 

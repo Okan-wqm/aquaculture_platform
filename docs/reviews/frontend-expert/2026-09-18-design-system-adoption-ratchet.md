@@ -127,7 +127,13 @@ info, green/emerald → success, amber/yellow → warning, red/rose → error,
 violet/indigo/cyan → primary shades, pink/orange → accent shades, grey →
 neutral). The ten that remain are the pH scale in
 `pid-simulator/engine/deffeyes-calc.ts` — a scientific colour scale, not a
-brand colour, kept as data. **Owner:** okan · **Expiry:** 2027-03-31.
+brand colour, kept as data. Batch 9 (same cycle): sensor-module (1 625 → 0,
+196 files). 217 distinct values: 63 mapped by hand (Tailwind defaults and
+the SCADA alarm reds/greens), the rest by nearest theme token within a
+small RGB distance, all reviewed; border strings become template literals
+over the token; the SCADA engine's own light/dark `ThemeTokens` derive
+from `colors` too, so the operator console's dark mode is the brand
+palette rather than a third one. **Owner:** okan · **Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 
@@ -152,6 +158,17 @@ shell, the ToastProvider pattern; throws without a provider instead of hanging);
 
 683 occurrences (sensor-module 531). Legitimate for canvas geometry and gauges;
 not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
+
+**Refined (batch 10, same cycle):** the ratchet counts only _static_ blocks —
+every value a string or number literal, so the block could have been a
+utility class or a token. A runtime value reaching the DOM (a progress bar's
+width, a record's colour, a virtualiser's offset) is data, not a token
+bypass; 528 of the 683 were that. Of the 153 static blocks, the 20 outside
+sensor-module are utility classes now (the login artwork's night-ocean
+gradient moved from the component into `index.css`, which also takes the
+shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
+(absolute positions and sizes inside process-node drawings), pinned as
+sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -162,8 +179,9 @@ not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
 
 ## Out of this cycle (tracked above, not done)
 
-- Remaining overlay migrations (see allowlist entries).
-- Hex → token mapping; inline-style reduction.
+- Remaining overlay entries (8 runtime surfaces; see allowlist entries).
+- Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
+- Static inline style in SCADA symbol geometry (133).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

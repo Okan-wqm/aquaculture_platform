@@ -2,6 +2,7 @@
  * Utility functions for TrendChartRenderer.
  * Extracted to keep the renderer component under 300 lines.
  */
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -15,15 +16,21 @@ export interface SimPoint {
 export type TimeRangeKey = '1h' | '6h' | '24h' | '7d' | '30d';
 
 export const TRACE_COLORS = [
-  '#3b82f6', '#22c55e', '#f59e0b', '#ef4444',
-  '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
+  colors.info[500],
+  colors.success[500],
+  colors.warning[500],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[500],
+  colors.primary[400],
+  colors.accent[600],
 ];
 
 export const TIME_RANGES: { key: TimeRangeKey; label: string; ms: number }[] = [
-  { key: '1h',  label: '1h',  ms: 3_600_000 },
-  { key: '6h',  label: '6h',  ms: 21_600_000 },
+  { key: '1h', label: '1h', ms: 3_600_000 },
+  { key: '6h', label: '6h', ms: 21_600_000 },
   { key: '24h', label: '24h', ms: 86_400_000 },
-  { key: '7d',  label: '7d',  ms: 604_800_000 },
+  { key: '7d', label: '7d', ms: 604_800_000 },
   { key: '30d', label: '30d', ms: 2_592_000_000 },
 ];
 
@@ -77,7 +84,10 @@ export function computeYDomain(data: SimPoint[], tags: string[]): { min: number;
       }
     }
   }
-  if (!isFinite(min)) { min = 0; max = 100; }
+  if (!isFinite(min)) {
+    min = 0;
+    max = 100;
+  }
   const pad = (max - min) * 0.1 || 5;
   return { min: min - pad, max: max + pad };
 }

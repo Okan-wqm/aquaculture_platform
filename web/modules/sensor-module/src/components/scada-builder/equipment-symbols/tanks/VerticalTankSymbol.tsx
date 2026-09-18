@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -46,14 +47,7 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Flat bottom line */}
-        <line
-          x1={20}
-          y1={115}
-          x2={80}
-          y2={115}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={20} y1={115} x2={80} y2={115} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Liquid level indicator (running state) */}
         {state === 'running' && (
@@ -65,14 +59,14 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
               width={57}
               height={49}
               rx={2}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
             />
             {/* Liquid surface wave */}
             <path
               d="M 22 65 Q 35 61 50 65 Q 65 69 78 65"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.7}
             />
@@ -80,76 +74,20 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Nozzle — top inlet */}
-        <line
-          x1={50}
-          y1={0}
-          x2={50}
-          y2={12}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={44}
-          y1={12}
-          x2={56}
-          y2={12}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={50} y1={0} x2={50} y2={12} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={44} y1={12} x2={56} y2={12} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Nozzle — bottom outlet */}
-        <line
-          x1={50}
-          y1={115}
-          x2={50}
-          y2={130}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={44}
-          y1={130}
-          x2={56}
-          y2={130}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={50} y1={115} x2={50} y2={130} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={44} y1={130} x2={56} y2={130} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Nozzle — left level connection */}
-        <line
-          x1={0}
-          y1={70}
-          x2={20}
-          y2={70}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={0}
-          y1={67}
-          x2={0}
-          y2={73}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={0} y1={70} x2={20} y2={70} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={0} y1={67} x2={0} y2={73} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Nozzle — right drain */}
-        <line
-          x1={80}
-          y1={97}
-          x2={100}
-          y2={97}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={100}
-          y1={94}
-          x2={100}
-          y2={100}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={80} y1={97} x2={100} y2={97} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={100} y1={94} x2={100} y2={100} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Support legs */}
         <rect x={25} y={115} width={5} height={10} fill={colors.stroke} fillOpacity={0.5} rx={1} />
@@ -162,7 +100,7 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

@@ -8,6 +8,7 @@
 import React, { memo, useCallback } from 'react';
 import { ArrowRight, ExternalLink, Monitor } from 'lucide-react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const ICON_MAP: Record<string, typeof ArrowRight> = {
   ArrowRight,
@@ -15,12 +16,18 @@ const ICON_MAP: Record<string, typeof ArrowRight> = {
   Monitor,
 };
 
-const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing, onCommand }) => {
+const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  width,
+  height,
+  isEditing,
+  onCommand,
+}) => {
   const targetScreenId = config.targetScreenId as string | undefined;
   const label = (config.label ?? 'Go to Screen') as string;
   const iconName = (config.icon ?? 'ArrowRight') as string;
   const style = (config.style ?? 'card') as 'button' | 'card' | 'minimal';
-  const color = (config.color ?? '#06b6d4') as string;
+  const color = (config.color ?? colors.primary[400]) as string;
 
   const IconComponent = ICON_MAP[iconName] ?? ArrowRight;
   const hasTarget = Boolean(targetScreenId);
@@ -47,7 +54,14 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
           boxSizing: 'border-box',
         }}
       >
-        <span style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', textAlign: 'center' }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: colors.neutral[400],
+            fontStyle: 'italic',
+            textAlign: 'center',
+          }}
+        >
           Select target screen
         </span>
       </div>
@@ -68,7 +82,7 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 8,
-          background: '#ffffff',
+          background: colors.white,
           border: `1.5px solid ${color}`,
           borderRadius: 8,
           cursor: isEditing ? 'default' : 'pointer',
@@ -82,7 +96,7 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.boxShadow = 'none';
-          e.currentTarget.style.background = '#ffffff';
+          e.currentTarget.style.background = colors.white;
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
@@ -91,7 +105,7 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
             style={{
               fontSize,
               fontWeight: 600,
-              color: '#1f2937',
+              color: colors.neutral[800],
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -141,12 +155,12 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
             e.currentTarget.style.opacity = '1';
           }}
         >
-          <IconComponent size={iconSize * 0.85} color="#ffffff" />
+          <IconComponent size={iconSize * 0.85} color={colors.white} />
           <span
             style={{
               fontSize,
               fontWeight: 600,
-              color: '#ffffff',
+              color: colors.white,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',

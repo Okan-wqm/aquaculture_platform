@@ -1,23 +1,33 @@
 import type { AnimationRule, AnimationState, ColorRange } from './types';
 import { DEFAULT_ANIMATION_STATE } from './types';
+import { colors } from '@aquaculture/shared-ui';
 
 function applyBitmask(value: number, bitmask?: number): number {
   if (!bitmask) return value;
   const masked = value & bitmask;
   let shift = 0;
   let m = bitmask;
-  while (m > 0 && (m & 1) === 0) { shift++; m >>= 1; }
+  while (m > 0 && (m & 1) === 0) {
+    shift++;
+    m >>= 1;
+  }
   return masked >> shift;
 }
 
-function resolveColor(value: number, ranges: ColorRange[]): { fill?: string; stroke?: string } | null {
+function resolveColor(
+  value: number,
+  ranges: ColorRange[],
+): { fill?: string; stroke?: string } | null {
   for (const r of ranges) {
     if (value >= r.min && value <= r.max) return { fill: r.fill, stroke: r.stroke };
   }
   return null;
 }
 
-export function evaluate(rules: AnimationRule[], tagValues: Record<string, unknown>): AnimationState {
+export function evaluate(
+  rules: AnimationRule[],
+  tagValues: Record<string, unknown>,
+): AnimationState {
   const state: AnimationState = { ...DEFAULT_ANIMATION_STATE };
 
   for (const rule of rules) {
@@ -31,8 +41,12 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
 
     const opts = rule.options;
     switch (rule.type) {
-      case 'hide': state.visible = false; break;
-      case 'show': state.visible = true; break;
+      case 'hide':
+        state.visible = false;
+        break;
+      case 'show':
+        state.visible = true;
+        break;
       case 'rotate':
         state.rotating = true;
         state.rotationSpeed = opts.rotationSpeed ?? 2000;
@@ -59,9 +73,9 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         state.fillPercent = pct;
         state.fillColor = opts.fillColor;
         if (opts.fillCriticalThreshold != null && pct >= opts.fillCriticalThreshold) {
-          state.fillColor = opts.fillCriticalColor ?? '#ef4444';
+          state.fillColor = opts.fillCriticalColor ?? colors.error[500];
         } else if (opts.fillWarningThreshold != null && pct >= opts.fillWarningThreshold) {
-          state.fillColor = opts.fillWarningColor ?? '#eab308';
+          state.fillColor = opts.fillWarningColor ?? colors.warning[500];
         }
         break;
       }
@@ -83,9 +97,8 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         const vmrMaxAngle = opts.maxAngle ?? 360;
         const vmrTagMin = rule.range.min;
         const vmrTagMax = rule.range.max;
-        const vmrRatio = vmrTagMax !== vmrTagMin
-          ? (effective - vmrTagMin) / (vmrTagMax - vmrTagMin)
-          : 0;
+        const vmrRatio =
+          vmrTagMax !== vmrTagMin ? (effective - vmrTagMin) / (vmrTagMax - vmrTagMin) : 0;
         const vmrClamped = Math.max(0, Math.min(1, vmrRatio));
         state.mappedRotation = vmrMinAngle + vmrClamped * (vmrMaxAngle - vmrMinAngle);
         break;
@@ -150,9 +163,7 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         const scMaxScale = opts.maxScale ?? 2.0;
         const scTagMin = rule.range.min;
         const scTagMax = rule.range.max;
-        const scRatio = scTagMax !== scTagMin
-          ? (effective - scTagMin) / (scTagMax - scTagMin)
-          : 0;
+        const scRatio = scTagMax !== scTagMin ? (effective - scTagMin) / (scTagMax - scTagMin) : 0;
         const scClamped = Math.max(0, Math.min(1, scRatio));
         state.mappedScale = scMinScale + scClamped * (scMaxScale - scMinScale);
         break;
@@ -171,9 +182,7 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         const opMaxOpacity = opts.maxOpacity ?? 1;
         const opTagMin = rule.range.min;
         const opTagMax = rule.range.max;
-        const opRatio = opTagMax !== opTagMin
-          ? (effective - opTagMin) / (opTagMax - opTagMin)
-          : 0;
+        const opRatio = opTagMax !== opTagMin ? (effective - opTagMin) / (opTagMax - opTagMin) : 0;
         const opClamped = Math.max(0, Math.min(1, opRatio));
         state.mappedOpacity = opMinOpacity + opClamped * (opMaxOpacity - opMinOpacity);
         break;
@@ -269,9 +278,7 @@ export function safeSprintf(format: string, value: number): string {
             i = j + 1;
             continue;
           case 'f':
-            result += precision >= 0
-              ? value.toFixed(precision)
-              : value.toFixed(6);
+            result += precision >= 0 ? value.toFixed(precision) : value.toFixed(6);
             i = j + 1;
             continue;
           case 's':

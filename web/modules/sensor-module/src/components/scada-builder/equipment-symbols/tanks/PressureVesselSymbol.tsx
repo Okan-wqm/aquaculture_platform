@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -66,14 +67,14 @@ const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
               y={45}
               width={90}
               height={30}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.35}
               clipPath={`url(#${uid}-clip)`}
             />
             <path
               d="M 30 45 Q 55 42 70 45 Q 95 48 110 45"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.6}
               clipPath={`url(#${uid}-clip)`}
@@ -83,20 +84,13 @@ const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Pressure gauge — manometer */}
         {/* Connection stem */}
-        <line
-          x1={70}
-          y1={25}
-          x2={70}
-          y2={16}
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
+        <line x1={70} y1={25} x2={70} y2={16} stroke={colors.stroke} strokeWidth={2} />
         {/* Gauge body */}
         <circle
           cx={70}
           cy={10}
           r={8}
-          fill="#ffffff"
+          fill={themeColors.white}
           stroke={colors.stroke}
           strokeWidth={1.5}
         />
@@ -112,21 +106,14 @@ const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
         />
         {/* Gauge needle */}
         {state === 'running' ? (
-          <line
-            x1={70}
-            y1={10}
-            x2={74}
-            y2={6}
-            stroke="#ef4444"
-            strokeWidth={1.2}
-          />
+          <line x1={70} y1={10} x2={74} y2={6} stroke={themeColors.error[500]} strokeWidth={1.2} />
         ) : (
           <line
             x1={70}
             y1={10}
             x2={65}
             y2={10}
-            stroke="#9ca3af"
+            stroke={themeColors.neutral[400]}
             strokeWidth={1.2}
           />
         )}
@@ -146,40 +133,12 @@ const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
         </text>
 
         {/* Left inlet nozzle */}
-        <line
-          x1={0}
-          y1={50}
-          x2={18}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
-        <line
-          x1={0}
-          y1={46}
-          x2={0}
-          y2={54}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={0} y1={50} x2={18} y2={50} stroke={colors.stroke} strokeWidth={3} />
+        <line x1={0} y1={46} x2={0} y2={54} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Right outlet nozzle */}
-        <line
-          x1={122}
-          y1={50}
-          x2={140}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={3}
-        />
-        <line
-          x1={140}
-          y1={46}
-          x2={140}
-          y2={54}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={122} y1={50} x2={140} y2={50} stroke={colors.stroke} strokeWidth={3} />
+        <line x1={140} y1={46} x2={140} y2={54} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Saddle supports */}
         <path
@@ -205,7 +164,7 @@ const PressureVesselSymbol: React.FC<EquipmentSymbolProps> = ({
             y={97}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

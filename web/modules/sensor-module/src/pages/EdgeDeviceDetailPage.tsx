@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConfirmModal, Modal, useConfirm } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useConfirm, colors as themeColors } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -1033,13 +1033,15 @@ function getAlarmStatus(
 
 const QualityDot: React.FC<{ quality?: string }> = ({ quality }) => {
   const colorMap: Record<string, string> = {
-    good: '#22c55e',
-    uncertain: '#eab308',
-    bad: '#ef4444',
-    comm_failure: '#ef4444',
-    not_initialized: '#9ca3af',
+    good: themeColors.success[500],
+    uncertain: themeColors.warning[500],
+    bad: themeColors.error[500],
+    comm_failure: themeColors.error[500],
+    not_initialized: themeColors.neutral[400],
   };
-  const color = quality ? (colorMap[quality] ?? '#9ca3af') : '#9ca3af';
+  const color = quality
+    ? (colorMap[quality] ?? themeColors.neutral[400])
+    : themeColors.neutral[400];
   return (
     <span
       style={{
@@ -1378,7 +1380,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             width: 8,
             height: 8,
             borderRadius: '50%',
-            backgroundColor: liveConnected ? '#22c55e' : '#9ca3af',
+            backgroundColor: liveConnected ? themeColors.success[500] : themeColors.neutral[400],
           }}
         />
         <span

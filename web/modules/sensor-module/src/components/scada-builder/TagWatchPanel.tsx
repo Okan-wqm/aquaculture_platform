@@ -30,6 +30,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +90,7 @@ const MiniSparkline: React.FC<{ values: number[] }> = ({ values }) => {
       <polyline
         points={points}
         fill="none"
-        stroke="#06b6d4"
+        stroke={themeColors.primary[400]}
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -125,10 +126,7 @@ function exportTagsCsv(entries: Map<string, TagEntry>): void {
 // Component
 // ---------------------------------------------------------------------------
 
-export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
-  tagBus,
-  defaultExpanded = true,
-}) => {
+export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({ tagBus, defaultExpanded = true }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [search, setSearch] = useState('');
   const [paused, setPaused] = useState(false);
@@ -181,9 +179,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
   const filtered = useMemo(() => {
     const arr = Array.from(entries.values());
     const term = search.toLowerCase();
-    const result = term
-      ? arr.filter((e) => e.name.toLowerCase().includes(term))
-      : arr;
+    const result = term ? arr.filter((e) => e.name.toLowerCase().includes(term)) : arr;
 
     result.sort((a, b) => {
       let cmp = 0;
@@ -234,10 +230,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
   };
 
   return (
-    <div
-      className="border-t border-gray-200 bg-white flex flex-col"
-      data-testid="tag-watch-panel"
-    >
+    <div className="border-t border-gray-200 bg-white flex flex-col" data-testid="tag-watch-panel">
       {/* Toggle header */}
       <button
         onClick={() => setExpanded((e) => !e)}

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -59,14 +60,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Shaft through dome */}
-        <line
-          x1={50}
-          y1={17}
-          x2={50}
-          y2={85}
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
+        <line x1={50} y1={17} x2={50} y2={85} stroke={colors.stroke} strokeWidth={2} />
 
         {/* Tank body */}
         <rect
@@ -82,14 +76,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Flat bottom */}
-        <line
-          x1={20}
-          y1={110}
-          x2={80}
-          y2={110}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={20} y1={110} x2={80} y2={110} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Liquid level indicator (running state) */}
         {state === 'running' && (
@@ -102,7 +89,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
               y={50}
               width={58}
               height={59}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
               clipPath={`url(#${uid}-clip)`}
             />
@@ -110,7 +97,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
             <path
               d="M 22 50 Q 30 46 38 50 Q 46 54 50 50 Q 54 46 62 50 Q 70 54 78 50"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1.2}
               opacity={0.7}
               clipPath={`url(#${uid}-clip)`}
@@ -119,14 +106,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Shaft (on top of liquid, inside tank) */}
-        <line
-          x1={50}
-          y1={25}
-          x2={50}
-          y2={85}
-          stroke={colors.stroke}
-          strokeWidth={2}
-        />
+        <line x1={50} y1={25} x2={50} y2={85} stroke={colors.stroke} strokeWidth={2} />
 
         {/* Impeller / Agitator blades */}
         {state === 'running' ? (
@@ -147,77 +127,22 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Hub at shaft end */}
-        <circle
-          cx={50}
-          cy={85}
-          r={3}
-          fill={colors.stroke}
-          fillOpacity={0.5}
-        />
+        <circle cx={50} cy={85} r={3} fill={colors.stroke} fillOpacity={0.5} />
 
         {/* Top inlet nozzle */}
-        <line
-          x1={50}
-          y1={0}
-          x2={50}
-          y2={5}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={50} y1={0} x2={50} y2={5} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Left additive inlet nozzle */}
-        <line
-          x1={0}
-          y1={42}
-          x2={20}
-          y2={42}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={0}
-          y1={39}
-          x2={0}
-          y2={45}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={0} y1={42} x2={20} y2={42} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={0} y1={39} x2={0} y2={45} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Right drain nozzle */}
-        <line
-          x1={80}
-          y1={97}
-          x2={100}
-          y2={97}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={100}
-          y1={94}
-          x2={100}
-          y2={100}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={80} y1={97} x2={100} y2={97} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={100} y1={94} x2={100} y2={100} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Bottom outlet nozzle */}
-        <line
-          x1={50}
-          y1={110}
-          x2={50}
-          y2={128}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
-        <line
-          x1={44}
-          y1={128}
-          x2={56}
-          y2={128}
-          stroke={colors.stroke}
-          strokeWidth={1.5}
-        />
+        <line x1={50} y1={110} x2={50} y2={128} stroke={colors.stroke} strokeWidth={2.5} />
+        <line x1={44} y1={128} x2={56} y2={128} stroke={colors.stroke} strokeWidth={1.5} />
 
         {/* Support legs */}
         <rect x={24} y={110} width={5} height={12} fill={colors.stroke} fillOpacity={0.5} rx={1} />
@@ -250,7 +175,7 @@ const MixingTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

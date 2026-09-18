@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const GateValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -32,12 +33,22 @@ const GateValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs — inlet (left) and outlet (right) */}
         <line
-          x1={0} y1={40} x2={20} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={20}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={80} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={80}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Bowtie body — left triangle */}
@@ -62,27 +73,39 @@ const GateValveSymbol: React.FC<EquipmentSymbolProps> = ({
 
         {/* Stem — vertical line from handwheel down to body */}
         <line
-          x1={50} y1={stemBottomY} x2={50} y2={stemTopY}
-          stroke={colors.stroke} strokeWidth={2} strokeLinecap="round"
+          x1={50}
+          y1={stemBottomY}
+          x2={50}
+          y2={stemTopY}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
         />
 
         {/* Handwheel — horizontal bar at top of stem */}
         <line
-          x1={40} y1={handwheelY} x2={60} y2={handwheelY}
-          stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round"
+          x1={40}
+          y1={handwheelY}
+          x2={60}
+          y2={handwheelY}
+          stroke={colors.stroke}
+          strokeWidth={2.5}
+          strokeLinecap="round"
         />
 
         {/* Handwheel center knob */}
-        <circle
-          cx={50} cy={handwheelY} r={2.5}
-          fill={colors.stroke} fillOpacity={0.6}
-        />
+        <circle cx={50} cy={handwheelY} r={2.5} fill={colors.stroke} fillOpacity={0.6} />
 
         {/* Closed indicator — gate plate across flow path */}
         {isClosed && (
           <line
-            x1={50} y1={28} x2={50} y2={52}
-            stroke={colors.stroke} strokeWidth={3} strokeLinecap="round"
+            x1={50}
+            y1={28}
+            x2={50}
+            y2={52}
+            stroke={colors.stroke}
+            strokeWidth={3}
+            strokeLinecap="round"
             opacity={0.7}
           />
         )}
@@ -90,9 +113,12 @@ const GateValveSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

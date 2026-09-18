@@ -15,6 +15,7 @@ import type {
   ChartLineZone,
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 export interface TrendChannelSpec {
   channelKey: string;
@@ -35,7 +36,14 @@ export interface MultiParameterTrendCardProps {
   title?: string;
 }
 
-const PALETTE = ['#146f84', '#4abba2', '#c89a3c', '#b04a28', '#6d5ac8', '#2e7d8c'];
+const PALETTE = [
+  themeColors.primary[700],
+  themeColors.success[500],
+  themeColors.accent[600],
+  themeColors.warning[700],
+  themeColors.primary[700],
+  themeColors.primary[600],
+];
 
 function unitScaleGroup(unit: string | undefined): 1 | 2 {
   // Temperature-like units take axis 1, everything else axis 2 — keeps the
@@ -51,7 +59,7 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
     zones.push({
       min: crit.low ?? Number.NEGATIVE_INFINITY,
       max: crit.high ?? Number.POSITIVE_INFINITY,
-      stroke: '#b04a28',
+      stroke: themeColors.warning[700],
       fill: 'rgba(176,74,40,0.10)',
     });
   }
@@ -59,7 +67,7 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
     zones.push({
       min: warn.low ?? Number.NEGATIVE_INFINITY,
       max: warn.high ?? Number.POSITIVE_INFINITY,
-      stroke: '#c89a3c',
+      stroke: themeColors.accent[600],
       fill: 'rgba(200,154,60,0.08)',
     });
   }

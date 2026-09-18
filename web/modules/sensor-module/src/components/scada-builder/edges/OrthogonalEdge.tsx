@@ -12,12 +12,21 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { type JSX, useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo, useRef } from 'react';
+import {
+  type JSX,
+  useState,
+  useEffect,
+  useCallback,
+  MouseEvent as ReactMouseEvent,
+  useMemo,
+  useRef,
+} from 'react';
 import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
 import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -54,15 +63,14 @@ const HIT_AREA_WIDTH = 16;
 const calculateOrthogonalPath = (
   source: Point,
   target: Point,
-  mode: 'horizontal-first' | 'vertical-first' | 'auto' = 'auto'
+  mode: 'horizontal-first' | 'vertical-first' | 'auto' = 'auto',
 ): BendPoint[] => {
   const dx = target.x - source.x;
   const dy = target.y - source.y;
 
   // Auto mode: choose based on direction
-  const routeMode = mode === 'auto'
-    ? (Math.abs(dx) >= Math.abs(dy) ? 'horizontal-first' : 'vertical-first')
-    : mode;
+  const routeMode =
+    mode === 'auto' ? (Math.abs(dx) >= Math.abs(dy) ? 'horizontal-first' : 'vertical-first') : mode;
 
   const midX = source.x + dx / 2;
   const midY = source.y + dy / 2;
@@ -120,7 +128,7 @@ const findSegmentIndex = (
   target: Point,
   bends: BendPoint[],
   clickX: number,
-  clickY: number
+  clickY: number,
 ): number => {
   const allPoints = [source, ...bends, target];
   let closestIdx = 0;
@@ -197,12 +205,18 @@ const getPointOnPolyline = (
   return {
     x: pts[last].x,
     y: pts[last].y,
-    angle: Math.atan2(pts[last].y - pts[last - 1].y, pts[last].x - pts[last - 1].x) * (180 / Math.PI),
+    angle:
+      Math.atan2(pts[last].y - pts[last - 1].y, pts[last].x - pts[last - 1].x) * (180 / Math.PI),
   };
 };
 
 /** P&ID style: animated flow-direction chevron on the line at 50% */
-const renderFlowArrow = (source: Point, target: Point, bends: BendPoint[], color: string = '#374151'): JSX.Element | null => {
+const renderFlowArrow = (
+  source: Point,
+  target: Point,
+  bends: BendPoint[],
+  color: string = colors.neutral[700],
+): JSX.Element | null => {
   const allPoints = [source, ...bends, target];
   if (allPoints.length < 2) return null;
   const mid = getPointOnPolyline(allPoints, 0.5);
@@ -222,17 +236,7 @@ const renderFlowArrow = (source: Point, target: Point, bends: BendPoint[], color
 /*  Component                                         */
 /* -------------------------------------------------- */
 const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) => {
-  const {
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    style = {},
-    markerEnd,
-    data,
-    selected,
-  } = props;
+  const { id, sourceX, sourceY, targetX, targetY, style = {}, markerEnd, data, selected } = props;
 
   const { updateEdgeData } = useEdgeStoreContext();
 
@@ -242,9 +246,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
    * to the static `animated` flag (backward compatibility).
    */
   const flowState = useEdgeFlowState(data?.flowConfig);
-  const shouldAnimate = data?.flowConfig
-    ? flowState.isFlowing
-    : !!data?.animated;
+  const shouldAnimate = data?.flowConfig ? flowState.isFlowing : !!data?.animated;
 
   const source: Point = { x: sourceX, y: sourceY };
   const target: Point = { x: targetX, y: targetY };
@@ -254,7 +256,6 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
   /* ---------- Initial bend points ----------------- */
   const initialBends: BendPoint[] = useMemo(() => {
     return data?.bendPoints ?? calculateOrthogonalPath(source, target, routingMode);
-     
   }, []);
 
   const [bendPoints, setBendPoints] = useState<BendPoint[]>(initialBends);
@@ -271,7 +272,6 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
     if (!data?.bendPoints || data.bendPoints.length === 0) {
       setBendPoints(calculateOrthogonalPath(source, target, routingMode));
     }
-     
   }, [sourceX, sourceY, targetX, targetY, routingMode]);
 
   /* ---------- Build the path ----------------------- */
@@ -290,80 +290,89 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
   }, [bendPoints, id, updateEdgeData]);
 
   /* ---------- Drag handling ------------------------ */
-  const handleMouseDown = useCallback((e: ReactMouseEvent<SVGRectElement>, idx: number) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleMouseDown = useCallback(
+    (e: ReactMouseEvent<SVGRectElement>, idx: number) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
-    if (!svg) return;
+      const svg = (e.target as Element).closest('svg') as SVGSVGElement | null;
+      if (!svg) return;
 
-    const onMove = (mv: globalThis.MouseEvent) => {
-      const ctm = svg.getScreenCTM()?.inverse();
-      if (!ctm) return;
+      const onMove = (mv: globalThis.MouseEvent) => {
+        const ctm = svg.getScreenCTM()?.inverse();
+        if (!ctm) return;
 
-      const pt = svg.createSVGPoint();
-      pt.x = mv.clientX;
-      pt.y = mv.clientY;
-      const svgPt = pt.matrixTransform(ctm);
+        const pt = svg.createSVGPoint();
+        pt.x = mv.clientX;
+        pt.y = mv.clientY;
+        const svgPt = pt.matrixTransform(ctm);
 
-      // Snap to grid
-      const newX = Math.round(svgPt.x / SNAP) * SNAP;
-      const newY = Math.round(svgPt.y / SNAP) * SNAP;
+        // Snap to grid
+        const newX = Math.round(svgPt.x / SNAP) * SNAP;
+        const newY = Math.round(svgPt.y / SNAP) * SNAP;
 
-      setBendPoints(prev => {
-        const copy = [...prev];
-        copy[idx] = { x: newX, y: newY };
-        return copy;
-      });
-    };
+        setBendPoints((prev) => {
+          const copy = [...prev];
+          copy[idx] = { x: newX, y: newY };
+          return copy;
+        });
+      };
 
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [bendPoints]);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [bendPoints],
+  );
 
   /* ---------- Double-click to add bend ------------ */
-  const handlePathDoubleClick = useCallback((e: ReactMouseEvent<SVGPathElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handlePathDoubleClick = useCallback(
+    (e: ReactMouseEvent<SVGPathElement>) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    const svg = (e.target as SVGPathElement).ownerSVGElement;
-    if (!svg) return;
+      const svg = (e.target as SVGPathElement).ownerSVGElement;
+      if (!svg) return;
 
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const svgPoint = pt.matrixTransform(svg.getScreenCTM()?.inverse());
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const svgPoint = pt.matrixTransform(svg.getScreenCTM()?.inverse());
 
-    const clickX = Math.round(svgPoint.x / SNAP) * SNAP;
-    const clickY = Math.round(svgPoint.y / SNAP) * SNAP;
+      const clickX = Math.round(svgPoint.x / SNAP) * SNAP;
+      const clickY = Math.round(svgPoint.y / SNAP) * SNAP;
 
-    // Find segment and add new bend
-    const segmentIdx = findSegmentIndex(source, target, bendPoints, clickX, clickY);
+      // Find segment and add new bend
+      const segmentIdx = findSegmentIndex(source, target, bendPoints, clickX, clickY);
 
-    const newBend: BendPoint = { x: clickX, y: clickY };
+      const newBend: BendPoint = { x: clickX, y: clickY };
 
-    setBendPoints(prev => {
-      const copy = [...prev];
-      copy.splice(segmentIdx, 0, newBend);
-      return copy;
-    });
-  }, [bendPoints, source, target]);
+      setBendPoints((prev) => {
+        const copy = [...prev];
+        copy.splice(segmentIdx, 0, newBend);
+        return copy;
+      });
+    },
+    [bendPoints, source, target],
+  );
 
   /* ---------- Right-click to delete bend ---------- */
-  const handlePointRightClick = useCallback((e: ReactMouseEvent<SVGRectElement>, idx: number) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handlePointRightClick = useCallback(
+    (e: ReactMouseEvent<SVGRectElement>, idx: number) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-    // Keep at least some bends for orthogonal routing
-    if (bendPoints.length <= 1) return;
+      // Keep at least some bends for orthogonal routing
+      if (bendPoints.length <= 1) return;
 
-    setBendPoints(prev => prev.filter((_, i) => i !== idx));
-  }, [bendPoints]);
+      setBendPoints((prev) => prev.filter((_, i) => i !== idx));
+    },
+    [bendPoints],
+  );
 
   /* ---------- Path hover for insertion preview ----- */
   const handlePathMouseMove = useCallback((e: ReactMouseEvent<SVGPathElement>) => {
@@ -411,15 +420,15 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           pointerEvents: 'none',
           stroke: edgeStyle.stroke,
           strokeWidth: edgeStyle.strokeWidth,
-          strokeDasharray: (data?.flowConfig && shouldAnimate)
-            ? '8 4'
-            : edgeStyle.strokeDasharray,
+          strokeDasharray: data?.flowConfig && shouldAnimate ? '8 4' : edgeStyle.strokeDasharray,
           strokeLinejoin: 'miter',
           strokeLinecap: 'round',
-          ...(data?.flowConfig && shouldAnimate ? {
-            animation: `edge-flow ${flowState.speed}s linear infinite`,
-            animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
-          } : {}),
+          ...(data?.flowConfig && shouldAnimate
+            ? {
+                animation: `edge-flow ${flowState.speed}s linear infinite`,
+                animationDirection: flowState.direction === 'reverse' ? 'reverse' : 'normal',
+              }
+            : {}),
           ...style,
         }}
       />
@@ -429,7 +438,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
         <path
           d={edgePath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
           strokeLinejoin="round"
@@ -447,9 +456,9 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           cx={hoverPosition.x}
           cy={hoverPosition.y}
           r={4}
-          fill="#10b981"
+          fill={colors.success[500]}
           fillOpacity={0.5}
-          stroke="#10b981"
+          stroke={colors.success[500]}
           strokeWidth={1}
           style={{ pointerEvents: 'none' }}
         />
@@ -464,8 +473,8 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           width={(hoveredPoint === idx ? POINT_RADIUS_HOVER : POINT_RADIUS) * 2}
           height={(hoveredPoint === idx ? POINT_RADIUS_HOVER : POINT_RADIUS) * 2}
           rx={2}
-          fill="#8b5cf6"
-          stroke="#7c3aed"
+          fill={colors.primary[700]}
+          stroke={colors.primary[800]}
           strokeWidth={1.5}
           style={{
             pointerEvents: 'all',
@@ -488,8 +497,8 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
             cx={sourceX}
             cy={sourceY}
             r={4}
-            fill="#22c55e"
-            stroke="#16a34a"
+            fill={colors.success[500]}
+            stroke={colors.success[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -497,8 +506,8 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
             cx={targetX}
             cy={targetY}
             r={4}
-            fill="#ef4444"
-            stroke="#dc2626"
+            fill={colors.error[500]}
+            stroke={colors.error[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -514,7 +523,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
             textAnchor="middle"
             style={{
               fontSize: 11,
-              fill: '#374151',
+              fill: colors.neutral[700],
               fontWeight: 500,
             }}
           >
@@ -522,7 +531,6 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           </textPath>
         </text>
       )}
-
     </g>
   );
 };

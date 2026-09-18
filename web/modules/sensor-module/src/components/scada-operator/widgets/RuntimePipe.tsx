@@ -22,7 +22,12 @@
  */
 
 import React, { memo, useCallback, useEffect, useRef, useMemo, useState } from 'react';
-import type { RuntimeWidgetProps, PipeConfig, PipeFlowDirection } from '../../../types/scada-runtime.types';
+import type {
+  RuntimeWidgetProps,
+  PipeConfig,
+  PipeFlowDirection,
+} from '../../../types/scada-runtime.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Style injection (once per document)                                */
@@ -52,13 +57,9 @@ function injectPipeStyles(): void {
 /* ------------------------------------------------------------------ */
 
 /** Return animation CSS for the content stroke. */
-function flowAnimation(
-  direction: PipeFlowDirection,
-  speedMs: number,
-): React.CSSProperties {
+function flowAnimation(direction: PipeFlowDirection, speedMs: number): React.CSSProperties {
   if (direction === 'stop') return { animation: 'none' };
-  const name =
-    direction === 'forward' ? 'pipeFlowForward' : 'pipeFlowReverse';
+  const name = direction === 'forward' ? 'pipeFlowForward' : 'pipeFlowReverse';
   return {
     animation: `${name} ${speedMs}ms linear infinite`,
     animationPlayState: 'running',
@@ -111,8 +112,9 @@ const ImageAnimator = memo<ImageAnimatorProps>(
       const now = performance.now();
       // Initialise staggered start times on direction change
       if (lastDirectionRef.current !== direction || startTimesRef.current.length !== count) {
-        startTimesRef.current = Array.from({ length: count }, (_, i) =>
-          now - (i / count) * speedMs,
+        startTimesRef.current = Array.from(
+          { length: count },
+          (_, i) => now - (i / count) * speedMs,
         );
         lastDirectionRef.current = direction;
       }
@@ -178,14 +180,14 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
   /* ---- config ---- */
   const pipeConfig = config as unknown as Partial<PipeConfig>;
 
-  const borderColor  = (pipeConfig.borderColor  ?? '#374151') as string;
-  const borderWidth  = Number(pipeConfig.borderWidth  ?? 4);
-  const pipeColor    = (pipeConfig.pipeColor    ?? '#6b7280') as string;
-  const pipeWidth    = Number(pipeConfig.pipeWidth    ?? 16);
-  const contentColor = (pipeConfig.contentColor ?? '#06b6d4') as string;
+  const borderColor = (pipeConfig.borderColor ?? colors.neutral[700]) as string;
+  const borderWidth = Number(pipeConfig.borderWidth ?? 4);
+  const pipeColor = (pipeConfig.pipeColor ?? colors.gray[400]) as string;
+  const pipeWidth = Number(pipeConfig.pipeWidth ?? 16);
+  const contentColor = (pipeConfig.contentColor ?? colors.primary[400]) as string;
   const contentWidth = Number(pipeConfig.contentWidth ?? 8);
   const contentSpace = Number(pipeConfig.contentSpace ?? 8);
-  const speedMs      = Number((config.speedMs ?? 1200) as number);
+  const speedMs = Number((config.speedMs ?? 1200) as number);
 
   // Custom path from config, or auto-generated horizontal pipe
   const pathData = (config.path ?? defaultPipePath(width, height)) as string;
@@ -214,17 +216,16 @@ const RuntimePipe: React.FC<RuntimeWidgetProps> = ({
 
   /* ---- SVG path ref (callback ref to trigger re-render on mount) ---- */
   const [pathEl, setPathEl] = useState<SVGPathElement | null>(null);
-  const pathRefCallback = useCallback((el: SVGPathElement | null) => { setPathEl(el); }, []);
+  const pathRefCallback = useCallback((el: SVGPathElement | null) => {
+    setPathEl(el);
+  }, []);
 
   /* ---- dash pattern ---- */
   // dash = contentWidth, gap = contentSpace
   const dashArray = `${contentWidth} ${contentSpace}`;
 
   /* ---- animation style ---- */
-  const animStyle = useMemo(
-    () => flowAnimation(direction, speedMs),
-    [direction, speedMs],
-  );
+  const animStyle = useMemo(() => flowAnimation(direction, speedMs), [direction, speedMs]);
 
   return (
     <div

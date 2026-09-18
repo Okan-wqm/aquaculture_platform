@@ -9,6 +9,7 @@
 import React, { memo, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 // SVG sanitizasyon konfigurasyonu -- XSS vektorlerini engeller
 // Security config: foreignObject, script, iframe gibi tehlikeli tag'lar yasakli
@@ -18,10 +19,25 @@ const DOMPURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
   FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object', 'base', 'form'],
   FORBID_ATTR: ['xlink:href', 'formaction', 'action', 'srcdoc'],
   ADD_TAGS: [
-    'use', 'symbol', 'defs', 'clipPath', 'mask', 'pattern', 'marker',
-    'linearGradient', 'radialGradient', 'stop', 'filter',
-    'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode', 'feFlood',
-    'feComposite', 'feBlend', 'feColorMatrix',
+    'use',
+    'symbol',
+    'defs',
+    'clipPath',
+    'mask',
+    'pattern',
+    'marker',
+    'linearGradient',
+    'radialGradient',
+    'stop',
+    'filter',
+    'feGaussianBlur',
+    'feOffset',
+    'feMerge',
+    'feMergeNode',
+    'feFlood',
+    'feComposite',
+    'feBlend',
+    'feColorMatrix',
   ],
   ALLOW_DATA_ATTR: false,
 };
@@ -35,7 +51,10 @@ function sanitizeSvg(raw: string): string {
 }
 
 const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
   const svgContent = (config.svgContent ?? '') as string;
   const label = (config.label ?? '') as string;
@@ -48,11 +67,22 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
 
   if (!svgContent) {
     return (
-      <div style={{
-        width, height, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#f8fafc', border: '2px dashed #d1d5db', borderRadius: 8,
-        color: '#9ca3af', fontSize: 11, textAlign: 'center', padding: 8,
-      }}>
+      <div
+        style={{
+          width,
+          height,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: colors.neutral[50],
+          border: `2px dashed ${themeColors.neutral[300]}`,
+          borderRadius: 8,
+          color: colors.neutral[400],
+          fontSize: 11,
+          textAlign: 'center',
+          padding: 8,
+        }}
+      >
         No SVG uploaded
       </div>
     );
@@ -80,10 +110,17 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
         dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
       {label && (
-        <div style={{
-          position: 'absolute', bottom: 2, left: 0, right: 0,
-          textAlign: 'center', fontSize: 10, color: '#6b7280',
-        }}>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 2,
+            left: 0,
+            right: 0,
+            textAlign: 'center',
+            fontSize: 10,
+            color: colors.gray[400],
+          }}
+        >
           {label}
         </div>
       )}

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /** Radial gear teeth lines around a circle */
 const GearTeeth: React.FC<{
@@ -29,7 +30,7 @@ const GearTeeth: React.FC<{
         stroke={stroke}
         strokeWidth={2}
         strokeLinecap="round"
-      />
+      />,
     );
   }
   return <>{lines}</>;
@@ -68,32 +69,26 @@ const GearPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Left gear — spinning when running */}
         <g
           className={state === 'running' ? 'scada-pump-spinning' : undefined}
-          style={state === 'running' ? { transformOrigin: '40px 50px' } as React.CSSProperties : undefined}
+          style={
+            state === 'running'
+              ? ({ transformOrigin: '40px 50px' } as React.CSSProperties)
+              : undefined
+          }
         >
-          <circle
-            cx={40}
-            cy={50}
-            r={10}
-            fill="none"
-            stroke={colors.stroke}
-            strokeWidth={1.5}
-          />
+          <circle cx={40} cy={50} r={10} fill="none" stroke={colors.stroke} strokeWidth={1.5} />
           <GearTeeth cx={40} cy={50} r={10} teeth={6} stroke={colors.stroke} />
         </g>
 
         {/* Right gear — spinning when running */}
         <g
           className={state === 'running' ? 'scada-pump-spinning' : undefined}
-          style={state === 'running' ? { transformOrigin: '60px 50px' } as React.CSSProperties : undefined}
+          style={
+            state === 'running'
+              ? ({ transformOrigin: '60px 50px' } as React.CSSProperties)
+              : undefined
+          }
         >
-          <circle
-            cx={60}
-            cy={50}
-            r={10}
-            fill="none"
-            stroke={colors.stroke}
-            strokeWidth={1.5}
-          />
+          <circle cx={60} cy={50} r={10} fill="none" stroke={colors.stroke} strokeWidth={1.5} />
           <GearTeeth cx={60} cy={50} r={10} teeth={6} stroke={colors.stroke} />
         </g>
 
@@ -116,24 +111,10 @@ const GearPumpSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {/* Inlet line — left */}
-        <line
-          x1={0}
-          y1={50}
-          x2={20}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={0} y1={50} x2={20} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* Outlet line — right */}
-        <line
-          x1={80}
-          y1={50}
-          x2={100}
-          y2={50}
-          stroke={colors.stroke}
-          strokeWidth={2.5}
-        />
+        <line x1={80} y1={50} x2={100} y2={50} stroke={colors.stroke} strokeWidth={2.5} />
 
         {/* P label */}
         <text
@@ -155,7 +136,7 @@ const GearPumpSymbol: React.FC<EquipmentSymbolProps> = ({
             y={10}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

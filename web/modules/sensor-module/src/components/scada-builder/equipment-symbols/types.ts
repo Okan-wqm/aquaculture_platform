@@ -1,68 +1,73 @@
 import React from 'react';
-import type { EquipmentState, EquipmentConnectionPoint, ConnectionPointKey } from '../../../types/scada-widget.types';
+import type {
+  EquipmentState,
+  EquipmentConnectionPoint,
+  ConnectionPointKey,
+} from '../../../types/scada-widget.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ViewBox dimensions for each equipment subtype (used for handle alignment)
 export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }> = {
   // Pumps — 100×100
-  centrifugalPump:  { width: 100, height: 100 },
-  gearPump:         { width: 100, height: 100 },
-  diaphragmPump:    { width: 100, height: 100 },
-  pistonPump:       { width: 100, height: 100 },
-  submersiblePump:  { width: 100, height: 100 },
-  vacuumPump:       { width: 100, height: 100 },
-  turbinePump:      { width: 100, height: 100 },
-  screwPump:        { width: 100, height: 100 },
-  peristalticPump:  { width: 100, height: 100 },
-  blowerPump:       { width: 100, height: 100 },
-  jetPump:          { width: 100, height: 100 },
-  vanePump:         { width: 100, height: 100 },
+  centrifugalPump: { width: 100, height: 100 },
+  gearPump: { width: 100, height: 100 },
+  diaphragmPump: { width: 100, height: 100 },
+  pistonPump: { width: 100, height: 100 },
+  submersiblePump: { width: 100, height: 100 },
+  vacuumPump: { width: 100, height: 100 },
+  turbinePump: { width: 100, height: 100 },
+  screwPump: { width: 100, height: 100 },
+  peristalticPump: { width: 100, height: 100 },
+  blowerPump: { width: 100, height: 100 },
+  jetPump: { width: 100, height: 100 },
+  vanePump: { width: 100, height: 100 },
   // Valves — 100×80
-  gateValve:        { width: 100, height: 80 },
-  ballValve:        { width: 100, height: 80 },
-  butterflyValve:   { width: 100, height: 80 },
-  globeValve:       { width: 100, height: 80 },
-  checkValve:       { width: 100, height: 80 },
-  reliefValve:      { width: 100, height: 80 },
-  controlValve:     { width: 100, height: 80 },
-  needleValve:      { width: 100, height: 80 },
-  solenoidValve:    { width: 100, height: 80 },
-  threeWayValve:    { width: 100, height: 100 },
-  pinchValve:       { width: 100, height: 80 },
-  diaphragmValve:   { width: 100, height: 80 },
-  plugValve:        { width: 100, height: 80 },
+  gateValve: { width: 100, height: 80 },
+  ballValve: { width: 100, height: 80 },
+  butterflyValve: { width: 100, height: 80 },
+  globeValve: { width: 100, height: 80 },
+  checkValve: { width: 100, height: 80 },
+  reliefValve: { width: 100, height: 80 },
+  controlValve: { width: 100, height: 80 },
+  needleValve: { width: 100, height: 80 },
+  solenoidValve: { width: 100, height: 80 },
+  threeWayValve: { width: 100, height: 100 },
+  pinchValve: { width: 100, height: 80 },
+  diaphragmValve: { width: 100, height: 80 },
+  plugValve: { width: 100, height: 80 },
   // Tanks — various
-  verticalTank:     { width: 100, height: 140 },
-  horizontalTank:   { width: 140, height: 100 },
+  verticalTank: { width: 100, height: 140 },
+  horizontalTank: { width: 140, height: 100 },
   conicalBottomTank: { width: 100, height: 140 },
-  pressureVessel:   { width: 140, height: 100 },
-  silo:             { width: 100, height: 140 },
-  mixingTank:       { width: 100, height: 140 },
+  pressureVessel: { width: 140, height: 100 },
+  silo: { width: 100, height: 140 },
+  mixingTank: { width: 100, height: 140 },
   // Heat Exchangers
-  shellAndTube:     { width: 140, height: 100 },
+  shellAndTube: { width: 140, height: 100 },
   plateHeatExchanger: { width: 140, height: 100 },
-  airCooler:        { width: 140, height: 100 },
-  condenser:        { width: 100, height: 120 },
-  evaporator:       { width: 100, height: 120 },
+  airCooler: { width: 140, height: 100 },
+  condenser: { width: 100, height: 120 },
+  evaporator: { width: 100, height: 120 },
   // Compressors
-  pistonCompressor:       { width: 120, height: 100 },
-  screwCompressor:        { width: 120, height: 100 },
-  centrifugalCompressor:  { width: 100, height: 100 },
-  diaphragmCompressor:    { width: 100, height: 100 },
+  pistonCompressor: { width: 120, height: 100 },
+  screwCompressor: { width: 120, height: 100 },
+  centrifugalCompressor: { width: 100, height: 100 },
+  diaphragmCompressor: { width: 100, height: 100 },
   // Motors
-  acMotor:    { width: 100, height: 100 },
-  vfdMotor:   { width: 120, height: 100 },
+  acMotor: { width: 100, height: 100 },
+  vfdMotor: { width: 120, height: 100 },
   servoMotor: { width: 120, height: 100 },
   // Filters
-  bagFilter:      { width: 100, height: 140 },
-  drumFilter:     { width: 120, height: 100 },
+  bagFilter: { width: 100, height: 140 },
+  drumFilter: { width: 120, height: 100 },
   membraneFilter: { width: 120, height: 100 },
   // Instruments
-  pressureTransmitter:    { width: 80, height: 100 },
-  flowTransmitter:        { width: 80, height: 100 },
-  levelTransmitter:       { width: 80, height: 100 },
+  pressureTransmitter: { width: 80, height: 100 },
+  flowTransmitter: { width: 80, height: 100 },
+  levelTransmitter: { width: 80, height: 100 },
   temperatureTransmitter: { width: 80, height: 100 },
   // Animated
-  animatedGear:     { width: 100, height: 100 },
+  animatedGear: { width: 100, height: 100 },
   animatedConveyor: { width: 140, height: 80 },
 };
 
@@ -77,19 +82,19 @@ export interface EquipmentSymbolProps {
 
 // State-based color system (P&ID standard)
 export const EQUIPMENT_STATE_COLORS: Record<EquipmentState, { fill: string; stroke: string }> = {
-  running: { fill: '#dcfce7', stroke: '#22c55e' },
-  open:    { fill: '#dcfce7', stroke: '#22c55e' },
-  stopped: { fill: '#f3f4f6', stroke: '#9ca3af' },
-  closed:  { fill: '#f3f4f6', stroke: '#9ca3af' },
-  fault:       { fill: '#fef2f2', stroke: '#ef4444' },
-  maintenance: { fill: '#fefce8', stroke: '#d97706' },
+  running: { fill: themeColors.success[100], stroke: themeColors.success[500] },
+  open: { fill: themeColors.success[100], stroke: themeColors.success[500] },
+  stopped: { fill: themeColors.neutral[100], stroke: themeColors.neutral[400] },
+  closed: { fill: themeColors.neutral[100], stroke: themeColors.neutral[400] },
+  fault: { fill: themeColors.error[50], stroke: themeColors.error[500] },
+  maintenance: { fill: themeColors.warning[50], stroke: themeColors.warning[600] },
 };
 
 // Connection point colors
 export const CONNECTION_POINT_COLORS = {
-  in:    '#3b82f6', // blue for inlet
-  out:   '#f97316', // orange for outlet
-  inout: '#8b5cf6', // purple for bidirectional
+  in: themeColors.info[500], // blue for inlet
+  out: themeColors.accent[600], // orange for outlet
+  inout: themeColors.primary[700], // purple for bidirectional
 } as const;
 
 // CONNECTION_POINTS registry - maps each subtype to its connection points
@@ -280,12 +285,8 @@ export const CONNECTION_POINTS: Record<ConnectionPointKey, EquipmentConnectionPo
     { id: 'outlet', label: 'Çıkış', side: 'right', offset: 0.3, direction: 'out' },
   ],
   // Motors
-  acMotor: [
-    { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
-  ],
-  vfdMotor: [
-    { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
-  ],
+  acMotor: [{ id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' }],
+  vfdMotor: [{ id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' }],
   servoMotor: [
     { id: 'shaft', label: 'Mil', side: 'right', offset: 0.5, direction: 'out' },
     { id: 'feedback', label: 'Feedback', side: 'top', offset: 0.5, direction: 'out' },
@@ -388,30 +389,42 @@ interface StateOverlayProps {
  * Usage: place `<FaultOverlay state={state} viewBoxWidth={w} viewBoxHeight={h} />`
  * inside the symbol's <svg> element, after the main drawing group.
  */
-export const FaultOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth, viewBoxHeight }) => {
+export const FaultOverlay: React.FC<StateOverlayProps> = ({
+  state,
+  viewBoxWidth,
+  viewBoxHeight,
+}) => {
   if (state !== 'fault') return null;
 
   const cx = viewBoxWidth - 10;
   const cy = 10;
   const r = 8;
 
-  return React.createElement('g', { className: 'fault-overlay' },
+  return React.createElement(
+    'g',
+    { className: 'fault-overlay' },
     React.createElement('circle', {
-      cx, cy, r,
-      fill: '#ef4444',
-      stroke: '#ffffff',
+      cx,
+      cy,
+      r,
+      fill: themeColors.error[500],
+      stroke: themeColors.white,
       strokeWidth: 1.5,
       opacity: 0.95,
     }),
-    React.createElement('text', {
-      x: cx,
-      y: cy + 4,
-      textAnchor: 'middle',
-      fontSize: 12,
-      fontWeight: 'bold',
-      fill: '#ffffff',
-      fontFamily: 'sans-serif',
-    }, '!'),
+    React.createElement(
+      'text',
+      {
+        x: cx,
+        y: cy + 4,
+        textAnchor: 'middle',
+        fontSize: 12,
+        fontWeight: 'bold',
+        fill: themeColors.white,
+        fontFamily: 'sans-serif',
+      },
+      '!',
+    ),
   );
 };
 
@@ -422,7 +435,11 @@ export const FaultOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth,
  * Usage: place `<MaintenanceOverlay state={state} viewBoxWidth={w} viewBoxHeight={h} />`
  * inside the symbol's <svg> element, after the main drawing group.
  */
-export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth, viewBoxHeight }) => {
+export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({
+  state,
+  viewBoxWidth,
+  viewBoxHeight,
+}) => {
   if (state !== 'maintenance') return null;
 
   const cx = viewBoxWidth - 10;
@@ -430,23 +447,31 @@ export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({ state, viewBox
   const r = 8;
 
   // Simplified wrench path centered at (cx, cy), scaled to fit inside the circle
-  return React.createElement('g', { className: 'maintenance-overlay' },
+  return React.createElement(
+    'g',
+    { className: 'maintenance-overlay' },
     React.createElement('circle', {
-      cx, cy, r,
-      fill: '#f59e0b',
-      stroke: '#ffffff',
+      cx,
+      cy,
+      r,
+      fill: themeColors.warning[500],
+      stroke: themeColors.white,
       strokeWidth: 1.5,
       opacity: 0.95,
     }),
     // Wrench icon — a small SVG path rendered at the badge center
-    React.createElement('text', {
-      x: cx,
-      y: cy + 4,
-      textAnchor: 'middle',
-      fontSize: 11,
-      fontWeight: 'bold',
-      fill: '#ffffff',
-      fontFamily: 'sans-serif',
-    }, '\u2692'), // ⚒ (hammer-and-pick / wrench Unicode symbol)
+    React.createElement(
+      'text',
+      {
+        x: cx,
+        y: cy + 4,
+        textAnchor: 'middle',
+        fontSize: 11,
+        fontWeight: 'bold',
+        fill: themeColors.white,
+        fontFamily: 'sans-serif',
+      },
+      '\u2692',
+    ), // ⚒ (hammer-and-pick / wrench Unicode symbol)
   );
 };

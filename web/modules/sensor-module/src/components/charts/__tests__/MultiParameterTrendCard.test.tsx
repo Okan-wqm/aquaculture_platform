@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { colors } from '@aquaculture/shared-ui';
 
 const seriesMock = vi.fn();
 vi.mock('../../../hooks/useAggregatedMultiSeries', () => ({
@@ -80,7 +81,7 @@ describe('MultiParameterTrendCard', () => {
     render(<MultiParameterTrendCard sensorId="sensor-1" channels={CHANNELS.slice(1)} />);
 
     const lines = JSON.parse(String(screen.getByTestId('trend-chart').getAttribute('data-lines')));
-    expect(lines[0].color).toBe('#146f84'); // first palette entry
+    expect(lines[0].color).toBe(colors.primary[700]); // first palette entry
   });
 
   it('shows the empty state when no series has points', () => {

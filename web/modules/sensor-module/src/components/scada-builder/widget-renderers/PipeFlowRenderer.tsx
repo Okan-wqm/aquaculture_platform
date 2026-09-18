@@ -1,9 +1,10 @@
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const PipeFlowRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height }) => {
-  const pipeColor = (config.pipeColor ?? '#6b7280') as string;
-  const flowColor = (config.flowColor ?? '#3b82f6') as string;
+  const pipeColor = (config.pipeColor ?? colors.gray[400]) as string;
+  const flowColor = (config.flowColor ?? colors.info[500]) as string;
   const pipeWidth = (config.pipeWidth ?? 12) as number;
   const flowWidth = (config.flowWidth ?? 4) as number;
   const dashLength = (config.dashLength ?? 8) as number;
@@ -21,26 +22,47 @@ const PipeFlowRenderer: React.FC<WidgetRendererProps> = ({ config, value, width,
   const y2 = isHorizontal ? height / 2 : height;
 
   const flowClass = isActive
-    ? (flowDir === 'reverse' ? 'scada-pipe-flowing-rev' : 'scada-pipe-flowing')
+    ? flowDir === 'reverse'
+      ? 'scada-pipe-flowing-rev'
+      : 'scada-pipe-flowing'
     : '';
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
       {/* Pipe border (outer) */}
-      <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke={pipeColor} strokeWidth={pipeWidth} strokeLinecap="round" />
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={pipeColor}
+        strokeWidth={pipeWidth}
+        strokeLinecap="round"
+      />
       {/* Pipe fill (inner) */}
-      <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke={isActive ? flowColor : '#d1d5db'}
-        strokeWidth={pipeWidth - 4} strokeLinecap="round" />
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={isActive ? flowColor : colors.neutral[300]}
+        strokeWidth={pipeWidth - 4}
+        strokeLinecap="round"
+      />
       {/* Flow indicator (animated dashes) */}
       {isActive && (
-        <line x1={x1} y1={y1} x2={x2} y2={y2}
-          stroke="#ffffff" strokeWidth={flowWidth}
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke={colors.white}
+          strokeWidth={flowWidth}
           strokeDasharray={`${dashLength} ${dashGap}`}
           strokeLinecap="round"
           className={flowClass}
-          style={{ '--scada-flow-speed': `${flowSpeed}s` } as React.CSSProperties} />
+          style={{ '--scada-flow-speed': `${flowSpeed}s` } as React.CSSProperties}
+        />
       )}
       {/* End caps */}
       <circle cx={x1} cy={y1} r={pipeWidth / 2 - 1} fill={pipeColor} />

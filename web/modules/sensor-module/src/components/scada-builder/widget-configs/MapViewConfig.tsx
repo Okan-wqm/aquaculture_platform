@@ -10,6 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -54,7 +55,7 @@ const SMALL_INPUT_CLASS =
 
 export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
   const title = (config.title ?? 'Site Map') as string;
-  const bgColor = (config.bgColor ?? '#0c4a6e') as string;
+  const bgColor = (config.bgColor ?? themeColors.primary[700]) as string;
   const showGrid = (config.showGrid ?? true) as boolean;
   const markers = (config.markers ?? []) as DeviceMarker[];
 
@@ -85,9 +86,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
 
   const updateMarker = useCallback(
     (id: string, field: keyof DeviceMarker, value: string | number) => {
-      updateMarkers(
-        markers.map((m) => (m.id === id ? { ...m, [field]: value } : m)),
-      );
+      updateMarkers(markers.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
     },
     [markers, updateMarkers],
   );
@@ -164,9 +163,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
             >
               {/* Header row */}
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-medium text-gray-400">
-                  #{idx + 1}
-                </span>
+                <span className="text-[10px] font-medium text-gray-400">#{idx + 1}</span>
                 <button
                   type="button"
                   onClick={() => removeMarker(marker.id)}
@@ -199,7 +196,11 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
                     max={100}
                     value={marker.x}
                     onChange={(e) =>
-                      updateMarker(marker.id, 'x', Math.min(100, Math.max(0, Number(e.target.value))))
+                      updateMarker(
+                        marker.id,
+                        'x',
+                        Math.min(100, Math.max(0, Number(e.target.value))),
+                      )
                     }
                     className={SMALL_INPUT_CLASS}
                   />
@@ -212,7 +213,11 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
                     max={100}
                     value={marker.y}
                     onChange={(e) =>
-                      updateMarker(marker.id, 'y', Math.min(100, Math.max(0, Number(e.target.value))))
+                      updateMarker(
+                        marker.id,
+                        'y',
+                        Math.min(100, Math.max(0, Number(e.target.value))),
+                      )
                     }
                     className={SMALL_INPUT_CLASS}
                   />

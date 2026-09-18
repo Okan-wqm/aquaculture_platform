@@ -4,8 +4,15 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
-const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const TankLevelRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const label = (config.label ?? 'Tank') as string;
   const unit = (config.unit ?? '%') as string;
   const min = (config.min ?? 0) as number;
@@ -13,7 +20,7 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
   const raw = isEditing ? (config.demoValue ?? 65) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const safeValue = isNaN(numValue) ? 0 : numValue;
-  const pct = Math.max(0, Math.min(1, (safeValue - min) / ((max - min) || 1)));
+  const pct = Math.max(0, Math.min(1, (safeValue - min) / (max - min || 1)));
 
   const tankW = 60;
   const tankH = 100;
@@ -21,59 +28,83 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
   const padTop = 20;
 
   // Color gradient based on level
-  let fillColor = '#3b82f6';
-  if (pct > 0.85) fillColor = '#ef4444';
-  else if (pct > 0.7) fillColor = '#eab308';
+  let fillColor = colors.info[500];
+  if (pct > 0.85) fillColor = colors.error[500];
+  else if (pct > 0.7) fillColor = colors.warning[500];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
-    <svg
-      width="100%"
-      height="100%"
-      viewBox={`0 0 100 ${tankH + padTop + 30}`}
-      preserveAspectRatio="xMidYMid meet"
-      style={{ display: 'block' }}
-    >
-      {/* Label */}
-      <text x={50} y={14} textAnchor="middle" fontSize={10} fill="#6b7280" fontWeight={500}>
-        {label}
-      </text>
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 100 ${tankH + padTop + 30}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ display: 'block' }}
+      >
+        {/* Label */}
+        <text
+          x={50}
+          y={14}
+          textAnchor="middle"
+          fontSize={10}
+          fill={colors.gray[400]}
+          fontWeight={500}
+        >
+          {label}
+        </text>
 
-      {/* Tank outline */}
-      <rect
-        x={20}
-        y={padTop}
-        width={tankW}
-        height={tankH}
-        rx={4}
-        fill="#f1f5f9"
-        stroke="#cbd5e1"
-        strokeWidth={2}
-      />
+        {/* Tank outline */}
+        <rect
+          x={20}
+          y={padTop}
+          width={tankW}
+          height={tankH}
+          rx={4}
+          fill={colors.neutral[100]}
+          stroke={colors.neutral[300]}
+          strokeWidth={2}
+        />
 
-      {/* Fill */}
-      <rect
-        x={22}
-        y={padTop + (tankH - fillH)}
-        width={tankW - 4}
-        height={fillH}
-        rx={2}
-        fill={fillColor}
-        opacity={0.8}
-      />
+        {/* Fill */}
+        <rect
+          x={22}
+          y={padTop + (tankH - fillH)}
+          width={tankW - 4}
+          height={fillH}
+          rx={2}
+          fill={fillColor}
+          opacity={0.8}
+        />
 
-      {/* Percentage text */}
-      <text x={50} y={padTop + tankH / 2 + 4} textAnchor="middle" fontSize={16} fontWeight={700} fill="#111827">
-        {Math.round(pct * 100)}
-      </text>
-      <text x={50} y={padTop + tankH / 2 + 18} textAnchor="middle" fontSize={10} fill="#6b7280">
-        {unit}
-      </text>
+        {/* Percentage text */}
+        <text
+          x={50}
+          y={padTop + tankH / 2 + 4}
+          textAnchor="middle"
+          fontSize={16}
+          fontWeight={700}
+          fill={colors.neutral[900]}
+        >
+          {Math.round(pct * 100)}
+        </text>
+        <text
+          x={50}
+          y={padTop + tankH / 2 + 18}
+          textAnchor="middle"
+          fontSize={10}
+          fill={colors.gray[400]}
+        >
+          {unit}
+        </text>
 
-      {/* Scale marks */}
-      <text x={84} y={padTop + 8} fontSize={8} fill="#9ca3af">{max}</text>
-      <text x={84} y={padTop + tankH} fontSize={8} fill="#9ca3af">{min}</text>
-    </svg>
+        {/* Scale marks */}
+        <text x={84} y={padTop + 8} fontSize={8} fill={colors.neutral[400]}>
+          {max}
+        </text>
+        <text x={84} y={padTop + tankH} fontSize={8} fill={colors.neutral[400]}>
+          {min}
+        </text>
+      </svg>
     </div>
   );
 };

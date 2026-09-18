@@ -7,13 +7,21 @@
 import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, Position, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
 /**
  * Node data keys that can be updated for handles
  */
-type HandleDataKey = 'top1Type' | 'top2Type' | 'top3Type' | 'top4Type' | 'leftType' | 'rightType' | 'bottomType';
+type HandleDataKey =
+  | 'top1Type'
+  | 'top2Type'
+  | 'top3Type'
+  | 'top4Type'
+  | 'leftType'
+  | 'rightType'
+  | 'bottomType';
 
 interface AlgaeBagNodeData extends Record<string, unknown> {
   color?: 'red' | 'green' | 'yellow';
@@ -33,21 +41,21 @@ const HEIGHT = 350;
 // Color configurations for different algae types
 const colorConfigs = {
   red: {
-    gradient1: '#FFB6C1',
-    gradient2: '#FF91A4',
-    surface: '#FF91A4',
+    gradient1: themeColors.accent[200],
+    gradient2: themeColors.accent[400],
+    surface: themeColors.accent[400],
     label: 'Rhodomonas Bag',
   },
   green: {
-    gradient1: '#90EE90',
-    gradient2: '#7CCD7C',
-    surface: '#7CCD7C',
+    gradient1: themeColors.secondary[200],
+    gradient2: themeColors.success[500],
+    surface: themeColors.success[500],
     label: 'Chlorella Bag',
   },
   yellow: {
-    gradient1: '#FFD700',
-    gradient2: '#FFC125',
-    surface: '#FFC125',
+    gradient1: themeColors.warning[500],
+    gradient2: themeColors.warning[500],
+    surface: themeColors.warning[500],
     label: 'Dunaliella Bag',
   },
 };
@@ -67,13 +75,14 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
   const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
   const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
 
-  const getColor = (type: HandleType) => (type === 'source' ? '#22c55e' : '#3b82f6');
+  const getColor = (type: HandleType) =>
+    type === 'source' ? themeColors.success[500] : themeColors.info[500];
 
   const toggleHandle = (
     e: React.MouseEvent,
     current: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    key: HandleDataKey
+    key: HandleDataKey,
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -84,7 +93,17 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, top1Type, top2Type, top3Type, top4Type, leftType, rightType, bottomType, updateNodeInternals]);
+  }, [
+    id,
+    top1Type,
+    top2Type,
+    top3Type,
+    top4Type,
+    leftType,
+    rightType,
+    bottomType,
+    updateNodeInternals,
+  ]);
 
   const gradientId = `algaeGradient-${id}`;
 
@@ -95,7 +114,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
         height: HEIGHT,
         position: 'relative',
         pointerEvents: 'none',
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
       }}
     >
@@ -116,22 +135,22 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
           {/* Metal gradient */}
           <linearGradient id={`metalGradient-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style={{ stopColor: '#808080' }} />
-            <stop offset="50%" style={{ stopColor: '#c0c0c0' }} />
-            <stop offset="100%" style={{ stopColor: '#707070' }} />
+            <stop offset="0%" style={{ stopColor: themeColors.gray[400] }} />
+            <stop offset="50%" style={{ stopColor: themeColors.neutral[300] }} />
+            <stop offset="100%" style={{ stopColor: themeColors.gray[400] }} />
           </linearGradient>
 
           {/* Plastic sheen */}
           <linearGradient id={`plasticSheen-${id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style={{ stopColor: '#ffffff', stopOpacity: 0.35 }} />
-            <stop offset="30%" style={{ stopColor: '#ffffff', stopOpacity: 0.1 }} />
-            <stop offset="100%" style={{ stopColor: '#ffffff', stopOpacity: 0.05 }} />
+            <stop offset="0%" style={{ stopColor: themeColors.white, stopOpacity: 0.35 }} />
+            <stop offset="30%" style={{ stopColor: themeColors.white, stopOpacity: 0.1 }} />
+            <stop offset="100%" style={{ stopColor: themeColors.white, stopOpacity: 0.05 }} />
           </linearGradient>
 
           {/* Bubble gradient */}
           <radialGradient id={`bubbleGradient-${id}`} cx="30%" cy="30%">
-            <stop offset="0%" style={{ stopColor: '#ffffff', stopOpacity: 0.8 }} />
-            <stop offset="100%" style={{ stopColor: '#ffffff', stopOpacity: 0.2 }} />
+            <stop offset="0%" style={{ stopColor: themeColors.white, stopOpacity: 0.8 }} />
+            <stop offset="100%" style={{ stopColor: themeColors.white, stopOpacity: 0.2 }} />
           </radialGradient>
 
           {/* Bag clip path */}
@@ -151,15 +170,39 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
         {/* Triangular stand (masked - only visible outside bag) */}
         <g mask={`url(#standMask-${id})`}>
-          <line x1="10" y1="340" x2="75" y2="20" stroke="#505050" strokeWidth="6" strokeLinecap="round" />
-          <line x1="140" y1="340" x2="75" y2="20" stroke="#505050" strokeWidth="6" strokeLinecap="round" />
-          <line x1="10" y1="340" x2="140" y2="340" stroke="#505050" strokeWidth="6" strokeLinecap="round" />
+          <line
+            x1="10"
+            y1="340"
+            x2="75"
+            y2="20"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+          <line
+            x1="140"
+            y1="340"
+            x2="75"
+            y2="20"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+          <line
+            x1="10"
+            y1="340"
+            x2="140"
+            y2="340"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
         </g>
 
         {/* Bag body */}
         <path
           d="M 30 25 Q 12 30, 15 60 Q 10 100, 15 140 L 12 220 Q 8 260, 18 285 Q 35 310, 75 310 Q 115 310, 132 285 Q 142 260, 138 220 L 135 140 Q 140 100, 135 60 Q 138 30, 120 25 Q 100 20, 75 20 Q 50 20, 30 25 Z"
-          fill="#f0f0f0"
+          fill={themeColors.neutral[100]}
           fillOpacity="0.4"
           stroke="#999"
           strokeWidth="1.5"
@@ -198,7 +241,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
         {/* Left highlight line */}
         <path
           d="M 25 35 Q 18 70, 18 120 L 15 200 Q 14 250, 22 280"
-          stroke="#ffffff"
+          stroke={themeColors.white}
           strokeWidth="2"
           strokeOpacity="0.5"
           fill="none"

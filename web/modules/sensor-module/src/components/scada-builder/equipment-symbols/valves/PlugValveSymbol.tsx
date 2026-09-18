@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const PlugValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -29,8 +30,24 @@ const PlugValveSymbol: React.FC<EquipmentSymbolProps> = ({
     >
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
-        <line x1={0} y1={40} x2={22} y2={40} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
-        <line x1={78} y1={40} x2={100} y2={40} stroke="#6b7280" strokeWidth={3} strokeLinecap="round" />
+        <line
+          x1={0}
+          y1={40}
+          x2={22}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
+        <line
+          x1={78}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
 
         {/* Plug body — tapered trapezoid */}
         <path
@@ -43,8 +60,24 @@ const PlugValveSymbol: React.FC<EquipmentSymbolProps> = ({
         />
 
         {/* Plug taper lines */}
-        <line x1={28} y1={28} x2={32} y2={52} stroke={colors.stroke} strokeWidth={1} opacity={0.4} />
-        <line x1={72} y1={28} x2={68} y2={52} stroke={colors.stroke} strokeWidth={1} opacity={0.4} />
+        <line
+          x1={28}
+          y1={28}
+          x2={32}
+          y2={52}
+          stroke={colors.stroke}
+          strokeWidth={1}
+          opacity={0.4}
+        />
+        <line
+          x1={72}
+          y1={28}
+          x2={68}
+          y2={52}
+          stroke={colors.stroke}
+          strokeWidth={1}
+          opacity={0.4}
+        />
 
         {/* Bore hole through plug */}
         <ellipse
@@ -73,7 +106,15 @@ const PlugValveSymbol: React.FC<EquipmentSymbolProps> = ({
         <line x1={50} y1={14} x2={50} y2={28} stroke={colors.stroke} strokeWidth={2} />
 
         {/* Wrench nut indicator */}
-        <line x1={40} y1={16} x2={60} y2={16} stroke={colors.stroke} strokeWidth={2} strokeLinecap="round" />
+        <line
+          x1={40}
+          y1={16}
+          x2={60}
+          y2={16}
+          stroke={colors.stroke}
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
 
         {/* Closed indicator — bore aligned vertical (blocking flow) */}
         {isClosed && (
@@ -90,7 +131,14 @@ const PlugValveSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {label && (
-          <text x={50} y={75} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
+          >
             {label}
           </text>
         )}

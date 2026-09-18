@@ -15,17 +15,11 @@
  *   - Configurable via widget config
  */
 
-import React, {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { memo, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -63,28 +57,34 @@ class RingBuffer<T> {
     return result;
   }
 
-  get size(): number { return this._size; }
-  clear(): void { this.head = 0; this.tail = 0; this._size = 0; }
+  get size(): number {
+    return this._size;
+  }
+  clear(): void {
+    this.head = 0;
+    this.tail = 0;
+    this._size = 0;
+  }
 }
 
 const DEFAULT_COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
+  themeColors.info[500],
+  themeColors.success[500],
+  themeColors.warning[500],
+  themeColors.error[500],
+  themeColors.primary[700],
+  themeColors.primary[400],
+  themeColors.accent[600],
+  themeColors.secondary[500],
 ];
 
 const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
-  { label: '1m',  minutes: 1 },
-  { label: '5m',  minutes: 5 },
+  { label: '1m', minutes: 1 },
+  { label: '5m', minutes: 5 },
   { label: '10m', minutes: 10 },
   { label: '30m', minutes: 30 },
-  { label: '1h',  minutes: 60 },
-  { label: '4h',  minutes: 240 },
+  { label: '1h', minutes: 60 },
+  { label: '4h', minutes: 240 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -175,17 +175,17 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
         axes: [
           {
             scale: 'x',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
           },
           {
             scale: 'y',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
             size: 50,
           },
         ],
@@ -214,10 +214,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     const h = container.clientHeight || height;
 
     const opts = buildOptions(w, h);
-    const emptyData: uPlot.AlignedData = [
-      [],
-      ...seriesList.map(() => []),
-    ] as uPlot.AlignedData;
+    const emptyData: uPlot.AlignedData = [[], ...seriesList.map(() => [])] as uPlot.AlignedData;
 
     const instance = new uPlot(opts, emptyData, container);
     uplotRef.current = instance;
@@ -304,9 +301,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
 
       const tsSec = change.timestamp / 1000;
       const numVal =
-        typeof change.value === 'number'
-          ? change.value
-          : parseFloat(String(change.value));
+        typeof change.value === 'number' ? change.value : parseFloat(String(change.value));
       if (isNaN(numVal)) continue;
 
       if (!bufferRef.current.has(series.tagId)) {
@@ -383,10 +378,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       )}
 
       {/* uPlot mount target */}
-      <div
-        ref={containerRef}
-        className="relative flex-1 min-h-0 overflow-hidden"
-      />
+      <div ref={containerRef} className="relative flex-1 min-h-0 overflow-hidden" />
     </div>
   );
 };

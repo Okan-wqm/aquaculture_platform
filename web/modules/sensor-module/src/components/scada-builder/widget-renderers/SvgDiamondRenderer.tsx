@@ -12,17 +12,19 @@ import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
-import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import {
+  DEFAULT_GRADIENT,
+  DEFAULT_FILTER,
+  buildGradientId,
+  buildFilterId,
+} from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /**
  * Computes diamond vertices from the bounding box midpoints.
  * Returns top, right, bottom, left in SVG points format.
  */
-function computeDiamondPoints(
-  width: number,
-  height: number,
-  strokeWidth: number,
-): string {
+function computeDiamondPoints(width: number, height: number, strokeWidth: number): string {
   const pad = strokeWidth / 2;
   const mx = width / 2;
   const my = height / 2;
@@ -30,10 +32,13 @@ function computeDiamondPoints(
 }
 
 const SvgDiamondRenderer: React.FC<WidgetRendererProps> = ({
-  config, width, height, animationState,
+  config,
+  width,
+  height,
+  animationState,
 }) => {
-  const flatFill = (animationState?.fill ?? config.fill ?? '#f59e0b') as string;
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#d97706') as string;
+  const flatFill = (animationState?.fill ?? config.fill ?? colors.warning[500]) as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.warning[600]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
@@ -44,9 +49,7 @@ const SvgDiamondRenderer: React.FC<WidgetRendererProps> = ({
   const filterConfig = (config.filter as SvgFilterConfig) ?? DEFAULT_FILTER;
 
   const useGradient = fillGradient.type !== 'none';
-  const fillValue = useGradient
-    ? `url(#${buildGradientId(widgetId, 'fill')})`
-    : flatFill;
+  const fillValue = useGradient ? `url(#${buildGradientId(widgetId, 'fill')})` : flatFill;
 
   const useFilter = filterConfig.type !== 'none';
   const filterAttr = useFilter ? `url(#${buildFilterId(widgetId)})` : undefined;
@@ -75,11 +78,7 @@ const SvgDiamondRenderer: React.FC<WidgetRendererProps> = ({
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style}>
-      <SvgGradientDefs
-        widgetId={widgetId}
-        fillGradient={fillGradient}
-        filter={filterConfig}
-      />
+      <SvgGradientDefs widgetId={widgetId} fillGradient={fillGradient} filter={filterConfig} />
       <polygon
         points={pointsStr}
         fill={fillValue}

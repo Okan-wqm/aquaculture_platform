@@ -11,6 +11,7 @@
 
 import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -27,8 +28,14 @@ interface PieSource {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_COLORS = [
-  '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#22c55e',
-  '#ec4899', '#3b82f6', '#14b8a6',
+  colors.primary[400],
+  colors.primary[700],
+  colors.warning[500],
+  colors.error[500],
+  colors.success[500],
+  colors.accent[500],
+  colors.info[500],
+  colors.secondary[600],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -147,10 +154,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
   }, [isEditing, value, sources]);
 
   /* ---- Compute slice angles ---- */
-  const total = useMemo(
-    () => sliceValues.reduce((acc, v) => acc + v, 0),
-    [sliceValues],
-  );
+  const total = useMemo(() => sliceValues.reduce((acc, v) => acc + v, 0), [sliceValues]);
 
   const slices = useMemo(() => {
     if (total <= 0) return [];
@@ -198,7 +202,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
           textAnchor="middle"
           fontSize={11}
           fontWeight={600}
-          fill="#374151"
+          fill={colors.neutral[700]}
         >
           {label}
         </text>
@@ -224,14 +228,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
           // Skip zero-value slices to avoid degenerate paths
           if (slice.fraction <= 0.001) return null;
 
-          const d = describeArc(
-            cx,
-            cy,
-            radius,
-            innerR,
-            slice.startAngle,
-            slice.endAngle,
-          );
+          const d = describeArc(cx, cy, radius, innerR, slice.startAngle, slice.endAngle);
 
           // Label position: midpoint of the slice, at 65% of radius
           const midAngle = (slice.startAngle + slice.endAngle) / 2;
@@ -245,11 +242,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
                 fill={slice.color}
                 stroke="white"
                 strokeWidth={1.5}
-                style={
-                  animate
-                    ? { transition: 'd 300ms ease-out' }
-                    : undefined
-                }
+                style={animate ? { transition: 'd 300ms ease-out' } : undefined}
               />
               {/* Percentage label inside slice */}
               {showLabels && slice.fraction > 0.05 && (
@@ -277,8 +270,8 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
               cx={cx}
               cy={cy}
               r={radius}
-              fill="#f3f4f6"
-              stroke="#e5e7eb"
+              fill={colors.neutral[100]}
+              stroke={chartChrome.grid}
               strokeWidth={1}
             />
             <text
@@ -287,7 +280,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
               textAnchor="middle"
               dominantBaseline="central"
               fontSize={10}
-              fill="#9ca3af"
+              fill={colors.neutral[400]}
             >
               No data
             </text>
@@ -303,7 +296,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
             dominantBaseline="central"
             fontSize={Math.min(14, innerR * 0.5)}
             fontWeight={700}
-            fill="#374151"
+            fill={colors.neutral[700]}
           >
             {total.toFixed(0)}
           </text>
@@ -311,19 +304,14 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
 
         {/* Legend */}
         {showLegend && (
-          <foreignObject
-            x={0}
-            y={height - PAD * 2 - LEGEND_H}
-            width={availW}
-            height={LEGEND_H}
-          >
+          <foreignObject x={0} y={height - PAD * 2 - LEGEND_H} width={availW} height={LEGEND_H}>
             <div
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
                 gap: 6,
                 fontSize: 8,
-                color: '#6b7280',
+                color: colors.gray[400],
                 justifyContent: 'center',
                 padding: '2px 0',
               }}
@@ -338,16 +326,14 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
                       width: 8,
                       height: 8,
                       borderRadius: 2,
-                      background:
-                        source.color ||
-                        DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+                      background: source.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length],
                       display: 'inline-block',
                       flexShrink: 0,
                     }}
                   />
                   {source.label}
                   {showValues && sliceValues[i] > 0 && (
-                    <span style={{ color: '#9ca3af', marginLeft: 2 }}>
+                    <span style={{ color: colors.neutral[400], marginLeft: 2 }}>
                       ({sliceValues[i].toFixed(1)})
                     </span>
                   )}
@@ -364,7 +350,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
             y={12}
             textAnchor="end"
             fontSize={8}
-            fill="#9ca3af"
+            fill={colors.neutral[400]}
             fontStyle="italic"
           >
             demo

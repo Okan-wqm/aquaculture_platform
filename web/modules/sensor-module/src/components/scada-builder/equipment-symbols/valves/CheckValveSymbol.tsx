@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -26,12 +27,22 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
       <g transform={`rotate(${rotation || 0} 50 40)`}>
         {/* Pipe stubs */}
         <line
-          x1={0} y1={40} x2={25} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={0}
+          y1={40}
+          x2={25}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
         <line
-          x1={75} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          x1={75}
+          y1={40}
+          x2={100}
+          y2={40}
+          stroke={chartChrome.axis}
+          strokeWidth={3}
+          strokeLinecap="round"
         />
 
         {/* Flow direction triangle — pointing right */}
@@ -48,22 +59,29 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
         {isOpen ? (
           // Flap swung open — angled line (hinged at top)
           <line
-            x1={55} y1={20} x2={68} y2={35}
-            stroke={colors.stroke} strokeWidth={2.5} strokeLinecap="round"
+            x1={55}
+            y1={20}
+            x2={68}
+            y2={35}
+            stroke={colors.stroke}
+            strokeWidth={2.5}
+            strokeLinecap="round"
           />
         ) : (
           // Flap closed — vertical barrier blocking flow
           <line
-            x1={55} y1={20} x2={55} y2={60}
-            stroke={colors.stroke} strokeWidth={3} strokeLinecap="round"
+            x1={55}
+            y1={20}
+            x2={55}
+            y2={60}
+            stroke={colors.stroke}
+            strokeWidth={3}
+            strokeLinecap="round"
           />
         )}
 
         {/* Hinge point at top of barrier */}
-        <circle
-          cx={55} cy={20} r={2}
-          fill={colors.stroke} fillOpacity={0.7}
-        />
+        <circle cx={55} cy={20} r={2} fill={colors.stroke} fillOpacity={0.7} />
 
         {/* Flow direction arrow (small) — inside triangle area */}
         <path
@@ -77,8 +95,10 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
           <marker
             id="checkArrow"
             viewBox="0 0 6 6"
-            refX={5} refY={3}
-            markerWidth={5} markerHeight={5}
+            refX={5}
+            refY={3}
+            markerWidth={5}
+            markerHeight={5}
             orient="auto-start-reverse"
           >
             <path d="M 0 0 L 6 3 L 0 6 Z" fill={colors.stroke} />
@@ -86,26 +106,27 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
         </defs>
 
         {/* Downstream housing line — extends barrier area */}
+        <line x1={55} y1={20} x2={75} y2={20} stroke={colors.stroke} strokeWidth={1.5} />
+        <line x1={55} y1={60} x2={75} y2={60} stroke={colors.stroke} strokeWidth={1.5} />
         <line
-          x1={55} y1={20} x2={75} y2={20}
-          stroke={colors.stroke} strokeWidth={1.5}
-        />
-        <line
-          x1={55} y1={60} x2={75} y2={60}
-          stroke={colors.stroke} strokeWidth={1.5}
-        />
-        <line
-          x1={75} y1={20} x2={75} y2={60}
-          stroke={colors.stroke} strokeWidth={1.5}
+          x1={75}
+          y1={20}
+          x2={75}
+          y2={60}
+          stroke={colors.stroke}
+          strokeWidth={1.5}
           strokeDasharray={isOpen ? 'none' : '4 2'}
         />
 
         {/* Label */}
         {label && (
           <text
-            x={50} y={75}
-            textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            x={50}
+            y={75}
+            textAnchor="middle"
+            fontSize={9}
+            fill={themeColors.neutral[700]}
+            fontFamily="sans-serif"
           >
             {label}
           </text>

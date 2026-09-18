@@ -14,6 +14,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -35,7 +36,8 @@ const LABEL_POSITION_OPTIONS: { value: LabelPosition; label: string }[] = [
   { value: 'below', label: 'Below' },
 ];
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS =
+  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const min = (config.min ?? 0) as number;
@@ -43,8 +45,8 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   const showLabel = (config.showLabel ?? true) as boolean;
   const showPercentage = (config.showPercentage ?? true) as boolean;
   const barHeight = (config.height ?? 24) as number;
-  const backgroundColor = (config.backgroundColor ?? '#e5e7eb') as string;
-  const fillColor = (config.fillColor ?? '#3b82f6') as string;
+  const backgroundColor = (config.backgroundColor ?? themeColors.neutral[200]) as string;
+  const fillColor = (config.fillColor ?? themeColors.info[500]) as string;
   const zones = (config.zones ?? []) as ColorZone[];
   const borderRadius = (config.borderRadius ?? 4) as number;
   const labelPosition = (config.labelPosition ?? 'inside') as LabelPosition;
@@ -55,13 +57,11 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   /* ---------------------------------------------------------------- */
 
   const addZone = () => {
-    onChange({ zones: [...zones, { min: 0, max: 50, color: '#22c55e' }] });
+    onChange({ zones: [...zones, { min: 0, max: 50, color: themeColors.success[500] }] });
   };
 
   const updateZone = (index: number, field: keyof ColorZone, value: string | number) => {
-    const updated = zones.map((z, i) =>
-      i === index ? { ...z, [field]: value } : z,
-    );
+    const updated = zones.map((z, i) => (i === index ? { ...z, [field]: value } : z));
     onChange({ zones: updated });
   };
 
@@ -158,7 +158,9 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           className={INPUT_CLS}
         >
           {LABEL_POSITION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
       </div>
@@ -243,7 +245,10 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
               />
-              <button onClick={() => removeZone(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
+              <button
+                onClick={() => removeZone(i)}
+                className="text-red-400 hover:text-red-600 text-xs px-1"
+              >
                 X
               </button>
             </div>

@@ -2,7 +2,8 @@ version: 1
 services:
 - name: auth_service
   application: auth-service
-  description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
+  description: Authentication — tenant and user lifecycle, JWT issuance, invitations,
+    password reset
   publish:
   - events.*.AccessTokenInvalidationRequested
   - events.*.InvitationAccepted
@@ -27,6 +28,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.auth.user.validateTenantMembership
   - request.auth.>
   - $JS.API.STREAM.INFO.>
@@ -36,7 +38,8 @@ services:
   - _INBOXAUTH_SERVICE.>
 - name: farm_service
   application: farm-service
-  description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
+  description: Farm domain — batches, feedings, water quality, mortality/cull, ponds,
+    equipment, feed inventory
   publish:
   - events.*.BatchAllocatedToTank
   - events.*.BatchClosed
@@ -140,6 +143,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.farm.createTask
   - request.farm.getTankRegistry
   - request.farm.getBatchOverview
@@ -191,6 +195,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.sensor.>
   - telemetry.>
   - sensor.lookup.by-topic
@@ -202,7 +207,8 @@ services:
   - _INBOXSENSOR_SERVICE.>
 - name: sensor-ingestion
   application: sensor-ingestion
-  description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
+  description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event
+    publish
   publish:
   - events.*.SensorReading
   - telemetry.*.SensorReading
@@ -213,6 +219,7 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   subscribe:
+  - _INBOX.>
   - policy.ingest_backend.>
   - _INBOXSENSOR_INGESTION.>
   - $JS.API.STREAM.INFO.>
@@ -221,7 +228,8 @@ services:
   - $JS.API.CONSUMER.>
 - name: admin_api_service
   application: admin-api-service
-  description: Admin API — tenant lifecycle, erasure aggregation, ingest policy and admin RPC
+  description: Admin API — tenant lifecycle, erasure aggregation, ingest policy and
+    admin RPC
   publish:
   - events.*.ModuleRemovedFromTenant
   - events.*.TenantActivated
@@ -320,6 +328,7 @@ services:
   - request.auth.public.resetPassword
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - events.*.ServiceErrorCaptured
   - events.security.events.>
   - events.*.TenantOnboardingAck
@@ -332,7 +341,8 @@ services:
   - $JS.API.CONSUMER.>
 - name: gateway_service
   application: gateway-api
-  description: Gateway API — public GraphQL edge, ST bridge and scoped cross-service RPC
+  description: Gateway API — public GraphQL edge, ST bridge and scoped cross-service
+    RPC
   publish:
   - st.language.>
   - request.messaging.verifyMembership
@@ -348,6 +358,7 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   subscribe:
+  - _INBOX.>
   - events.>
   - st.language.>
   - _INBOXGATEWAY_SERVICE.>
@@ -375,6 +386,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - commands.notification.sendEmail
   - commands.notification.sendPush
   - $JS.API.STREAM.INFO.>
@@ -404,6 +416,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.ai.chat
   - request.ai.executeAction
   - request.ai.generateEmbeddings
@@ -429,8 +442,6 @@ services:
   - events.*.SubscriptionPastDue
   - events.*.SubscriptionProvisioningFailed
   - events.*.SubscriptionUpdated
-  # Task 8 (SENSOR-HIGH-102): capacity entitlement transitions ride the
-  # billing outbox — every state change publishes this event.
   - events.*.TelemetryCapacityEntitlementChanged
   - events.*.TenantSubscriptionChanged
   - events.*.BillingServiceTenantDataErased
@@ -447,6 +458,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.billing.admin.>
   - request.billing.tenant.>
   - _INBOXBILLINGCFG.>
@@ -476,6 +488,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -483,7 +496,8 @@ services:
   - _INBOXALERT_ENGINE.>
 - name: hr_service
   application: hr-service
-  description: HR domain — employees, leave, attendance, certifications, payroll, scheduling
+  description: HR domain — employees, leave, attendance, certifications, payroll,
+    scheduling
   publish:
   - events.*.CertificationAdded
   - events.*.CertificationExpired
@@ -520,6 +534,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -527,7 +542,8 @@ services:
   - _INBOXHR_SERVICE.>
 - name: messaging_service
   application: messaging-service
-  description: Messaging domain — channels, messages, retention policies, compliance audit
+  description: Messaging domain — channels, messages, retention policies, compliance
+    audit
   publish:
   - events.*.AnnouncementAcknowledged
   - events.*.AnnouncementExpired
@@ -577,6 +593,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - request.messaging.verifyMembership
   - request.messaging.getChannelMembers
   - request.messaging.getMessageBatch
@@ -615,6 +632,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -622,7 +640,8 @@ services:
   - _INBOXHYDROPONICS_SERVICE.>
 - name: observability_service
   application: observability-service
-  description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
+  description: Observability — migration audit sink, security events sink, Prometheus/OTEL
+    exporter
   publish:
   - events.platform.schema-migration.>
   - events.security.events.>
@@ -633,6 +652,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - events.platform.schema-migration.>
   - events.security.events.>
   - $JS.API.STREAM.INFO.>
@@ -642,7 +662,8 @@ services:
   - _INBOXOBSERVABILITY_SERVICE.>
 - name: config_service
   application: config-service
-  description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher); config-runtime read responder
+  description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof
+    publisher); config-runtime read responder
   publish:
   - events.*.ConfigServiceTenantDataErased
   - events.*.ConfigServiceTenantDataErasureFailed
@@ -659,6 +680,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - config.runtime.get
   - config.runtime.get_secret
   - config.marine_credentials.resolve
@@ -670,7 +692,8 @@ services:
   - _INBOXCONFIG_SERVICE.>
 - name: event_store_service
   application: event-store-service
-  description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
+  description: Event persistence + projections — GDPR tenant-erasure target (proof
+    publisher)
   publish:
   - events.*.EventStoreServiceTenantDataErased
   - events.*.EventStoreServiceTenantDataErasureFailed
@@ -684,6 +707,7 @@ services:
   - _INBOX.>
   - events.*.ServiceErrorCaptured
   subscribe:
+  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -691,12 +715,15 @@ services:
   - _INBOXEVENT_STORE_SERVICE.>
 - name: dlq_replayer
   application: dlq-replayer
-  description: Operator replay tool — republishes dead-lettered TELEMETRY envelopes under their original identity (domain-root replays are refused; a separate admin flow owns those)
+  description: Operator replay tool — republishes dead-lettered TELEMETRY envelopes
+    under their original identity (domain-root replays are refused; a separate admin
+    flow owns those)
   publish:
   - telemetry.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
   subscribe:
+  - _INBOX.>
   - dlq.>
   - $JS.API.CONSUMER.>
   - _INBOXDLQ_REPLAYER.>

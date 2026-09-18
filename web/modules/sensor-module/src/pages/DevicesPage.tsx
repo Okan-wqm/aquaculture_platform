@@ -7,7 +7,7 @@
  * - VFD devices (Danfoss, ABB, Siemens, etc.)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Cpu,
@@ -40,7 +40,7 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, useClickOutside } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -424,6 +424,8 @@ const DevicesPage: React.FC = () => {
   const [isVfdWizardOpen, setIsVfdWizardOpen] = useState(false);
   const [isEdgeWizardOpen, setIsEdgeWizardOpen] = useState(false);
   const [showDeviceTypeSelector, setShowDeviceTypeSelector] = useState(false);
+  const deviceTypeSelectorRef = useRef<HTMLDivElement>(null);
+  useClickOutside(deviceTypeSelectorRef, () => setShowDeviceTypeSelector(false), showDeviceTypeSelector);
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
 
   // Edge Controllers state
@@ -676,7 +678,7 @@ const DevicesPage: React.FC = () => {
             {loading ? 'Yükleniyor...' : `${onlineCount}/${groupedDevices.length} cihaz çevrimiçi`}
           </p>
         </div>
-        <div className="relative">
+        <div className="relative" ref={deviceTypeSelectorRef}>
           {canManageDevices && (
           <button
             onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
@@ -689,52 +691,46 @@ const DevicesPage: React.FC = () => {
 
           {/* Device Type Selector Dropdown */}
           {showDeviceTypeSelector && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowDeviceTypeSelector(false)}
-              />
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
-                <div className="p-2">
-                  <button
-                    onClick={() => handleAddDevice('edge')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-gray-100 rounded-lg">
-                      <Server className="w-5 h-5 text-gray-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">Edge Controller</p>
-                      <p className="text-xs text-gray-500">Revolution Pi, Industrial PC</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('sensor')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-cyan-100 rounded-lg">
-                      <Activity className="w-5 h-5 text-cyan-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">Sensör</p>
-                      <p className="text-xs text-gray-500">Sıcaklık, pH, oksijen vb.</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('vfd')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-indigo-100 rounded-lg">
-                      <Zap className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">VFD / Frekans Konvertör</p>
-                      <p className="text-xs text-gray-500">Danfoss, ABB, Siemens vb.</p>
-                    </div>
-                  </button>
-                </div>
+            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
+              <div className="p-2">
+                <button
+                  onClick={() => handleAddDevice('edge')}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="p-2 bg-gray-100 rounded-lg">
+                    <Server className="w-5 h-5 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">Edge Controller</p>
+                    <p className="text-xs text-gray-500">Revolution Pi, Industrial PC</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleAddDevice('sensor')}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="p-2 bg-cyan-100 rounded-lg">
+                    <Activity className="w-5 h-5 text-cyan-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">Sensör</p>
+                    <p className="text-xs text-gray-500">Sıcaklık, pH, oksijen vb.</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleAddDevice('vfd')}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="p-2 bg-indigo-100 rounded-lg">
+                    <Zap className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">VFD / Frekans Konvertör</p>
+                    <p className="text-xs text-gray-500">Danfoss, ABB, Siemens vb.</p>
+                  </div>
+                </button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

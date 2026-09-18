@@ -4,8 +4,8 @@
  * Shows tabs per screen, add screen dropdown, right-click context menu.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import React, { useState, useRef, useCallback } from 'react';
+import { useConfirm, useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -61,21 +61,14 @@ const ScreenTabBar: React.FC = () => {
 
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (showAddDropdown && addBtnRef.current && !addBtnRef.current.parentElement?.contains(e.target as Node)) {
-        setShowAddDropdown(false);
-      }
-      if (contextMenu && contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showAddDropdown, contextMenu]);
+  // Close the add-screen menu and the context menu on outside click. The
+  // add menu is fixed-positioned but rendered inside its button group, so
+  // DOM containment (not geometry) decides what counts as "inside".
+  useClickOutside(addMenuRef, () => setShowAddDropdown(false), showAddDropdown);
+  useClickOutside(contextMenuRef, () => setContextMenu(null), contextMenu !== null);
 
   const handleAddScreen = useCallback((type: ScreenType) => {
     const label = SCREEN_TYPE_OPTIONS.find((o) => o.type === type)?.label || type;
@@ -217,7 +210,7 @@ const ScreenTabBar: React.FC = () => {
       })}
 
       {/* Add / Remove Screen Buttons */}
-      <div className="relative flex items-center gap-0.5">
+      <div className="relative flex items-center gap-0.5" ref={addMenuRef}>
         <button
           ref={addBtnRef}
           onClick={() => {
@@ -248,77 +241,65 @@ const ScreenTabBar: React.FC = () => {
         </button>
 
         {showAddDropdown && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowAddDropdown(false)}
-            />
-            <div
-              className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
-              style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
-            >
-              {SCREEN_TYPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.type}
-                  onClick={() => handleAddScreen(opt.type)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  {opt.icon}
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </>
+          <div
+            className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+            style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
+          >
+            {SCREEN_TYPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.type}
+                onClick={() => handleAddScreen(opt.type)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                {opt.icon}
+                {opt.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
       {/* Context Menu */}
       {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setContextMenu(null)}
-          />
-          <div
-            ref={contextMenuRef}
-            className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => {
+              const screen = screens.find((s) => s.id === contextMenu.screenId);
+              if (screen) handleRenameStart(screen);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
-            <button
-              onClick={() => {
-                const screen = screens.find((s) => s.id === contextMenu.screenId);
-                if (screen) handleRenameStart(screen);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => handleDuplicate(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Duplicate
-            </button>
-            <button
-              onClick={() => handleSetDefault(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Set as Default
-            </button>
-            <hr className="my-1 border-gray-200" />
-            <button
-              onClick={() => void handleDelete(contextMenu.screenId)}
-              disabled={isLastScreen}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
-                isLastScreen
-                  ? 'text-gray-500 cursor-not-allowed'
-                  : 'text-red-600 hover:bg-red-50'
-              }`}
-            >
-              Delete
-            </button>
-          </div>
-        </>
+            Rename
+          </button>
+          <button
+            onClick={() => handleDuplicate(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={() => handleSetDefault(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Set as Default
+          </button>
+          <hr className="my-1 border-gray-200" />
+          <button
+            onClick={() => void handleDelete(contextMenu.screenId)}
+            disabled={isLastScreen}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
+              isLastScreen
+                ? 'text-gray-500 cursor-not-allowed'
+                : 'text-red-600 hover:bg-red-50'
+            }`}
+          >
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );

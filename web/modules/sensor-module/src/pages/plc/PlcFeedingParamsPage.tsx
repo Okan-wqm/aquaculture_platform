@@ -10,7 +10,8 @@
  * - View history for a connection
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -449,6 +450,8 @@ const PlcFeedingParamsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingParam, setEditingParam] = useState<FeedingParameter | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(openMenuRef, () => setMenuOpenId(null), menuOpenId !== null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [cloneDialogId, setCloneDialogId] = useState<string | null>(null);
   const [cloneName, setCloneName] = useState('');
@@ -633,7 +636,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                       {formatDate(param.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="relative">
+                      <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
                         <button
                           onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -802,11 +805,6 @@ const PlcFeedingParamsPage: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Click-away handler */}
-      {menuOpenId && (
-        <div className="fixed inset-0 z-0" onClick={() => setMenuOpenId(null)} />
       )}
     </div>
   );

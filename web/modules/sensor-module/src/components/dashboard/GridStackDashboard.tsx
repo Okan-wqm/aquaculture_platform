@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, useClickOutside } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -248,6 +248,10 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showProcessDropdown, setShowProcessDropdown] = useState(false);
+  const layoutDropdownRef = useRef<HTMLDivElement>(null);
+  const processDropdownRef = useRef<HTMLDivElement>(null);
+  useClickOutside(layoutDropdownRef, () => setShowLayoutDropdown(false), showLayoutDropdown);
+  useClickOutside(processDropdownRef, () => setShowProcessDropdown(false), showProcessDropdown);
 
   // Process background state
   const [processBackground, setProcessBackground] = useState<ProcessBackground>({
@@ -541,7 +545,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
         <div className="flex items-center gap-3">
           {/* Layout Selector */}
-          <div className="relative">
+          <div className="relative" ref={layoutDropdownRef}>
             <button
               onClick={() => setShowLayoutDropdown(!showLayoutDropdown)}
               className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
@@ -645,7 +649,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           </span>
 
           {/* Process Background Selector */}
-          <div className="relative">
+          <div className="relative" ref={processDropdownRef}>
             <button
               onClick={() => setShowProcessDropdown(!showProcessDropdown)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
@@ -812,17 +816,6 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           )}
         </div>
       </div>
-
-      {/* Click outside to close dropdowns */}
-      {(showLayoutDropdown || showProcessDropdown) && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => {
-            setShowLayoutDropdown(false);
-            setShowProcessDropdown(false);
-          }}
-        />
-      )}
 
       {/* Grid Container */}
       <div className="flex-1 overflow-hidden relative bg-gray-50">

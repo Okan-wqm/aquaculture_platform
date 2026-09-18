@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import {
   LayoutDashboard,
   Workflow,
@@ -265,16 +266,7 @@ export const SceneTreePanel: React.FC = () => {
   }, []);
 
   // Close context menu on outside click
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [contextMenu]);
+  useClickOutside(contextMenuRef, () => setContextMenu(null), contextMenu !== null);
 
   const handleAddChildScreen = useCallback(
     (parentId: string) => {
@@ -510,55 +502,49 @@ export const SceneTreePanel: React.FC = () => {
 
       {/* Context Menu */}
       {contextMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setContextMenu(null)}
-          />
-          <div
-            ref={contextMenuRef}
-            className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => handleAddChildScreen(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
           >
-            <button
-              onClick={() => handleAddChildScreen(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Add Child Screen
-            </button>
-            <button
-              onClick={() => handleRenameStart(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => handleDuplicate(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              Duplicate
-            </button>
-            <button
-              onClick={() => handleExportScreen(contextMenu.screenId)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              <Download className="w-3 h-3" />
-              Export Screen
-            </button>
-            <hr className="my-1 border-gray-200" />
-            <button
-              onClick={() => handleDelete(contextMenu.screenId)}
-              disabled={isLastScreen}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
-                isLastScreen
-                  ? 'text-gray-500 cursor-not-allowed'
-                  : 'text-red-600 hover:bg-red-50'
-              }`}
-            >
-              Delete
-            </button>
-          </div>
-        </>
+            Add Child Screen
+          </button>
+          <button
+            onClick={() => handleRenameStart(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => handleDuplicate(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={() => handleExportScreen(contextMenu.screenId)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+          >
+            <Download className="w-3 h-3" />
+            Export Screen
+          </button>
+          <hr className="my-1 border-gray-200" />
+          <button
+            onClick={() => handleDelete(contextMenu.screenId)}
+            disabled={isLastScreen}
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
+              isLastScreen
+                ? 'text-gray-500 cursor-not-allowed'
+                : 'text-red-600 hover:bg-red-50'
+            }`}
+          >
+            Delete
+          </button>
+        </div>
       )}
     </div>
   );

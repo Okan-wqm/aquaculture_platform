@@ -24,7 +24,7 @@
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 44
+  ceiling: 39
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -122,12 +122,6 @@ overlays:
       expiry: 2027-03-31
       findingId: FE-HIGH-065
       reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/components/scada-builder/EdgeToolbar.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: builder toolbar menu backdrop; re-evaluate as popover
     - site: web/modules/sensor-module/src/components/scada-builder/FuxaWidgetBrowser.tsx
       batch: dialog
       owner: okan
@@ -140,18 +134,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: PID faceplate over the builder canvas; re-evaluate as Drawer
-    - site: web/modules/sensor-module/src/components/scada-builder/SceneTreePanel.tsx
-      batch: drawer
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: side panel hand-rolled before shared-ui had a Drawer; move to Drawer (right/left) with the shared dialog behaviour
-    - site: web/modules/sensor-module/src/components/scada-builder/ScreenTabBar.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: context-menu backdrop for screen tabs; re-evaluate as popover
     - site: web/modules/sensor-module/src/components/scada-operator/AlarmSummaryBar.tsx
       batch: runtime
       owner: okan
@@ -164,12 +146,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: kiosk full-screen runtime surface for the operator console, not a dialog
-    - site: web/modules/sensor-module/src/components/scada-operator/OperatorHeader.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: operator console menu backdrop over the runtime canvas; re-evaluate as popover
     - site: web/modules/sensor-module/src/components/scada-operator/ViewOverlayManager.tsx
       batch: runtime
       owner: okan
@@ -255,12 +231,6 @@ overlays:
       findingId: FE-HIGH-065
       reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
     - site: web/modules/sensor-module/src/pages/plc/PlcFeedingParamsPage.tsx
-      batch: dialog
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
-    - site: web/modules/sensor-module/src/pages/scada/ScadaBuilderToolbar.tsx
       batch: dialog
       owner: okan
       expiry: 2027-03-31

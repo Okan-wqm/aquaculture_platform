@@ -9,7 +9,8 @@
  * - Filter by status, search
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -754,6 +755,8 @@ const PlcConnectionsPage: React.FC = () => {
   const [editingConnection, setEditingConnection] = useState<PlcConnection | null>(null);
   const [testResult, setTestResult] = useState<{ result: PlcConnectionTestResult; name: string } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(openMenuRef, () => setMenuOpenId(null), menuOpenId !== null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const effectiveFilter: PlcConnectionFilter = {
@@ -930,7 +933,7 @@ const PlcConnectionsPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="relative">
+                      <div className="relative" ref={menuOpenId === conn.id ? openMenuRef : undefined}>
                         <button
                           onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -1059,11 +1062,6 @@ const PlcConnectionsPage: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Click-away handler for menus */}
-      {menuOpenId && (
-        <div className="fixed inset-0 z-0" onClick={() => setMenuOpenId(null)} />
       )}
     </div>
   );

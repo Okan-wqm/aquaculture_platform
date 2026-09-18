@@ -43,7 +43,8 @@ export interface PaginationConfig {
 }
 
 export interface DataTableProps<T> {
-  data: T[];
+  /** Rows to render. Accepts readonly arrays: the table never mutates them. */
+  data: readonly T[];
   columns: TableColumn<T>[];
   keyExtractor: (row: T) => string;
 
@@ -574,9 +575,21 @@ export function DataTable<T>({
 
   const cellClasses = compact ? 'px-3 py-2 text-sm' : 'px-4 py-3 text-sm';
 
+  // WHY conditional: a page that keeps its own filters above the table would
+  // otherwise get an empty bordered strip where the toolbar would be.
+  const hasToolbar =
+    searchable ||
+    filterable ||
+    exportable ||
+    columnVisibilityToggle ||
+    Boolean(headerActions) ||
+    Boolean(onRefresh) ||
+    (selectable && selectedRows.length > 0 && bulkActions.length > 0);
+
   return (
     <div className={`bg-white rounded-lg shadow ${className}`}>
-      {/* Header */}
+      {/* Header — only when there is something to put in it */}
+      {hasToolbar && (
       <div className="px-4 py-3 border-b border-gray-200">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           {/* Search */}
@@ -788,6 +801,7 @@ export function DataTable<T>({
           </div>
         )}
       </div>
+      )}
 
       {/* Table Container */}
       <div className={`overflow-x-auto ${maxHeight ? 'overflow-y-auto' : ''}`} style={{ maxHeight }}>

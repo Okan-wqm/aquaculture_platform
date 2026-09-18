@@ -88,6 +88,50 @@ rawHex:
       expiry: 2027-03-31
       findingId: FE-HIGH-066
       reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
+rawTable:
+  entries:
+    - package: web/modules/admin-panel
+      ceiling: 3
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 59
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 8
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 10
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 37
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 9
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/shell
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
 inlineStyle:
   entries:
     - package: web/modules/sensor-module

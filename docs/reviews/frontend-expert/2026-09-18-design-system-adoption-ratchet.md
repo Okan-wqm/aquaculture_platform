@@ -171,6 +171,34 @@ shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
 sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
+#### FE-HIGH-069 — Hand-rolled `<table>` re-implements DataTable
+
+152 `<table>` elements across the web tree (farm 59, sensor 37, admin-panel 28,
+hydroponics 10, tenant-admin 9, hr 8 — plus hr's private `DataTable` copy with
+a narrower API behind seven pages — shell 1). shared-ui's `DataTable` owns
+header semantics, sorting, selection, pagination, empty and loading states and
+export; the super-admin panel used it on zero pages.
+
+**Root cause:** the panel's pages predate `DataTable`; nothing detected a new
+raw table, and `DataTable` rendered an empty toolbar strip when a page kept its
+own filters above it, which made it look wrong to adopt.
+
+**Fix (this cycle):** the ratchet gains a per-package `rawTable` ceiling (same
+shape as raw hex). `DataTable` renders its toolbar only when it has content
+and accepts readonly row arrays. Batch 11: 25 of the super-admin panel's 28
+tables render through `DataTable` (28 → 3) — invoices, payments, custom plans
+(its pagination replaces a private one), discount codes, subscriptions,
+feature toggles, the activity log (its private expand-row state becomes
+`expandable`/`renderExpandedRow`), report previews, job queues, audit trail
+and retention policies, compliance requests, threat intelligence, service
+health, messaging tenants/retention/audit/compliance, database schemas,
+migrations, storage and slow queries, and AI personas (whose `Scope` header
+had no cell behind it). The three that remain are the database explorer and
+query-editor result grids (dynamic, sortable-by-server columns with key and
+sensitivity markers in their headers — they need `DataTable` header slots)
+and a static actuation-policy reference. **Owner:** okan ·
+**Expiry:** 2027-06-30.
+
 ## Enforcement
 
 `tests/invariants/web-design-system-ratchet.spec.ts` (layer-1 shard) +
@@ -182,6 +210,8 @@ sensor-module's ceiling until the symbol layer draws with SVG attributes.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
+- Raw `<table>` → `DataTable`: 127 remain after batch 11 (admin-panel 3,
+  then hr's private copy, tenant-admin, hydroponics, sensor, farm).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

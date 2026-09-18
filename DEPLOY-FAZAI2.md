@@ -69,3 +69,21 @@ docker restart aqua-nats
 - Eski client'lar (web) persona listesinde 13 girişi gösterir ama eski AI_PERSONA_NAMES ile
   ad çözümlemesi yapabilir → zararsız (ad düşerse ham id görünür)
 - Faz 5 okuyucusu yokken routineAiEnabled=false — davranış değişikliği yok
+
+
+## 6. Deploy günlüğü (2026-09-18 gerçekleşen)
+
+- db-migrate imajında SQL asset EKSİKTİ: Dockerfile.backend.simple yalnız dist kopyalar; nx build sql taşımıyor →
+  `cp -r apps/db-migrate/src/sql dist/apps/db-migrate/apps/db-migrate/src/sql` + rebuild ŞART.
+- TimescaleDB: canlı tenant'ta bilinçli 24h refresh policy + zincirde 3 politika var → add_continuous_aggregate_policy
+  'refresh interval overlaps' ve 'multiple refresh policies hierarchical' atar. tenant-sensor-continuous-aggregate-authority.ts'ye
+  tolerans eklendi (çakışma = zaten hizalı say, canlı konfig kazanır).
+- CORS_ORIGINS: checkout droplet.yml'de auth/farm/messaging/ai env bloklarında YOKTU → 4 servise eklendi (yedek /tmp/droplet.yml.pre-fazai2.bak).
+- Canlı DB main soyunun KISMİ deploy'uyla şekillenmiş: farm.sites.timezone nullable (UTC backfill + SET NOT NULL yapıldı —
+  main entity'si nullable ister, kanonik deploy'da geri alınabilir), 3 boş yetim tablo DROPLANDI (feeding_job_runs,
+  feeding_record_attribution_quarantine, tenant_localization — MAIN SOYU BUNLARI KULLANIYOR: kanonik deploy ÖNCESİ
+  main migration'larından yeniden yaratılmalı!), admin.impersonation_sessions/permissions elle yaratıldı + admin_service GRANT.
+- admin-api kanonik-öncesi AÇIK: fazai-2 imajı 18 eksik tablo (plan_definitions...) nedeniyle açılmıyor; main-lineage imaj
+  (e0ed5043) yeni nesil inbox şeması istiyor (nats.conf'a '_INBOXAQUACULTURE..' GEÇERSİZ subject — doğru desen main'in
+  services.yaml'sında ara). Konteyner durduruldu; entegre dal deploy'unda çözülür.
+- Sağlıklı (fazai-2): ai (Persona catalogue 13+narrator boot OK), messaging, auth, gateway, farm, NATS (40 farm-ai subject), db-migrate.

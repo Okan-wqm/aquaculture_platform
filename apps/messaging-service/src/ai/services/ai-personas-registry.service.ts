@@ -1,15 +1,29 @@
 /**
  * @module AiPersonasRegistryService
  * @description Registry of available AI personas for the messaging system.
- * Maintains a static list of default personas sourced from the ai-service
- * persona definitions, and provides tenant-scoped access control.
  *
- * Future: persona availability will be configurable per tenant via the admin API.
- * Custom personas backed by external MCP servers will be registerable here.
+ * FARM-AI (Sprint 2.3 registry slice): the listing is now SOURCED from the
+ * frozen cross-stack persona catalogue in @aquaculture/shared-contracts —
+ * the same SSoT the ai-service composes personas from and the channel
+ * validator validates against. The hand-written DEFAULT_PERSONAS list (4
+ * legacy ids) and the unused prompt/details lookups are gone: the display
+ * shape (id/name/description/icon/color/capabilities) is unchanged so the
+ * GraphQL schema, the admin panel page and aquamobil keep working — they
+ * simply see the full 13-entry catalogue + the id:null tenant-default entry.
+ *
+ * NOTE (server-side permission filter): this listing is NOT yet filtered by
+ * the caller's capabilities — that lands with the persona-picker UI work
+ * (PR-6), which threads @CurrentUser caps through the resolver. Chat-time
+ * enforcement already exists ai-service-side (tier capability ALL-OF the
+ * persona's requiredCapabilities + the service→persona grant map).
  *
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import {
+  AI_GENERAL_ASSISTANT_PICKER_ENTRY,
+  AI_PERSONA_CATALOGUE,
+} from '@aquaculture/shared-contracts';
 
 /**
  * Describes an AI persona available for chat channels.
@@ -29,139 +43,38 @@ export interface AiPersonaDefinition {
   capabilities: string[];
 }
 
-/**
- * Default personas sourced from ai-service persona definitions.
- * Ordered by increasing capability / access level.
- */
-const DEFAULT_PERSONAS: ReadonlyArray<AiPersonaDefinition> = [
+/** The frozen catalogue projected onto the wire shape, plus the null default entry. */
+const LISTED_PERSONAS: ReadonlyArray<AiPersonaDefinition> = Object.freeze([
   {
-    id: null,
-    name: 'General AI Assistant',
-    description: 'Ask anything about your aquaculture operations',
-    icon: 'bot',
-    color: 'purple',
-    capabilities: ['General questions', 'Basic guidance', 'Platform help'],
+    id: AI_GENERAL_ASSISTANT_PICKER_ENTRY.id,
+    name: AI_GENERAL_ASSISTANT_PICKER_ENTRY.name,
+    description: AI_GENERAL_ASSISTANT_PICKER_ENTRY.description,
+    icon: AI_GENERAL_ASSISTANT_PICKER_ENTRY.icon,
+    color: AI_GENERAL_ASSISTANT_PICKER_ENTRY.color,
+    capabilities: [...AI_GENERAL_ASSISTANT_PICKER_ENTRY.capabilities],
   },
-  {
-    id: 'operator-v1',
-    name: 'Water Quality Specialist',
-    description: 'Water chemistry, sensors, calibration, safe ranges',
-    icon: 'droplets',
-    color: 'cyan',
-    capabilities: [
-      'Water quality parameters',
-      'Sensor readings',
-      'Ammonia/H2S/CO2 toxicity',
-      'Carbonate chemistry',
-    ],
-  },
-  {
-    id: 'expert-v1',
-    name: 'Farm Expert',
-    description: 'Tanks, batches, feeding, growth analytics, dosing',
-    icon: 'fish',
-    color: 'blue',
-    capabilities: [
-      'Growth analytics',
-      'Feed optimization',
-      'Reagent dosing',
-      'Risk assessment',
-      'Actuation (with confirmation)',
-    ],
-  },
-  {
-    id: 'manager-v1',
-    name: 'Management Assistant',
-    description: 'Analytics, reporting, risk assessment, data-driven insights',
-    icon: 'bar-chart',
-    color: 'green',
-    capabilities: [
-      'Report generation',
-      'Biomass/SGR/FCR analytics',
-      'Trend analysis',
-      'Feed management',
-      'Alert analysis',
-    ],
-  },
-  {
-    id: 'supervisor-v1',
-    name: 'SCADA AI',
-    description: 'Automation, PLC control, autonomous monitoring (requires confirmation)',
-    icon: 'cpu',
-    color: 'orange',
-    capabilities: [
-      'Autonomous monitoring',
-      'Equipment actuation',
-      'PLC control',
-      'Safety limit enforcement',
-      'Escalation management',
-    ],
-  },
-];
+  ...AI_PERSONA_CATALOGUE.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    description: entry.description,
+    icon: entry.icon,
+    color: entry.color,
+    capabilities: [...entry.capabilities],
+  })),
+]);
 
 @Injectable()
 export class AiPersonasRegistryService {
-  private readonly logger = new Logger(AiPersonasRegistryService.name);
-
   /**
-   * Get all AI personas available for a given tenant.
-   * Currently returns the default set. Future: filter by tenant configuration.
+   * Get all AI personas available for a given tenant: the id:null
+   * "tenant default" entry first, then the frozen 13-entry catalogue.
    *
-   * @param _tenantId - Tenant identifier (reserved for future per-tenant config)
-   * @returns Array of available persona definitions
+   * @param _tenantId - Tenant identifier (reserved: per-tenant availability
+   *                    rides the PR-6 server-side permission filter)
    */
   getAvailablePersonas(_tenantId: string): AiPersonaDefinition[] {
-    return [...DEFAULT_PERSONAS];
-  }
-
-  /**
-   * Get detailed information for a specific persona.
-   *
-   * @param personaId - Persona ID (null for general assistant)
-   * @returns Persona definition or null if not found
-   */
-  getPersonaDetails(personaId: string | null): AiPersonaDefinition | null {
-    return DEFAULT_PERSONAS.find((p) => p.id === personaId) ?? null;
-  }
-
-  /**
-   * Check whether a persona is enabled for a given tenant.
-   * Currently all default personas are enabled for all tenants.
-   * Future: configurable via admin API per-tenant settings.
-   *
-   * @param _tenantId - Tenant identifier
-   * @param personaId - Persona ID to check
-   * @returns true if the persona is enabled for this tenant
-   */
-  isPersonaEnabled(_tenantId: string, personaId: string | null): boolean {
-    const exists = DEFAULT_PERSONAS.some((p) => p.id === personaId);
-    if (!exists) {
-      this.logger.debug(`Persona "${personaId}" not found in registry`);
-    }
-    return exists;
-  }
-
-  /**
-   * Get the system prompt for a persona by its name or ID.
-   * Returns a description-based prompt suitable for instruction hierarchy wrapping.
-   *
-   * @param personaNameOrId - Persona display name or persona ID
-   * @returns System prompt string
-   */
-  getPersonaSystemPrompt(personaNameOrId: string): string {
-    const persona = DEFAULT_PERSONAS.find(
-      (p) => p.id === personaNameOrId || p.name === personaNameOrId,
-    );
-
-    if (!persona) {
-      return `You are an aquaculture AI assistant. Help users with their aquaculture operations. Provide accurate, safe, and helpful information.`;
-    }
-
-    const capabilitiesList = persona.capabilities.join(', ');
-    return (
-      `You are ${persona.name}. ${persona.description}. ` +
-      `Your capabilities include: ${capabilitiesList}. ` +
-      `Provide accurate, safe, and helpful information within your area of expertise.`
-    );
+    // Deep-enough copy: the capabilities ARRAY must not be a shared reference,
+    // or one caller's sort/mutate leaks into every later listing.
+    return LISTED_PERSONAS.map((persona) => ({ ...persona, capabilities: [...persona.capabilities] }));
   }
 }

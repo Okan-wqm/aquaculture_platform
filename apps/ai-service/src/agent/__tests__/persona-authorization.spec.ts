@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   AgentProfileService,
   PersonaNotPermittedError,
+  UnknownPersonaError,
 } from '../agent-profile.service';
 import { AgentPersonaCatalogueService } from '../agent-persona-catalogue.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
@@ -19,6 +20,81 @@ import { ToolRegistryService } from '../../tools/tool-registry.service';
  * to Faz 7 RBAC — enforcing it here with no admin write surface would brick
  * manager/expert/supervisor for everyone.)
  */
+describe('farm-specialist capability matrix (FARM-AI PR-2 + PR-1)', () => {
+  const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  const build = async (): Promise<AgentProfileService> => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AgentProfileService,
+        AgentPersonaCatalogueService,
+        {
+          provide: AgentConfigService,
+          useValue: {
+            getConfig: jest.fn().mockResolvedValue({
+              baseProfileId: 'operator-v1',
+              additionalToolNames: [],
+              blockedToolNames: [],
+              actuationPolicy: 'confirm_required',
+              customSystemPrompt: null,
+              chatModel: null,
+              provider: 'anthropic',
+            }),
+          },
+        },
+        {
+          provide: ToolRegistryService,
+          useValue: { hasTool: jest.fn().mockReturnValue(true) },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+      ],
+    }).compile();
+    return moduleRef.get(AgentProfileService);
+  };
+
+  const caller = (roles: string[], resourcePermissions: string[]) => ({
+    roles,
+    resourcePermissions,
+  });
+
+  it('tier grant ALONE cannot reach a farm specialist (ai_specialties:farm is all-of)', async () => {
+    const service = await build();
+    await expect(
+      service.resolveProfile(tenantId, 'expert-farm-production-v1', caller(
+        ['MODULE_USER'],
+        ['ai_personas:operator', 'ai_personas:manager', 'ai_personas:expert'],
+      )),
+    ).rejects.toBeInstanceOf(PersonaNotPermittedError);
+  });
+
+  it('tier grant + ai_specialties:farm reaches the farm specialist', async () => {
+    const service = await build();
+    await expect(
+      service.resolveProfile(tenantId, 'expert-farm-production-v1', caller(
+        ['MODULE_USER'],
+        ['ai_personas:expert', 'ai_specialties:farm'],
+      )),
+    ).resolves.toMatchObject({ persona: { id: 'expert-farm-production-v1' } });
+  });
+
+  it('the specialty grant ALONE cannot reach a farm specialist (tier still required)', async () => {
+    const service = await build();
+    await expect(
+      service.resolveProfile(tenantId, 'expert-farm-production-v1', caller(
+        ['MODULE_USER'],
+        ['ai_specialties:farm'],
+      )),
+    ).rejects.toBeInstanceOf(PersonaNotPermittedError);
+  });
+
+  it('TENANT_ADMIN bypasses the capability matrix', async () => {
+    const service = await build();
+    await expect(
+      service.resolveProfile(tenantId, 'expert-farm-water-health-v1', caller(['TENANT_ADMIN'], [])),
+    ).resolves.toMatchObject({ persona: { id: 'expert-farm-water-health-v1' } });
+  });
+});
+
 describe('AgentProfileService persona authorization (AISAFETY-MEDIUM-013)', () => {
   const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 

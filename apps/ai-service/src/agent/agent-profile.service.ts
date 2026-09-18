@@ -247,19 +247,35 @@ export class AgentProfileService {
   }
 
   /**
-   * AISAFETY-MEDIUM-013 / Faz 7c: fail-closed persona authorization against the
-   * caller's tenant-RBAC capability `ai_personas:<tier>`. A user cannot drive a
-   * persona tier they were not granted. Admins bypass (via the shared SSoT
-   * check). Throws PersonaNotPermittedError otherwise.
+   * AISAFETY-MEDIUM-013 / Faz 7c + FARM-AI PR-2: fail-closed persona
+   * authorization against the persona's FULL required-capability set. Composed
+   * personas carry requiredCapabilities from the shared catalogue — the tier
+   * grant (`ai_personas:<tier>`) AND, for farm specialists, the specialty
+   * grant (`ai_specialties:farm`, itself all-of modules ai+farm). Checking
+   * only the tier let a caller with the right tier reach a farm specialist
+   * without the farm entitlement; every capability is now required (all-of).
+   * Non-composed user-tier personas fall back to the tier capability. Admins
+   * bypass (via the shared SSoT check). Throws PersonaNotPermittedError.
    */
   private assertPersonaPermitted(
     persona: AgentPersona,
     caller: ResourcePermissionUser,
   ): void {
+    const required =
+      'requiredCapabilities' in persona && Array.isArray(persona.requiredCapabilities)
+        ? (persona.requiredCapabilities as readonly string[])
+        : null;
     const tier = this.personaTier(persona);
-    if (tier === null || !hasResourcePermission(caller, `ai_personas:${tier}`)) {
+    const capabilities =
+      required !== null && required.length > 0 ? required : tier !== null ? [`ai_personas:${tier}`] : [];
+
+    if (
+      capabilities.length === 0 ||
+      capabilities.some((capability) => !hasResourcePermission(caller, capability))
+    ) {
+      const missing = capabilities.filter((c) => !hasResourcePermission(caller, c));
       this.logger.warn(
-        `Persona ${persona.id} (tier ${tier ?? 'unknown'}) not permitted — caller lacks the tier capability`,
+        `Persona ${persona.id} (tier ${tier ?? 'unknown'}) not permitted — caller lacks ${missing.join(', ') || 'any known tier'}`,
       );
       throw new PersonaNotPermittedError(persona.id);
     }

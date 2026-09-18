@@ -49,14 +49,6 @@ const IDLE_EVICTION_MS = 15 * 60 * 1000; // 15 min
 /** Eviction sweep cadence. */
 const EVICTION_SWEEP_MS = 5 * 60 * 1000; // 5 min
 
-/**
- * Max SERVER-mode scripts loaded per package (M8c) — mirrors the
- * save-boundary cap in ScadaPackageService.validateScripts. Pre-cap rows
- * (saved before the boundary existed) are defensively truncated here so a
- * legacy package cannot monopolise the scheduler either.
- */
-const MAX_SERVER_SCRIPTS_PER_PACKAGE = 50;
-
 interface PackageRow {
   package_data: Record<string, unknown> | null;
 }
@@ -176,25 +168,7 @@ export class ScadaActivationService implements OnModuleInit, OnModuleDestroy {
       const docRules = (doc as { alarmRules?: unknown }).alarmRules;
       if (Array.isArray(docRules)) storedRules.push(...(docRules as StoredAlarmRule[]));
       const docScripts = (doc as { scripts?: unknown }).scripts;
-      if (Array.isArray(docScripts)) {
-        // Server-script cap (M8c): bound what a single package can load into
-        // the scheduler — save-boundary rejects new over-cap packages, this
-        // truncates legacy rows that pre-date the boundary.
-        const all = docScripts as ScadaScript[];
-        const serverScripts = all.filter((s) => (s as { mode?: unknown }).mode === 'server');
-        const serverCap = Math.min(serverScripts.length, MAX_SERVER_SCRIPTS_PER_PACKAGE);
-        if (serverScripts.length > MAX_SERVER_SCRIPTS_PER_PACKAGE) {
-          this.logger.warn(
-            `loadAndApply: tenant=${tenantId} package carries ${serverScripts.length} server script(s) ` +
-              `— loading only the first ${MAX_SERVER_SCRIPTS_PER_PACKAGE} (save-boundary now rejects over-cap packages)`,
-          );
-        }
-        const clientScripts = all.filter((s) => (s as { mode?: unknown }).mode !== 'server');
-        scripts.push(
-          ...serverScripts.slice(0, serverCap),
-          ...clientScripts,
-        );
-      }
+      if (Array.isArray(docScripts)) scripts.push(...(docScripts as ScadaScript[]));
     }
 
     const { rules, dropped } = mapPackageAlarmRules(storedRules);

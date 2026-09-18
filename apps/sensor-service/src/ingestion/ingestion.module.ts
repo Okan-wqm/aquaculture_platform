@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AutomationModule } from '../automation/automation.module';
+import { SensorErasureModule } from '../compliance/erasure/erasure.module';
 import { SensorServiceConfigModule } from '../config/sensor-service-config.module';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { ProcessModule } from '../process/process.module';
@@ -14,7 +15,6 @@ import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
 import { VfdModule } from '../vfd/vfd.module';
 
 import { SensorMetricWriterModule } from './sensor-metric-writer.module';
-import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
@@ -36,6 +36,8 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
     ReleaseBundleModule, // Faz 5 — bundle ack transitions in MQTT response handling
     SensorServiceConfigModule, // ADR-022 — exports SensorServiceProfileService
+    // Task 1.8: erased-tenant tombstone for the ingress ACK-drop gate.
+    SensorErasureModule,
     // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
     // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
     ScadaRuntimeModule,
@@ -74,11 +76,6 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
   exports: [
-    // Re-export the MODULE, not the service: SensorMetricWriterService is
-    // provided by SensorMetricWriterModule, and Nest rejects exporting a
-    // provider this module does not itself declare (boot-time
-    // validateExportedProvider failure — crash-looped the live container).
-    SensorMetricWriterModule,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,
@@ -89,5 +86,4 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
 })
- 
 export class IngestionModule {}

@@ -42,6 +42,24 @@ export interface RegistrationResult {
 
 export type SensorListResult = IStandardPaginatedResult<Sensor>;
 
+/**
+ * SENSOR-HIGH-117: derive a parent-side channel key from a child dataPath.
+ *
+ * The MQTT listener extracts payload values by dot-path, while channel keys
+ * are constrained identifiers (varchar(100), unique per sensor). Mapping a
+ * path like "sensors.mid" to "sensors_mid" keeps the key safe for SQL
+ * uniqueness without changing the dataPath the ingestion reads.
+ */
+function sanitizeChannelKey(dataPath: string): string {
+  const base = dataPath
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 100);
+  return base || 'channel';
+}
+
 export interface ParentWithChildrenResult {
   success: boolean;
   parent?: Sensor;
@@ -922,6 +940,65 @@ export class SensorRegistrationService {
         }
         savedChildren.push(savedChild);
         this.logger.log(`Created child sensor: ${savedChild.id} (${childInput.dataPath})`);
+      }
+
+      // SENSOR-HIGH-117: the MQTT listener resolves a message topic to the
+      // PARENT sensor (it owns protocol_configuration.topic) and then reads
+      // sensor_data_channels of that sensor only — child rows and child
+      // channels are invisible to ingestion. Without parent-side channels a
+      // wizard-registered device ingests zero rows, silently. Derive one
+      // parent channel per child (keyed by the child's dataPath, the payload
+      // key the listener extracts) so the registered device is immediately
+      // ingestible. Duplicate sanitized keys throw inside
+      // createChannelsForSensor and roll back the whole create — the wizard
+      // surfaces the conflict instead of shipping a dead device.
+      const parentChannelInputs: CreateChannelInput[] = children
+        .filter((child): child is NonNullable<typeof child> => !!child?.dataPath)
+        .map((child, index) => ({          channelKey: sanitizeChannelKey(child.dataPath),
+          displayLabel: child.name,
+          dataPath: child.dataPath,
+          unit: child.unit,
+          minValue: child.minValue,
+          maxValue: child.maxValue,
+          calibrationEnabled: child.calibrationEnabled ?? false,
+          calibrationMultiplier: child.calibrationMultiplier ?? 1.0,
+          calibrationOffset: child.calibrationOffset ?? 0.0,
+          alertThresholds: child.alertThresholds
+            ? {
+                warning: child.alertThresholds.warning,
+                critical: child.alertThresholds.critical,
+              }
+            : undefined,
+          displaySettings: child.displaySettings
+            ? {
+                color: child.displaySettings.color,
+                widgetType: child.displaySettings.widgetType as ChannelDisplaySettings['widgetType'],
+                showOnDashboard: child.displaySettings.showOnDashboard,
+                precision: child.displaySettings.decimalPlaces,
+              }
+            : { showOnDashboard: true },
+          displayOrder: index,
+        }));
+
+      // Distinct dataPaths can sanitize to the same key ("water.temp" and
+      // "water_temp"); suffix collisions instead of failing the registration.
+      const seenChannelKeys = new Set<string>();
+      for (const input of parentChannelInputs) {
+        if (seenChannelKeys.has(input.channelKey)) {
+          let suffix = 2;
+          while (seenChannelKeys.has(`${input.channelKey}_${suffix}`)) suffix++;
+          input.channelKey = `${input.channelKey}_${suffix}`;
+        }
+        seenChannelKeys.add(input.channelKey);
+      }
+
+      if (parentChannelInputs.length > 0) {
+        await this.channelManagement.createChannelsForSensor(
+          savedParent.id,
+          tenantId,
+          parentChannelInputs,
+          queryRunner.manager,
+        );
       }
 
       // SENSOR-LOW-007: enqueue the started event inside the same transaction

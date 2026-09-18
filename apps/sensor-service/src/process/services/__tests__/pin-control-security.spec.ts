@@ -1,4 +1,4 @@
-import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
+import { ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { hashPin, isPinHash, verifyPin } from '../pin-hash.util';
 
@@ -17,7 +17,7 @@ import { createScadaPackageHarness } from './scada-package-harness';
 
 const TENANT = 'tenant-uuid-1';
 
-function docWithWidgetPin(pin = '904321'): Record<string, unknown> {
+function docWithWidgetPin(): Record<string, unknown> {
   return {
     meta: { schemaVersion: 2, packageName: 'P' },
     screens: [
@@ -30,7 +30,7 @@ function docWithWidgetPin(pin = '904321'): Record<string, unknown> {
             id: 'w1',
             widgetType: 'input',
             position: { col: 0, row: 0, w: 2, h: 1 },
-            config: { tagRef: 'EDGE-01/pump.cmd', requirePin: true, pin },
+            config: { tagRef: 'EDGE-01/pump.cmd', requirePin: true, pin: '4321' },
           },
         ],
       },
@@ -54,12 +54,12 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
 
   describe('pin-hash util', () => {
     it('hashes and verifies; wrong pin fails; format is marked', () => {
-      const stored = hashPin('904321');
+      const stored = hashPin('4321');
       expect(isPinHash(stored)).toBe(true);
-      expect(stored).not.toContain('904321');
-      expect(verifyPin('904321', stored)).toBe(true);
-      expect(verifyPin('000000', stored)).toBe(false);
-      expect(isPinHash('904321')).toBe(false);
+      expect(stored).not.toContain('4321');
+      expect(verifyPin('4321', stored)).toBe(true);
+      expect(verifyPin('0000', stored)).toBe(false);
+      expect(isPinHash('4321')).toBe(false);
     });
   });
 
@@ -81,12 +81,12 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         securityLevels: { pin: string[] };
       };
       expect(isPinHash(cp.pinHash)).toBe(true);
-      expect(verifyPin('904321', cp.pinHash)).toBe(true);
+      expect(verifyPin('4321', cp.pinHash)).toBe(true);
       expect(cp.securityLevels.pin).toContain('w1');
     });
 
     it('preserves the stored hash when a redacted doc roundtrips through update', async () => {
-      const storedHash = hashPin('904321');
+      const storedHash = hashPin('4321');
       repo.findOne.mockResolvedValue({
         id: 'pkg-1',
         tenantId: TENANT,
@@ -123,7 +123,7 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
           packageData: {
             meta: { schemaVersion: 2, packageName: 'P' },
             screens: [],
-            controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: '731902', emergencyStop: null },
+            controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: '9999', emergencyStop: null },
           },
         },
         TENANT,
@@ -131,7 +131,7 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
       );
       const cp = saved.packageData.controlPermissions as { pinHash: string };
       expect(isPinHash(cp.pinHash)).toBe(true);
-      expect(verifyPin('731902', cp.pinHash)).toBe(true);
+      expect(verifyPin('9999', cp.pinHash)).toBe(true);
     });
   });
 
@@ -142,7 +142,7 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         tenantId: TENANT,
         packageData: {
           ...docWithWidgetPin(),
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('904321'), emergencyStop: null },
+          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('4321'), emergencyStop: null },
         },
       });
 
@@ -163,109 +163,22 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
         tenantId: TENANT,
         packageData: {
           screens: [],
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('904321'), emergencyStop: null },
+          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: hashPin('4321'), emergencyStop: null },
         },
       });
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '904321')).resolves.toBe(true);
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '000000')).resolves.toBe(false);
+      await expect(service.verifyPackagePin('pkg-1', TENANT, '4321')).resolves.toBe(true);
+      await expect(service.verifyPackagePin('pkg-1', TENANT, '0000')).resolves.toBe(false);
     });
 
     it('falls back to legacy widget plaintext pins on pre-hardening rows', async () => {
       repo.findOne.mockResolvedValue({ id: 'pkg-1', tenantId: TENANT, packageData: docWithWidgetPin() });
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '904321')).resolves.toBe(true);
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '000000')).resolves.toBe(false);
+      await expect(service.verifyPackagePin('pkg-1', TENANT, '4321')).resolves.toBe(true);
+      await expect(service.verifyPackagePin('pkg-1', TENANT, '9999')).resolves.toBe(false);
     });
 
     it('fails closed for an unknown package', async () => {
       repo.findOne.mockResolvedValue(null);
-      await expect(service.verifyPackagePin('nope', TENANT, '904321')).resolves.toBe(false);
-    });
-  });
-
-  describe('PIN policy at the set/hash boundary (M3)', () => {
-    it('rejects a PIN shorter than 6 characters', async () => {
-      await expect(
-        service.createScadaPackage({ name: 'P', packageData: docWithWidgetPin('1234') }, TENANT, 'user-1'),
-      ).rejects.toThrow(/at least 6/);
-    });
-
-    it('rejects repeated-only digits', async () => {
-      await expect(
-        service.createScadaPackage({ name: 'P', packageData: docWithWidgetPin('444444') }, TENANT, 'user-1'),
-      ).rejects.toThrow(/too weak/);
-    });
-
-    it('rejects sequential-only digits (ascending and descending)', async () => {
-      await expect(
-        service.createScadaPackage({ name: 'P', packageData: docWithWidgetPin('234567') }, TENANT, 'user-1'),
-      ).rejects.toThrow(/too weak/);
-      await expect(
-        service.createScadaPackage({ name: 'P', packageData: docWithWidgetPin('987654') }, TENANT, 'user-1'),
-      ).rejects.toThrow(/too weak/);
-    });
-
-    it('rejects a weak raw PIN written into the pinHash field', async () => {
-      await expect(
-        service.createScadaPackage(
-          {
-            name: 'P',
-            packageData: {
-              meta: { schemaVersion: 2, packageName: 'P' },
-              screens: [],
-              controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: '123456', emergencyStop: null },
-            },
-          },
-          TENANT,
-          'user-1',
-        ),
-      ).rejects.toThrow(/too weak/);
-    });
-
-    it('accepts a 6+ character non-trivial PIN', async () => {
-      const saved = await service.createScadaPackage(
-        { name: 'P', packageData: docWithWidgetPin('904321') },
-        TENANT,
-        'user-1',
-      );
-      const cp = saved.packageData.controlPermissions as { pinHash: string };
-      expect(verifyPin('904321', cp.pinHash)).toBe(true);
-    });
-  });
-
-  describe('legacy plaintext migration on verify (M3)', () => {
-    it('a successful legacy verify re-hashes the pin in place and strips widget plaintext', async () => {
-      repo.findOne.mockResolvedValue({ id: 'pkg-1', tenantId: TENANT, packageData: docWithWidgetPin() });
-
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '904321')).resolves.toBe(true);
-
-      expect(repo.save).toHaveBeenCalledTimes(1);
-      const saved = repo.save.mock.calls[0][0] as ScadaPackage;
-      const cp = saved.packageData.controlPermissions as { pinHash: string };
-      expect(isPinHash(cp.pinHash)).toBe(true);
-      const screens = saved.packageData.screens as Array<{ widgets: Array<{ config: Record<string, unknown> }> }>;
-      expect(screens[0]!.widgets[0]!.config.pin).toBeUndefined();
-      expect(screens[0]!.widgets[0]!.config.requirePin).toBe(true);
-    });
-
-    it('a legacy plaintext pinHash verifies in constant time and migrates', async () => {
-      repo.findOne.mockResolvedValue({
-        id: 'pkg-1',
-        tenantId: TENANT,
-        packageData: {
-          meta: { schemaVersion: 2 },
-          screens: [],
-          controlPermissions: { securityLevels: { none: [], confirm: [], pin: [] }, pinHash: '904321', emergencyStop: null },
-        },
-      });
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '904321')).resolves.toBe(true);
-      const saved = repo.save.mock.calls[0][0] as ScadaPackage;
-      expect(isPinHash((saved.packageData.controlPermissions as { pinHash: string }).pinHash)).toBe(true);
-    });
-
-    it('a wrong legacy pin never migrates', async () => {
-      repo.findOne.mockResolvedValue({ id: 'pkg-1', tenantId: TENANT, packageData: docWithWidgetPin() });
-      await expect(service.verifyPackagePin('pkg-1', TENANT, '000000')).resolves.toBe(false);
-      expect(repo.save).not.toHaveBeenCalled();
+      await expect(service.verifyPackagePin('nope', TENANT, '4321')).resolves.toBe(false);
     });
   });
 

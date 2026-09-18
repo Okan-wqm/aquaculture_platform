@@ -63,11 +63,9 @@ export class ScadaPackage {
   @Column({ type: 'int', name: 'version', default: 1 })
   version!: number;
 
-  // Explicit type fn: design:type reflection cannot infer `string | null`
-  // (bootstrap-time "Undefined type error" otherwise).
-  @Field(() => String, { nullable: true })
+  @Field({ nullable: true })
   @Column({ type: 'uuid', name: 'process_id', nullable: true })
-  processId?: string | null;
+  processId?: string;
 
   @Field(() => GraphQLJSON)
   @Column('jsonb', { name: 'package_data', default: '{}' })

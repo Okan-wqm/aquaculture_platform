@@ -39,9 +39,7 @@
  *   console.log / warn / error         → captured + forwarded via gateway
  */
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { Injectable, Logger } from '@nestjs/common';
 
 import type {
   ScadaScript,
@@ -73,16 +71,6 @@ interface ConsoleEntry {
 }
 
 /* ------------------------------------------------------------------ */
-/*  $sendMessage bridge limits (M8a)                                    */
-/* ------------------------------------------------------------------ */
-
-/** Max $sendMessage calls per tenant per rolling hour. */
-const SEND_MESSAGE_HOURLY_LIMIT = 20;
-
-/** Console entries forwarded to the HMI per script run before silencing (M8b). */
-const CONSOLE_FORWARD_CAP = 10;
-
-/* ------------------------------------------------------------------ */
 /*  Service                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -111,62 +99,7 @@ export class ScriptEngineService {
     private readonly alarmStorage: AlarmStorageService,
     private readonly daqStorage: DaqStorageService,
     private readonly gateway: ScadaRuntimeGateway,
-    /**
-     * Tenant verified-email directory for the $sendMessage recipient
-     * allowlist (M8a). Optional: slim test modules may omit it, in which
-     * case every $sendMessage is REJECTED (fail-closed — an unverifiable
-     * recipient is not an emailable one).
-     */
-    @Optional()
-    @InjectDataSource()
-    private readonly dataSource: DataSource | null,
   ) {}
-
-  /* ---------------------------------------------------------------- */
-  /*  $sendMessage bridge controls (M8a)                               */
-  /* ---------------------------------------------------------------- */
-
-  /** tenantId → rolling-hour send timestamps (in-memory rate limit). */
-  private readonly sendMessageLog = new Map<string, number[]>();
-
-  /** True while the tenant is inside its rolling-hour $sendMessage budget. */
-  private admitSendMessage(tenantId: string): boolean {
-    const now = Date.now();
-    const hourAgo = now - 60 * 60 * 1000;
-    const log = (this.sendMessageLog.get(tenantId) ?? []).filter((ts) => ts > hourAgo);
-    if (log.length >= SEND_MESSAGE_HOURLY_LIMIT) {
-      this.sendMessageLog.set(tenantId, log);
-      return false;
-    }
-    log.push(now);
-    this.sendMessageLog.set(tenantId, log);
-    return true;
-  }
-
-  /**
-   * Recipient allowlist (M8a): the tenant's own VERIFIED user emails, read
-   * from the shared `auth.users` table. A tenant script can only mail the
-   * people already inside the tenant — never arbitrary addresses (the
-   * pre-fix bridge would have relayed to ANY recipient, making the platform
-   * an open spam relay). Returns null when the directory cannot be read —
-   * callers treat that as an empty allowlist (reject).
-   */
-  private async verifiedTenantEmails(tenantId: string): Promise<Set<string> | null> {
-    if (!this.dataSource) return null;
-    try {
-      const rows: Array<{ email: string }> = await this.dataSource.query(
-        `SELECT email FROM auth.users
-         WHERE "tenantId" = $1 AND "isEmailVerified" = true AND "isActive" = true`,
-        [tenantId],
-      );
-      return new Set(rows.map((r) => r.email.toLowerCase()));
-    } catch (error) {
-      this.logger.warn(
-        `verifiedTenantEmails: cannot read the tenant directory for ${tenantId} — ${(error as Error).message}`,
-      );
-      return null;
-    }
-  }
 
   /* ---------------------------------------------------------------- */
   /*  Public API                                                        */
@@ -344,11 +277,6 @@ export class ScriptEngineService {
     const scriptId = script.id;
 
     /* ---- console bridge ------------------------------------------ */
-    // Forward cap (M8b): only the FIRST 10 console entries per run reach the
-    // HMI (toast + console feed) — after that the forwarding silences but the
-    // script keeps running and `testScript` still captures the full log. An
-    // infinite log loop otherwise floods every operator socket in the room.
-    let forwardedConsoleEntries = 0;
     const makeConsoleFn =
       (level: ConsoleEntry['level']) =>
       (...args: unknown[]): void => {
@@ -358,9 +286,6 @@ export class ScriptEngineService {
 
         const entry: ConsoleEntry = { level, message, timestamp: Date.now() };
         capturedLogs.push(entry);
-
-        if (forwardedConsoleEntries >= CONSOLE_FORWARD_CAP) return;
-        forwardedConsoleEntries += 1;
 
         // Forward to gateway SCRIPT_CONSOLE event so the HMI console panel
         // shows output in real time — scoped to the run's tenant room so one
@@ -447,44 +372,12 @@ export class ScriptEngineService {
 
       /* ---- asynchronous system functions (asyncify) -------------- */
       async: {
-        // Notifications — hardened bridge (M8a):
-        //   1. per-tenant hourly rate limit (20/hour, in-memory);
-        //   2. recipient allowlist = the tenant's VERIFIED user emails;
-        //   3. every attempt audit-logged (structured warn) regardless of
-        //      outcome, so a scripted mail campaign is traceable.
-        // Policy rejections THROW into the sandbox (the script — and its
-        // ScriptResult — sees the reason); infrastructure delivery errors
-        // stay logged-and-swallowed like before.
+        // Notifications
         $sendMessage: async (to: unknown, subject: unknown, body: unknown): Promise<void> => {
-          const recipient = String(to);
-          const subjectLine = String(subject);
-
-          this.logger.warn(
-            `AUDIT scada_script_send_message tenant=${tenantId} scriptId=${scriptId} ` +
-              `to=${recipient} subject=${JSON.stringify(subjectLine)}`,
-          );
-
-          if (!this.admitSendMessage(tenantId)) {
-            throw new Error(
-              `$sendMessage rate limit exceeded (${SEND_MESSAGE_HOURLY_LIMIT}/hour per tenant)`,
-            );
-          }
-          const allowlist = await this.verifiedTenantEmails(tenantId);
-          if (!allowlist || allowlist.size === 0) {
-            throw new Error(
-              '$sendMessage recipient allowlist unavailable — recipient cannot be verified for this tenant',
-            );
-          }
-          if (!allowlist.has(recipient.toLowerCase())) {
-            throw new Error(
-              `$sendMessage recipient "${recipient}" is not a verified user of this tenant`,
-            );
-          }
-
           try {
             await this.notificationService.sendDirectEmail(
-              recipient,
-              subjectLine,
+              String(to),
+              String(subject),
               String(body),
             );
           } catch (err) {

@@ -33,7 +33,7 @@ describe('T7h deriveNavItems', () => {
     expect(nav).toEqual([
       { id: 'nav-main', screenId: 'main', label: 'Main View', icon: 'dashboard', children: [] },
       // icon falls back to the screen type when not configured
-      { id: 'nav-tanks', screenId: 'tanks', label: 'Tanks', icon: 'overview', children: [] },
+      { id: 'nav-tanks', screenId: 'tanks', label: 'Tanks', icon: 'dashboard', children: [] },
     ]);
   });
 

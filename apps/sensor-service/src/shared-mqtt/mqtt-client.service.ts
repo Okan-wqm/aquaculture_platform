@@ -1,7 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
+import client from 'prom-client';
+
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
 /**
  * MQTT subscription callback type
@@ -55,7 +59,52 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   /** Per-message settle budget before the ack gate force-reconnects. */
   private static readonly HANDLER_SETTLE_DEADLINE_MS = 10_000;
 
-  constructor(private readonly configService: ConfigService) {}
+  /**
+   * SENSOR-MEDIUM-123: the Grafana MQTT panels historically queried metric
+   * names that were registered nowhere. These counters make the ingestion
+   * pipeline observable: connection state, per-filter subscription health,
+   * and received-message volume.
+   */
+  private readonly mqttRegistry = new client.Registry();
+  private readonly messagesReceived = new client.Counter({
+    name: 'sensor_mqtt_messages_received_total',
+    help: 'MQTT messages received by the sensor-service listener',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsGranted = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_granted',
+    help: 'Topic filters currently broker-acknowledged (denied filters are not counted)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsDenied = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_denied',
+    help: 'Topic filters the broker denied (SUBACK 0x80) on the last subscribe',
+    registers: [this.mqttRegistry],
+  });
+  private readonly connected = new client.Gauge({
+    name: 'sensor_mqtt_connected',
+    help: '1 when the MQTT broker connection is established, 0 otherwise',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesProcessed = new client.Counter({
+    name: 'sensor_mqtt_messages_processed_total',
+    help: 'MQTT messages the listener finished handling (regardless of match outcome)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesFailed = new client.Counter({
+    name: 'sensor_mqtt_messages_failed_total',
+    help: 'MQTT message handling attempts that threw',
+    registers: [this.mqttRegistry],
+  });
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly serviceMetrics?: ServiceMetricsService,
+  ) {
+    if (this.serviceMetrics) {
+      this.serviceMetrics.registerContributor('sensor-mqtt', this.mqttRegistry);
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
@@ -200,6 +249,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       this.client.on('close', () => {
         const wasConnected = this.connectionState === MqttConnectionState.CONNECTED;
         this.connectionState = MqttConnectionState.DISCONNECTED;
+        this.recordDisconnected();
         this.logger.warn('MQTT connection closed');
 
         // Trigger reconnection for any unexpected close (not just after successful connection)
@@ -338,16 +388,56 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Whether a topic filter is currently subscribed (broker-acknowledged).
+   * Denied filters (SUBACK 0x80) are never tracked — see subscribe().
+   */
+  isSubscribed(topic: string): boolean {
+    return this.subscribedTopics.has(topic);
+  }
+
+  /**
    * Get the underlying MQTT client (for advanced use cases)
    */
+  /**
+   * Increment the received-message counter — called by the listener for
+   * every broker message (SENSOR-MEDIUM-123).
+   */
+  recordMessageReceived(): void {
+    this.messagesReceived.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler finished without throwing. */
+  recordMessageProcessed(): void {
+    this.messagesProcessed.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler threw — surfaced on the Failed panel. */
+  recordMessageFailed(): void {
+    this.messagesFailed.inc();
+  }
+
+  /** Connected gauge reset — call on connection loss. */
+  recordDisconnected(): void {
+    this.connected.set(0);
+  }
+
   getClient(): MqttClient | null {
     return this.client;
   }
 
   /**
-   * Subscribe to topics.
-   * LOW-003: Sends a single SUBSCRIBE packet for all topics using the object form
-   * of mqtt.Client.subscribe(), instead of N sequential SUBSCRIBE packets.
+   * Subscribe to topics — one SUBSCRIBE packet PER TOPIC.
+   *
+   * SENSOR-HIGH-118: the previous single-packet object form made the whole
+   * call fail when the broker denied ANY filter (SUBACK 0x80 — e.g. one ACL
+   * miss on a wildcard filter), leaving the listener connected but subscribed
+   * to NOTHING while the error surfaced only as a warning. Per-topic packets
+   * isolate the denial: a rejected filter logs an error (visible + alertable)
+   * while every other filter still subscribes.
+   *
+   * LOW-003 (single packet for N topics) is deliberately traded away: the
+   * filter set is ~17 entries at boot and on reconnect — the extra packets
+   * are negligible next to a silently dead ingestion pipeline.
    */
   async subscribe(topics: string | string[], qos: 0 | 1 | 2 = 1): Promise<void> {
     if (!this.client || !this.isConnectedToBroker()) {
@@ -358,26 +448,44 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     if (topicList.length === 0) return;
 
-    // Build topic → QoS map for a single SUBSCRIBE packet
-    const topicsMap: Record<string, { qos: 0 | 1 | 2 }> = {};
+    let denied = 0;
     for (const topic of topicList) {
-      topicsMap[topic] = { qos };
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      this.client!.subscribe(topicsMap, (err) => {
-        if (err) {
-          this.logger.error(`Failed to subscribe to topics: ${err.message}`);
-          reject(err);
-        } else {
-          for (const topic of topicList) {
+      await new Promise<void>((resolve) => {
+        this.client!.subscribe(topic, { qos }, (err, granted) => {
+          // mqtt.js invokes the callback with an error when ANY granted QoS
+          // is 0x80 ("Unspecified error"); the per-topic packet means this
+          // failure is isolated to THIS filter.
+          const qosGranted = granted?.[0]?.qos ?? 0;
+          if (err || qosGranted === 128) {
+            denied++;
+            this.logger.error(
+              `MQTT SUBSCRIBE denied for filter "${topic}" (broker SUBACK 0x80 / ${err?.message ?? 'no error object'}) — ` +
+                'this filter will NOT receive messages; check the sensor_service ACL grants ' +
+                '(SENSOR_SERVICE_SUBSCRIPTION_FILTERS is the SSoT).',
+            );
+          } else {
             this.subscribedTopics.add(topic);
           }
-          this.logger.log(`Subscribed to ${topicList.length} topic(s) in single SUBSCRIBE packet`);
           resolve();
-        }
+        });
       });
-    });
+    }
+
+    this.subscriptionsGranted.set(topicList.length - denied);
+    this.subscriptionsDenied.set(denied);
+    if (denied > 0) {
+      this.logger.error(
+        `Subscribed to ${topicList.length - denied}/${topicList.length} topic filters; ${denied} DENIED by broker`,
+      );
+    } else {
+      // SENSOR-MEDIUM-123: canonical boot signal — the deploy gate watches
+      // this line so a connected-but-unsubscribed listener can never deploy
+      // green again. Emitted through the structured helper so the signal
+      // library, the emitter source and required-signals.yaml stay in lockstep.
+      emitBootInvariantSignal(this.logger, 'mqtt_subscribed_topics', {
+        filterCount: topicList.length,
+      });
+    }
   }
 
   /**

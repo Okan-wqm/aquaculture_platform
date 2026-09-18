@@ -15,7 +15,6 @@ import type { AlarmStorageService } from '../alarm-storage.service';
 import type { DaqStorageService } from '../daq-storage.service';
 import type { ScadaRuntimeGateway } from '../../scada-runtime.gateway';
 import type { ScadaScript } from '../../scada-types';
-import type { DataSource } from 'typeorm';
 
 const TENANT = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
@@ -39,19 +38,17 @@ function mockOf<T>(impl: DeepPartial<T>): T {
 }
 
 interface Mocks {
-  tagManager: jest.Mocked<Pick<TagManagerService, 'getTagValue' | 'writeTagValue' | 'getAllTagValues'>>;
+  tagManager: jest.Mocked<
+    Pick<TagManagerService, 'getTagValue' | 'writeTagValue' | 'getAllTagValues'>
+  >;
   alarmEngine: jest.Mocked<Pick<AlarmEngineService, 'getActiveAlarms' | 'acknowledgeAlarm'>>;
   notificationService: jest.Mocked<Pick<NotificationService, 'sendDirectEmail'>>;
   alarmStorage: jest.Mocked<Pick<AlarmStorageService, 'getAlarmHistory'>>;
   daqStorage: jest.Mocked<Pick<DaqStorageService, 'queryValues'>>;
   gateway: jest.Mocked<Pick<ScadaRuntimeGateway, 'broadcastCommand' | 'pushScriptConsole'>>;
-  dataSource: { query: jest.Mock };
 }
 
-function buildService(overrides: { dataSource?: { query: jest.Mock } | null } = {}): {
-  service: ScriptEngineService;
-  mocks: Mocks;
-} {
+function buildService(): { service: ScriptEngineService; mocks: Mocks } {
   const mocks: Mocks = {
     tagManager: {
       getTagValue: jest.fn(),
@@ -66,11 +63,6 @@ function buildService(overrides: { dataSource?: { query: jest.Mock } | null } = 
     alarmStorage: { getAlarmHistory: jest.fn().mockResolvedValue([]) },
     daqStorage: { queryValues: jest.fn().mockResolvedValue({}) },
     gateway: { broadcastCommand: jest.fn(), pushScriptConsole: jest.fn() },
-    // Verified-email directory for $sendMessage (M8a): by default the
-    // tenant's directory contains the recipient the wiring tests use.
-    dataSource: overrides.dataSource ?? {
-      query: jest.fn().mockResolvedValue([{ email: 'ops@x.io' }]),
-    },
   };
 
   const service = new ScriptEngineService(
@@ -80,9 +72,6 @@ function buildService(overrides: { dataSource?: { query: jest.Mock } | null } = 
     mockOf<AlarmStorageService>(mocks.alarmStorage),
     mockOf<DaqStorageService>(mocks.daqStorage),
     mockOf<ScadaRuntimeGateway>(mocks.gateway),
-    overrides.dataSource === null
-      ? null
-      : mockOf<DataSource>(mocks.dataSource),
   );
   return { service, mocks };
 }

@@ -1,5 +1,4 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { ForbiddenException } from '@nestjs/common';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import {
@@ -20,7 +19,6 @@ import {
   ScadaPackageType,
   ScadaPackageListType,
   DeployScadaPackageResultType,
-  PublishScadaPackageResultType,
   ScadaBackfillResultType,
   DeployScadaWithAutomationInput,
   UnifiedDeployResultType,
@@ -272,25 +270,6 @@ export class ProcessResolver {
     return this.mapScadaPackageToType(pkg, tenantId);
   }
 
-  /**
-   * Operator consumption gate (M4): the deployed/PUBLISHED representation.
-   * Non-PUBLISHED packages (and unknown ids — the gate leaks nothing) fail
-   * with FORBIDDEN 'Package is not published'. `scadaPackage` above stays
-   * unrestricted: the builder needs DRAFT rows.
-   */
-  @Query(() => ScadaPackageType, { name: 'publishedScadaPackage' })
-  async publishedScadaPackage(
-    @Args('id', { type: () => ID }) id: string,
-    @Tenant() tenantId: string,
-  ): Promise<ScadaPackageType> {
-    const pkg = await this.scadaPackageService.getPublishedScadaPackage(id, tenantId);
-    if (!pkg) {
-      throw new ForbiddenException('Package is not published');
-    }
-    const publishedAt = await this.scadaPackageService.derivePublishedAt(id, tenantId);
-    return this.mapScadaPackageToType(pkg, tenantId, publishedAt);
-  }
-
   @Query(() => ScadaPackageListType, { name: 'scadaPackages' })
   async listScadaPackages(
     @Args('filter', { nullable: true }) filter?: ScadaPackageFilterInput,
@@ -393,34 +372,14 @@ export class ProcessResolver {
       // message names which devices got the undeploy and which were missed.
       const sent = result.undeploy.filter((r) => r.sent);
       const missed = result.undeploy.filter((r) => !r.sent);
-      const parts = ['Package archived'];
-      if (sent.length > 0) parts.push(`undeploy sent: ${sent.length} device(s)`);
+      const parts = ['Paket arşivlendi'];
+      if (sent.length > 0) parts.push(`undeploy gönderildi: ${sent.length} cihaz`);
       if (missed.length > 0) {
-        parts.push(`unreachable: ${missed.map((r) => r.message).join('; ')}`);
+        parts.push(`ulaşılamadı: ${missed.map((r) => r.message).join('; ')}`);
       }
       return { success: true, message: parts.join(' — '), deletedId: id };
     } catch (error) {
       return { success: false, message: (error as Error).message };
-    }
-  }
-
-  /**
-   * Publish a package WITHOUT an edge round-trip (M5): flips PUBLISHED via
-   * the shared transition (the activation bridge reloads the tenant runtime)
-   * — no MQTT, no signing, no artifacts. SECURITY: TENANT_ADMIN /
-   * MODULE_MANAGER.
-   */
-  @Mutation(() => PublishScadaPackageResultType, { name: 'publishScadaPackage' })
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  async publishScadaPackage(
-    @Args('id', { type: () => ID }) id: string,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: CurrentUserPayload,
-  ): Promise<PublishScadaPackageResultType> {
-    try {
-      return await this.scadaPackageService.publishScadaPackage(id, tenantId, user.sub);
-    } catch (error) {
-      return { success: false, message: (error as Error).message, version: 0 };
     }
   }
 
@@ -542,11 +501,7 @@ export class ProcessResolver {
     };
   }
 
-  private async mapScadaPackageToType(
-    pkg: ScadaPackage,
-    tenantId?: string,
-    publishedAt?: Date | null,
-  ): Promise<ScadaPackageType> {
+  private async mapScadaPackageToType(pkg: ScadaPackage, tenantId?: string): Promise<ScadaPackageType> {
     let processName: string | undefined;
     if (pkg.processId && tenantId) {
       try {
@@ -566,8 +521,6 @@ export class ProcessResolver {
       processName,
       packageData: pkg.packageData,
       status: pkg.status,
-      // Derived (deploy-log witness), not a column — see the DTO field note.
-      publishedAt: publishedAt ?? null,
       createdBy: pkg.createdBy,
       updatedBy: pkg.updatedBy,
       createdAt: pkg.createdAt,

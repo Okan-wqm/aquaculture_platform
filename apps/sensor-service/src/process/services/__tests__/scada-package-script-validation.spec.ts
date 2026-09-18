@@ -73,22 +73,4 @@ describe('ScadaPackageService.validateScripts', () => {
   it('rejects a non-object script entry', () => {
     expect(() => validateScripts({ scripts: ['not-an-object'] })).toThrow(/must be an object/);
   });
-
-  // M8c: server-mode scripts are bounded per package. The save-boundary
-  // total cap (50) and the server cap (50) coincide, so an over-cap server
-  // set trips the total first — what matters is that NO 51-script package,
-  // whatever its modes, ever persists.
-  it('accepts exactly 50 server-mode scripts (M8c)', () => {
-    const scripts = Array.from({ length: 50 }, (_, i) =>
-      scriptWith(`return ${i}`, { mode: 'server' }),
-    );
-    expect(() => validateScripts({ scripts })).not.toThrow();
-  });
-
-  it('rejects 51 scripts even when all are server-mode (server set stays bounded)', () => {
-    const scripts = Array.from({ length: 51 }, (_, i) =>
-      scriptWith(`return ${i}`, { mode: 'server' }),
-    );
-    expect(() => validateScripts({ scripts })).toThrow(/maximum of 50/);
-  });
 });

@@ -31,6 +31,9 @@ const NX_PACKAGES = [
 
 const VITEST_WORKSPACES = [
   'libs/aquaculture-engines/package.json',
+  // AquaMobil joined the Vitest workspace set with the v4 field app
+  // (96 spec files / 647 tests) — same runner, same floor.
+  'web/apps/aquamobil/package.json',
   'mcp/farm-management/package.json',
   'web/modules/admin-panel/package.json',
   'web/modules/dashboard/package.json',
@@ -535,7 +538,10 @@ describe('JavaScript dependency security floor', () => {
         safe: true,
       });
     }
-    expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.9']);
+    // v4 field app graph (2026-09-18 standalone lock): filelist→BE 2.1.4 and
+    // glob's minimatch→BE 5.0.12 — both clear the ReDoS floor (2.1.4+); the
+    // resolution follows the app's own hoisting, not the workspace root's.
+    expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.12']);
   });
 
   test('keeps the standalone E2E graph above its patched CI supply-chain floors', () => {

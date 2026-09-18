@@ -66,7 +66,11 @@ export class OpenAiProvider implements LlmProvider {
    * and validation behavior is inherited unchanged.
    */
   protected newClient(apiKey: string): OpenAI {
-    return new OpenAI({ apiKey });
+    // FARM-AI-0.1: SDK defaults are 600s timeout + 2 retries — a single hung
+    // Z.ai/OpenAI call could block a cron or watch cadence for 10+ minutes.
+    // 30s / 1 retry matches the platform's LLM latency budget (glm-5.3-low
+    // observed ~20s; validateCredential is a lightweight auth probe).
+    return new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
   }
 
   /**

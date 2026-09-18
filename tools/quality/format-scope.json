@@ -60582,6 +60582,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/DataTable/__tests__/DataTable.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/DataTable/DataTable.tsx",
       "prettier_managed": true
     },

@@ -98,7 +98,8 @@ export interface DataTableProps<T> {
   // Loading & Empty States
   loading?: boolean;
   loadingMessage?: string;
-  emptyMessage?: string;
+  /** What the empty body says — a string, or a heading-plus-hint node. */
+  emptyMessage?: React.ReactNode;
   emptyIcon?: React.ReactNode;
 
   // Styling
@@ -197,7 +198,7 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg' }> = ({ size = 'md' }) => {
 interface TableBodyProps<T> {
   loading: boolean;
   loadingMessage: string;
-  emptyMessage: string;
+  emptyMessage: React.ReactNode;
   emptyIcon?: React.ReactNode;
   processedData: T[];
   activeColumns: TableColumn<T>[];
@@ -260,7 +261,7 @@ const TableBodyInner = <T,>({
                   />
                 </svg>
               )}
-              <span className="text-sm">{emptyMessage}</span>
+              <div className="text-sm">{emptyMessage}</div>
             </div>
           </td>
         </tr>

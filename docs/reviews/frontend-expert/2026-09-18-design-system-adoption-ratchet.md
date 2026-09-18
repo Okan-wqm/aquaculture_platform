@@ -196,7 +196,17 @@ migrations, storage and slow queries, and AI personas (whose `Scope` header
 had no cell behind it). The three that remain are the database explorer and
 query-editor result grids (dynamic, sortable-by-server columns with key and
 sensitivity markers in their headers — they need `DataTable` header slots)
-and a static actuation-policy reference. **Owner:** okan ·
+and a static actuation-policy reference. Batch 12: the tenant-admin panel
+follows (9 → 1) — the user list (its select-all header cell and per-row
+checkboxes become `DataTable` selection, so the page's own toggle helpers go),
+the audit log, invoices and payments, the database table list per module,
+mobile feature flags and mobile users, and the table-schema dialog's columns
+and indexes. `DataTable`'s `emptyMessage` now takes a node, so the user list's
+heading-plus-hint empty state renders inside the table instead of as a second
+empty state underneath it; a `DataTable` spec pins the toolbar-only-when-
+needed and empty-body behaviours the pages used to hand-roll around. The one
+that remains is the table-data dialog (server-described columns; needs the
+same header slots as the explorer grids). **Owner:** okan ·
 **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -210,8 +220,8 @@ and a static actuation-policy reference. **Owner:** okan ·
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 127 remain after batch 11 (admin-panel 3,
-  then hr's private copy, tenant-admin, hydroponics, sensor, farm).
+- Raw `<table>` → `DataTable`: 119 remain after batch 12 (admin-panel 3,
+  tenant-admin 1, then hr's private copy, hydroponics, sensor, farm).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

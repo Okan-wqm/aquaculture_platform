@@ -30,6 +30,7 @@ import type { AiActionStatus } from '@/components/messaging/AiActionCard';
 import { MOBILE_CONFIRM_AI_ACTION } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelType } from '@/types/messaging';
+import { isAiAuthoredMessage } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +49,13 @@ export interface AiAction {
 export interface ProposalSourceMessage {
   id: string;
   metadata: Record<string, unknown> | null;
+  /**
+   * FAZ 2 server-authoritative AI stamps — the proposal-card gate. Optional
+   * because older socket envelopes may predate them; absence simply means the
+   * gate falls back to the senderId check.
+   */
+  isAiGenerated?: boolean | null;
+  senderId?: string;
 }
 
 interface UseAiChatReturn {
@@ -157,6 +165,12 @@ export function useAiChat(
   const actions = useMemo<AiAction[]>(() => {
     const cards: AiAction[] = [];
     for (const message of messages) {
+      // FAZ 2.4 fake-card gate: metadata alone is NOT enough. A user-sent
+      // message can carry arbitrary client metadata, so a message only yields a
+      // card when it is ALSO server-stamped as AI (isAiGenerated === true or
+      // senderId === AI_USER_ID). A user message with proposal-looking
+      // metadata renders nothing.
+      if (!isAiAuthoredMessage(message)) continue;
       const metadata = message.metadata;
       const serverStatus = metadata?.['status'];
       if (

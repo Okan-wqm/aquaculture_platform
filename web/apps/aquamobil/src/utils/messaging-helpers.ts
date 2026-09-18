@@ -191,9 +191,13 @@ export function isSafeUrl(url: string): boolean {
  * skipped the per-page reversal, so the conversation rendered inverted and
  * refetched fresh messages jumped to the top edge (user-reported 2026-09-17).
  */
-export function flattenMessagePages<M>(pages: readonly {
-  items: readonly M[];
-}[] | undefined): M[] {
+export function flattenMessagePages<M>(
+  pages:
+    | readonly {
+        items: readonly M[];
+      }[]
+    | undefined,
+): M[] {
   if (!pages?.length) return [];
   const out: M[] = [];
   for (let i = pages.length - 1; i >= 0; i -= 1) {
@@ -227,4 +231,24 @@ export function insertNewestFirst<M extends { id: string; createdAt: string }>(
   }
   next.splice(at, 0, message);
   return next;
+}
+
+/**
+ * The AI virtual user id from the messaging FAZ 2 contract (messaging-service
+ * AI_USER_ID). Messages authored by ai-service carry this senderId.
+ */
+export const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * Server-authoritative AI authorship (MSGFIX FAZ 2.4). A message is AI-authored
+ * when the backend stamped it (`isAiGenerated === true`) or the AI virtual user
+ * sent it. `metadata.isAi` and display names are user-forgeable client input
+ * and must never decide this — a user message with AI-looking metadata would
+ * otherwise render as the assistant and could surface a fake action card.
+ */
+export function isAiAuthoredMessage(message: {
+  isAiGenerated?: boolean | null;
+  senderId?: string;
+}): boolean {
+  return message.isAiGenerated === true || message.senderId === AI_USER_ID;
 }

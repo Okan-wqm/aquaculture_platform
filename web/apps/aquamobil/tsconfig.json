@@ -20,7 +20,9 @@
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"],
-      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"]
+      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"],
+      "@aquaculture/shared-ui/brand": ["../../shared-ui/src/config/brand.ts"],
+      "@aquaculture/shared-ui/i18n": ["../../shared-ui/src/i18n"]
     },
     "types": []
   },

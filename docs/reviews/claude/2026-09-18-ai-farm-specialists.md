@@ -3,7 +3,7 @@
 **Date:** 2026-09-18 · **Agent:** claude · **Cycle:** 2026-09-18 ai-farm-specialists
 **Plan:** tier × specialty persona composition; three farm-module experts (water & fish health / production / operations); read-only tools over farm-service via NATS request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
-**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section.
+**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-066 (base-branch regression found by the pre-push gate, fixed on this branch).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -89,3 +89,25 @@ in the (undeployed, stdio-only) MCP package, while `libs/aquaculture-engines`
 is the pure-engines SSoT both ai-service and the MCP package import. Fix:
 move the formulas into the lib with golden-value tests, expose the four
 tools in ai-service, have the MCP package import the lib.
+
+## FE-HIGH-066 — the aquamobil main-tree port regressed the FAZ 2.4 AI identity contract
+
+Found by the pre-push `type-check-changed-files` gate on this branch (the
+`messaging-fix-1` line had pushed through a dangling `node_modules` symlink, so
+its own pre-push type checks never ran). `6c9d0288c8` (MSGFIX FAZ 3 mobile)
+overwrote `web/apps/aquamobil/src/utils/messaging-helpers.ts`, removing
+`AI_USER_ID` / `isAiAuthoredMessage` that FAZ 2.4 (`acd23a219b`) introduced,
+while `ai-identity.spec.ts` still imports them; `AiChatPage.isAiMessage` went
+back to `sender.displayName === 'AI Assistant' || metadata.isAi === true`
+(user-forgeable), `useAiChat` lost the fake-card gate (a user message with
+proposal-looking metadata rendered an action card) and its spec lost the gate
+cases; `main.tsx`, `LoginPage.tsx` and `RecordFeedingPage.tsx` import
+`@aquaculture/shared-ui/{i18n,brand}` with no tsconfig/vite alias, so aquamobil
+neither type-checks nor builds. Fix: restore the FAZ 2.4 helpers, `Message.isAiGenerated`,
+the `MessageFields` stamp, the `useAiChat` gate and both specs; alias the two
+zero-dependency shared-ui folders (`config/brand.ts`, `i18n/`) in tsconfig,
+vite and vitest, mirroring the shared-contracts precedent. Codegen for the
+aquamobil documents is separately broken on this base (queries `feederSetup`,
+`VfdDevice.driveBinding/drivenUnit` that the branch's supergraph does not
+have) — not touched here; the hand-written `types/messaging.ts` is what the
+AI pages consume.

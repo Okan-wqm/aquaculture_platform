@@ -55,7 +55,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import type { Message } from '@/types/messaging';
 import { runAsyncAction } from '@/utils/async-action';
-import { getDateLabel } from '@/utils/messaging-helpers';
+import { getDateLabel, isAiAuthoredMessage } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,9 +79,16 @@ function groupMessagesByDate(messages: Message[]): Array<{ date: string; message
   return groups;
 }
 
-/** Check if a message is from the AI virtual user. */
+/**
+ * Check if a message is from the AI virtual user.
+ *
+ * FAZ 2 contract: server-authoritative signals ONLY — `isAiGenerated === true`
+ * (the server stamp) or `senderId === AI_USER_ID` (the AI virtual user). The
+ * display-name/metadata checks were user-forgeable and missed real AI replies
+ * whose sender is not named 'AI Assistant'.
+ */
 function isAiMessage(msg: Message): boolean {
-  return msg.sender?.displayName === 'AI Assistant' || msg.metadata?.isAi === true;
+  return isAiAuthoredMessage(msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -607,7 +614,7 @@ export function AiChatPage(): JSX.Element {
                       key={msg.id}
                       messageId={msg.id}
                       isOwn={isOwn}
-                      senderName={aiMsg ? 'AI Assistant' : undefined}
+                      senderName={aiMsg ? personaMeta.name : undefined}
                       senderColorIndex={aiMsg ? 7 : 0}
                       text={msg.content ?? undefined}
                       timestamp={msg.createdAt}

@@ -103,6 +103,9 @@ export const MESSAGE_FIELDS = gql`
     isDeleted
     createdAt
     editedAt
+    # FAZ 2 AI contract: server-authoritative AI stamp. AI detection keys on
+    # this (plus senderId === AI_USER_ID) — never on user-forgeable metadata.
+    isAiGenerated
     sender {
       id
       firstName

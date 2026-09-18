@@ -1,8 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ToolExecutionAudit } from './tool-execution-audit.entity';
 import { ToolExecutionContext, ToolResult } from '../tools/core/tool.interface';
+import { createHash } from 'crypto';
+
+
+/**
+ * FARM-AI-0.1: tool_execution_audit.userId is uuid NOT NULL — service principal
+ * identities like 'service:sensor-service' are INVALID uuids and the audit INSERT
+ * silently fails (best-effort catch). This helper derives a deterministic UUIDv5
+ * from the service name so service-principal tool runs get durable audit rows.
+ */
+export function servicePrincipalUuid(serviceName: string): string {
+  const namespace = createHash('sha256')
+    .update('aqua-ai-service-principal-uuid-v1')
+    .digest()
+    .subarray(0, 16);
+  const hash = createHash('sha1')
+    .update(namespace)
+    .update(serviceName)
+    .digest()
+    .subarray(0, 16);
+  // Set UUID v5 bits (version 5, variant 1)
+  hash[6] = (hash[6]! & 0x0f) | 0x50;
+  hash[8] = (hash[8]! & 0x3f) | 0x80;
+  const hex = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 @Injectable()
 export class AuditService {
@@ -24,7 +50,7 @@ export class AuditService {
     try {
       const audit = this.auditRepo.create({
         tenantId: ctx.tenantId,
-        userId: ctx.userId,
+        userId: isUUID(ctx.userId) ? ctx.userId : servicePrincipalUuid(ctx.userId),
         toolName,
         persona: ctx.persona,
         input,

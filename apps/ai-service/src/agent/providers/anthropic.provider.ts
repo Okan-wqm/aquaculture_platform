@@ -44,7 +44,8 @@ export class AnthropicProvider implements LlmProvider {
       }
     }
 
-    const client = new Anthropic({ apiKey });
+    // FARM-AI-0.1: 30s / 1 retry (see openai.provider.ts rationale).
+    const client = new Anthropic({ apiKey, timeout: 30_000, maxRetries: 1 });
     this.clients.set(cacheKey, client);
     return client;
   }

@@ -17,9 +17,9 @@ import type { LlmProviderId } from './llm-provider.interface';
  *
  * Default model: the persona defaults are Anthropic-named; agent-profile
  * resolution maps provider `zai` without a tenant chatModel override to
- * ZAI_DEFAULT_MODEL ('glm-4.6').
+ * ZAI_DEFAULT_MODEL ('glm-5.3').
  */
-export const ZAI_DEFAULT_MODEL = 'glm-4.6';
+export const ZAI_DEFAULT_MODEL = 'glm-5.3';
 
 const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
 
@@ -30,6 +30,17 @@ export class ZaiProvider extends OpenAiProvider {
 
   protected override newClient(apiKey: string): OpenAI {
     return new OpenAI({ apiKey, baseURL: ZAI_BASE_URL });
+  }
+
+  /**
+   * Z.ai GLM-5.x: thinking is always-on; reasoning_effort steers its depth
+   * (low | high | max, default max). 'low' keeps chat turns fast and cheap —
+   * the right register for an advisory assistant. (User preference 2026-09-18.)
+   */
+  protected override requestExtras(
+    _params: import('./llm-provider.interface').LlmChatParams,
+  ): Record<string, unknown> {
+    return { reasoning_effort: 'low' };
   }
 
   /**

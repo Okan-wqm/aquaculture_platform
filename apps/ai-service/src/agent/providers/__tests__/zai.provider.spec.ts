@@ -23,7 +23,7 @@ describe('ZaiProvider (MSGFIX-ZAI)', () => {
   });
 
   it('exposes the GLM default model constant', () => {
-    expect(ZAI_DEFAULT_MODEL).toBe('glm-4.6');
+    expect(ZAI_DEFAULT_MODEL).toBe('glm-5.3');
   });
 
   it('is an OpenAiProvider subclass (translation logic inherited)', () => {
@@ -47,5 +47,13 @@ describe('ZaiProvider (MSGFIX-ZAI)', () => {
     } as unknown as OpenAI;
     asBase.newClient = () => fakeClient;
     await expect(zai.validateCredential({ provider: 'zai', apiKey: 'k' })).resolves.toBe(true);
+  });
+});
+
+describe('ZaiProvider — GLM-5.x reasoning effort (user preference)', () => {
+  it('injects reasoning_effort=low into chat requests', async () => {
+    const zai = new ZaiProvider();
+    const extras = (zai as unknown as { requestExtras: () => Record<string, unknown> }).requestExtras();
+    expect(extras).toEqual({ reasoning_effort: 'low' });
   });
 });

@@ -69,6 +69,17 @@ export class OpenAiProvider implements LlmProvider {
     return new OpenAI({ apiKey });
   }
 
+  /**
+   * Per-request extras merged into the chat.completions.create params.
+   * Base: none. OpenAI-compatible relays override to inject their knobs
+   * (e.g. Z.ai's reasoning_effort) without duplicating the translation.
+   */
+  protected requestExtras(
+    _params: LlmChatParams,
+  ): Record<string, unknown> {
+    return {};
+  }
+
   async chat(
     params: LlmChatParams,
     credential: LlmCredential,
@@ -90,6 +101,8 @@ export class OpenAiProvider implements LlmProvider {
         model: params.model,
         max_completion_tokens: params.maxTokens,
         messages: this.toOpenAiMessages(params.system, params.messages),
+        // Provider-specific extras (Z.ai reasoning-effort etc.) — subclass hook.
+        ...this.requestExtras(params),
         // Only pass `tools` when non-empty — the API rejects an empty array.
         ...(tools.length > 0 ? { tools } : {}),
       });

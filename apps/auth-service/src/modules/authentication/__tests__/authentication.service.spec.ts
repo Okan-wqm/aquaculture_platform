@@ -509,8 +509,10 @@ describe('AuthenticationService', () => {
       expect(passwordAtMint).toBe(legacyHash);
       const mintOrder = mockTokenService.generateTokens.mock.invocationCallOrder[0];
       const [bookkeepingOrder, migrationOrder] = mockUserRepository.save.mock.invocationCallOrder;
-      expect(bookkeepingOrder).toBeLessThan(mintOrder);
-      expect(mintOrder).toBeLessThan(migrationOrder);
+      // invocationCallOrder entries are always numbers once the mocks ran; the
+      // tuple access is only possibly-undefined under noUncheckedIndexedAccess.
+      expect(bookkeepingOrder ?? Number.MAX_SAFE_INTEGER).toBeLessThan(mintOrder ?? 0);
+      expect(mintOrder ?? 0).toBeLessThan(migrationOrder ?? Number.MAX_SAFE_INTEGER);
     });
 
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {

@@ -108,6 +108,18 @@ export const PERMISSION_CATEGORIES = {
       },
     },
   },
+  // FARM-AI PR-1: the farm-specialist personas (Water & Health, Production,
+  // Operations — see AI_PERSONA_CATALOGUE in @aquaculture/shared-contracts)
+  // additionally require `ai_specialties:farm` ON TOP of their tier grant.
+  // Its own category (not a fourth action on ai_personas) keeps the module
+  // matrix explicit: ai_specialists is all-of ['ai','farm'], so a tenant
+  // without BOTH modules can neither be offered nor hold the capability.
+  ai_specialists: {
+    name: 'AI Specialists',
+    resources: {
+      ai_specialties: { name: 'AI Specialties', actions: ['farm'] },
+    },
+  },
 };
 
 /**
@@ -166,38 +178,43 @@ export function isKnownCapability(capability: string): boolean {
 // ============================================================================
 
 /**
- * Catalogue category → the licensable module code (see `ModuleCode` in
+ * Catalogue category → the licensable module codes (see `ModuleCode` in
  * system-module/entities/module.entity.ts) a tenant MUST have enabled to hold
- * any capability in that category. A category NOT listed here is CORE — always
- * entitled regardless of plan:
+ * any capability in that category — ALL-OF (FARM-AI PR-1: the value became a
+ * list so `ai_specialists` can require both the AI and farm modules).
+ * A category NOT listed here is CORE — always entitled regardless of plan:
  *   - `farm` / `batch` / `operations` — the base aquaculture product;
  *   - `reports` / `admin` — platform surfaces every tenant has;
  *   - `messaging` — no licensable `ModuleCode` exists yet, so it stays core
  *     (a dedicated messaging module gate is separate future work).
- * Only the two categories that map 1:1 to an OPTIONAL module are gated:
+ * Module-gated categories:
  *   - `hr` → the HR module;
- *   - `ai` → the AI module (this is the audit's headline over-grant vector:
- *     a STARTER tenant granting itself `ai_settings:manage`).
+ *   - `ai` → the AI module (the audit's headline over-grant vector:
+ *     a STARTER tenant granting itself `ai_settings:manage`);
+ *   - `ai_specialists` → AI AND farm (all-of): the specialist personas read
+ *     farm data through farm-service tools, so either module alone is
+ *     insufficient.
  * Keying by category (not individual capability) keeps this aligned with the
  * UI's category-grouped editor and avoids splitting a mixed category.
  */
-export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, string>> = {
-  hr: 'hr',
-  ai: 'ai',
+export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
+  hr: ['hr'],
+  ai: ['ai'],
+  ai_specialists: ['ai', 'farm'],
 };
 
 /**
- * capability (`resource:action`) → required module code, precomputed from
- * CATEGORY_MODULE_REQUIREMENTS. Absent key ⇒ core capability (no module gate).
+ * capability (`resource:action`) → required module codes (all-of), precomputed
+ * from CATEGORY_MODULE_REQUIREMENTS. Absent key ⇒ core capability (no gate).
  */
-const CAPABILITY_REQUIRED_MODULE: ReadonlyMap<string, string> = (() => {
-  const map = new Map<string, string>();
+const CAPABILITY_REQUIRED_MODULES: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, readonly string[]>();
   for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
-    const requiredModule = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
-    if (!requiredModule) continue;
+    const requiredModules = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
+    if (!requiredModules) continue;
     for (const [resource, definition] of Object.entries(category.resources)) {
       for (const action of definition.actions) {
-        map.set(`${resource}:${action}`, requiredModule);
+        map.set(`${resource}:${action}`, requiredModules);
       }
     }
   }
@@ -205,27 +222,29 @@ const CAPABILITY_REQUIRED_MODULE: ReadonlyMap<string, string> = (() => {
 })();
 
 /**
- * The module code a capability requires, or `undefined` if it is core (no gate).
+ * The module codes a capability requires (ALL must be enabled), or
+ * `undefined` if it is core (no gate).
  */
-export function requiredModuleFor(capability: string): string | undefined {
-  return CAPABILITY_REQUIRED_MODULE.get(capability);
+export function requiredModulesFor(capability: string): readonly string[] | undefined {
+  return CAPABILITY_REQUIRED_MODULES.get(capability);
 }
 
 /**
  * The subset of `CATALOGUE_CAPABILITIES` a tenant with `enabledModuleCodes` is
- * entitled to hold: every core capability, plus module-gated capabilities whose
- * module is enabled. This is the SSoT both the write-time grant authority
- * (reject persisting a non-entitled capability) and the token mint (never stamp
- * a non-entitled capability into the JWT, so a stale grant from a plan
- * downgrade or the MT-HIGH-057 backfill has zero runtime effect) consume.
+ * entitled to hold: every core capability, plus module-gated capabilities ALL
+ * of whose required modules are enabled. This is the SSoT both the write-time
+ * grant authority (reject persisting a non-entitled capability) and the token
+ * mint (never stamp a non-entitled capability into the JWT, so a stale grant
+ * from a plan downgrade or the MT-HIGH-057 backfill has zero runtime effect)
+ * consume.
  */
 export function entitledCapabilities(
   enabledModuleCodes: ReadonlySet<string>,
 ): ReadonlySet<string> {
   const result = new Set<string>();
   for (const capability of CATALOGUE_CAPABILITIES) {
-    const requiredModule = CAPABILITY_REQUIRED_MODULE.get(capability);
-    if (!requiredModule || enabledModuleCodes.has(requiredModule)) {
+    const requiredModules = CAPABILITY_REQUIRED_MODULES.get(capability);
+    if (!requiredModules || requiredModules.every((m) => enabledModuleCodes.has(m))) {
       result.add(capability);
     }
   }

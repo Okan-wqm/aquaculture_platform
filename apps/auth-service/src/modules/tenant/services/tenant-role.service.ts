@@ -141,6 +141,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
       ai_settings: { view: true, manage: true },
       ai_personas: { operator: true, manager: true, expert: true, supervisor: false },
     },
+    // FARM-AI PR-1: farm-specialist personas (all-of ai+farm modules).
+    ai_specialists: {
+      ai_specialties: { farm: true },
+    },
   },
   Technician: {
     farm: {
@@ -163,6 +167,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // FARM-AI PR-1: farm-specialist personas (all-of ai+farm modules).
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   'Feed Manager': {
@@ -188,6 +196,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // FARM-AI PR-1: farm-specialist personas (all-of ai+farm modules).
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Operator: {
@@ -227,6 +239,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // FARM-AI PR-1: farm-specialist personas (all-of ai+farm modules).
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Viewer: {
@@ -269,6 +285,10 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // FARM-AI PR-1: farm-specialist personas (all-of ai+farm modules).
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
 };

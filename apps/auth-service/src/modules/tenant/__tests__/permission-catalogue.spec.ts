@@ -118,3 +118,68 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
     }
   });
 });
+
+/**
+ * FARM-AI PR-1 — `ai_specialties:farm` and the ALL-OF module matrix.
+ *
+ * The farm-specialist personas require `ai_specialties:farm` on top of their
+ * tier grant. That capability's category is gated ALL-OF ['ai','farm']: either
+ * module alone is insufficient. These specs pin the matrix and the cross-SSoT
+ * check that keeps the shared-contracts persona catalogue and this RBAC
+ * catalogue from drifting apart.
+ */
+describe('ai_specialists category + all-of module entitlement (FARM-AI PR-1)', () => {
+  it('declares exactly the farm specialist capability', () => {
+    const cat = PERMISSION_CATEGORIES.ai_specialists;
+    expect(cat).toBeDefined();
+    expect(cat.resources.ai_specialties.actions).toEqual(['farm']);
+    expect(CATALOGUE_CAPABILITIES.has('ai_specialties:farm')).toBe(true);
+  });
+
+  it('ai module ALONE does not entitle the farm specialists (all-of)', () => {
+    const entitled = entitledCapabilities(new Set(['ai']));
+    expect(entitled.has('ai_settings:manage')).toBe(true);
+    expect(entitled.has('ai_specialties:farm')).toBe(false);
+  });
+
+  it('farm module ALONE does not entitle the farm specialists (all-of)', () => {
+    expect(entitledCapabilities(new Set(['farm'])).has('ai_specialties:farm')).toBe(false);
+  });
+
+  it('BOTH modules entitle the farm specialists', () => {
+    expect(entitledCapabilities(new Set(['ai', 'farm'])).has('ai_specialties:farm')).toBe(true);
+  });
+
+  it('the role editor offers the specialists category only with both modules', () => {
+    const aiOnly = entitledPermissionCategories(entitledCapabilities(new Set(['ai'])));
+    expect(aiOnly).not.toHaveProperty('ai_specialists');
+    expect(aiOnly).toHaveProperty('ai');
+
+    const both = entitledPermissionCategories(entitledCapabilities(new Set(['ai', 'farm'])));
+    expect(both.ai_specialists).toBeDefined();
+    const specialists = both.ai_specialists?.resources.ai_specialties;
+    if (!specialists) throw new Error('ai_specialists resource missing');
+    expect(specialists.actions).toEqual(['farm']);
+  });
+});
+
+describe('cross-SSoT: persona catalogue ⊆ RBAC catalogue (FARM-AI PR-1)', () => {
+  // Imported lazily-style at the bottom to keep the Faz 7 import block above
+  // stable; shared-contracts is a zero-dep lib safe to import from any spec.
+  it('every AI_PERSONA_CATALOGUE required capability is a known RBAC capability', async () => {
+    const { AI_PERSONA_CATALOGUE, AI_GENERAL_ASSISTANT_PICKER_ENTRY } = await import(
+      '@aquaculture/shared-contracts'
+    );
+    const { isKnownCapability } = await import('../services/permission-catalogue');
+
+    for (const entry of AI_PERSONA_CATALOGUE) {
+      expect(entry.requiredCapabilities.length).toBeGreaterThan(0);
+      for (const capability of entry.requiredCapabilities) {
+        expect(isKnownCapability(capability)).toBe(true);
+      }
+    }
+    for (const capability of AI_GENERAL_ASSISTANT_PICKER_ENTRY.requiredCapabilities) {
+      expect(isKnownCapability(capability)).toBe(true);
+    }
+  });
+});

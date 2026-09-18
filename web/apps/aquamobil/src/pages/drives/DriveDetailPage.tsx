@@ -32,7 +32,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { DataFreshness } from '@/components/DataFreshness';
 import { DriveStateChip, DriveTelemetryGrid } from '@/components/drive';
 import { Button, Card, CardDivider, DataState, EmptyState } from '@/components/ui';
-import type { MobileDriveFieldsFragment, MobileFeederSetupQuery } from '@/generated/graphql';
+import type { MobileDriveFieldsFragment, MobileFeederSetupQuery } from '@/graphql/vfd-types';
 import { useVfdCommand } from '@/hooks/useVfdCommand';
 import { useFeederSetup, useVfdDrive } from '@/hooks/useVfdDrives';
 import { toLoadable, type Loadable } from '@/utils/loadable';

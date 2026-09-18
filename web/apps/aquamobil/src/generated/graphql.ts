@@ -10,7 +10,7 @@ export type AccessType =
   | 'PANEL_ONLY';
 
 export type AcknowledgeAlertInput = {
-  alertId: string | number;
+  alertId: string;
   /** Stable client command UUID generated before first submission */
   clientCommandId?: string | null | undefined;
   /** ISO timestamp when the mobile client created the command */
@@ -89,6 +89,47 @@ export type CreateChannelInput = {
   type: ChannelType;
 };
 
+export type CreateWaterQualityInput = {
+  /** Batch ID */
+  batchId?: string | null | undefined;
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  /** Dynamic parameters (tenant-configured JSONB) */
+  dynamicParameters: Record<string, unknown>;
+  /** Equipment ID */
+  equipmentId: string;
+  /** Idempotency key for offline retry safety */
+  idempotencyKey?: string | null | undefined;
+  /** Ölçüm tarihi */
+  measuredAt: string;
+  /** Ölçümü yapan kullanıcı */
+  measuredBy?: string | null | undefined;
+  /** Notlar */
+  notes?: string | null | undefined;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Havuz ID */
+  pondId?: string | null | undefined;
+  /** Federation id of the sensor reading that produced this measurement */
+  relatedSensorReadingId?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+  /** Site ID */
+  siteId?: string | null | undefined;
+  /** Ölçüm kaynağı */
+  source: WaterQualityMeasurementSource;
+  /** Tank ID */
+  tankId?: string | null | undefined;
+  /** Hava durumu */
+  weatherConditions?: string | null | undefined;
+};
+
 export type EditMessageInput = {
   /** Stable client command UUID generated before first submission */
   clientCommandId?: string | null | undefined;
@@ -106,15 +147,77 @@ export type EditMessageInput = {
   schemaVersion?: string | null | undefined;
 };
 
-/** Dozun tamamlandığını ne söyler — ölçülen ağırlık mı, geçen süre mi */
-export type FeederDispenseControl =
-  | 'TIME_BASED'
-  | 'WEIGHT_BASED';
+/** Category of equipment type */
+export type EquipmentCategory =
+  | 'AERATION'
+  | 'CAGE'
+  | 'ELECTRICAL'
+  | 'FEEDING'
+  | 'FILTRATION'
+  | 'HARVESTING'
+  | 'HEATING_COOLING'
+  | 'MONITORING'
+  | 'OTHER'
+  | 'PLUMBING'
+  | 'POND'
+  | 'PUMP'
+  | 'SAFETY'
+  | 'TANK'
+  | 'TRANSPORT'
+  | 'WATER_TREATMENT';
 
-/** Yemleyicinin dozlama fiziği — atımlı (discrete) veya sürekli akış (continuous) */
-export type FeederDosingMode =
-  | 'CONTINUOUS'
-  | 'DISCRETE';
+export type EquipmentFilterInput = {
+  /** Filter by equipment type categories (tank, pond, cage, etc.) */
+  categories?: Array<EquipmentCategory> | null | undefined;
+  departmentId?: string | null | undefined;
+  equipmentTypeId?: string | null | undefined;
+  hasWarranty?: boolean | null | undefined;
+  isActive?: boolean | null | undefined;
+  /** Filter only tank equipment */
+  isTank?: boolean | null | undefined;
+  /** Filter equipment visible in Sensor Module */
+  isVisibleInSensor?: boolean | null | undefined;
+  /** Filter by parent equipment */
+  parentEquipmentId?: string | null | undefined;
+  /** Only get root equipment (no parent) */
+  rootOnly?: boolean | null | undefined;
+  search?: string | null | undefined;
+  siteId?: string | null | undefined;
+  status?: EquipmentStatus | null | undefined;
+  /** Filter by system */
+  systemId?: string | null | undefined;
+};
+
+/** Status of the equipment */
+export type EquipmentStatus =
+  | 'ACTIVE'
+  | 'CLEANING'
+  | 'DECOMMISSIONED'
+  | 'FALLOW'
+  | 'HARVESTING'
+  | 'MAINTENANCE'
+  | 'OPERATIONAL'
+  | 'OUT_OF_SERVICE'
+  | 'PREPARING'
+  | 'QUARANTINE'
+  | 'REPAIR'
+  | 'STANDBY';
+
+export type FarmStockContainerSource =
+  | 'EQUIPMENT'
+  | 'TANK';
+
+export type FarmStockInventoryFilterInput = {
+  containerSources?: Array<FarmStockContainerSource> | null | undefined;
+  departmentId?: string | null | undefined;
+  hasActiveBatch?: boolean | null | undefined;
+  isActive?: boolean | null | undefined;
+  limit?: number | null | undefined;
+  page?: number | null | undefined;
+  search?: string | null | undefined;
+  siteId?: string | null | undefined;
+  status?: string | null | undefined;
+};
 
 /** Günlük yemleme planının yaşam döngüsü durumu (K-7 tam enum) */
 export type FeedingDayPlanStatus =
@@ -133,9 +236,23 @@ export type FeedingMealStatus =
   | 'SCHEDULED'
   | 'SKIPPED';
 
+/** Yemleme metodu */
+export type FeedingMethod =
+  | 'AUTOMATIC'
+  | 'BROADCAST'
+  | 'DEMAND'
+  | 'MANUAL'
+  | 'SPOT';
+
 export type HalfDayPeriod =
   | 'AM'
   | 'PM';
+
+/** Which field-capture incident record a media row belongs to */
+export type IncidentMediaType =
+  | 'ESCAPE'
+  | 'LICE'
+  | 'WELFARE';
 
 export type LeaveCategory =
   | 'ANNUAL'
@@ -162,7 +279,7 @@ export type LeaveRequestStatus =
 
 export type MarkReadInput = {
   /** Channel UUID */
-  channelId: string | number;
+  channelId: string;
   /** Stable client command UUID generated before first submission */
   clientCommandId?: string | null | undefined;
   /** ISO timestamp when the mobile client created the command */
@@ -170,7 +287,7 @@ export type MarkReadInput = {
   /** Stable per-installation device identifier */
   deviceId?: string | null | undefined;
   /** Last read message UUID */
-  messageId: string | number;
+  messageId: string;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
   /** SHA-256 hash of the command payload before envelope fields are added */
@@ -197,6 +314,22 @@ export type MessageFilterInput = {
   limit?: number;
 };
 
+/** Stock event kind shown on the AquaMobil Stock Events hub */
+export type MobileStockEventType =
+  | 'CULL'
+  | 'HARVEST'
+  | 'MORTALITY'
+  | 'TRANSFER';
+
+/** Type of stock movement */
+export type MovementType =
+  | 'ADJUSTMENT'
+  | 'IN'
+  | 'OUT'
+  | 'RETURN'
+  | 'TRANSFER'
+  | 'WASTE';
+
 /** Channel notification preference: ALL > MENTIONS > NONE */
 export type NotificationPreference =
   /** Notify on every message */
@@ -206,13 +339,59 @@ export type NotificationPreference =
   /** No notifications */
   | 'NONE';
 
+/** Data type of a water quality parameter value */
+export type ParameterDataType =
+  | 'BOOLEAN'
+  | 'ENUM'
+  | 'NUMBER';
+
+/** Logical grouping for water quality parameters */
+export type ParameterGroup =
+  | 'BASIC'
+  | 'BIOLOGICAL'
+  | 'CUSTOM'
+  | 'METALS'
+  | 'NITROGEN_CYCLE'
+  | 'ORGANIC';
+
 export type ReceiptStatus =
   | 'DELIVERED'
   | 'READ';
 
+export type RecordStockMovementInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  expiryDate?: string | null | undefined;
+  /** Source location (required for OUT, WASTE) */
+  fromLocationId?: string | null | undefined;
+  /** Client-generated idempotency key to prevent duplicate movements */
+  idempotencyKey?: string | null | undefined;
+  itemId: string;
+  itemType: StorageItemType;
+  lotNumber?: string | null | undefined;
+  /** Authoritative event date for FEFO as-of scoping. Defaults to now when omitted. */
+  movementDate?: string | null | undefined;
+  movementType: MovementType;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  quantity: number;
+  reason?: string | null | undefined;
+  reference?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+  /** Target location (required for IN) */
+  toLocationId?: string | null | undefined;
+};
+
 export type ReportDraftFilterInput = {
   reportType?: string | null | undefined;
-  siteId?: string | number | null | undefined;
+  siteId?: string | null | undefined;
   status?: ReportDraftStatus | null | undefined;
 };
 
@@ -224,9 +403,16 @@ export type ReportDraftStatus =
   | 'READY'
   | 'SUBMITTED';
 
+export type RequestIncidentMediaUploadInput = {
+  fileSize: number;
+  filename: string;
+  incidentType: IncidentMediaType;
+  mimeType: string;
+};
+
 export type RequestMediaUploadInput = {
   /** Channel the file belongs to */
-  channelId: string | number;
+  channelId: string;
   /** File size in bytes (max 25 MB = 26214400) */
   fileSize: number;
   /** Original filename */
@@ -244,7 +430,7 @@ export type Role =
 
 export type SearchMessagesInput = {
   /** Optional channel filter */
-  channelId?: string | number | null | undefined;
+  channelId?: string | null | undefined;
   /** Max results (max 50) */
   limit?: number;
   /** Full-text search query (2-200 chars) */
@@ -255,7 +441,7 @@ export type SendMessageInput = {
   /** Storage keys for pre-uploaded attachments */
   attachmentKeys?: Array<string> | null | undefined;
   /** Target channel UUID */
-  channelId: string | number;
+  channelId: string;
   /** Stable client command UUID generated before first submission */
   clientCommandId?: string | null | undefined;
   /** ISO timestamp when the mobile client created the command */
@@ -267,13 +453,13 @@ export type SendMessageInput = {
   /** Stable per-installation device identifier */
   deviceId?: string | null | undefined;
   /** Client-generated UUID for idempotent send */
-  idempotencyKey: string | number;
+  idempotencyKey: string;
   /** Arbitrary metadata JSON */
   metadata?: Record<string, unknown> | null | undefined;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
   /** Parent message ID for threading / replies */
-  parentId?: string | number | null | undefined;
+  parentId?: string | null | undefined;
   /** SHA-256 hash of the command payload before envelope fields are added */
   payloadHash?: string | null | undefined;
   /** Optional mobile command payload schema version */
@@ -296,7 +482,6 @@ export type SensorType =
   | 'CONDUCTIVITY'
   | 'DISSOLVED_OXYGEN'
   | 'FLOW_RATE'
-  | 'MASS'
   | 'MULTI_PARAMETER'
   | 'NITRATE'
   | 'NITRITE'
@@ -309,7 +494,7 @@ export type SensorType =
 
 export type SentimentTrendsInput = {
   /** Filter by specific channel. Omit for all channels. */
-  channelId?: string | number | null | undefined;
+  channelId?: string | null | undefined;
   /** Number of weeks to look back (1-52) */
   weeks?: number;
 };
@@ -329,13 +514,15 @@ export type SetChecklistItemInput = {
   payloadHash?: string | null | undefined;
   /** Optional mobile command payload schema version */
   schemaVersion?: string | null | undefined;
-  taskId: string | number;
+  taskId: string;
 };
 
-/** Sort direction for paginated queries */
-export type SortOrder =
-  | 'ASC'
-  | 'DESC';
+/** Type of item in storage */
+export type StorageItemType =
+  | 'CHEMICAL'
+  | 'CONSUMABLE'
+  | 'FEED'
+  | 'HEALTHCARE';
 
 /** Görev kategorisi */
 export type TaskCategory =
@@ -358,7 +545,7 @@ export type TaskLifecycleInput = {
   clientCreatedAt?: string | null | undefined;
   /** Stable per-installation device identifier */
   deviceId?: string | null | undefined;
-  id: string | number;
+  id: string;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
   /** SHA-256 hash of the command payload before envelope fields are added */
@@ -382,6 +569,31 @@ export type TaskStatus =
   | 'OVERDUE'
   | 'PENDING';
 
+export type TransferStockInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  fromLocationId: string;
+  /** Client-generated idempotency key for at-most-once transfer execution */
+  idempotencyKey?: string | null | undefined;
+  itemId: string;
+  itemType: StorageItemType;
+  lotNumber?: string | null | undefined;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  quantity: number;
+  reason?: string | null | undefined;
+  reference?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+  toLocationId: string;
+};
+
 export type UpdateChannelInput = {
   /** Updated channel avatar URL */
   avatarUrl?: string | null | undefined;
@@ -391,54 +603,94 @@ export type UpdateChannelInput = {
   name?: string | null | undefined;
 };
 
-/** VFD manufacturer brands */
-export type VfdBrand =
-  | 'ABB'
-  | 'DANFOSS'
-  | 'DELTA'
-  | 'MITSUBISHI'
-  | 'ROCKWELL'
-  | 'SCHNEIDER'
-  | 'SIEMENS'
-  | 'YASKAWA';
+/** Feed stock-coverage severity on the AquaMobil warehouse hub */
+export type WarehouseFeedCoverageStatus =
+  | 'CRITICAL'
+  | 'OK'
+  | 'WARNING';
 
-/** VFD device status */
-export type VfdDeviceStatus =
-  | 'ACTIVE'
-  | 'DRAFT'
-  | 'OFFLINE'
-  | 'PENDING_TEST'
-  | 'SUSPENDED'
-  | 'TESTING'
-  | 'TEST_FAILED';
+/** Ölçüm kaynağı */
+export type WaterQualityMeasurementSource =
+  | 'CALIBRATION'
+  | 'LAB_ANALYSIS'
+  | 'MANUAL'
+  | 'SENSOR_AUTOMATIC'
+  | 'SENSOR_TRIGGERED';
 
-/** Sürücü–ekipman bağının, ekipman sahibi tarafından tasdik durumu */
-export type VfdDriveBindingState =
-  | 'ATTESTED'
-  | 'INACTIVE_EQUIPMENT'
-  | 'PENDING'
-  | 'UNKNOWN_EQUIPMENT';
+/** Su kalitesi durumu */
+export type WaterQualityStatus =
+  | 'ACCEPTABLE'
+  | 'CRITICAL'
+  | 'OPTIMAL'
+  | 'UNKNOWN'
+  | 'WARNING';
 
-/** Sürücünün hizmet ettiği ünite sorusunun kapalı küme cevabı */
-export type VfdDrivenUnitOutcome =
-  | 'EXPIRED'
-  | 'FEEDER_AMBIGUOUS'
-  | 'FEEDER_UNIT'
-  | 'FEEDER_WITHOUT_UNIT'
-  | 'NOT_A_FEEDER'
-  | 'UNATTESTED'
-  | 'UNBOUND';
-
-export type VfdPaginationInput = {
-  /** Items per page (max 100) */
-  limit?: number | null | undefined;
-  /** Page number (1-based) */
-  page?: number | null | undefined;
-  /** Field to sort by (name, brand, status, createdAt, updatedAt) */
-  sortBy?: string | null | undefined;
-  /** Sort direction */
-  sortOrder?: SortOrder | null | undefined;
+export type WebAuthnLoginChallengeInput = {
+  /** Email address of the user attempting biometric login */
+  email: string;
 };
+
+export type WebAuthnRegisterCredentialInput = {
+  /** Base64url-encoded attestation object (contains the signed authenticator data and the COSE public key) */
+  attestationObject: string;
+  /** Base64url-encoded authenticator data (present on some platforms) */
+  authenticatorData?: string | null | undefined;
+  /** Challenge string that was used during registration */
+  challenge: string;
+  /** Base64url-encoded attestation client data JSON */
+  clientDataJSON: string;
+  /** Base64url-encoded credential ID from navigator.credentials.create() */
+  credentialId: string;
+  /** Current account password (re-authentication required to add a biometric credential) */
+  currentPassword: string;
+  /** Device name for this credential */
+  deviceName?: string | null | undefined;
+  /** COSE algorithm identifier the authenticator chose (e.g. -7 ES256, -257 RS256) */
+  publicKeyAlgorithm: number;
+  /** Supported transports (usb, nfc, ble, internal, hybrid, smart-card) */
+  transports?: Array<string> | null | undefined;
+};
+
+export type WebAuthnRegistrationChallengeInput = {
+  /** Optional device name for credential identification */
+  deviceName: string;
+};
+
+export type WebAuthnVerifyLoginInput = {
+  /** Base64url-encoded authenticator data */
+  authenticatorData: string;
+  /** Challenge string from the login challenge */
+  challenge: string;
+  /** Base64url-encoded client data JSON */
+  clientDataJSON: string;
+  /** Base64url-encoded credential ID */
+  credentialId: string;
+  /** Base64url-encoded signature */
+  signature: string;
+  /** Base64url-encoded user handle (what the authenticator stored) */
+  userHandle?: string | null | undefined;
+};
+
+export type WeekDay =
+  | 'FRIDAY'
+  | 'MONDAY'
+  | 'SATURDAY'
+  | 'SUNDAY'
+  | 'THURSDAY'
+  | 'TUESDAY'
+  | 'WEDNESDAY';
+
+export type WeeklyPlanEntryType =
+  | 'HOLIDAY'
+  | 'LEAVE'
+  | 'OFF'
+  | 'TRAINING'
+  | 'WORK';
+
+export type WeeklyPlanStatus =
+  | 'CLOSED'
+  | 'DRAFT'
+  | 'PUBLISHED';
 
 export type FarmDashboardInsightsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -446,21 +698,21 @@ export type FarmDashboardInsightsQueryVariables = Exact<{ [key: string]: never; 
 export type FarmDashboardInsightsQuery = { farmDashboardInsights: { overallRiskScore: number, tankRisks: Array<{ tankId: string, riskScore: number, riskLevel: string, factors: Array<string>, recommendations: Array<string> }>, anomalies: Array<{ type: string, severity: string, description: string, affectedEntity: string, suggestedActions: Array<string> }>, feedingAdvice: Array<{ tankId: string, recommendedAmount: number, feedType: string, feedingFrequency: number, rationale: string }> } };
 
 export type TankRiskAssessmentQueryVariables = Exact<{
-  tankId: string | number;
+  tankId: string;
 }>;
 
 
 export type TankRiskAssessmentQuery = { tankRiskAssessment: { tankId: string, riskScore: number, riskLevel: string, factors: Array<string>, recommendations: Array<string> } | null };
 
 export type BatchGrowthPredictionQueryVariables = Exact<{
-  batchId: string | number;
+  batchId: string;
 }>;
 
 
 export type BatchGrowthPredictionQuery = { batchGrowthPrediction: { batchId: string, currentAvgWeight: number, predictedAvgWeight30d: number, predictedSGR: number, predictedFCR: number, estimatedBiomass30d: number } | null };
 
 export type FeedingAdviceQueryVariables = Exact<{
-  tankId: string | number;
+  tankId: string;
 }>;
 
 
@@ -486,7 +738,7 @@ export type MobileAcknowledgeAlertMutationVariables = Exact<{
 export type MobileAcknowledgeAlertMutation = { acknowledgeAlert: { id: string, ruleId: string, ruleName: string, farmId: string | null, pondId: string | null, sensorId: string | null, severity: AlertSeverity, message: string, triggeredAt: string, acknowledged: boolean, acknowledgedAt: string | null, acknowledgedBy: string | null, acknowledgementNote: string | null, resolved: boolean, resolvedAt: string | null, createdAt: string } };
 
 export type MobileResolveAlertMutationVariables = Exact<{
-  alertId: string | number;
+  alertId: string;
 }>;
 
 
@@ -509,14 +761,14 @@ export type MyChannelsQueryVariables = Exact<{
 export type MyChannelsQuery = { myChannels: { total: number, items: Array<{ id: string, type: ChannelType, name: string | null, description: string | null, avatarUrl: string | null, createdBy: string | null, isArchived: boolean, createdAt: string, updatedAt: string, aiPersona: string | null, aiServiceUrl: string | null, unreadCount: number | null, memberCount: number | null, lastMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } | null, members: Array<{ id: string, channelId: string, userId: string, role: ChannelMemberRole, notificationPreference: NotificationPreference, lastReadAt: string | null, joinedAt: string, leftAt: string | null, user: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null }> | null }> } };
 
 export type GetChannelQueryVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
 export type GetChannelQuery = { channel: { id: string, type: ChannelType, name: string | null, description: string | null, avatarUrl: string | null, createdBy: string | null, isArchived: boolean, createdAt: string, updatedAt: string, aiPersona: string | null, aiServiceUrl: string | null, unreadCount: number | null, memberCount: number | null, lastMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } | null, members: Array<{ id: string, channelId: string, userId: string, role: ChannelMemberRole, notificationPreference: NotificationPreference, lastReadAt: string | null, joinedAt: string, leftAt: string | null, user: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null }> | null } };
 
 export type GetMessagesQueryVariables = Exact<{
-  channelId: string | number;
+  channelId: string;
   filter?: MessageFilterInput | null | undefined;
 }>;
 
@@ -524,7 +776,7 @@ export type GetMessagesQueryVariables = Exact<{
 export type GetMessagesQuery = { messages: { hasMore: boolean, cursor: string | null, items: Array<{ id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null }> } };
 
 export type MessagesSinceQueryVariables = Exact<{
-  channelId: string | number;
+  channelId: string;
   since: string;
 }>;
 
@@ -553,21 +805,21 @@ export type SearchMessagesQueryVariables = Exact<{
 export type SearchMessagesQuery = { searchMessages: Array<{ id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null }> };
 
 export type GetPinnedMessagesQueryVariables = Exact<{
-  channelId: string | number;
+  channelId: string;
 }>;
 
 
 export type GetPinnedMessagesQuery = { pinnedMessages: Array<{ id: string, channelId: string, pinnedBy: string, pinnedAt: string, message: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } }> };
 
 export type UserPresenceQueryVariables = Exact<{
-  userIds: Array<string | number> | string | number;
+  userIds: Array<string> | string;
 }>;
 
 
 export type UserPresenceQuery = { userPresence: Array<{ id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean }> };
 
 export type DirectChannelQueryVariables = Exact<{
-  userId: string | number;
+  userId: string;
 }>;
 
 
@@ -586,7 +838,7 @@ export type CreateChannelMutationVariables = Exact<{
 export type CreateChannelMutation = { createChannel: { id: string, type: ChannelType, name: string | null, description: string | null, avatarUrl: string | null, createdBy: string | null, isArchived: boolean, createdAt: string, updatedAt: string, aiPersona: string | null, aiServiceUrl: string | null, unreadCount: number | null, memberCount: number | null, lastMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } | null, members: Array<{ id: string, channelId: string, userId: string, role: ChannelMemberRole, notificationPreference: NotificationPreference, lastReadAt: string | null, joinedAt: string, leftAt: string | null, user: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null }> | null } };
 
 export type UpdateChannelMutationVariables = Exact<{
-  id: string | number;
+  id: string;
   input: UpdateChannelInput;
 }>;
 
@@ -594,15 +846,15 @@ export type UpdateChannelMutationVariables = Exact<{
 export type UpdateChannelMutation = { updateChannel: { id: string, type: ChannelType, name: string | null, description: string | null, avatarUrl: string | null, createdBy: string | null, isArchived: boolean, createdAt: string, updatedAt: string, aiPersona: string | null, aiServiceUrl: string | null, unreadCount: number | null, memberCount: number | null, lastMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } | null, members: Array<{ id: string, channelId: string, userId: string, role: ChannelMemberRole, notificationPreference: NotificationPreference, lastReadAt: string | null, joinedAt: string, leftAt: string | null, user: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null }> | null } };
 
 export type ArchiveChannelMutationVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
 export type ArchiveChannelMutation = { archiveChannel: boolean };
 
 export type AddChannelMemberMutationVariables = Exact<{
-  channelId: string | number;
-  userId: string | number;
+  channelId: string;
+  userId: string;
   role?: ChannelMemberRole | null | undefined;
 }>;
 
@@ -610,15 +862,15 @@ export type AddChannelMemberMutationVariables = Exact<{
 export type AddChannelMemberMutation = { addChannelMember: { id: string, channelId: string, userId: string, role: ChannelMemberRole, notificationPreference: NotificationPreference, joinedAt: string, user: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null } };
 
 export type RemoveChannelMemberMutationVariables = Exact<{
-  channelId: string | number;
-  userId: string | number;
+  channelId: string;
+  userId: string;
 }>;
 
 
 export type RemoveChannelMemberMutation = { removeChannelMember: boolean };
 
 export type UpdateNotificationPreferenceMutationVariables = Exact<{
-  channelId: string | number;
+  channelId: string;
   preference: NotificationPreference;
 }>;
 
@@ -633,7 +885,7 @@ export type SendMessageMutationVariables = Exact<{
 export type SendMessageMutation = { sendMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } };
 
 export type EditMessageMutationVariables = Exact<{
-  id: string | number;
+  id: string;
   input: EditMessageInput;
 }>;
 
@@ -641,7 +893,7 @@ export type EditMessageMutationVariables = Exact<{
 export type EditMessageMutation = { editMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } };
 
 export type DeleteMessageMutationVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
@@ -662,23 +914,23 @@ export type RequestMediaUploadMutationVariables = Exact<{
 export type RequestMediaUploadMutation = { requestMediaUpload: { uploadUrl: string, storageKey: string, expiresAt: string } };
 
 export type PinMessageMutationVariables = Exact<{
-  channelId: string | number;
-  messageId: string | number;
+  channelId: string;
+  messageId: string;
 }>;
 
 
 export type PinMessageMutation = { pinMessage: { id: string, channelId: string, pinnedBy: string, pinnedAt: string, message: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } } };
 
 export type UnpinMessageMutationVariables = Exact<{
-  channelId: string | number;
-  messageId: string | number;
+  channelId: string;
+  messageId: string;
 }>;
 
 
 export type UnpinMessageMutation = { unpinMessage: boolean };
 
 export type AddReactionMutationVariables = Exact<{
-  messageId: string | number;
+  messageId: string;
   emoji: string;
 }>;
 
@@ -686,7 +938,7 @@ export type AddReactionMutationVariables = Exact<{
 export type AddReactionMutation = { addReaction: boolean };
 
 export type RemoveReactionMutationVariables = Exact<{
-  messageId: string | number;
+  messageId: string;
   emoji: string;
 }>;
 
@@ -694,16 +946,16 @@ export type RemoveReactionMutationVariables = Exact<{
 export type RemoveReactionMutation = { removeReaction: boolean };
 
 export type ForwardMessageMutationVariables = Exact<{
-  sourceMessageId: string | number;
+  sourceMessageId: string;
   sourceMessageCreatedAt: string;
-  targetChannelId: string | number;
+  targetChannelId: string;
 }>;
 
 
 export type ForwardMessageMutation = { forwardMessage: { id: string, channelId: string, senderId: string, content: string | null, contentType: MessageContentType, parentId: string | null, forwardedFrom: string | null, isDeleted: boolean, createdAt: string, editedAt: string | null, sender: { id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean } | null, attachments: Array<{ id: string, originalFilename: string, mimeType: string, fileSize: number, width: number | null, height: number | null, durationSeconds: number | null, thumbnailUrl: string | null, downloadUrl: string | null }>, receipts: Array<{ userId: string, status: ReceiptStatus, deliveredAt: string | null, readAt: string | null }> | null, reactionSummary: Array<{ emoji: string, count: number, userIds: Array<string>, hasReacted: boolean }> | null } };
 
 export type MobileConfirmAiActionMutationVariables = Exact<{
-  actionId: string | number;
+  actionId: string;
 }>;
 
 
@@ -718,11 +970,11 @@ export type MobileSentimentTrendsQuery = { sentimentTrends: Array<{ channelId: s
 
 export type FeedingDayPlansQueryVariables = Exact<{
   planDate: string;
-  siteId?: string | number | null | undefined;
+  siteId?: string | null | undefined;
 }>;
 
 
-export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: string | null, notes: string | null }> | null }> };
+export type FeedingDayPlansQuery = { feedingDayPlans: Array<{ id: string, unitId: string, unitName: string, unitCode: string, planDate: string, status: FeedingDayPlanStatus, plannedTotalKg: number, unplannedActualKg: number, mealsPlanned: number, avgWeightG: number, fishCount: number, biomassKg: number, waterTempC: number | null, temperatureSource: string, usingDefaultTemperature: boolean, feedId: string, feedCode: string, feedName: string, effectiveRatePercent: number, expectedFcr: number, meals: Array<{ id: string, mealIndex: number, scheduledAt: string, percentOfDaily: number, plannedKg: number, status: FeedingMealStatus, actualKg: number, varianceKg: number | null, variancePercent: number | null, feedId: string, fedAt: string | null, feedingMethod: FeedingMethod | null, notes: string | null }> | null }> };
 
 export type MyAttendanceRecordsQueryVariables = Exact<{
   startDate?: string | null | undefined;
@@ -768,14 +1020,14 @@ export type LeaveTypesQueryVariables = Exact<{ [key: string]: never; }>;
 export type LeaveTypesQuery = { leaveTypes: Array<{ id: string, name: string, code: string, category: LeaveCategory, isPaid: boolean, defaultDaysPerYear: number | null, color: string | null }> };
 
 export type SubmitLeaveRequestMutationVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
 export type SubmitLeaveRequestMutation = { submitLeaveRequest: { id: string, status: LeaveRequestStatus } };
 
 export type CancelLeaveRequestMutationVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
@@ -786,19 +1038,19 @@ export type GetMyTasksQueryVariables = Exact<{
 }>;
 
 
-export type GetMyTasksQuery = { myTasks: Array<{ id: string, title: string, description: string | null, category: TaskCategory, priority: TaskPriority, status: TaskStatus, assignedTo: string, assignedToName: string, dueDate: string, dueTime: string | null, location: string | null, estimatedMinutes: number | null, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> | null, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> | null, tags: Array<string> | null, isRecurring: boolean, completedAt: string | null, completedBy: string | null, createdAt: string }> };
+export type GetMyTasksQuery = { myTasks: Array<{ id: string, title: string, description: string | null, category: TaskCategory, priority: TaskPriority, status: TaskStatus, assignedTo: string, assignedToName: string, dueDate: string, dueTime: string | null, location: string | null, estimatedMinutes: number | null, tags: Array<string> | null, isRecurring: boolean, completedAt: string | null, completedBy: string | null, createdAt: string, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }>, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> }> };
 
 export type GetTodaysTasksQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type GetTodaysTasksQuery = { todaysTasks: Array<{ id: string, title: string, category: TaskCategory, priority: TaskPriority, status: TaskStatus, dueTime: string | null, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> | null, assignedToName: string }> };
+export type GetTodaysTasksQuery = { todaysTasks: Array<{ id: string, title: string, category: TaskCategory, priority: TaskPriority, status: TaskStatus, dueTime: string | null, assignedToName: string, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> }> };
 
 export type GetTaskDetailQueryVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
-export type GetTaskDetailQuery = { task: { id: string, title: string, description: string | null, category: TaskCategory, priority: TaskPriority, status: TaskStatus, assignedTo: string, assignedToName: string, dueDate: string, dueTime: string | null, location: string | null, estimatedMinutes: number | null, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> | null, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> | null, tags: Array<string> | null, isRecurring: boolean, recurringTemplateId: string | null, isAutoGenerated: boolean, completedAt: string | null, completedBy: string | null, createdAt: string, updatedAt: string } };
+export type GetTaskDetailQuery = { task: { id: string, title: string, description: string | null, category: TaskCategory, priority: TaskPriority, status: TaskStatus, assignedTo: string, assignedToName: string, dueDate: string, dueTime: string | null, location: string | null, estimatedMinutes: number | null, tags: Array<string> | null, isRecurring: boolean, recurringTemplateId: string | null, isAutoGenerated: boolean, completedAt: string | null, completedBy: string | null, createdAt: string, updatedAt: string, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }>, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> } };
 
 export type GetTaskStatsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -824,15 +1076,15 @@ export type SetChecklistItemMutationVariables = Exact<{
 }>;
 
 
-export type SetChecklistItemMutation = { setChecklistItem: { id: string, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> | null } };
+export type SetChecklistItemMutation = { setChecklistItem: { id: string, checklistItems: Array<{ id: string, text: string, isCompleted: boolean }> } };
 
 export type AddTaskNoteMutationVariables = Exact<{
-  taskId: string | number;
+  taskId: string;
   text: string;
 }>;
 
 
-export type AddTaskNoteMutation = { addTaskNote: { id: string, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> | null } };
+export type AddTaskNoteMutation = { addTaskNote: { id: string, notes: Array<{ id: string, text: string, createdBy: string, createdAt: string }> } };
 
 export type GetMyNotificationsQueryVariables = Exact<{
   unreadOnly?: boolean | null | undefined;
@@ -848,7 +1100,7 @@ export type GetUnreadNotificationCountQueryVariables = Exact<{ [key: string]: ne
 export type GetUnreadNotificationCountQuery = { unreadNotificationCount: number };
 
 export type MarkNotificationAsReadMutationVariables = Exact<{
-  id: string | number;
+  id: string;
 }>;
 
 
@@ -879,7 +1131,7 @@ export type GetStockEventsSummaryQueryVariables = Exact<{
 }>;
 
 
-export type GetStockEventsSummaryQuery = { stockEventsSummary: { thisWeekEventsCount: number, recentEvents: Array<{ id: string, type: string, tankName: string, quantity: number, createdAt: string, note: string | null }> } };
+export type GetStockEventsSummaryQuery = { stockEventsSummary: { thisWeekEventsCount: number, recentEvents: Array<{ id: string, type: MobileStockEventType, tankName: string, quantity: number, createdAt: string, note: string | null }> } };
 
 export type MobileReportDeadlinesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -894,7 +1146,7 @@ export type MobileReportDraftsQueryVariables = Exact<{
 export type MobileReportDraftsQuery = { reportDrafts: Array<{ id: string, reportType: string, siteId: string, periodYear: number, periodWeek: number | null, periodMonth: number | null, status: ReportDraftStatus, schemaValid: boolean, dueAt: string | null, assembledPayload: Record<string, unknown>, fieldMeta: Record<string, unknown>, manualOverrides: Record<string, unknown> | null }> };
 
 export type MobileApproveAndSubmitReportDraftMutationVariables = Exact<{
-  draftId: string | number;
+  draftId: string;
 }>;
 
 
@@ -903,75 +1155,162 @@ export type MobileApproveAndSubmitReportDraftMutation = { approveAndSubmitReport
 export type GetWarehouseSummaryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type GetWarehouseSummaryQuery = { warehouseSummary: { totalItems: number, lowStockAlertCount: number, todaysMovementCount: number, lowStockItems: Array<{ id: string, name: string, itemType: string, currentQty: number, minQty: number, unit: string }>, recentMovements: Array<{ id: string, movementType: string, itemName: string, quantity: number, unit: string, createdAt: string }>, feedCoverage: Array<{ feedId: string, feedCode: string, feedName: string, daysOfCover: number | null, stockoutDate: string | null, coverageStatus: string }> } };
+export type GetWarehouseSummaryQuery = { warehouseSummary: { totalItems: number, lowStockAlertCount: number, todaysMovementCount: number, lowStockItems: Array<{ id: string, name: string, itemType: StorageItemType, currentQty: number, minQty: number, unit: string }>, recentMovements: Array<{ id: string, movementType: MovementType, itemName: string, quantity: number, unit: string, createdAt: string }>, feedCoverage: Array<{ feedId: string, feedCode: string, feedName: string, daysOfCover: number | null, stockoutDate: string | null, coverageStatus: WarehouseFeedCoverageStatus }> } };
 
 export type MobileTankSensorsQueryVariables = Exact<{
-  tankId: string | number;
+  tankId: string;
 }>;
 
 
 export type MobileTankSensorsQuery = { sensorRawList: Array<{ id: string, name: string, type: SensorType, status: SensorStatus, unit: string | null, lastSeenAt: string | null }> };
 
 export type MobileLatestReadingsBatchQueryVariables = Exact<{
-  sensorIds: Array<string | number> | string | number;
+  sensorIds: Array<string> | string;
 }>;
 
 
 export type MobileLatestReadingsBatchQuery = { latestReadingsBatch: Array<{ id: string, sensorId: string, timestamp: string, readings: { temperature: number | null, ph: number | null, dissolvedOxygen: number | null, salinity: number | null, ammonia: number | null, nitrite: number | null, nitrate: number | null, turbidity: number | null, waterLevel: number | null } }> };
 
-export type MobileDriveFieldsFragment = { id: string, name: string, brand: VfdBrand, status: VfdDeviceStatus, location: string | null, connectionStatus: Record<string, unknown> | null, driveBinding: { drivenEquipmentId: string, state: VfdDriveBindingState, equipmentCategory: string | null, equipmentCode: string | null, equipmentName: string | null, attestedAt: string | null } | null, drivenUnit: { outcome: VfdDrivenUnitOutcome, drivenEquipmentId: string | null, equipmentCategory: string | null, units: Array<{ unitId: string, unitCode: string, unitType: string, doseSharePercent: number }> }, latestReading: { timestamp: string, isValid: boolean, errorMessage: string | null, parameters: Record<string, unknown>, statusBits: Record<string, unknown> | null } | null };
+export type GetAiConsentStatusQueryVariables = Exact<{ [key: string]: never; }>;
 
-export type MobileVfdFleetQueryVariables = Exact<{
-  pagination?: VfdPaginationInput | null | undefined;
+
+export type GetAiConsentStatusQuery = { aiSettings: { tenantAiEnabled: boolean, userAiConsent: boolean } };
+
+export type ToggleAiConsentMutationVariables = Exact<{
+  consent: boolean;
 }>;
 
 
-export type MobileVfdFleetQuery = { vfdStats: { total: number, active: number, inactive: number, faulted: number, maintenance: number }, vfdDevices: { total: number, page: number, totalPages: number, hasNextPage: boolean, items: Array<{ id: string, name: string, brand: string, protocol: string, status: string, location: string | null, connectionStatus: { isConnected: boolean, lastError: string | null, lastSuccessAt: string | null } | null }> } };
+export type ToggleAiConsentMutation = { updateUserAiConsent: boolean };
 
-export type MobileVfdFleetSummaryQueryVariables = Exact<{ [key: string]: never; }>;
-
-
-export type MobileVfdFleetSummaryQuery = { vfdStats: { total: number, active: number, inactive: number, faulted: number, maintenance: number } };
-
-export type MobileVfdDriveQueryVariables = Exact<{
-  id: string | number;
+export type RequestIncidentMediaUploadMutationVariables = Exact<{
+  input: RequestIncidentMediaUploadInput;
 }>;
 
 
-export type MobileVfdDriveQuery = { vfdDevice: { id: string, name: string, brand: VfdBrand, status: VfdDeviceStatus, location: string | null, connectionStatus: Record<string, unknown> | null, driveBinding: { drivenEquipmentId: string, state: VfdDriveBindingState, equipmentCategory: string | null, equipmentCode: string | null, equipmentName: string | null, attestedAt: string | null } | null, drivenUnit: { outcome: VfdDrivenUnitOutcome, drivenEquipmentId: string | null, equipmentCategory: string | null, units: Array<{ unitId: string, unitCode: string, unitType: string, doseSharePercent: number }> }, latestReading: { timestamp: string, isValid: boolean, errorMessage: string | null, parameters: Record<string, unknown>, statusBits: Record<string, unknown> | null } | null } | null };
+export type RequestIncidentMediaUploadMutation = { requestIncidentMediaUpload: { uploadUrl: string, storageKey: string, expiresAt: string } };
 
-export type MobileUnitDrivesQueryVariables = Exact<{
-  tankId: string | number;
+export type GetMyWeeklyPlanQueryVariables = Exact<{
+  weekStartDate?: string | null | undefined;
 }>;
 
 
-export type MobileUnitDrivesQuery = { vfdDevicesByTank: Array<{ id: string, name: string, brand: VfdBrand, status: VfdDeviceStatus, location: string | null, connectionStatus: Record<string, unknown> | null, driveBinding: { drivenEquipmentId: string, state: VfdDriveBindingState, equipmentCategory: string | null, equipmentCode: string | null, equipmentName: string | null, attestedAt: string | null } | null, drivenUnit: { outcome: VfdDrivenUnitOutcome, drivenEquipmentId: string | null, equipmentCategory: string | null, units: Array<{ unitId: string, unitCode: string, unitType: string, doseSharePercent: number }> }, latestReading: { timestamp: string, isValid: boolean, errorMessage: string | null, parameters: Record<string, unknown>, statusBits: Record<string, unknown> | null } | null }> };
+export type GetMyWeeklyPlanQuery = { mySchedule: { total: number, items: Array<{ id: string, employeeId: string, weekStartDate: string, weekEndDate: string, status: WeeklyPlanStatus, plannedTotalMinutes: number, standardWeeklyMinutes: number, plannedOvertimeMinutes: number, plannedWorkDays: number, plannedOffDays: number, entries: Array<{ id: string, date: string, dayOfWeek: WeekDay, entryType: WeeklyPlanEntryType, shiftId: string | null, plannedStartTime: string | null, plannedEndTime: string | null, plannedMinutes: number, isOffDay: boolean, isLeaveDay: boolean, shift: { id: string, name: string, code: string, startTime: string, endTime: string, totalMinutes: number, breakMinutes: number, colorCode: string | null } | null }> | null }> } };
 
-export type MobileFeederSetupQueryVariables = Exact<{
-  equipmentId: string | number;
+export type FarmStockInventoryQueryVariables = Exact<{
+  filter?: FarmStockInventoryFilterInput | null | undefined;
 }>;
 
 
-export type MobileFeederSetupQuery = { feederSetup: { capability: { equipmentId: string, dosingMode: FeederDosingMode, dispenseControl: FeederDispenseControl, siloCapacityKg: number | null, minSpeedHz: number | null, maxSpeedHz: number | null } | null, calibrations: Array<{ id: string, feedId: string, dosingMode: FeederDosingMode, gramsPerDispensing: number | null, gramsPerMinute: number | null, referenceSpeedHz: number | null }> } };
+export type FarmStockInventoryQuery = { farmStockInventory: { total: number, items: Array<{ container: { containerId: string, name: string, code: string, volume: number | null, status: string | null, siteId: string | null, currentQuantity: number | null, currentBiomassKg: number | null, maxBiomassKg: number | null, capacityUsedPercent: number | null, isOverCapacity: boolean }, batches: Array<{ batchId: string, batchNumber: string | null, speciesId: string | null, speciesName: string | null, quantity: number, avgWeightG: number, biomassKg: number, densityKgM3: number | null, isPrimary: boolean }> }> } };
 
-export type MobileStartVfdMutationVariables = Exact<{
-  vfdDeviceId: string | number;
+export type ChannelEligibleUsersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ChannelEligibleUsersQuery = { channelEligibleUsers: Array<{ id: string, firstName: string | null, lastName: string | null, profileImageUrl: string | null, isOnline: boolean }> };
+
+export type WebAuthnRegistrationChallengeMutationVariables = Exact<{
+  input?: WebAuthnRegistrationChallengeInput | null | undefined;
 }>;
 
 
-export type MobileStartVfdMutation = { startVfd: { success: boolean, error: string | null, acknowledgedAt: string | null, commandSent: string | null } };
+export type WebAuthnRegistrationChallengeMutation = { webAuthnRegistrationChallenge: { challenge: string, rpId: string, rpName: string, userId: string, userName: string } };
 
-export type MobileStopVfdMutationVariables = Exact<{
-  vfdDeviceId: string | number;
+export type RegisterWebAuthnCredentialMutationVariables = Exact<{
+  input: WebAuthnRegisterCredentialInput;
 }>;
 
 
-export type MobileStopVfdMutation = { stopVfd: { success: boolean, error: string | null, acknowledgedAt: string | null, commandSent: string | null } };
+export type RegisterWebAuthnCredentialMutation = { registerWebAuthnCredential: { success: boolean, message: string | null, credentialId: string | null } };
+
+export type WebAuthnLoginChallengeMutationVariables = Exact<{
+  input: WebAuthnLoginChallengeInput;
+}>;
+
+
+export type WebAuthnLoginChallengeMutation = { webAuthnLoginChallenge: { challenge: string, rpId: string, allowedCredentialIds: Array<string> } };
+
+export type VerifyWebAuthnLoginMutationVariables = Exact<{
+  input: WebAuthnVerifyLoginInput;
+}>;
+
+
+export type VerifyWebAuthnLoginMutation = { verifyWebAuthnLogin: { accessToken: string, refreshToken: string, user: { id: string, email: string, firstName: string | null, lastName: string | null, role: Role, tenantId: string | null } } };
+
+export type MyWebAuthnCredentialsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MyWebAuthnCredentialsQuery = { myWebAuthnCredentials: Array<{ credentialId: string, deviceName: string, createdAt: string, lastUsedAt: string }> };
+
+export type HasWebAuthnCredentialsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type HasWebAuthnCredentialsQuery = { hasWebAuthnCredentials: boolean };
+
+export type RemoveWebAuthnCredentialMutationVariables = Exact<{
+  credentialId: string;
+}>;
+
+
+export type RemoveWebAuthnCredentialMutation = { removeWebAuthnCredential: { success: boolean, message: string | null } };
+
+export type StorageInventoryItemsQueryVariables = Exact<{
+  itemType?: StorageItemType | null | undefined;
+}>;
+
+
+export type StorageInventoryItemsQuery = { storageInventory: Array<{ itemId: string, itemName: string | null, unit: string, itemType: StorageItemType }> };
+
+export type StorageLocationsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type StorageLocationsQuery = { storageLocations: { items: Array<{ id: string, name: string, code: string }> } };
+
+export type RecordStockMovementMutationVariables = Exact<{
+  input: RecordStockMovementInput;
+}>;
+
+
+export type RecordStockMovementMutation = { recordStockMovement: { id: string, movementType: MovementType, quantity: number } };
+
+export type TransferStockMutationVariables = Exact<{
+  input: TransferStockInput;
+}>;
+
+
+export type TransferStockMutation = { transferStock: { id: string, quantity: number } };
+
+export type StockAtLocationQueryVariables = Exact<{
+  locationId: string;
+}>;
+
+
+export type StockAtLocationQuery = { storageInventory: Array<{ id: string, itemName: string | null, itemType: StorageItemType, quantity: number, unit: string, lotNumber: string | null, expiryDate: string | null }> };
+
+export type EquipmentListQueryVariables = Exact<{
+  filter?: EquipmentFilterInput | null | undefined;
+}>;
+
+
+export type EquipmentListQuery = { equipmentList: { items: Array<{ id: string, name: string, code: string, equipmentType: { category: EquipmentCategory, name: string } | null }> } };
+
+export type EquipmentParametersQueryVariables = Exact<{
+  equipmentId: string;
+}>;
+
+
+export type EquipmentParametersQuery = { equipmentParameters: Array<{ parameterConfig: { id: string, code: string, name: string, unit: string, dataType: ParameterDataType, precision: number, group: ParameterGroup, optimalMin: number | null, optimalMax: number | null, warningMin: number | null, warningMax: number | null, criticalMin: number | null, criticalMax: number | null, enumValues: Array<string> | null, displayOrder: number, isRequired: boolean, chartColor: string } }> };
+
+export type CreateWaterQualityMeasurementMutationVariables = Exact<{
+  input: CreateWaterQualityInput;
+}>;
+
+
+export type CreateWaterQualityMeasurementMutation = { createWaterQualityMeasurement: { id: string, overallStatus: WaterQualityStatus, hasAlarm: boolean } };
 
 export const MobileAlertFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MobileAlertFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"AlertHistory"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"ruleId"}},{"kind":"Field","name":{"kind":"Name","value":"ruleName"}},{"kind":"Field","name":{"kind":"Name","value":"farmId"}},{"kind":"Field","name":{"kind":"Name","value":"pondId"}},{"kind":"Field","name":{"kind":"Name","value":"sensorId"}},{"kind":"Field","name":{"kind":"Name","value":"severity"}},{"kind":"Field","name":{"kind":"Name","value":"message"}},{"kind":"Field","name":{"kind":"Name","value":"triggeredAt"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledged"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedAt"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedBy"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgementNote"}},{"kind":"Field","name":{"kind":"Name","value":"resolved"}},{"kind":"Field","name":{"kind":"Name","value":"resolvedAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]} as unknown as DocumentNode<MobileAlertFieldsFragment, unknown>;
 export const MessageFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MessageFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Message"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"senderId"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"parentId"}},{"kind":"Field","name":{"kind":"Name","value":"forwardedFrom"}},{"kind":"Field","name":{"kind":"Name","value":"isDeleted"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"editedAt"}},{"kind":"Field","name":{"kind":"Name","value":"sender"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}},{"kind":"Field","name":{"kind":"Name","value":"attachments"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"originalFilename"}},{"kind":"Field","name":{"kind":"Name","value":"mimeType"}},{"kind":"Field","name":{"kind":"Name","value":"fileSize"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"durationSeconds"}},{"kind":"Field","name":{"kind":"Name","value":"thumbnailUrl"}},{"kind":"Field","name":{"kind":"Name","value":"downloadUrl"}}]}},{"kind":"Field","name":{"kind":"Name","value":"receipts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"deliveredAt"}},{"kind":"Field","name":{"kind":"Name","value":"readAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"reactionSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"emoji"}},{"kind":"Field","name":{"kind":"Name","value":"count"}},{"kind":"Field","name":{"kind":"Name","value":"userIds"}},{"kind":"Field","name":{"kind":"Name","value":"hasReacted"}}]}}]}}]} as unknown as DocumentNode<MessageFieldsFragment, unknown>;
 export const ChannelFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ChannelFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Channel"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"createdBy"}},{"kind":"Field","name":{"kind":"Name","value":"isArchived"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}},{"kind":"Field","name":{"kind":"Name","value":"aiPersona"}},{"kind":"Field","name":{"kind":"Name","value":"aiServiceUrl"}},{"kind":"Field","name":{"kind":"Name","value":"unreadCount"}},{"kind":"Field","name":{"kind":"Name","value":"memberCount"}},{"kind":"Field","name":{"kind":"Name","value":"lastMessage"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MessageFields"}}]}},{"kind":"Field","name":{"kind":"Name","value":"members"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"role"}},{"kind":"Field","name":{"kind":"Name","value":"notificationPreference"}},{"kind":"Field","name":{"kind":"Name","value":"lastReadAt"}},{"kind":"Field","name":{"kind":"Name","value":"joinedAt"}},{"kind":"Field","name":{"kind":"Name","value":"leftAt"}},{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MessageFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Message"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"channelId"}},{"kind":"Field","name":{"kind":"Name","value":"senderId"}},{"kind":"Field","name":{"kind":"Name","value":"content"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"parentId"}},{"kind":"Field","name":{"kind":"Name","value":"forwardedFrom"}},{"kind":"Field","name":{"kind":"Name","value":"isDeleted"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"editedAt"}},{"kind":"Field","name":{"kind":"Name","value":"sender"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}},{"kind":"Field","name":{"kind":"Name","value":"attachments"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"originalFilename"}},{"kind":"Field","name":{"kind":"Name","value":"mimeType"}},{"kind":"Field","name":{"kind":"Name","value":"fileSize"}},{"kind":"Field","name":{"kind":"Name","value":"width"}},{"kind":"Field","name":{"kind":"Name","value":"height"}},{"kind":"Field","name":{"kind":"Name","value":"durationSeconds"}},{"kind":"Field","name":{"kind":"Name","value":"thumbnailUrl"}},{"kind":"Field","name":{"kind":"Name","value":"downloadUrl"}}]}},{"kind":"Field","name":{"kind":"Name","value":"receipts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"deliveredAt"}},{"kind":"Field","name":{"kind":"Name","value":"readAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"reactionSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"emoji"}},{"kind":"Field","name":{"kind":"Name","value":"count"}},{"kind":"Field","name":{"kind":"Name","value":"userIds"}},{"kind":"Field","name":{"kind":"Name","value":"hasReacted"}}]}}]}}]} as unknown as DocumentNode<ChannelFieldsFragment, unknown>;
-export const MobileDriveFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MobileDriveFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"VfdDevice"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"brand"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"location"}},{"kind":"Field","name":{"kind":"Name","value":"connectionStatus"}},{"kind":"Field","name":{"kind":"Name","value":"driveBinding"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCode"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentName"}},{"kind":"Field","name":{"kind":"Name","value":"attestedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"drivenUnit"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"outcome"}},{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"units"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"unitId"}},{"kind":"Field","name":{"kind":"Name","value":"unitCode"}},{"kind":"Field","name":{"kind":"Name","value":"unitType"}},{"kind":"Field","name":{"kind":"Name","value":"doseSharePercent"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"latestReading"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"isValid"}},{"kind":"Field","name":{"kind":"Name","value":"errorMessage"}},{"kind":"Field","name":{"kind":"Name","value":"parameters"}},{"kind":"Field","name":{"kind":"Name","value":"statusBits"}}]}}]}}]} as unknown as DocumentNode<MobileDriveFieldsFragment, unknown>;
 export const FarmDashboardInsightsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"FarmDashboardInsights"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"farmDashboardInsights"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"overallRiskScore"}},{"kind":"Field","name":{"kind":"Name","value":"tankRisks"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"tankId"}},{"kind":"Field","name":{"kind":"Name","value":"riskScore"}},{"kind":"Field","name":{"kind":"Name","value":"riskLevel"}},{"kind":"Field","name":{"kind":"Name","value":"factors"}},{"kind":"Field","name":{"kind":"Name","value":"recommendations"}}]}},{"kind":"Field","name":{"kind":"Name","value":"anomalies"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"severity"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"affectedEntity"}},{"kind":"Field","name":{"kind":"Name","value":"suggestedActions"}}]}},{"kind":"Field","name":{"kind":"Name","value":"feedingAdvice"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"tankId"}},{"kind":"Field","name":{"kind":"Name","value":"recommendedAmount"}},{"kind":"Field","name":{"kind":"Name","value":"feedType"}},{"kind":"Field","name":{"kind":"Name","value":"feedingFrequency"}},{"kind":"Field","name":{"kind":"Name","value":"rationale"}}]}}]}}]}}]} as unknown as DocumentNode<FarmDashboardInsightsQuery, FarmDashboardInsightsQueryVariables>;
 export const TankRiskAssessmentDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"TankRiskAssessment"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"tankRiskAssessment"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"tankId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"tankId"}},{"kind":"Field","name":{"kind":"Name","value":"riskScore"}},{"kind":"Field","name":{"kind":"Name","value":"riskLevel"}},{"kind":"Field","name":{"kind":"Name","value":"factors"}},{"kind":"Field","name":{"kind":"Name","value":"recommendations"}}]}}]}}]} as unknown as DocumentNode<TankRiskAssessmentQuery, TankRiskAssessmentQueryVariables>;
 export const BatchGrowthPredictionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"BatchGrowthPrediction"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"batchId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"batchGrowthPrediction"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"batchId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"batchId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"batchId"}},{"kind":"Field","name":{"kind":"Name","value":"currentAvgWeight"}},{"kind":"Field","name":{"kind":"Name","value":"predictedAvgWeight30d"}},{"kind":"Field","name":{"kind":"Name","value":"predictedSGR"}},{"kind":"Field","name":{"kind":"Name","value":"predictedFCR"}},{"kind":"Field","name":{"kind":"Name","value":"estimatedBiomass30d"}}]}}]}}]} as unknown as DocumentNode<BatchGrowthPredictionQuery, BatchGrowthPredictionQueryVariables>;
@@ -1039,10 +1378,24 @@ export const MobileApproveAndSubmitReportDraftDocument = {"kind":"Document","def
 export const GetWarehouseSummaryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetWarehouseSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"warehouseSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"totalItems"}},{"kind":"Field","name":{"kind":"Name","value":"lowStockAlertCount"}},{"kind":"Field","name":{"kind":"Name","value":"todaysMovementCount"}},{"kind":"Field","name":{"kind":"Name","value":"lowStockItems"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"itemType"}},{"kind":"Field","name":{"kind":"Name","value":"currentQty"}},{"kind":"Field","name":{"kind":"Name","value":"minQty"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}}]}},{"kind":"Field","name":{"kind":"Name","value":"recentMovements"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"movementType"}},{"kind":"Field","name":{"kind":"Name","value":"itemName"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"feedCoverage"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"feedId"}},{"kind":"Field","name":{"kind":"Name","value":"feedCode"}},{"kind":"Field","name":{"kind":"Name","value":"feedName"}},{"kind":"Field","name":{"kind":"Name","value":"daysOfCover"}},{"kind":"Field","name":{"kind":"Name","value":"stockoutDate"}},{"kind":"Field","name":{"kind":"Name","value":"coverageStatus"}}]}}]}}]}}]} as unknown as DocumentNode<GetWarehouseSummaryQuery, GetWarehouseSummaryQueryVariables>;
 export const MobileTankSensorsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileTankSensors"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sensorRawList"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"tankId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"50"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"lastSeenAt"}}]}}]}}]} as unknown as DocumentNode<MobileTankSensorsQuery, MobileTankSensorsQueryVariables>;
 export const MobileLatestReadingsBatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileLatestReadingsBatch"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"sensorIds"}},"type":{"kind":"NonNullType","type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"latestReadingsBatch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"sensorIds"},"value":{"kind":"Variable","name":{"kind":"Name","value":"sensorIds"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"sensorId"}},{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"readings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"temperature"}},{"kind":"Field","name":{"kind":"Name","value":"ph"}},{"kind":"Field","name":{"kind":"Name","value":"dissolvedOxygen"}},{"kind":"Field","name":{"kind":"Name","value":"salinity"}},{"kind":"Field","name":{"kind":"Name","value":"ammonia"}},{"kind":"Field","name":{"kind":"Name","value":"nitrite"}},{"kind":"Field","name":{"kind":"Name","value":"nitrate"}},{"kind":"Field","name":{"kind":"Name","value":"turbidity"}},{"kind":"Field","name":{"kind":"Name","value":"waterLevel"}}]}}]}}]}}]} as unknown as DocumentNode<MobileLatestReadingsBatchQuery, MobileLatestReadingsBatchQueryVariables>;
-export const MobileVfdFleetDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileVfdFleet"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"pagination"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"VfdPaginationInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"vfdStats"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"total"}},{"kind":"Field","name":{"kind":"Name","value":"active"}},{"kind":"Field","name":{"kind":"Name","value":"inactive"}},{"kind":"Field","name":{"kind":"Name","value":"faulted"}},{"kind":"Field","name":{"kind":"Name","value":"maintenance"}}]}},{"kind":"Field","name":{"kind":"Name","value":"vfdDevices"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"pagination"},"value":{"kind":"Variable","name":{"kind":"Name","value":"pagination"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"total"}},{"kind":"Field","name":{"kind":"Name","value":"page"}},{"kind":"Field","name":{"kind":"Name","value":"totalPages"}},{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"brand"}},{"kind":"Field","name":{"kind":"Name","value":"protocol"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"location"}},{"kind":"Field","name":{"kind":"Name","value":"connectionStatus"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"isConnected"}},{"kind":"Field","name":{"kind":"Name","value":"lastError"}},{"kind":"Field","name":{"kind":"Name","value":"lastSuccessAt"}}]}}]}}]}}]}}]} as unknown as DocumentNode<MobileVfdFleetQuery, MobileVfdFleetQueryVariables>;
-export const MobileVfdFleetSummaryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileVfdFleetSummary"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"vfdStats"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"total"}},{"kind":"Field","name":{"kind":"Name","value":"active"}},{"kind":"Field","name":{"kind":"Name","value":"inactive"}},{"kind":"Field","name":{"kind":"Name","value":"faulted"}},{"kind":"Field","name":{"kind":"Name","value":"maintenance"}}]}}]}}]} as unknown as DocumentNode<MobileVfdFleetSummaryQuery, MobileVfdFleetSummaryQueryVariables>;
-export const MobileVfdDriveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileVfdDrive"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"vfdDevice"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MobileDriveFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MobileDriveFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"VfdDevice"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"brand"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"location"}},{"kind":"Field","name":{"kind":"Name","value":"connectionStatus"}},{"kind":"Field","name":{"kind":"Name","value":"driveBinding"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCode"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentName"}},{"kind":"Field","name":{"kind":"Name","value":"attestedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"drivenUnit"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"outcome"}},{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"units"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"unitId"}},{"kind":"Field","name":{"kind":"Name","value":"unitCode"}},{"kind":"Field","name":{"kind":"Name","value":"unitType"}},{"kind":"Field","name":{"kind":"Name","value":"doseSharePercent"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"latestReading"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"isValid"}},{"kind":"Field","name":{"kind":"Name","value":"errorMessage"}},{"kind":"Field","name":{"kind":"Name","value":"parameters"}},{"kind":"Field","name":{"kind":"Name","value":"statusBits"}}]}}]}}]} as unknown as DocumentNode<MobileVfdDriveQuery, MobileVfdDriveQueryVariables>;
-export const MobileUnitDrivesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileUnitDrives"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"vfdDevicesByTank"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"tankId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"tankId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MobileDriveFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MobileDriveFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"VfdDevice"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"brand"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"location"}},{"kind":"Field","name":{"kind":"Name","value":"connectionStatus"}},{"kind":"Field","name":{"kind":"Name","value":"driveBinding"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCode"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentName"}},{"kind":"Field","name":{"kind":"Name","value":"attestedAt"}}]}},{"kind":"Field","name":{"kind":"Name","value":"drivenUnit"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"outcome"}},{"kind":"Field","name":{"kind":"Name","value":"drivenEquipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentCategory"}},{"kind":"Field","name":{"kind":"Name","value":"units"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"unitId"}},{"kind":"Field","name":{"kind":"Name","value":"unitCode"}},{"kind":"Field","name":{"kind":"Name","value":"unitType"}},{"kind":"Field","name":{"kind":"Name","value":"doseSharePercent"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"latestReading"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"timestamp"}},{"kind":"Field","name":{"kind":"Name","value":"isValid"}},{"kind":"Field","name":{"kind":"Name","value":"errorMessage"}},{"kind":"Field","name":{"kind":"Name","value":"parameters"}},{"kind":"Field","name":{"kind":"Name","value":"statusBits"}}]}}]}}]} as unknown as DocumentNode<MobileUnitDrivesQuery, MobileUnitDrivesQueryVariables>;
-export const MobileFeederSetupDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MobileFeederSetup"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"feederSetup"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"equipmentId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"capability"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"equipmentId"}},{"kind":"Field","name":{"kind":"Name","value":"dosingMode"}},{"kind":"Field","name":{"kind":"Name","value":"dispenseControl"}},{"kind":"Field","name":{"kind":"Name","value":"siloCapacityKg"}},{"kind":"Field","name":{"kind":"Name","value":"minSpeedHz"}},{"kind":"Field","name":{"kind":"Name","value":"maxSpeedHz"}}]}},{"kind":"Field","name":{"kind":"Name","value":"calibrations"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"feedId"}},{"kind":"Field","name":{"kind":"Name","value":"dosingMode"}},{"kind":"Field","name":{"kind":"Name","value":"gramsPerDispensing"}},{"kind":"Field","name":{"kind":"Name","value":"gramsPerMinute"}},{"kind":"Field","name":{"kind":"Name","value":"referenceSpeedHz"}}]}}]}}]}}]} as unknown as DocumentNode<MobileFeederSetupQuery, MobileFeederSetupQueryVariables>;
-export const MobileStartVfdDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MobileStartVfd"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"vfdDeviceId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"startVfd"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"vfdDeviceId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"vfdDeviceId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"success"}},{"kind":"Field","name":{"kind":"Name","value":"error"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedAt"}},{"kind":"Field","name":{"kind":"Name","value":"commandSent"}}]}}]}}]} as unknown as DocumentNode<MobileStartVfdMutation, MobileStartVfdMutationVariables>;
-export const MobileStopVfdDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MobileStopVfd"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"vfdDeviceId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"stopVfd"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"vfdDeviceId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"vfdDeviceId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"success"}},{"kind":"Field","name":{"kind":"Name","value":"error"}},{"kind":"Field","name":{"kind":"Name","value":"acknowledgedAt"}},{"kind":"Field","name":{"kind":"Name","value":"commandSent"}}]}}]}}]} as unknown as DocumentNode<MobileStopVfdMutation, MobileStopVfdMutationVariables>;
+export const GetAiConsentStatusDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetAiConsentStatus"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"aiSettings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"tenantAiEnabled"}},{"kind":"Field","name":{"kind":"Name","value":"userAiConsent"}}]}}]}}]} as unknown as DocumentNode<GetAiConsentStatusQuery, GetAiConsentStatusQueryVariables>;
+export const ToggleAiConsentDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ToggleAiConsent"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"consent"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"updateUserAiConsent"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"consent"},"value":{"kind":"Variable","name":{"kind":"Name","value":"consent"}}}]}]}}]} as unknown as DocumentNode<ToggleAiConsentMutation, ToggleAiConsentMutationVariables>;
+export const RequestIncidentMediaUploadDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RequestIncidentMediaUpload"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"RequestIncidentMediaUploadInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"requestIncidentMediaUpload"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"uploadUrl"}},{"kind":"Field","name":{"kind":"Name","value":"storageKey"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}}]}}]}}]} as unknown as DocumentNode<RequestIncidentMediaUploadMutation, RequestIncidentMediaUploadMutationVariables>;
+export const GetMyWeeklyPlanDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetMyWeeklyPlan"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"weekStartDate"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"mySchedule"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"weekStartDate"},"value":{"kind":"Variable","name":{"kind":"Name","value":"weekStartDate"}}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"1"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"employeeId"}},{"kind":"Field","name":{"kind":"Name","value":"weekStartDate"}},{"kind":"Field","name":{"kind":"Name","value":"weekEndDate"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"plannedTotalMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"standardWeeklyMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"plannedOvertimeMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"plannedWorkDays"}},{"kind":"Field","name":{"kind":"Name","value":"plannedOffDays"}},{"kind":"Field","name":{"kind":"Name","value":"entries"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"date"}},{"kind":"Field","name":{"kind":"Name","value":"dayOfWeek"}},{"kind":"Field","name":{"kind":"Name","value":"entryType"}},{"kind":"Field","name":{"kind":"Name","value":"shiftId"}},{"kind":"Field","name":{"kind":"Name","value":"shift"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"startTime"}},{"kind":"Field","name":{"kind":"Name","value":"endTime"}},{"kind":"Field","name":{"kind":"Name","value":"totalMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"breakMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"colorCode"}}]}},{"kind":"Field","name":{"kind":"Name","value":"plannedStartTime"}},{"kind":"Field","name":{"kind":"Name","value":"plannedEndTime"}},{"kind":"Field","name":{"kind":"Name","value":"plannedMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"isOffDay"}},{"kind":"Field","name":{"kind":"Name","value":"isLeaveDay"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"total"}}]}}]}}]} as unknown as DocumentNode<GetMyWeeklyPlanQuery, GetMyWeeklyPlanQueryVariables>;
+export const FarmStockInventoryDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"FarmStockInventory"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"filter"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"FarmStockInventoryFilterInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"farmStockInventory"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"filter"},"value":{"kind":"Variable","name":{"kind":"Name","value":"filter"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"container"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"containerId"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"volume"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"siteId"}},{"kind":"Field","name":{"kind":"Name","value":"currentQuantity"}},{"kind":"Field","name":{"kind":"Name","value":"currentBiomassKg"}},{"kind":"Field","name":{"kind":"Name","value":"maxBiomassKg"}},{"kind":"Field","name":{"kind":"Name","value":"capacityUsedPercent"}},{"kind":"Field","name":{"kind":"Name","value":"isOverCapacity"}}]}},{"kind":"Field","name":{"kind":"Name","value":"batches"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"batchId"}},{"kind":"Field","name":{"kind":"Name","value":"batchNumber"}},{"kind":"Field","name":{"kind":"Name","value":"speciesId"}},{"kind":"Field","name":{"kind":"Name","value":"speciesName"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}},{"kind":"Field","name":{"kind":"Name","value":"avgWeightG"}},{"kind":"Field","name":{"kind":"Name","value":"biomassKg"}},{"kind":"Field","name":{"kind":"Name","value":"densityKgM3"}},{"kind":"Field","name":{"kind":"Name","value":"isPrimary"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"total"}}]}}]}}]} as unknown as DocumentNode<FarmStockInventoryQuery, FarmStockInventoryQueryVariables>;
+export const ChannelEligibleUsersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ChannelEligibleUsers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"channelEligibleUsers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"profileImageUrl"}},{"kind":"Field","name":{"kind":"Name","value":"isOnline"}}]}}]}}]} as unknown as DocumentNode<ChannelEligibleUsersQuery, ChannelEligibleUsersQueryVariables>;
+export const WebAuthnRegistrationChallengeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"WebAuthnRegistrationChallenge"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"WebAuthnRegistrationChallengeInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"webAuthnRegistrationChallenge"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"challenge"}},{"kind":"Field","name":{"kind":"Name","value":"rpId"}},{"kind":"Field","name":{"kind":"Name","value":"rpName"}},{"kind":"Field","name":{"kind":"Name","value":"userId"}},{"kind":"Field","name":{"kind":"Name","value":"userName"}}]}}]}}]} as unknown as DocumentNode<WebAuthnRegistrationChallengeMutation, WebAuthnRegistrationChallengeMutationVariables>;
+export const RegisterWebAuthnCredentialDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RegisterWebAuthnCredential"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"WebAuthnRegisterCredentialInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"registerWebAuthnCredential"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"success"}},{"kind":"Field","name":{"kind":"Name","value":"message"}},{"kind":"Field","name":{"kind":"Name","value":"credentialId"}}]}}]}}]} as unknown as DocumentNode<RegisterWebAuthnCredentialMutation, RegisterWebAuthnCredentialMutationVariables>;
+export const WebAuthnLoginChallengeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"WebAuthnLoginChallenge"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"WebAuthnLoginChallengeInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"webAuthnLoginChallenge"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"challenge"}},{"kind":"Field","name":{"kind":"Name","value":"rpId"}},{"kind":"Field","name":{"kind":"Name","value":"allowedCredentialIds"}}]}}]}}]} as unknown as DocumentNode<WebAuthnLoginChallengeMutation, WebAuthnLoginChallengeMutationVariables>;
+export const VerifyWebAuthnLoginDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"VerifyWebAuthnLogin"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"WebAuthnVerifyLoginInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"verifyWebAuthnLogin"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"accessToken"}},{"kind":"Field","name":{"kind":"Name","value":"refreshToken"}},{"kind":"Field","name":{"kind":"Name","value":"user"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"email"}},{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}},{"kind":"Field","name":{"kind":"Name","value":"role"}},{"kind":"Field","name":{"kind":"Name","value":"tenantId"}}]}}]}}]}}]} as unknown as DocumentNode<VerifyWebAuthnLoginMutation, VerifyWebAuthnLoginMutationVariables>;
+export const MyWebAuthnCredentialsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MyWebAuthnCredentials"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"myWebAuthnCredentials"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"credentialId"}},{"kind":"Field","name":{"kind":"Name","value":"deviceName"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"lastUsedAt"}}]}}]}}]} as unknown as DocumentNode<MyWebAuthnCredentialsQuery, MyWebAuthnCredentialsQueryVariables>;
+export const HasWebAuthnCredentialsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"HasWebAuthnCredentials"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasWebAuthnCredentials"}}]}}]} as unknown as DocumentNode<HasWebAuthnCredentialsQuery, HasWebAuthnCredentialsQueryVariables>;
+export const RemoveWebAuthnCredentialDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RemoveWebAuthnCredential"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"credentialId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"removeWebAuthnCredential"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"credentialId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"credentialId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"success"}},{"kind":"Field","name":{"kind":"Name","value":"message"}}]}}]}}]} as unknown as DocumentNode<RemoveWebAuthnCredentialMutation, RemoveWebAuthnCredentialMutationVariables>;
+export const StorageInventoryItemsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"StorageInventoryItems"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"itemType"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"StorageItemType"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"storageInventory"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"itemType"},"value":{"kind":"Variable","name":{"kind":"Name","value":"itemType"}}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"100"}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"itemId"}},{"kind":"Field","name":{"kind":"Name","value":"itemName"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"itemType"}}]}}]}}]} as unknown as DocumentNode<StorageInventoryItemsQuery, StorageInventoryItemsQueryVariables>;
+export const StorageLocationsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"StorageLocations"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"storageLocations"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"code"}}]}}]}}]}}]} as unknown as DocumentNode<StorageLocationsQuery, StorageLocationsQueryVariables>;
+export const RecordStockMovementDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RecordStockMovement"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"RecordStockMovementInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"recordStockMovement"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"movementType"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}}]}}]}}]} as unknown as DocumentNode<RecordStockMovementMutation, RecordStockMovementMutationVariables>;
+export const TransferStockDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"TransferStock"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"TransferStockInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"transferStock"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}}]}}]}}]} as unknown as DocumentNode<TransferStockMutation, TransferStockMutationVariables>;
+export const StockAtLocationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"StockAtLocation"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"locationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"storageInventory"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"locationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"locationId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"itemName"}},{"kind":"Field","name":{"kind":"Name","value":"itemType"}},{"kind":"Field","name":{"kind":"Name","value":"quantity"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"lotNumber"}},{"kind":"Field","name":{"kind":"Name","value":"expiryDate"}}]}}]}}]} as unknown as DocumentNode<StockAtLocationQuery, StockAtLocationQueryVariables>;
+export const EquipmentListDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"EquipmentList"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"filter"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"EquipmentFilterInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"equipmentList"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"filter"},"value":{"kind":"Variable","name":{"kind":"Name","value":"filter"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"items"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"equipmentType"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"category"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]}}]}}]} as unknown as DocumentNode<EquipmentListQuery, EquipmentListQueryVariables>;
+export const EquipmentParametersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"EquipmentParameters"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"equipmentParameters"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"equipmentId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"equipmentId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"parameterConfig"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"unit"}},{"kind":"Field","name":{"kind":"Name","value":"dataType"}},{"kind":"Field","name":{"kind":"Name","value":"precision"}},{"kind":"Field","name":{"kind":"Name","value":"group"}},{"kind":"Field","name":{"kind":"Name","value":"optimalMin"}},{"kind":"Field","name":{"kind":"Name","value":"optimalMax"}},{"kind":"Field","name":{"kind":"Name","value":"warningMin"}},{"kind":"Field","name":{"kind":"Name","value":"warningMax"}},{"kind":"Field","name":{"kind":"Name","value":"criticalMin"}},{"kind":"Field","name":{"kind":"Name","value":"criticalMax"}},{"kind":"Field","name":{"kind":"Name","value":"enumValues"}},{"kind":"Field","name":{"kind":"Name","value":"displayOrder"}},{"kind":"Field","name":{"kind":"Name","value":"isRequired"}},{"kind":"Field","name":{"kind":"Name","value":"chartColor"}}]}}]}}]}}]} as unknown as DocumentNode<EquipmentParametersQuery, EquipmentParametersQueryVariables>;
+export const CreateWaterQualityMeasurementDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateWaterQualityMeasurement"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateWaterQualityInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createWaterQualityMeasurement"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"overallStatus"}},{"kind":"Field","name":{"kind":"Name","value":"hasAlarm"}}]}}]}}]} as unknown as DocumentNode<CreateWaterQualityMeasurementMutation, CreateWaterQualityMeasurementMutationVariables>;

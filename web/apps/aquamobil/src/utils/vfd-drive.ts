@@ -32,7 +32,7 @@
  * `outputFrequency` in Hz, which every one of the eight brand configs declares
  * in Hz.
  */
-import type { VfdDriveBindingState, VfdDrivenUnitOutcome } from '@/generated/graphql';
+import type { VfdDriveBindingState, VfdDrivenUnitOutcome } from '@/graphql/vfd-types';
 
 /**
  * The parameters this client reads, with the unit each is declared in by ALL

@@ -37,7 +37,7 @@ import type {
   MobileVfdDriveQuery,
   MobileVfdFleetQuery,
   MobileVfdFleetSummaryQuery,
-} from '@/generated/graphql';
+} from '@/graphql/vfd-types';
 import {
   MOBILE_FEEDER_SETUP,
   MOBILE_UNIT_DRIVES,

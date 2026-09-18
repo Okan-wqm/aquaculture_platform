@@ -44,7 +44,7 @@ import type {
   MobileStartVfdMutationVariables,
   MobileStopVfdMutation,
   MobileStopVfdMutationVariables,
-} from '@/generated/graphql';
+} from './vfd-types';
 
 /**
  * Everything the mobile surfaces need about ONE drive, in the full `VfdDevice`

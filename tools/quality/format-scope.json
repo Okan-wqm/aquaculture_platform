@@ -18625,7 +18625,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "61383f3b5a86a6a08810627832f4d3216739be8b969eb440d8c259e05ca94115",
+      "content_sha256": "6b181ea292e6da8d72c82490bd6b88776712795d600b7db45c420b69193d7954",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -25338,6 +25338,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/__tests__/sensor-data-channel.bounds.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -25405,6 +25411,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/backfill-parent-channels.migration.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25833,6 +25845,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1819000000000-BackfillParentChannelsFromChildren.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -25924,6 +25942,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/installer-token-header.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/mqtt-acl.mosquitto.spec.ts",
       "prettier_managed": true
     },
     {
@@ -26302,6 +26326,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-metric-writer.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.rls.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -27070,6 +27106,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/protocol-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/data-channel.dto.validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/register-parent-channels.spec.ts",
       "prettier_managed": true
     },
     {
@@ -35560,6 +35608,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-16-mqtt-ingestion-pipeline-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/compliance-expert/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -37390,6 +37444,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/mqtt-ingestion-stalled.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/nats-exporter-down.md",
       "prettier_managed": true
     },
@@ -38633,7 +38693,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e5b878f4af03d8ba36f355b47b7a127c56612a5502f356b365bfe1ceb8d526af",
+      "content_sha256": "3aced715410324c6b57277107df21ad1fbb9efb94aebde935c54c1963584c9a0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -38668,7 +38728,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4ce6035692f1582635053b3970e1167cf1ec99aee9d5314c834b5f7979142530",
+      "content_sha256": "5e31cac451766382ec2474fc62db7f600beb58abb375e5ba8e2a37ec017a9e9f",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -42703,6 +42763,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/mqtt-test-harness/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/node-components/package.json",
       "prettier_managed": true
     },
@@ -44025,7 +44121,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "75715e988ac4f0e9279ba765c2751bd51daff832fdd65e9d353f43672d821a7b",
+      "content_sha256": "eb770c61143111b60d27bacf9b257f3100fd1a91569a37318e9af1c558005730",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -55302,6 +55398,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/graphql-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/modbus-function-codes.test.ts",
       "prettier_managed": true
     },
@@ -55482,6 +55584,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/__tests__/MultiParameterTrendCard.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/BarChart.tsx",
       "prettier_managed": true
     },
@@ -55501,6 +55609,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/MultiParameterTrendCard.tsx",
       "prettier_managed": true
     },
     {
@@ -55974,6 +56088,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.create-mode.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.typeDefinition.test.tsx",
       "prettier_managed": true
     },
@@ -55999,6 +56119,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/SensorRegistrationWizard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/steps/__tests__/ChildSensorsStep.manual-add.test.tsx",
       "prettier_managed": true
     },
     {
@@ -58254,6 +58380,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/graphql/aggregatedReadings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/graphql/alertRule.operations.ts",
       "prettier_managed": true
     },
@@ -58326,6 +58458,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/__tests__/useAggregatedMultiSeries.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/__tests__/useRealtimeData.subscription-id.test.tsx",
       "prettier_managed": true
     },
@@ -58345,6 +58483,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/socketFactory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useAggregatedMultiSeries.ts",
       "prettier_managed": true
     },
     {
@@ -60641,7 +60785,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
+      "content_sha256": "e5ee02cf640eb40691e3bab0a5f08e321aef8ed6d20b7f45b16debe986ae9736",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

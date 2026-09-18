@@ -178,7 +178,8 @@
       "@web/shared-ui": ["web/shared-ui/src/index.ts"],
       "@aquaculture/node-components": ["libs/node-components/src/index.ts"],
       "@platform/aquaculture-engines": ["libs/aquaculture-engines/src/index.ts"],
-      "@platform/migration-harness": ["libs/migration-harness/src/index.ts"]
+      "@platform/migration-harness": ["libs/migration-harness/src/index.ts"],
+      "@platform/mqtt-test-harness": ["libs/mqtt-test-harness/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp", "dist", ".nx"]

@@ -553,3 +553,62 @@ describe('MqttAuthService', () => {
     });
   });
 });
+
+// ─── SENSOR-HIGH-118: ACL × listener subscription filters ───────────────────
+//
+// One denied filter used to fail the whole single-packet SUBSCRIBE and kill
+// ALL MQTT ingestion. The grants above the ACL derive from the exported
+// filter list (the SSoT) — these tests iterate that list so the two can
+// never drift apart.
+
+import {
+  SENSOR_SERVICE_SUBSCRIPTION_FILTERS,
+  LEGACY_EDGE_SUBSCRIPTION_FILTERS,
+} from '../../ingestion/mqtt-listener.service';
+
+describe('sensor_service ACL × SENSOR_SERVICE_SUBSCRIPTION_FILTERS (SENSOR-HIGH-118)', () => {
+  const { service } = createService({ configOverrides: { NODE_ENV: 'production' } });
+
+  it.each(SENSOR_SERVICE_SUBSCRIPTION_FILTERS)(
+    'allows the listener filter "%s" for wildcard SUBSCRIBE (acc=4)',
+    async (filter) => {
+      await expect(service.checkTopicAccess('sensor_service', filter, 4)).resolves.toBe(true);
+    },
+  );
+
+  it.each(SENSOR_SERVICE_SUBSCRIPTION_FILTERS)(
+    'allows the listener filter "%s" for read-variants (acc=1 and acc=5)',
+    async (filter) => {
+      await expect(service.checkTopicAccess('sensor_service', filter, 1)).resolves.toBe(true);
+      await expect(service.checkTopicAccess('sensor_service', filter, 5)).resolves.toBe(true);
+    },
+  );
+
+  it.each(LEGACY_EDGE_SUBSCRIPTION_FILTERS)(
+    'allows the legacy edge/ filter "%s" (prefix grant covers any acc)',
+    async (filter) => {
+      await expect(service.checkTopicAccess('sensor_service', filter, 4)).resolves.toBe(true);
+    },
+  );
+
+  it('denies the broad tenants/+/devices/+/# wildcard (SEC-MEDIUM-130 intent preserved)', async () => {
+    await expect(service.checkTopicAccess('sensor_service', 'tenants/+/devices/+/#', 4)).resolves.toBe(false);
+    await expect(service.checkTopicAccess('sensor_service', 'tenants/#', 4)).resolves.toBe(false);
+    await expect(service.checkTopicAccess('sensor_service', '+/+/+/#', 4)).resolves.toBe(false);
+  });
+
+  it('denies publish (acc=2) on subscription filters — filters are subscribe-only', async () => {
+    await expect(
+      service.checkTopicAccess('sensor_service', 'tenants/+/devices/+/telemetry', 2),
+    ).resolves.toBe(false);
+    await expect(
+      service.checkTopicAccess('sensor_service', '+/+/+/temperature-array', 2),
+    ).resolves.toBe(false);
+  });
+
+  it('still allows concrete tenant topics for delivery (acc=1 on a real path)', async () => {
+    await expect(
+      service.checkTopicAccess('sensor_service', `tenants/${TENANT_A}/devices/edge-1/telemetry`, 1),
+    ).resolves.toBe(true);
+  });
+});

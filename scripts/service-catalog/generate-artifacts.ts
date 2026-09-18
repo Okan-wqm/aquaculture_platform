@@ -128,6 +128,9 @@ function signalEmitterSources(key: string): readonly string[] {
   if (key === 'db_migrate_complete') {
     return ['apps/db-migrate/src/main.ts'];
   }
+  if (key === 'mqtt_subscribed_topics') {
+    return ['apps/sensor-service/src/shared-mqtt/mqtt-client.service.ts'];
+  }
   throw new Error(`No emitter source mapping for boot signal ${key}`);
 }
 

@@ -76,13 +76,19 @@
 
 ## FAZ 1 — TEMEL: PERSONA KONTRAT + YETENEK (2 sprint)
 
-### Sprint 1.1 — PR-0: shared-contracts
+### Sprint 1.1 — PR-0: shared-contracts ✅ (3b4cbf7c21)
 - `persona-id.ts` (AI_PERSONA_ID_RE, isAiPersonaId, parseAiPersonaId, formatAiPersonaId)
 - `persona-catalogue.ts` (AI_SPECIALTY_CATALOGUE 4 specialty, AI_PERSONA_CATALOGUE 13 giriş)
 - shared-contracts narrow-design (zero-dep, `as const`, no enum) + barrel allowlist
-- Messaging persona id göçü
+- Messaging persona id göçü (@Matches → @IsKnownAiPersonaId; 55/55 + full messaging suite)
 
-### Sprint 1.2 — PR-0: ai-service katı doğrulama + sunucu-tarafı sahiplik
+### Sprint 1.2 — PR-0: ai-service katı doğrulama + sunucu-tarafı sahiplik ✅ (14a5f4910e, 186/186)
+
+Ek olarak: narrator-v1 persona (toolless, service-grant), SERVICE_PERSONA_GRANTS
+(messaging_service/gateway_api=13 chat; farm_service=narrator-v1), responders
+BAD_REQUEST/FORBIDDEN ayrımı, bridge+gateway serviceId bildiriyor, migration
+1803200000000 (routineAiEnabled + conversation_turns ephemeral kolonları),
+rate-limit namespace ('routine'), 12 lint hijyeni.
 - resolveProfile fallback KALDIR → UnknownPersonaError; bilinmeyen önek→supervisor bug'ı kapanır
 - **Sunucu-tarafı sahiplik haritası:** `serviceId → grantedPersonaIds` (payload'dan yetki ALINMAZ)
 - **persona-tool-ceiling:** `allowAdditionalTools` bayrağı + `toolless` narrator
@@ -90,7 +96,7 @@
 - **Ephemeral:** ChatRequest.ephemeral → conversation AÇMA; conversationId nullable migration; correlationId/servicePrincipal kaydı; iç rate-limit namespace
 - `routineAiEnabled` kolonu (default false)
 
-### Sprint 1.3 — PR-1: ai_specialties:farm
+### Sprint 1.3 — PR-1: ai_specialties:farm ✅ (dd62936b2c, auth 691/691 + admin 923/923)
 - permission-catalogue all-of; seed; backfill; katalog↔yetenek SSoT çapraz kontrol
 
 ---

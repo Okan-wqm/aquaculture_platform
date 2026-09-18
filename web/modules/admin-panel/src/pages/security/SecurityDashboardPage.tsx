@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -413,9 +413,9 @@ const formatDateTime = (dateString: string): string => {
 // Health Score Gauge Component
 const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
   const getColor = (): string => {
-    if (status === 'healthy') return '#22c55e';
-    if (status === 'warning') return '#eab308';
-    return '#ef4444';
+    if (status === 'healthy') return colors.success[500];
+    if (status === 'warning') return colors.warning[500];
+    return colors.error[500];
   };
 
   const circumference = 2 * Math.PI * 45;
@@ -429,7 +429,7 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
           cx="64"
           cy="64"
           r="45"
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth="10"
           fill="none"
         />

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatNumber } from '@aquaculture/shared-ui';
+import { Card, Badge, chartChrome, colors, formatNumber } from '@aquaculture/shared-ui';
 import {
   LineChart,
   Line,
@@ -56,7 +56,7 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -171,10 +171,10 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#0073e6"
+            stroke={colors.primary[500]}
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 4, fill: '#0073e6' }}
+            activeDot={{ r: 4, fill: colors.primary[500] }}
           />
         </LineChart>
       </ResponsiveContainer>

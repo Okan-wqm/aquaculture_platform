@@ -110,7 +110,16 @@ appear in the module at all.
 default palette before `theme.css` existed and was never re-pointed.
 
 **Fix (this cycle):** per-package occurrence ceilings pinned to the exact live
-count (the spec rejects slack). **Owner:** okan · **Expiry:** 2027-03-31.
+count (the spec rejects slack). Batch 7 (same cycle): `theme.ts` — exported
+from shared-ui as `colors` — carried a *second* palette (an Ant-Design blue as
+"brand", another grey scale) that nothing consumed while every chart wrote
+raw hex; it now mirrors theme.css token for token, with `chartPalette` and
+`chartChrome` (grid/axis/border) on top, and
+`tests/invariants/web-theme-token-parity.spec.ts` fails the build when the
+two drift. dashboard (38 → 0), admin-panel (13 → 0), tenant-admin (15 → 0:
+role presets and the default role colour are tokens) and the shell's QR code
+and auth spinner (9 → 5; the login artwork's deep-sea gradient stays) read
+`colors` instead of hex. **Owner:** okan · **Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 

@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 const ECC_LEVEL_L = 1;
 
@@ -469,8 +470,8 @@ export const QrCode: React.FC<QrCodeProps> = ({ value, size = 192, className = '
       className={className}
       shapeRendering="crispEdges"
     >
-      <rect width={viewBoxSize} height={viewBoxSize} fill="#ffffff" />
-      <path d={path} fill="#111827" />
+      <rect width={viewBoxSize} height={viewBoxSize} fill={colors.white} />
+      <path d={path} fill={colors.neutral[900]} />
     </svg>
   );
 };

@@ -82,18 +82,6 @@ rawHex:
       expiry: 2027-03-31
       findingId: FE-HIGH-066
       reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
-    - package: web/modules/admin-panel
-      ceiling: 13
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
-    - package: web/modules/dashboard
-      ceiling: 38
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
     - package: web/modules/farm-module
       ceiling: 128
       owner: okan
@@ -118,14 +106,8 @@ rawHex:
       expiry: 2027-03-31
       findingId: FE-HIGH-066
       reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
-    - package: web/modules/tenant-admin
-      ceiling: 15
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
     - package: web/shell
-      ceiling: 9
+      ceiling: 5
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-066

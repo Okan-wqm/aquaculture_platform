@@ -7,6 +7,8 @@
  * MED-18: ROLE_COLORS moved here from inline duplicates.
  */
 
+import { colors } from '@aquaculture/shared-ui';
+
 export interface ModuleRegistryEntry {
   code: string;
   label: string;
@@ -101,15 +103,19 @@ export interface RoleColor {
   label: string;
 }
 
+/** Role colour presets — theme tokens, so a role badge is always on-brand. */
 export const ROLE_COLORS: RoleColor[] = [
-  { value: '#6366F1', label: 'Indigo' },
-  { value: '#8B5CF6', label: 'Purple' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#F97316', label: 'Orange' },
-  { value: '#EAB308', label: 'Yellow' },
-  { value: '#22C55E', label: 'Green' },
-  { value: '#14B8A6', label: 'Teal' },
-  { value: '#0EA5E9', label: 'Sky' },
-  { value: '#6B7280', label: 'Gray' },
+  { value: colors.primary[500], label: 'Ocean' },
+  { value: colors.primary[700], label: 'Deep Ocean' },
+  { value: colors.secondary[600], label: 'Sea Green' },
+  { value: colors.accent[500], label: 'Coral' },
+  { value: colors.accent[700], label: 'Clay' },
+  { value: colors.error[500], label: 'Red' },
+  { value: colors.warning[500], label: 'Amber' },
+  { value: colors.success[500], label: 'Emerald' },
+  { value: colors.info[500], label: 'Sky' },
+  { value: colors.neutral[500], label: 'Slate' },
 ];
+
+/** The colour a role gets when none was chosen. */
+export const DEFAULT_ROLE_COLOR: string = colors.primary[500];

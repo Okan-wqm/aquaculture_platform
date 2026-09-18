@@ -23,10 +23,22 @@
       "source_event_id": "finding:F-002:emitted",
       "source_ledger_hash": "sha256:3f40f6782c2b0498d36806181ab85f9c3589dc5b78c2dc86e1178ad029f84efa",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "ui_option_drift: 'leaverequest' value sets diverge across 2 surfaces (cross_service=True)",
+      "claim_type": "spine_drift",
+      "created_at": "2026-09-18T15:34:22Z",
+      "evidence_chain_id": "chain_c34e1d9fc636aa76",
+      "finding_id": "F-003",
+      "path": "F-003.json",
+      "severity": "HIGH",
+      "source_event_id": "finding:F-003:emitted",
+      "source_ledger_hash": "sha256:e01d397362f01ae58aeef5d2efc94cb43eaf079825554f5009b2f7b28058c611",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-08-17T15:43:38Z",
+  "generated_at": "2026-09-18T15:34:22Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:3f40f6782c2b0498d36806181ab85f9c3589dc5b78c2dc86e1178ad029f84efa"
+  "source_ledger_tip_hash": "sha256:e01d397362f01ae58aeef5d2efc94cb43eaf079825554f5009b2f7b28058c611"
 }

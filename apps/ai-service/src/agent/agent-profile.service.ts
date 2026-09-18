@@ -61,13 +61,22 @@ export interface AgentPersona {
 export interface ResolvedProfile {
   persona: AgentPersona;
   /**
+   * FARM-AI PR-2 Commit B: the persona's BASE prompt and the tenant custom
+   * prompt travel SEPARATELY — the final prompt is assembled in exactly one
+   * place (AiSafetyMiddleware.preProcess). This service no longer pre-merges
+   * them: when the instruction hierarchy was enabled the runner sent the
+   * hardened prompt built WITHOUT the tenant part (AISAFETY-MEDIUM), and
+   * when disabled it sent a differently-formatted merge.
+   */
+  baseSystemPrompt: string;
+  tenantCustomPrompt: string | null;
+  /**
    * FARM-AI PR-2: the persona's tier, carried explicitly by the composed
    * catalogue (null for service-grant personas like the narrator). Replaces
    * the id-prefix derivation the tool executor used to do.
    */
   personaTier: string | null;
   effectiveToolNames: string[];
-  effectiveSystemPrompt: string;
   actuationPolicy: 'blocked' | 'confirm_required' | 'allowed';
 }
 
@@ -164,14 +173,6 @@ export class AgentProfileService {
       this.toolRegistry.hasTool(name),
     );
 
-    // Build system prompt with tenant customization. Service-grant personas
-    // skip the tenant prompt too — their contract is platform-owned (a tenant
-    // custom prompt must not be able to rewrite what the narrator asserts).
-    let systemPrompt = basePersona.systemPrompt;
-    if (basePersona.permissionModel !== 'service-grant' && config.customSystemPrompt) {
-      systemPrompt += `\n\n--- Tenant-Specific Instructions ---\n${config.customSystemPrompt}`;
-    }
-
     // Resolve actuation policy (most restrictive wins)
     const actuationPolicy = this.resolveActuationPolicy(
       basePersona.actuationPolicy,
@@ -198,11 +199,18 @@ export class AgentProfileService {
         : config.chatModel?.trim() || null) ??
       personaDefault;
 
+    // Tenant custom prompts never apply to service-grant personas — their
+    // contract is platform-owned (a tenant must not rewrite what the narrator
+    // asserts); the middleware receives null for them.
+    const tenantCustomPrompt =
+      basePersona.permissionModel === 'service-grant' ? null : config.customSystemPrompt ?? null;
+
     return {
       persona: { ...basePersona, model },
       personaTier: AgentProfileService.explicitTier(basePersona),
+      baseSystemPrompt: basePersona.systemPrompt,
+      tenantCustomPrompt,
       effectiveToolNames,
-      effectiveSystemPrompt: systemPrompt,
       actuationPolicy,
     };
   }

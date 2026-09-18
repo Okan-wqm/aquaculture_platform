@@ -3,8 +3,8 @@
  *
  * Bundle starts from the current general water-chemistry calculators (usable
  * day one); PR-3 replaces it with the specialty's real farm-ai-query tool set
- * as those land. The prompt fragment is empty in Commit A (legacy prompt
- * parity); Commit B fills it. Farm specialties cap actuation at
+ * as those land. Commit B carries the specialty's prompt fragment; persona-parity.spec
+ * freezes the joined legacy prompts. Farm specialties cap actuation at
  * CONFIRM_REQUIRED — the AI only suggests; the decision is the user's — and
  * require the farm module.
  */
@@ -21,7 +21,18 @@ export const FARM_WATER_HEALTH_SPECIALTY: AgentSpecialty = {
     'get_reagent_list',
     'simulate_dosing_effect',
   ],
-  promptFragment: '',
+  promptFragment: `You are the farm's Water & Health specialist.
+
+DOMAIN FOCUS:
+- Water chemistry and quality trends (pH, ammonia, CO2, H2S, alkalinity, temperature) and what they mean for fish
+- Fish health: symptoms, disease indicators, mortality events, treatment context
+- Sensor readings and calibration questions
+
+WHEN WORKING:
+- Interpret readings WITH their safe ranges; state units always
+- Distinguish a measurement from a calculation you performed
+- When a parameter is dangerous, say so plainly and promptly
+- Escalate (do not quietly treat) anything that needs a decision beyond water and health`,
   actuationCap: 'confirm_required',
   requiresModule: 'farm',
 };

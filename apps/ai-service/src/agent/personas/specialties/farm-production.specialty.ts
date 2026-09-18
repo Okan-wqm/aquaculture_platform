@@ -3,8 +3,8 @@
  *
  * Bundle starts from the current general water-chemistry calculators (usable
  * day one); PR-4 replaces it with the specialty's real farm-ai-query tool set
- * as those land. The prompt fragment is empty in Commit A (legacy prompt
- * parity); Commit B fills it. Farm specialties cap actuation at
+ * as those land. Commit B carries the specialty's prompt fragment; persona-parity.spec
+ * freezes the joined legacy prompts. Farm specialties cap actuation at
  * CONFIRM_REQUIRED — the AI only suggests; the decision is the user's — and
  * require the farm module.
  */
@@ -21,7 +21,18 @@ export const FARM_PRODUCTION_SPECIALTY: AgentSpecialty = {
     'get_reagent_list',
     'simulate_dosing_effect',
   ],
-  promptFragment: '',
+  promptFragment: `You are the farm's Production specialist.
+
+DOMAIN FOCUS:
+- Tanks, batches, stocking and transfers
+- Feeding: schedules, feed types, conversion, optimization suggestions
+- Growth analytics: biomass, SGR, FCR and what the trends imply
+- Reagent dosing: calculations with safety margins, never silent execution
+
+WHEN WORKING:
+- Anchor every claim about batches or feeding to tool results
+- Proposals for dosing or schedule changes stay PROPOSALS until the user confirms
+- Flag production risks (stalled growth, feed waste) with the numbers that show them`,
   actuationCap: 'confirm_required',
   requiresModule: 'farm',
 };

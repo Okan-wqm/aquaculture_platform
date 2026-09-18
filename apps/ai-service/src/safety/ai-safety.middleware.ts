@@ -78,6 +78,14 @@ export interface PreProcessResult {
   inputFilter?: InputFilterResult;
   /** The hardened system prompt (if instruction hierarchy is enabled). */
   hardenedSystemPrompt?: string;
+  /**
+   * FARM-AI PR-2 Commit B — the FINAL system prompt, assembled in exactly one
+   * place: hierarchy-hardened when enabled, otherwise base + tenant-custom
+   * with the platform's canonical separator. Consumers must use THIS field;
+   * building their own merge re-opens the dropped-tenant-prompt hole
+   * (AISAFETY-MEDIUM: hierarchy-on callers never passed the custom prompt).
+   */
+  systemPrompt?: string;
 }
 
 /** Result of post-processing model output through the safety pipeline. */
@@ -175,6 +183,8 @@ export class AiSafetyMiddleware {
     }
 
     // ── Stage 2: Instruction hierarchy ──
+    // SINGLE-EXIT prompt assembly (FARM-AI PR-2 Commit B): whatever the
+    // configuration, `result.systemPrompt` is the prompt the caller must send.
     if (this.config.instructionHierarchyEnabled) {
       result.hardenedSystemPrompt =
         this.instructionHierarchy.buildHardenedSystemPrompt(
@@ -182,6 +192,11 @@ export class AiSafetyMiddleware {
           baseSystemPrompt,
           tenantCustomPrompt,
         );
+      result.systemPrompt = result.hardenedSystemPrompt;
+    } else {
+      result.systemPrompt = tenantCustomPrompt
+        ? `${baseSystemPrompt}\n\n--- Tenant-Specific Instructions ---\n${tenantCustomPrompt}`
+        : baseSystemPrompt;
     }
 
     return result;

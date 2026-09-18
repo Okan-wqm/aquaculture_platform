@@ -92,6 +92,7 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
           useValue: {
             resolveProfile: jest.fn().mockResolvedValue({
               persona: {
+                id: 'operator',
                 name: 'operator',
                 model: 'claude-haiku-4-5',
                 maxTokensPerTurn: 4096,

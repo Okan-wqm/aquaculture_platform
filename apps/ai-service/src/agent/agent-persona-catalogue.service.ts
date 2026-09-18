@@ -16,6 +16,7 @@ import { AI_PERSONA_CATALOGUE, AI_PERSONA_ID_MAX_LENGTH } from '@aquaculture/sha
 import { UnknownPersonaError } from './agent-profile.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { NARRATOR_PERSONA } from './personas/narrator';
+import { RESTRICTED_PROMPT_DELIMITERS } from '../safety/instruction-hierarchy.service';
 import { composeCatalogue, type ComposedPersona } from './personas/compose';
 import { EXPERT_TIER, MANAGER_TIER, OPERATOR_TIER, SUPERVISOR_TIER } from './personas/tiers';
 import {
@@ -24,21 +25,6 @@ import {
   FARM_WATER_HEALTH_SPECIALTY,
   GENERAL_SPECIALTY,
 } from './personas/specialties';
-
-/**
- * Chat-template / instruction-hierarchy delimiters a prompt fragment must
- * never contain — a fragment carrying these could restructure the safety
- * wrapper around it (LLM01 prompt-injection class). Checked at BOOT, not at
- * request time: fragments are platform-authored constants.
- */
-export const RESTRICTED_PROMPT_DELIMITERS: readonly string[] = [
-  '<|im_start|>',
-  '<|im_end|>',
-  '[INST]',
-  '[/INST]',
-  '</system>',
-  '<system>',
-];
 
 const TIERS = {
   operator: OPERATOR_TIER,

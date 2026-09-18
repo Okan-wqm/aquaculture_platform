@@ -37,10 +37,33 @@ export class AiKeyMissingError extends Error {
   }
 }
 
+/**
+ * FARM-AI PR-2 Commit B: a caller tried to continue a conversation with a
+ * DIFFERENT persona than the one that owns it. Persona-specific context must
+ * not silently bleed across assistants — mapped to BAD_REQUEST at the
+ * responder.
+ */
+export class PersonaConversationMismatchError extends Error {
+  constructor(
+    readonly conversationPersona: string,
+    readonly requestedPersona: string,
+  ) {
+    super(
+      `Conversation belongs to persona "${conversationPersona}" but "${requestedPersona}" was requested`,
+    );
+    this.name = 'PersonaConversationMismatchError';
+  }
+}
+
 export interface ChatRequest {
   message: string;
   conversationId?: string;
-  persona: string;
+  /**
+   * FARM-AI PR-2 Commit B: NULLABLE — null means "the tenant default"
+   * (config.baseProfileId resolves it below). Everything persisted keys on
+   * the RESOLVED persona id, never the raw request value.
+   */
+  persona: string | null;
   tenantId: string;
   userId: string;
   userRoles: string[];
@@ -125,6 +148,8 @@ export interface TokenUsageBreakdown {
 export interface ChatResponse {
   /** Null for ephemeral runs (FARM-AI Sprint 1.2) — no conversation exists. */
   conversationId: string | null;
+  /** The RESOLVED persona id that produced this turn (never null). */
+  personaId: string;
   message: string;
   toolCalls: Array<{
     name: string;
@@ -213,13 +238,18 @@ export class AgentRunnerService {
       );
     }
 
+    // FARM-AI PR-2 Commit B: persona NULL = the tenant default. Everything
+    // downstream keys on the RESOLVED id — what gets persisted, executed and
+    // answered is always a concrete persona.
+    const personaId = request.persona ?? config.baseProfileId;
+
     // 4. Resolve agent profile (persona tier authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
     // the ai_personas:<tier> grant). serviceId routes through the server-side
     // service→persona grant map (FARM-AI Sprint 1.2).
     const profile = await this.profileService.resolveProfile(
       request.tenantId,
-      request.persona,
+      personaId,
       {
         roles: request.userRoles,
         resourcePermissions: request.resourcePermissions,
@@ -234,7 +264,7 @@ export class AgentRunnerService {
       const conversation = await this.conversationService.create({
         tenantId: request.tenantId,
         userId: request.userId,
-        persona: request.persona,
+        persona: profile.persona.id,
       });
       conversationId = conversation.id;
     }
@@ -247,6 +277,20 @@ export class AgentRunnerService {
     const existingConversation = conversationId
       ? await this.conversationService.getById(conversationId, request.tenantId, request.userId)
       : null;
+
+    // FARM-AI PR-2 Commit B: a conversation belongs to the persona that
+    // opened it. Continuing under a different assistant would silently mix
+    // persona-specific context (prompts, tool ceilings) across assistants —
+    // reject instead of guessing.
+    if (
+      existingConversation &&
+      existingConversation.persona !== profile.persona.id
+    ) {
+      throw new PersonaConversationMismatchError(
+        existingConversation.persona,
+        profile.persona.id,
+      );
+    }
 
     const messages: LlmMessage[] = [];
 
@@ -285,12 +329,16 @@ export class AgentRunnerService {
       });
     }
 
-    // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
+    // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak
+    // filter + prompt hardening). The FINAL system prompt is assembled in
+    // exactly one place (middleware) from base + tenant-custom parts — the
+    // runner never merges prompts itself (FARM-AI PR-2 Commit B).
     const safetyResult = this.aiSafety.preProcess(
       request.message,
       request.tenantId,
       profile.persona.name,
-      profile.persona.systemPrompt,
+      profile.baseSystemPrompt,
+      profile.tenantCustomPrompt ?? undefined,
     );
 
     if (!safetyResult.allowed) {
@@ -300,9 +348,7 @@ export class AgentRunnerService {
       throw new Error('Your message was flagged by our safety system and cannot be processed.');
     }
 
-    // Use hardened system prompt if instruction hierarchy is active
-    const effectiveSystemPrompt =
-      safetyResult.hardenedSystemPrompt ?? profile.effectiveSystemPrompt;
+    const effectiveSystemPrompt = safetyResult.systemPrompt ?? profile.baseSystemPrompt;
 
     // 8. Build tool definitions (provider-neutral shape)
     const toolDefinitions: LlmToolDefinition[] = this.toolRegistry
@@ -334,7 +380,7 @@ export class AgentRunnerService {
       userId: request.userId,
       userRoles: request.userRoles,
       correlationId: request.correlationId,
-      persona: request.persona,
+      persona: profile.persona.id,
       personaTier: profile.personaTier,
       // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
       // most-restrictive) gates whether an actuation tool may run autonomously.
@@ -471,7 +517,7 @@ export class AgentRunnerService {
             description: this.describeAction(toolUse.name, toolUse.input),
             requestedBy: request.userId,
             requesterRoles: request.userRoles,
-            persona: request.persona,
+            persona: profile.persona.id,
             correlationId: request.correlationId,
           });
           proposedAction = {
@@ -547,7 +593,7 @@ export class AgentRunnerService {
       conversationId,
       correlationId: conversationId ? null : request.correlationId,
       servicePrincipal: conversationId ? null : request.serviceId ?? null,
-      personaId: request.persona,
+      personaId: profile.persona.id,
       model: profile.persona.model,
       usage: {
         input: totalTokens.input,
@@ -584,6 +630,7 @@ export class AgentRunnerService {
 
     return {
       conversationId,
+      personaId: profile.persona.id,
       message: finalMessage,
       toolCalls,
       tokenUsage: totalTokens,

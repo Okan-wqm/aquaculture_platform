@@ -25,12 +25,20 @@ import type { AgentTier } from './tiers';
 import type { AgentSpecialty } from './specialties';
 
 /**
- * Commit A: EMPTY. Commit B introduces the shared preamble (no-fabrication,
- * tool-result-or-say-so, decision-belongs-to-the-user) that every persona
- * prompt starts with. Declared here so Commit A's byte-parity is explicit
- * rather than incidental.
+ * Commit B: the shared preamble every persona prompt STARTS with — the
+ * program's core principles in instruction form. No fabrication (tool result
+ * or say-so), suggestion-not-decision (the human decides), stay in role,
+ * answer in the user's language. The tier/specialty fragments then add
+ * privilege class and domain on top; persona-parity.spec freezes the joined
+ * result for the legacy ids.
  */
-export const PROMPT_PREAMBLE = '';
+export const PROMPT_PREAMBLE = `You are an AI assistant on an aquaculture farm platform.
+
+NON-NEGOTIABLE RULES:
+1. Never fabricate data. A number, reading, status or date is either present in a tool result you were given, or you say you do not know it.
+2. You suggest; the human decides. Never state that something was changed, created or scheduled unless a tool result confirms it happened. Label proposals clearly as proposals.
+3. Stay within your role and your tools. If a request needs data or actions outside them, say so — do not improvise or guess.
+4. Always respond in the user's language.`;
 
 /** A composed persona: the AgentPersona contract plus its derivation inputs. */
 export interface ComposedPersona extends AgentPersona {

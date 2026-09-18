@@ -1,11 +1,11 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
-import { DEFAULT_AI_PERSONA_ID } from '@aquaculture/shared-contracts';
 import {
   AgentRunnerService,
   AiKeyMissingError,
   ChatRequest,
+  PersonaConversationMismatchError,
 } from '../agent/agent-runner.service';
 import {
   PersonaNotPermittedError,
@@ -140,7 +140,9 @@ export class AiChatResponder {
     const chatRequest: ChatRequest = {
       message,
       conversationId: payload.conversationId,
-      persona: payload.persona ?? DEFAULT_AI_PERSONA_ID,
+      // FARM-AI PR-2 Commit B: null = tenant default — the runner resolves
+      // baseProfileId and every persisted string is the RESOLVED id.
+      persona: payload.persona ?? null,
       tenantId: payload.tenantId,
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
@@ -166,7 +168,7 @@ export class AiChatResponder {
         // (status:'proposed' + actionType/params) plus the actionId that keys
         // the persisted proposal — the executable SSoT on confirm.
         metadata: {
-          persona: chatRequest.persona,
+          persona: result.personaId,
           tokenUsage: result.tokenUsage,
           ...(result.proposedAction
             ? {
@@ -194,9 +196,12 @@ export class AiChatResponder {
       // configuration bugs behind a lie about availability.
       const isUnknownPersona = error instanceof UnknownPersonaError;
       const isNotPermitted = error instanceof PersonaNotPermittedError;
+      // FARM-AI PR-2 Commit B: continuing a conversation under a different
+      // assistant is a caller mistake, not an outage.
+      const isMismatch = error instanceof PersonaConversationMismatchError;
       if (isKeyMissing) {
         this.logger.warn(`request.ai.chat blocked: tenant ${payload.tenantId} has no valid AI key`);
-      } else if (isUnknownPersona || isNotPermitted) {
+      } else if (isUnknownPersona || isNotPermitted || isMismatch) {
         this.logger.warn(
           `request.ai.chat persona rejected for tenant ${payload.tenantId}: ${
             error instanceof Error ? error.message : String(error)
@@ -213,12 +218,14 @@ export class AiChatResponder {
         ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
         : isUnknownPersona
           ? 'The requested AI assistant is not available on this platform.'
-          : isNotPermitted
-            ? 'You do not have access to the requested AI assistant.'
-            : 'The AI is temporarily unavailable. Please try again later.';
+          : isMismatch
+            ? 'This conversation belongs to a different AI assistant. Start a new conversation for the one you selected.'
+            : isNotPermitted
+              ? 'You do not have access to the requested AI assistant.'
+              : 'The AI is temporarily unavailable. Please try again later.';
       const errorCode: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL' = isKeyMissing
         ? 'AI_KEY_MISSING'
-        : isUnknownPersona
+        : isUnknownPersona || isMismatch
           ? 'BAD_REQUEST'
           : isNotPermitted
             ? 'FORBIDDEN'

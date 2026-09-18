@@ -93,8 +93,10 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           provide: AgentProfileService,
           useValue: {
             resolveProfile: jest.fn().mockResolvedValue({
-              persona: { name: 'operator-v1', systemPrompt: 'sys' },
-              effectiveSystemPrompt: 'sys',
+              persona: { id: 'operator-v1', name: 'operator-v1', systemPrompt: 'sys' },
+              baseSystemPrompt: 'sys',
+              tenantCustomPrompt: null,
+              personaTier: 'operator',
               effectiveToolNames: ['create_task'],
               actuationPolicy: 'confirm_required',
             }),

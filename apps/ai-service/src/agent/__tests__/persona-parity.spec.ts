@@ -132,6 +132,22 @@ If an action exceeds safety limits, escalate to human operators instead.`,
   },
 ] as const;
 
+/**
+ * FARM-AI PR-2 Commit B: the shared preamble is PREPENDED to every persona
+ * prompt (tier fragments themselves stay byte-identical to the pre-PR-2
+ * personas — the reviewed diff is exactly the preamble + farm fragments).
+ * Composing = PREAMBLE + '\n\n' + tier fragment for the general personas.
+ */
+const PREAMBLE = `You are an AI assistant on an aquaculture farm platform.
+
+NON-NEGOTIABLE RULES:
+1. Never fabricate data. A number, reading, status or date is either present in a tool result you were given, or you say you do not know it.
+2. You suggest; the human decides. Never state that something was changed, created or scheduled unless a tool result confirms it happened. Label proposals clearly as proposals.
+3. Stay within your role and your tools. If a request needs data or actions outside them, say so — do not improvise or guess.
+4. Always respond in the user's language.`;
+
+const withPreamble = (legacyPrompt: string): string => `${PREAMBLE}\n\n${legacyPrompt}`;
+
 describe('persona parity — composition is byte-identical for legacy ids (FARM-AI PR-2 A)', () => {
   let catalogue: AgentPersonaCatalogueService;
 
@@ -153,7 +169,7 @@ describe('persona parity — composition is byte-identical for legacy ids (FARM-
       expect(composed.id).toBe(frozen.id);
       expect(composed.name).toBe(frozen.name);
       expect(composed.model).toBe(frozen.model);
-      expect(composed.systemPrompt).toBe(frozen.systemPrompt);
+      expect(composed.systemPrompt).toBe(withPreamble(frozen.systemPrompt));
       expect(composed.defaultToolNames).toEqual(frozen.defaultToolNames);
       expect(composed.actuationPolicy).toBe(frozen.actuationPolicy);
       expect(composed.maxTokensPerTurn).toBe(frozen.maxTokensPerTurn);

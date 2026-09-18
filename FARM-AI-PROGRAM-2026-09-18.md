@@ -267,3 +267,33 @@ Faz 0: 1 · Faz 1: 2 · Faz 2: 4 · Faz 3: 2 · Faz 4: 3 · Faz 5: 3 · Faz 6: 2
 | Tarih | Faz/Sprint | Durum | Not |
 |---|---|---|---|
 | 2026-09-18 | Plan v3 kaydedildi | ✅ | Onaylandı, Sprint 0.1 başlıyor |
+
+
+---
+
+## ENTEGRASYON UYGULAMASI (2026-09-18, integrate/farm-ai @ 66f896e7a6)
+
+Taban: origin/feat/ai-farm-specialists (ad62a63715) + 7 commit:
+
+| Commit | Delta |
+|---|---|
+| a44db8004e | timestamp-uniqueness invariant + ai Heal 1803100000000→1803150000000 renumber |
+| 1a2bacf6a8 | Sprint 0.1: provider timeout 30s/1retry + AbortSignal + audit servicePrincipalUuid |
+| f2404e9194 | db-migrate Timescale policy-overlap toleransı (canlı DB gerçeği) |
+| 2b33a19f38 | gece ACL drift probe (scripts/nats/acl-drift-probe.py) |
+| 74968e0f0d | SENSOR_AUTOMATIC spoof guard (@IsHumanMeasurementSource) |
+| d5b7cc019b | e2e contractFiles: eksik dosya PATLAT + backend-common yol desteği (85/85) |
+| 66f896e7a6 | Sprint 1.2 makine-yolu güvenlik katmanı: SERVICE_PERSONA_GRANTS, narrator-v1 (ServicePersona + boot invariant), ephemeral + correlationId/servicePrincipal ledger (migration 1803300000000/01), rate namespace, routineAiEnabled, tool-ceiling, bridge/gateway serviceId; 16 yeni test |
+
+Kanonik dalda zaten var olduğu için PORLANMADI (kazanılmış): ALL-OF yetki denetimi,
+tek-çıkış prompt üretimi, UnknownPersonaError, mismatch hatası, tier×specialty
+kompozisyonu, yetki-filtreli registry (bizden ileri), PR-6 UI, 6-ajan düzeltmeleri.
+
+Kapılar: tsc (ai app+spec, messaging, gateway) temiz; invariants 3/3; messaging
+tam süit yeşil; ai-service 80/81 spec — TEK kırmızı ÖNCEDEN VAR: aquaculture-math
+(5 test, 'aquaculture_engines_1.oxygenBudget is not a function' — ESM/jest çözümlemesi,
+temiz HEAD'de de kızıyor; kanonik dal sahibi düzeltsin). Lint: 8 önceden-var hata
+(bizim portlardan sıfır).
+
+Dal yerel 'integrate/farm-ai' olarak hazır — push kararı ve feat/ai-farm-specialists'e
+merge/fast-forward koordinasyonu kullanıcıda.

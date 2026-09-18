@@ -8,11 +8,7 @@ import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { AgentRole } from '../tenant-config/agent-config.entity';
 import { SERVICE_PERSONA_GRANTS } from './service-persona-grants';
-import { OPERATOR_PERSONA } from './personas/operator';
-import { MANAGER_PERSONA } from './personas/manager';
-import { EXPERT_PERSONA } from './personas/expert';
-import { SUPERVISOR_PERSONA } from './personas/supervisor';
-import { NARRATOR_PERSONA } from './personas/narrator';
+import { AgentPersonaCatalogueService } from './agent-persona-catalogue.service';
 import { ZAI_DEFAULT_MODEL } from './providers/zai.provider';
 
 /** Thrown when a user requests a persona above their tenant-RBAC entitlement. */
@@ -64,18 +60,16 @@ export interface AgentPersona {
 
 export interface ResolvedProfile {
   persona: AgentPersona;
+  /**
+   * FARM-AI PR-2: the persona's tier, carried explicitly by the composed
+   * catalogue (null for service-grant personas like the narrator). Replaces
+   * the id-prefix derivation the tool executor used to do.
+   */
+  personaTier: string | null;
   effectiveToolNames: string[];
   effectiveSystemPrompt: string;
   actuationPolicy: 'blocked' | 'confirm_required' | 'allowed';
 }
-
-const PERSONAS: Record<string, AgentPersona> = {
-  'operator-v1': OPERATOR_PERSONA,
-  'manager-v1': MANAGER_PERSONA,
-  'expert-v1': EXPERT_PERSONA,
-  'supervisor-v1': SUPERVISOR_PERSONA,
-  'narrator-v1': NARRATOR_PERSONA,
-};
 
 @Injectable()
 export class AgentProfileService {
@@ -85,6 +79,7 @@ export class AgentProfileService {
     private readonly agentConfig: AgentConfigService,
     private readonly toolRegistry: ToolRegistryService,
     private readonly configService: ConfigService,
+    private readonly personaCatalogue: AgentPersonaCatalogueService,
   ) {}
 
   /**
@@ -105,6 +100,10 @@ export class AgentProfileService {
    *    granted the persona by SERVICE_PERSONA_GRANTS, and service-grant
    *    personas (narrator) are reachable ONLY through that map, regardless
    *    of what capabilities the payload claims.
+   *
+   * FARM-AI PR-2: personas are COMPOSED (tier × specialty) by
+   * AgentPersonaCatalogueService against the frozen shared-contracts
+   * catalogue — this service no longer holds hand-written persona constants.
    */
   async resolveProfile(
     tenantId: string,
@@ -113,10 +112,9 @@ export class AgentProfileService {
     opts?: { serviceId?: string },
   ): Promise<ResolvedProfile> {
     const config = await this.agentConfig.getConfig(tenantId);
-    const basePersona = PERSONAS[personaId];
-    if (!basePersona) {
-      throw new UnknownPersonaError(personaId);
-    }
+    const basePersona =
+      this.personaCatalogue.resolveServicePersona(personaId) ??
+      this.personaCatalogue.resolve(personaId);
 
     if (basePersona.permissionModel === 'service-grant') {
       // Service personas ignore user capabilities entirely — the grant map is
@@ -202,30 +200,35 @@ export class AgentProfileService {
 
     return {
       persona: { ...basePersona, model },
+      personaTier: AgentProfileService.explicitTier(basePersona),
       effectiveToolNames,
       effectiveSystemPrompt: systemPrompt,
       actuationPolicy,
     };
   }
 
-  getPersona(personaId: string): AgentPersona | undefined {
-    return PERSONAS[personaId];
-  }
-
-  getAllPersonas(): AgentPersona[] {
-    return Object.values(PERSONAS);
+  /**
+   * The persona's tier when the definition carries one explicitly (composed
+   * personas do; hand-defined service personas like the narrator do not —
+   * they authorize through the service grant map, not tiers).
+   */
+  private static explicitTier(persona: AgentPersona): string | null {
+    const tier = (persona as { tier?: unknown }).tier;
+    return typeof tier === 'string' ? tier : null;
   }
 
   /**
-   * The capability tier of a persona, derived from its id prefix
-   * ('supervisor-v1' → 'supervisor'). Unknown prefix → null (FARM-AI Sprint
-   * 1.2: the old mapping of unknown prefixes to the HIGHEST tier silently
-   * disappeared with strict resolution; null now DENIES in
-   * assertPersonaPermitted — fail-closed, never silently broad). Note the
-   * narrator persona never reaches here: its permissionModel routes
-   * authorization through the service grant map instead.
+   * The capability tier of a persona. Composed personas CARRY their tier
+   * explicitly (assertPersonaPermitted prefers it); this prefix derivation is
+   * the fallback for non-composed personas and maps unknown prefixes to null
+   * — DENY, never silently the highest tier (FARM-AI Sprint 1.2). The narrator
+   * never reaches here: its permissionModel routes authorization through the
+   * service grant map instead.
    */
   private personaTier(persona: AgentPersona): AgentRole | null {
+    if ('tier' in persona && typeof persona.tier === 'string') {
+      return persona.tier as AgentRole;
+    }
     const prefix = persona.id.split('-')[0];
     return prefix === 'operator' ||
       prefix === 'manager' ||

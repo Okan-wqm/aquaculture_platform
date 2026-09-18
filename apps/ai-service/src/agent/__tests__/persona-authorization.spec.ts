@@ -5,6 +5,7 @@ import {
   AgentProfileService,
   PersonaNotPermittedError,
 } from '../agent-profile.service';
+import { AgentPersonaCatalogueService } from '../agent-persona-catalogue.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../../tools/tool-registry.service';
 
@@ -25,6 +26,7 @@ describe('AgentProfileService persona authorization (AISAFETY-MEDIUM-013)', () =
     const moduleRef = await Test.createTestingModule({
       providers: [
         AgentProfileService,
+        AgentPersonaCatalogueService,
         {
           provide: AgentConfigService,
           useValue: {
@@ -110,6 +112,7 @@ describe('AgentProfileService persona authorization (AISAFETY-MEDIUM-013)', () =
     const moduleRef = await Test.createTestingModule({
       providers: [
         AgentProfileService,
+        AgentPersonaCatalogueService,
         {
           provide: AgentConfigService,
           useValue: {

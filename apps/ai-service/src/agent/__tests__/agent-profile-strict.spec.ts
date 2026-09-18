@@ -6,6 +6,7 @@ import {
   PersonaNotPermittedError,
   UnknownPersonaError,
 } from '../agent-profile.service';
+import { AgentPersonaCatalogueService } from '../agent-persona-catalogue.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';
 import { ToolRegistryService } from '../../tools/tool-registry.service';
 
@@ -34,6 +35,7 @@ describe('AgentProfileService strict resolution + service grants (FARM-AI 1.2)',
     const moduleRef = await Test.createTestingModule({
       providers: [
         AgentProfileService,
+        AgentPersonaCatalogueService,
         {
           provide: AgentConfigService,
           useValue: {

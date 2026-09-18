@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentRunnerService } from './agent-runner.service';
 import { AgentProfileService } from './agent-profile.service';
+import { AgentPersonaCatalogueService } from './agent-persona-catalogue.service';
 import { ActionsModule } from '../actions/actions.module';
 import { ToolRegistryModule } from '../tools/tool-registry.module';
 import { ConversationModule } from '../conversation/conversation.module';
@@ -23,7 +24,7 @@ import { LlmProvidersModule } from './providers/providers.module';
     AiSafetyModule,
     LlmProvidersModule,
   ],
-  providers: [AgentRunnerService, AgentProfileService],
-  exports: [AgentRunnerService, AgentProfileService],
+  providers: [AgentRunnerService, AgentProfileService, AgentPersonaCatalogueService],
+  exports: [AgentRunnerService, AgentProfileService, AgentPersonaCatalogueService],
 })
 export class AgentModule {}

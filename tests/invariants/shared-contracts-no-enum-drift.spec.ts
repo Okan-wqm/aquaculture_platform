@@ -57,7 +57,7 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
     }
   });
 
-  it('the public barrel only re-exports the cross-stack media MIME allowlist', () => {
+  it('the public barrel only re-exports the allowlisted cross-stack modules', () => {
     const index = readFileSync(
       resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'),
       'utf8',
@@ -65,8 +65,16 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
     const exportFroms = [...index.matchAll(/export\s+(?:type\s+)?\{[^}]*\}\s+from\s+'([^']+)'/g)].map(
       (m) => m[1],
     );
+    // ORPHAN-087 allowlist + FARM-AI PR-0: persona grammar/catalogue joined the
+    // narrow cross-stack surface (byte-identical backend trust boundary +
+    // aquamobil standalone bundle). Anything else must NOT appear here.
+    const allowed = new Set([
+      './enums/messaging-media-mime',
+      './ai/persona-id',
+      './ai/persona-catalogue',
+    ]);
     for (const from of exportFroms) {
-      expect(from).toBe('./enums/messaging-media-mime');
+      expect(allowed.has(from)).toBe(true);
     }
   });
 });

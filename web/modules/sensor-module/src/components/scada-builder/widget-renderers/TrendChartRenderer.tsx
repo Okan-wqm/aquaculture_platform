@@ -3,9 +3,13 @@
  * multi-trace support, CSV export, and simulation accumulation.
  *
  * Modes:
- *  1. Edit mode   — deterministic sine-wave demo data
- *  2. Simulation  — accumulates simTagValues over time from the store
- *  3. Preview     — uses useScadaTrend hook (mock data until backend ready)
+ *  1. Edit mode   — deterministic sine-wave demo data, clearly labeled
+ *                   "demo" in the toolbar (T8: demo data ONLY here).
+ *  2. Simulation  — accumulates simTagValues over time from the store.
+ *  3. Runtime     — NO demo fallback: with no buffered data the chart shows
+ *                   an explicit "No trend data available" empty state (T8).
+ *                   The operator runtime renders trendChart widgets via the
+ *                   uPlot RuntimeChart instead.
  */
 
 import React, { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';
@@ -21,7 +25,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
   const label = (config.label as string) ?? 'Trend';
   const tags: string[] = useMemo(() => {
     const raw = (config.tags ?? config.trendTags ?? []) as string[];
-    return raw.length > 0 ? raw : ['Tag1', 'Tag2'];
+    return raw;
   }, [config.tags, config.trendTags]);
 
   const showGrid = (config.showGrid as boolean) ?? true;
@@ -55,11 +59,17 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
 
   /* ---------- Chart data ------------------------------------------- */
   const chartData = useMemo<SimPoint[]>(() => {
-    // Edit veya simülasyon dışı modda demo veri göster
-    // Show demo data in edit or non-simulation mode
-    if (isEditing || !simulationMode) {
+    // T8: demo traces are generated ONLY in edit mode (labeled "demo" in the
+    // toolbar). At runtime an empty buffer must render the explicit empty
+    // state — fake sine waves must never be mistaken for real telemetry.
+    if (isEditing) {
       simBufferRef.current = [];
-      return generateDemoTraces(tags, 30);
+      return generateDemoTraces(tags.length > 0 ? tags : ['Tag1', 'Tag2'], 30);
+    }
+
+    if (!simulationMode) {
+      simBufferRef.current = [];
+      return [];
     }
 
     // Simülasyon modunda buffer'ı useMemo içinde güncelle
@@ -78,9 +88,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
       simBufferRef.current = simBufferRef.current.filter((p) => p.t >= cutoff);
     }
 
-    return simBufferRef.current.length > 0
-      ? [...simBufferRef.current]
-      : generateDemoTraces(tags, 30);
+    return [...simBufferRef.current];
   }, [isEditing, simulationMode, tags, simTagValues, rangeMs]);
 
   /* ---------- Layout ------------------------------------------------ */

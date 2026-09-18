@@ -10,9 +10,6 @@
  *  5.  StrokeConfig renders all 5 dash pattern options
  *  6.  StrokeConfig renders line cap radio group
  *  7.  StrokeConfig renders line join radio group
- *  8.  SvgMarkerDefs renders arrow marker path
- *  9.  SvgMarkerDefs generates unique IDs per screen
- *  10. SvgMarkerDefs renders circle/diamond/square shapes
  *  11. RasterImageConfig rejects non-image files
  *  12. RasterImageConfig warns on large file sizes
  */
@@ -22,8 +19,6 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransformConfig } from '../widget-configs/TransformConfig';
 import { StrokeConfig } from '../widget-configs/StrokeConfig';
-import { SvgMarkerDefs, buildMarkerId } from '../SvgMarkerDefs';
-import type { MarkerConfig } from '../SvgMarkerDefs';
 import { RasterImageConfig } from '../widget-configs/RasterImageConfig';
 import { DEFAULT_SVG_TRANSFORM, clampTransform } from '../../../types/scada-transform.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -169,67 +164,6 @@ describe('StrokeConfig', () => {
     const radiogroup = screen.getByRole('radiogroup', { name: /line join style/i });
     const radios = within(radiogroup).getAllByRole('radio');
     expect(radios.length).toBe(3);
-  });
-});
-
-/* ------------------------------------------------------------------ */
-/*  SvgMarkerDefs Tests                                                */
-/* ------------------------------------------------------------------ */
-
-describe('SvgMarkerDefs', () => {
-  const arrowMarker: MarkerConfig = { shape: 'arrow', size: 6, fill: '#000000' };
-  const circleMarker: MarkerConfig = { shape: 'circle', size: 8, fill: '#ff0000' };
-  const diamondMarker: MarkerConfig = { shape: 'diamond', size: 6, fill: '#00ff00' };
-  const squareMarker: MarkerConfig = { shape: 'square', size: 6, fill: '#0000ff' };
-
-  it('renders arrow marker path', () => {
-    const { container } = render(
-      <SvgMarkerDefs screenId="screen-1" markers={[arrowMarker]} />,
-    );
-
-    const path = container.querySelector('marker path');
-    expect(path).not.toBeNull();
-    // Arrow shape uses the specific d attribute
-    expect(path?.getAttribute('d')).toBe('M 0 0 L 10 5 L 0 10 z');
-  });
-
-  it('generates unique IDs per screen', () => {
-    const id1 = buildMarkerId('screen-A', arrowMarker);
-    const id2 = buildMarkerId('screen-B', arrowMarker);
-
-    expect(id1).toContain('screen-A');
-    expect(id2).toContain('screen-B');
-    expect(id1).not.toBe(id2);
-  });
-
-  it('renders circle, diamond, and square marker shapes', () => {
-    const { container } = render(
-      <SvgMarkerDefs
-        screenId="screen-1"
-        markers={[circleMarker, diamondMarker, squareMarker]}
-      />,
-    );
-
-    const markers = container.querySelectorAll('marker');
-    expect(markers.length).toBe(3);
-
-    // Circle marker should contain a <circle> element
-    const circleEl = container.querySelector('marker circle');
-    expect(circleEl).not.toBeNull();
-    expect(circleEl?.getAttribute('cx')).toBe('5');
-    expect(circleEl?.getAttribute('cy')).toBe('5');
-
-    // Diamond marker should contain a <path> with the diamond d attribute
-    const paths = container.querySelectorAll('marker path');
-    const diamondPath = Array.from(paths).find(
-      (p) => p.getAttribute('d') === 'M 5 0 L 10 5 L 5 10 L 0 5 z',
-    );
-    expect(diamondPath).not.toBeNull();
-
-    // Square marker should contain a <rect> element
-    const rectEl = container.querySelector('marker rect');
-    expect(rectEl).not.toBeNull();
-    expect(rectEl?.getAttribute('width')).toBe('8');
   });
 });
 

@@ -5,13 +5,14 @@ export interface StatusBadgeProps {
   status: string;
 }
 
-const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-  active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
+// SUDERRA tints via the shell's sd-pill primitives (host styles federated pages)
+const statusConfig: Record<string, { cls: string; icon: React.ReactNode }> = {
+  active: { cls: 'sd-pill sd-pill--active', icon: <CheckCircle size={13} /> },
+  inactive: { cls: 'sd-pill sd-pill--inactive', icon: <XCircle size={13} /> },
+  pending: { cls: 'sd-pill sd-pill--pending', icon: <Clock size={13} /> },
 };
 
-const defaultConfig = { bg: 'bg-gray-100', text: 'text-gray-700', icon: <Clock className="w-3 h-3" /> };
+const defaultConfig = { cls: 'sd-pill sd-pill--inactive', icon: <Clock size={13} /> };
 
 /**
  * Renders a user status with appropriate color and icon.
@@ -20,7 +21,7 @@ export const StatusBadge = memo<StatusBadgeProps>(({ status }) => {
   const config = statusConfig[status] ?? defaultConfig;
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+    <span className={config.cls}>
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>

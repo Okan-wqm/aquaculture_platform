@@ -14,7 +14,7 @@
 // ============================================================================
 
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { print } from 'graphql';
+import { type DocumentNode, print } from 'graphql';
 
 import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
 
@@ -188,13 +188,26 @@ function runSingleFlightRefresh(): Promise<boolean> {
  * Callers that need to override headers (e.g. `credentials: 'include'`) can
  * pass them via `options` — they will be merged on top of the defaults.
  */
-export async function authenticatedFetch(
-  url: string,
-  options?: RequestInit,
-): Promise<Response> {
+export async function authenticatedFetch(url: string, options?: RequestInit): Promise<Response> {
   // LIFECYCLE BARRIER: wait for AuthProvider to complete restoreSession.
   // WHY: On page load, the token arrives async via syncAuthStore(). Without
   // this barrier, requests fire before the token is in memory → 401.
+/** Decode the tenantId claim from a JWT WITHOUT verifying it — the gateway
+ *  verifies the signature; the client only needs the claim the server itself
+ *  signed. Returns null for malformed/absent (fail-closed: no header sent). */
+function tenantIdFromAccessToken(token: string | undefined | null): string | null {
+  if (!token) return null;
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(b64)) as { tenantId?: unknown };
+    return typeof claims.tenantId === 'string' && claims.tenantId.length > 0 ? claims.tenantId : null;
+  } catch {
+    return null;
+  }
+}
+
   // 15s timeout prevents indefinite hang if AuthProvider never initializes.
   await Promise.race([
     authReadyPromise,
@@ -205,11 +218,19 @@ export async function authenticatedFetch(
     // Barrier timed out — proceed anyway; request will fail 401 if no token
   });
 
+  // SSoT for the tenant header: the SIGNED ACCESS TOKEN's claim is authoritative;
+  // the auth store is a cache that can lag it by a tick (restore populates the
+  // token before the tenant field propagates to listeners). Boot-time queries
+  // that fired in that gap used to land server-side as "Tenant ID is required"
+  // (GetMyNotifications & friends, 2026-09-17 finding) — deriving the header
+  // from the token closes the whole race class, not one caller.
+  const tenantId = authStore.tenantId ?? tenantIdFromAccessToken(authStore.accessToken);
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
     ...(authStore.accessToken ? { Authorization: `Bearer ${authStore.accessToken}` } : {}),
-    ...(authStore.tenantId ? { 'X-Tenant-Id': authStore.tenantId } : {}),
+    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
     // Caller-supplied headers win (spread last)
     ...(options?.headers as Record<string, string> | undefined),
   };
@@ -284,24 +305,39 @@ type VariablesArg<TVars> = [TVars] extends [Record<string, never>]
 /**
  * Execute a GraphQL operation through the authenticated fetch pipeline.
  *
- * S1-CODEGEN / MOB-HIGH-022: ONE call shape. `document` must be a codegen
- * `TypedDocumentNode<TResult, TVars>` (every document under src/ is a codegen
- * source), so BOTH the result AND the variable types flow from the document
- * and a query/result/variable drift is a COMPILE error. There is no
- * `DocumentNode + Record<string, unknown>` escape hatch any more: that overload
- * — selected by every call that wrote one explicit result generic — typed the
- * variables as an untyped bag, and the document-text CI gate cannot see a
- * variables object. It is how a deleted input field shipped for weeks.
+ * S1-CODEGEN: two call shapes, both fully typed and both `print()`ing the
+ * DocumentNode to the wire (callers never hand-write the query text):
+ *
+ *   1. INFERENCE — `graphqlRequest(MY_CHANNELS, vars)` with NO explicit type
+ *      args. `MY_CHANNELS` is a codegen `TypedDocumentNode<TResult, TVars>`, so
+ *      BOTH the result AND the variable types flow from the document — a
+ *      query/result/variable drift is a COMPILE error. This is the canonical,
+ *      maximally-safe path for the generated operation constants.
+ *
+ *   2. EXPLICIT RESULT — `graphqlRequest<{ x: T }>(DOC, vars)` with ONE explicit
+ *      type arg. Used by call sites that pin a hand-authored result shape (the
+ *      nominal `Channel`/`Message`/… view types) or by inline `gql` documents
+ *      not yet promoted into the codegen pluck set. `DOC` is accepted as a
+ *      `DocumentNode`; `variables` is loose. The operation TEXT is still
+ *      validated against the schema by the codegen CI gate, so drift is caught
+ *      at build time even on this path.
  *
  * @returns The `data` field from the GraphQL response, typed as the result type.
  * @throws {GraphQLError} when the response contains `errors`.
  * @throws {Error}        when the HTTP response is not ok.
  */
-export async function graphqlRequest<TResult, TVars>(
+export function graphqlRequest<TResult, TVars>(
   document: TypedDocumentNode<TResult, TVars>,
   ...args: VariablesArg<TVars>
+): Promise<TResult>;
+export function graphqlRequest<TResult>(
+  document: DocumentNode,
+  variables?: Record<string, unknown>,
+): Promise<TResult>;
+export async function graphqlRequest<TResult>(
+  document: DocumentNode,
+  variables?: Record<string, unknown>,
 ): Promise<TResult> {
-  const [variables] = args;
   const response = await authenticatedFetch('/graphql', {
     method: 'POST',
     body: JSON.stringify({ query: print(document), variables }),

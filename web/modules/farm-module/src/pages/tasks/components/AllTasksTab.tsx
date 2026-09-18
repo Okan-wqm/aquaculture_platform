@@ -71,7 +71,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
   };
 
   const handleBulkComplete = async () => {
-    if (!window.confirm(`${selectedIds.size} görevi tamamlamak istediğinize emin misiniz?`)) return;
+    if (!window.confirm(`Are you sure you want to complete ${selectedIds.size} task(s)?`)) return;
     for (const id of selectedIds) {
       await onToggleComplete(id);
     }
@@ -79,7 +79,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
   };
 
   const handleBulkDelete = async () => {
-    if (!window.confirm(`${selectedIds.size} görevi silmek istediğinize emin misiniz?`)) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedIds.size} task(s)?`)) return;
     for (const id of selectedIds) {
       await onDeleteTask(id);
     }
@@ -96,7 +96,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Görev ara..."
+              placeholder="Search tasks…"
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             />
             <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,19 +104,19 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
             </svg>
           </div>
           <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-            <option value="all">Tüm Kategoriler</option>
+            <option value="all">All Categories</option>
             {Object.entries(CATEGORY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-            <option value="all">Tüm Durumlar</option>
+            <option value="all">All Statuses</option>
             {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-            <option value="all">Tüm Öncelikler</option>
+            <option value="all">All Priorities</option>
             {Object.entries(PRIORITY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-            <option value="all">Tüm Kişiler</option>
+            <option value="all">All Assignees</option>
             {assignees.map((a: { id: string; name: string }) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </div>
@@ -124,22 +124,22 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
           onClick={() => setShowCreateModal(true)}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap"
         >
-          + Yeni Görev
+          + New Task
         </button>
       </div>
 
       {/* Bulk Actions */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
-          <span className="text-sm text-blue-700 font-medium">{selectedIds.size} görev seçili</span>
+          <span className="text-sm text-blue-700 font-medium">{selectedIds.size} task(s) selected</span>
           <button onClick={handleBulkComplete} className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">
-            Tamamla
+            Complete
           </button>
           <button onClick={handleBulkDelete} className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700">
             Sil
           </button>
           <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
-            İptal
+            Cancel
           </button>
         </div>
       )}
@@ -158,20 +158,20 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded"
                   />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Görev</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Task</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kategori</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Öncelik</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Atanan</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bitiş</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">İşlem</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                    Görev bulunamadı.
+                    No tasks found.
                   </td>
                 </tr>
               ) : (
@@ -224,7 +224,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
                           <button
                             onClick={() => onToggleComplete(task.id)}
                             className="text-green-600 hover:text-green-800 text-sm"
-                            title="Tamamla"
+                            title="Complete"
                           >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -233,7 +233,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
                           <button
                             onClick={() => onDeleteTask(task.id)}
                             className="text-red-600 hover:text-red-800 text-sm"
-                            title="Sil"
+                            title="Delete"
                           >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

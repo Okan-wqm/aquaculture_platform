@@ -3,12 +3,17 @@
  *
  * Given a Screen object, OperatorView:
  *  1. Collects all tag IDs referenced in widget configs.
- *  2. Subscribes to live values via useRealtimeData (bulk subscription).
- *  3. Renders each widget at its grid-defined position using absolute
- *     pixel placement (grid col/row × cell sizes).
- *  4. Evaluates per-widget permission (useOperatorPermission) to
- *     determine visibility and interactability.
- *  5. Routes widget onCommand callbacks → useTagWrite.
+ *  2. Subscribes to live values via ONE bulk useRealtimeData subscription
+ *     and passes the values DOWN to every widget (controlled mode, T7a) —
+ *     N widgets must not create N rAF/timer loops.
+ *  3. Renders each widget via RuntimeWidgetRenderer (the WIDGET_REGISTRY +
+ *    FallbackWidget dispatch is deleted) at its grid-defined position,
+ *     with builder parity (T7f): visible!==false filter, zIndex 500+z,
+ *     config.transform applied.
+ *  4. Adapts builder-side widget config (permissions/events/animations)
+ *     through the explicit adapters in ./adapters (T7c).
+ *  5. Widget commands are routed by RuntimeWidgetRenderer's command router
+ *     (T5) — the old "command:tagId" string protocol is deleted.
  *  6. Dispatches navigation/overlay events via useWidgetEvents.
  *  7. Applies a configurable viewRenderDelay to prevent flicker on
  *     screen transitions.
@@ -26,22 +31,20 @@ import React, {
   useMemo,
   useState,
   useEffect,
-  useCallback,
   memo,
 } from 'react';
 
 import { useRealtimeData } from '../../hooks/useRealtimeData';
-import { useTagWrite } from '../../hooks/useTagWrite';
-import { useWidgetEvents } from '../../hooks/useWidgetEvents';
-import { useOperatorPermission } from '../../hooks/useOperatorPermission';
 import { getWidgetTagBinding, localTagFromBindingValue } from '../../engine/tags';
+import { RuntimeWidgetRenderer, type AnyWidgetType } from './widgets/RuntimeWidgetRenderer';
+import {
+  adaptWidgetPermissions,
+  adaptWidgetEvents,
+  adaptAnimationRules,
+  logAdapterWarnings,
+} from './adapters';
 import type { Screen, ScreenWidget } from '../../types/scada-package.types';
-import type {
-  WidgetPermission,
-  WidgetEventBinding,
-  WidgetAction,
-  TagValueChange,
-} from '../../types/scada-runtime.types';
+import type { TagValueChange } from '../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
 /*  Grid cell dimensions (mirrors scada-widget-sizes constants)        */
@@ -49,6 +52,9 @@ import type {
 
 const GRID_CELL_W = 40; // px per grid column
 const GRID_CELL_H = 40; // px per grid row
+
+/** Base z-index for the widget layer (builder parity, T7f). */
+const WIDGET_Z_BASE = 500;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -94,91 +100,18 @@ function extractTagIds(config: Record<string, unknown>): string[] {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Widget registry                                                     */
-/*                                                                      */
-/*  Components must be registered here so OperatorView can look them   */
-/*  up by widgetType string.  Missing types render a fallback.         */
-/*                                                                      */
-/*  The registry is lazily populated: each widget module calls         */
-/*  registerOperatorWidget() on import.  We keep a Map to avoid        */
-/*  rebuilding it on every render.                                     */
-/* ------------------------------------------------------------------ */
-
-type OperatorWidgetComponent = React.ComponentType<OperatorWidgetProps>;
-
-const WIDGET_REGISTRY = new Map<string, OperatorWidgetComponent>();
-
-export function registerOperatorWidget(
-  type: string,
-  component: OperatorWidgetComponent,
-): void {
-  WIDGET_REGISTRY.set(type, component);
-}
-
-/* ------------------------------------------------------------------ */
-/*  OperatorWidgetProps — passed to every runtime widget               */
-/* ------------------------------------------------------------------ */
-
-export interface OperatorWidgetProps {
-  /** Widget config from Screen. */
-  config: Record<string, unknown>;
-  /** Current primary tag value (from config.tagId). */
-  value: unknown;
-  /** Timestamp of last update. */
-  timestamp: number;
-  /** Data quality flag for the primary tag. */
-  quality: 'good' | 'bad' | 'uncertain';
-  /** All tag values subscribed by this widget. */
-  tagValues: Record<string, TagValueChange>;
-  /** Operator mode = true (read-only in editor would be false). */
-  isOperatorMode: boolean;
-  /** Widget is visible (permission check). */
-  isVisible: boolean;
-  /** Widget is interactable (permission check). */
-  isEnabled: boolean;
-  /** Tag-value-driven visual actions. */
-  actions?: WidgetAction[];
-  /** Event bindings. */
-  events?: WidgetEventBinding[];
-  /** Pixel width of the widget cell. */
-  width: number;
-  /** Pixel height of the widget cell. */
-  height: number;
-  /** Dispatch a command from the widget (e.g. 'setValue', 'toggle'). */
-  onCommand?: (command: string, value?: unknown) => void;
-}
-
-/* ------------------------------------------------------------------ */
-/*  FallbackWidget — rendered when widgetType is not registered        */
-/* ------------------------------------------------------------------ */
-
-const FallbackWidget = memo<Pick<OperatorWidgetProps, 'config' | 'width' | 'height'>>(
-  ({ config, width, height }) => (
-    <div
-      className="flex items-center justify-center bg-gray-800/60 border border-dashed border-gray-600 rounded text-[10px] text-gray-500 overflow-hidden"
-      style={{ width, height }}
-      title={`Unknown widget type: ${String(config.widgetType ?? '')}`}
-      aria-label={`Unregistered widget: ${String(config.widgetType ?? 'unknown')}`}
-    >
-      <span className="truncate px-1">{String(config.widgetType ?? '?')}</span>
-    </div>
-  ),
-);
-FallbackWidget.displayName = 'FallbackWidget';
-
-/* ------------------------------------------------------------------ */
-/*  RuntimeWidget — renders a single widget with permission + data     */
+/*  RuntimeWidget — adapts builder widget + renders RuntimeWidgetRenderer */
 /* ------------------------------------------------------------------ */
 
 interface RuntimeWidgetProps {
   widget: ScreenWidget;
+  /** Bulk tag values from OperatorView's single subscription (controlled). */
   tagValues: Record<string, TagValueChange>;
-  onCommand: (widgetId: string, command: string, value?: unknown) => void;
   onNavigate?: (screenId: string) => void;
 }
 
 const RuntimeWidget = memo<RuntimeWidgetProps>(
-  ({ widget, tagValues, onCommand, onNavigate }) => {
+  ({ widget, tagValues, onNavigate }) => {
     const { position, config, widgetType } = widget;
 
     // Pixel geometry
@@ -187,63 +120,62 @@ const RuntimeWidget = memo<RuntimeWidgetProps>(
     const pw = position.w  * GRID_CELL_W;
     const ph = position.h  * GRID_CELL_H;
 
-    // Permission check
-    const permission = config.permission as WidgetPermission | undefined;
-    const { visible, enabled } = useOperatorPermission(permission);
+    // ── Adapters (T7c): builder shapes → runtime shapes ─────────────────
+    // NOTE: permission is passed ONLY when the builder defined one —
+    // useOperatorPermission treats an absent definition as fully open
+    // (no confirm/PIN); an always-present empty object would gate every
+    // widget below supervisor.
+    const permission = useMemo(() => {
+      if (!widget.permissions) return undefined;
+      const adapted = adaptWidgetPermissions(widget.permissions);
+      logAdapterWarnings(`widget ${widget.id} permissions`, adapted.warnings);
+      return adapted.permission;
+    }, [widget.permissions, widget.id]);
 
-    // Primary tag value — shared binding accessor (config.tagRef → legacy
-    // keys), the same resolution the builder/preview uses.
-    const primaryTagId = getWidgetTagBinding(config) ?? '';
-    const primaryTagChange = primaryTagId ? tagValues[primaryTagId] : undefined;
-    const primaryValue    = primaryTagChange?.value ?? null;
-    const primaryTs       = primaryTagChange?.timestamp ?? 0;
-    const primaryQuality  = primaryTagChange?.quality ?? 'uncertain';
+    const events = useMemo(() => {
+      const adapted = adaptWidgetEvents(widget.events);
+      logAdapterWarnings(`widget ${widget.id} events`, adapted.warnings);
+      return adapted.events;
+    }, [widget.events, widget.id]);
 
-    // Event bindings
-    const events  = config.events  as WidgetEventBinding[] | undefined;
-    const actions = config.actions as WidgetAction[]        | undefined;
+    const actions = useMemo(() => {
+      const adapted = adaptAnimationRules(widget.animations);
+      logAdapterWarnings(`widget ${widget.id} animations`, adapted.warnings);
+      return adapted.actions;
+    }, [widget.animations, widget.id]);
 
-    const { handleEvent } = useWidgetEvents(events, onNavigate);
+    // Tag ids for multi-tag widgets (charts, tables) — canonical binding
+    // first, then every string-tag reference found in the config.
+    const tagIds = useMemo(() => {
+      const primary = getWidgetTagBinding(config);
+      const extracted = extractTagIds(config);
+      return primary ? [primary, ...extracted.filter((id) => id !== primary)] : extracted;
+    }, [config]);
 
-    // Command handler → tag writes
-    const handleCommand = useCallback(
-      (command: string, value?: unknown) => {
-        onCommand(widget.id, command, value);
-      },
-      [widget.id, onCommand],
-    );
+    // Builder parity (T7f): zIndex 500+z; visible defaults to true (the
+    // filter below drops visible === false only).
+    const zIndex = WIDGET_Z_BASE + (widget.zIndex ?? 0);
 
-    if (!visible) return null;
-
-    const Component = WIDGET_REGISTRY.get(widgetType);
+    const transform = typeof config.transform === 'string' ? config.transform : undefined;
 
     return (
-      <div
-        className="absolute"
-        style={{ left: px, top: py, width: pw, height: ph }}
-        data-widget-id={widget.id}
-        data-widget-type={widgetType}
-      >
-        {Component ? (
-          <Component
-            config={config}
-            value={primaryValue}
-            timestamp={primaryTs}
-            quality={primaryQuality}
-            tagValues={tagValues}
-            isOperatorMode
-            isVisible={visible}
-            isEnabled={enabled}
-            actions={actions}
-            events={events}
-            width={pw}
-            height={ph}
-            onCommand={handleCommand}
-          />
-        ) : (
-          <FallbackWidget config={config} width={pw} height={ph} />
-        )}
-      </div>
+      <RuntimeWidgetRenderer
+        widgetId={widget.id}
+        // Persisted docs carry open widget-type strings; unknown values
+        // degrade inside the renderer (error boundary), so the widening is safe.
+        widgetType={widgetType as AnyWidgetType}
+        config={config}
+        tagIds={tagIds}
+        position={{ x: px, y: py, w: pw, h: ph }}
+        permission={permission}
+        actions={actions}
+        events={events}
+        onNavigate={onNavigate}
+        tagValues={tagValues}
+        subscribe={false}
+        zIndex={zIndex}
+        {...(transform ? { transform } : {})}
+      />
     );
   },
 );
@@ -272,8 +204,6 @@ export interface OperatorViewProps {
 
 export const OperatorView = memo<OperatorViewProps>(
   ({ screen, onNavigate, renderDelay = 0 }) => {
-    const { writeTag, toggleTag } = useTagWrite();
-
     // Collect all tag IDs needed by this screen's widgets.
     const tagIds = useMemo(
       () =>
@@ -281,6 +211,7 @@ export const OperatorView = memo<OperatorViewProps>(
       [screen.widgets],
     );
 
+    // SINGLE bulk subscription (T7a) — widgets run controlled (subscribe={false}).
     const { values: tagValues } = useRealtimeData(tagIds);
 
     // Render-delay: hide content briefly to prevent flicker on screen
@@ -296,24 +227,6 @@ export const OperatorView = memo<OperatorViewProps>(
       const timer = setTimeout(() => setReady(true), renderDelay);
       return () => clearTimeout(timer);
     }, [screen.id, renderDelay]);
-
-    // Global command handler: routes widget commands to tag writes.
-    const handleCommand = useCallback(
-      (_widgetId: string, command: string, value?: unknown) => {
-        // Determine target tagId from the command string or value.
-        // Commands are in the form "setValue:tagId" or "toggle:tagId".
-        const [action, tagId] = command.split(':');
-        if (!tagId) return;
-
-        if (action === 'toggle') {
-          void toggleTag(tagId);
-        } else {
-          // setValue, add, remove — use writeTag with the provided value
-          void writeTag(tagId, value);
-        }
-      },
-      [writeTag, toggleTag],
-    );
 
     // Canvas dimensions: grid cols × rows × cell size
     const canvasWidth  = screen.layout.cols * GRID_CELL_W;
@@ -339,15 +252,18 @@ export const OperatorView = memo<OperatorViewProps>(
           }}
           aria-hidden={!ready}
         >
-          {screen.widgets.map((widget) => (
-            <RuntimeWidget
-              key={widget.id}
-              widget={widget}
-              tagValues={tagValues}
-              onCommand={handleCommand}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {/* T7f parity: visible===false widgets are dropped from the DOM
+              entirely (matches the builder canvas + runtime contract). */}
+          {screen.widgets
+            .filter((widget) => widget.visible !== false)
+            .map((widget) => (
+              <RuntimeWidget
+                key={widget.id}
+                widget={widget}
+                tagValues={tagValues}
+                onNavigate={onNavigate}
+              />
+            ))}
         </div>
 
         {/* Loading placeholder: shown during render delay */}

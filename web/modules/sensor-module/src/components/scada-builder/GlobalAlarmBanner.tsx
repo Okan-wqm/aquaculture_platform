@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 import type { AlarmRuleDef } from '../../store/scada';
+import { useScadaConnectionState } from '../../hooks/useScadaConnectionState';
 
 /* ------------------------------------------------------------------ */
 /*  ISA-101 Severity Configuration                                     */
@@ -46,12 +47,35 @@ const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'warning', 'info'];
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export const GlobalAlarmBanner: React.FC = () => {
+export interface GlobalAlarmBannerProps {
+  /**
+   * True when the LIVE data plane is expected (preview mode). Only then
+   * does a disconnected socket mean "alarm state unknown"; in edit mode
+   * the socket is intentionally never opened.
+   */
+  liveDataActive?: boolean;
+}
+
+export const GlobalAlarmBanner: React.FC<GlobalAlarmBannerProps> = ({
+  liveDataActive = false,
+}) => {
   const alarmRules = useScadaPackageStore((s) => s.alarmRules);
   const simulationMode = useScadaPackageStore((s) => s.simulationMode);
   const simAlarms = useScadaPackageStore((s) => s.simAlarms);
+  // Runtime alarm instances (operator data plane); present in the combined
+  // builder store via the alarm runtime slice.
+  const activeRuntimeAlarms = useScadaPackageStore((s) => s.activeAlarms ?? []);
+  // Live socket health — a disconnected data plane means the "no live
+  // alarms" reading cannot be trusted.
+  const connectionState = useScadaConnectionState();
+  // 'alarm state unknown' only where live data is EXPECTED: a disconnected
+  // socket in edit mode is normal (no socket is opened while editing).
+  const alarmStateUnknown =
+    liveDataActive &&
+    !simulationMode &&
+    (connectionState === 'disconnected' || connectionState === 'error');
 
-  const { counts, total, highestSeverity } = useMemo(() => {
+  const { counts, total, highestSeverity, liveMode } = useMemo(() => {
     // In simulation mode, show fired simulation alarms
     if (simulationMode && simAlarms.length > 0) {
       const c: Record<Severity, number> = { critical: 0, high: 0, warning: 0, info: 0 };
@@ -63,9 +87,25 @@ export const GlobalAlarmBanner: React.FC = () => {
       for (const sev of SEVERITY_ORDER) {
         if (c[sev] > 0) { highest = sev; break; }
       }
-      return { counts: c, total: simAlarms.length, highestSeverity: highest };
+      return { counts: c, total: simAlarms.length, highestSeverity: highest, liveMode: true };
     }
 
+    // Runtime alarm state active → live alarm presentation
+    const liveActive = activeRuntimeAlarms.filter((a) => a.status !== 'inactive');
+    if (!simulationMode && liveActive.length > 0) {
+      const c: Record<Severity, number> = { critical: 0, high: 0, warning: 0, info: 0 };
+      for (const alarm of liveActive) {
+        const sev = alarm.severity as Severity;
+        if (c[sev] !== undefined) c[sev]++;
+      }
+      let highest: Severity | null = null;
+      for (const sev of SEVERITY_ORDER) {
+        if (c[sev] > 0) { highest = sev; break; }
+      }
+      return { counts: c, total: liveActive.length, highestSeverity: highest, liveMode: true };
+    }
+
+    // Edit mode (or nothing firing): neutral configuration summary
     const c: Record<Severity, number> = {
       critical: 0,
       high: 0,
@@ -86,10 +126,12 @@ export const GlobalAlarmBanner: React.FC = () => {
       }
     }
 
-    return { counts: c, total: alarmRules.length, highestSeverity: highest };
-  }, [alarmRules, simulationMode, simAlarms]);
+    return { counts: c, total: alarmRules.length, highestSeverity: highest, liveMode: false };
+  }, [alarmRules, simulationMode, simAlarms, activeRuntimeAlarms]);
 
-  const hasCritical = counts.critical > 0;
+  // Red pulse ONLY for live alarm state (simulation or runtime) — never for
+  // a mere configuration summary in edit mode.
+  const hasCritical = liveMode && counts.critical > 0;
   const isEmpty = total === 0;
 
   /* Bar background: red-600 + pulse if critical, otherwise neutral dark */
@@ -114,7 +156,9 @@ export const GlobalAlarmBanner: React.FC = () => {
 
       {/* Center: Severity summary or empty message */}
       <div className="flex items-center gap-2">
-        {isEmpty ? (
+        {alarmStateUnknown ? (
+          <span className="text-gray-400 italic">alarm state unknown</span>
+        ) : isEmpty ? (
           <span className="text-gray-500 italic">No alarm rules defined</span>
         ) : (
           <div className="flex items-center gap-1.5">
@@ -152,7 +196,9 @@ export const GlobalAlarmBanner: React.FC = () => {
                 : 'bg-gray-700 text-gray-200'
           }`}
         >
-          {total} rule{total !== 1 ? 's' : ''}
+          {liveMode
+            ? `${total} active`
+            : `${total} alarm rule${total !== 1 ? 's' : ''} (configuration)`}
         </span>
       </div>
     </div>

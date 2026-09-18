@@ -1,6 +1,18 @@
 /**
  * Farm Setup Page
  * Main setup page with tabbed navigation for Sites, Departments, Equipment, etc.
+ *
+ * SUDERRA restyle — page shell + tab bar only; the 12 tab components keep
+ * their logic and markup untouched and are themed through the scoped
+ * legacy-palette compatibility layer (`.sd-page …` rules in the shell
+ * stylesheet remap gray/blue utilities to SUDERRA tokens for the host
+ * document). Import/Export stay DISABLED placeholders ("Coming Soon").
+ *
+ * DATA SOURCES: every tab fetches real farm-service data through its own
+ * hook (useSiteList, useDepartmentsBySite, useSystemsBySite,
+ * useSupplierList, useFeedList, …) — no mocked data on this page.
+ * MOCK/PLACEHOLDER parts: the Import and Export buttons have NO backend;
+ * they render disabled with a "Coming Soon" tooltip by design.
  */
 import React from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
@@ -241,104 +253,56 @@ export const SetupPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Farm Setup</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Configure your farm infrastructure, equipment, and resources
-              </p>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="relative group">
-                <button
-                  type="button"
-                  disabled
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed"
-                >
-                  <svg
-                    className="w-4 h-4 mr-2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                    />
-                  </svg>
-                  Import
-                </button>
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-sm whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  Coming Soon
-                </span>
-              </div>
-              <div className="relative group">
-                <button
-                  type="button"
-                  disabled
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed"
-                >
-                  <svg
-                    className="w-4 h-4 mr-2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
-                  Export
-                </button>
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-sm whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  Coming Soon
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="sd-page">
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Setup</span>
+        <h1 className="sd-page-title">Farm Setup</h1>
+        <span className="sd-page-sub">Configure your farm infrastructure, equipment, and resources</span>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
-            {setupTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.path)}
-                className={`
-                  group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-                  ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                <span
-                  className={`mr-2 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500'}`}
-                >
-                  {tab.icon}
-                </span>
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
+      {/* Actions row — Import/Export are disabled placeholders (no backend);
+          "Coming Soon" tooltips preserved */}
+      <div className="sd-actions">
+        {(['Import', 'Export'] as const).map((label) => (
+          <div className="relative group" key={label}>
+            <button type="button" disabled className="sd-btn-ghost" style={{ opacity: 0.55, cursor: 'not-allowed' }}>
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {label === 'Import' ? (
+                  <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                ) : (
+                  <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                )}
+              </svg>
+              {label}
+            </button>
+            <span
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-medium rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              style={{ color: '#fffdf8', background: '#0a1f2b' }}
+            >
+              Coming Soon
+            </span>
+          </div>
+        ))}
       </div>
+
+      {/* Tab Navigation — SUDERRA underline tabs */}
+      <nav className="sd-tabs" aria-label="Tabs">
+        {setupTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.path)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </nav>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         <Routes>
           <Route index element={<Navigate to="sites" replace />} />
           <Route path="sites" element={<SitesTab />} />

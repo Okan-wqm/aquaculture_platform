@@ -15,7 +15,7 @@
  * WO triggers assignments, alerts, and downstream notifications. A
  * one-click confirm is too easy to fat-finger from the schedule list.
  * `ConfirmModal`'s `requireTypedConfirmation` (Scope C PR-0a) gates
- * the confirm button until the operator literally types "OLUŞTUR" —
+ * the confirm button until the operator literally types the confirmation phrase —
  * the same UX pattern enterprise admin tools use for tenant-level
  * destructive actions.
  *
@@ -36,7 +36,7 @@ import {
 
 import { useProcessAutoGenerateWorkOrders } from '../../../hooks/useMaintenance';
 
-const TYPED_CONFIRM_PHRASE = 'OLUŞTUR';
+const TYPED_CONFIRM_PHRASE = 'CREATE';
 
 const ProcessAutoGenerateButton: React.FC = () => {
   const canRun = useCanMutate('processAutoGenerateWorkOrders');
@@ -53,22 +53,22 @@ const ProcessAutoGenerateButton: React.FC = () => {
       const created = await processMutation.mutateAsync();
       if (created.length === 0) {
         toast({
-          title: 'Üretilecek yeni iş emri yok',
+          title: 'No new work orders to generate',
           description:
-            'Pencere içinde aktif planların hepsi için zaten iş emirleri açık.',
+            'All active schedules in the window already have open work orders.',
           variant: 'info',
         });
       } else {
         toast({
-          title: 'Otomatik iş emirleri üretildi',
-          description: `${created.length} yeni iş emri kuyruğa alındı.`,
+          title: 'Auto work orders generated',
+          description: `${created.length} new work order(s) queued.`,
           variant: 'success',
         });
       }
       setShowConfirm(false);
     } catch (err) {
       toast({
-        title: 'Otomatik üretim başarısız',
+        title: 'Auto-generation failed',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -82,34 +82,34 @@ const ProcessAutoGenerateButton: React.FC = () => {
         onClick={() => setShowConfirm(true)}
         disabled={processMutation.isPending}
         className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-md font-medium"
-        title="Aktif planlardan otomatik iş emri üret (admin)"
+        title="Auto-generate work orders from active schedules (admin)"
       >
-        Otomatik İş Emri Üret
+        Auto-generate Work Orders
       </button>
 
       <ConfirmModal
+        className="sd-f2"
         isOpen={showConfirm}
         onClose={() => setShowConfirm(false)}
         onConfirm={handleConfirm}
-        title="Otomatik iş emirleri üretilsin mi?"
+        title="Auto-generate work orders?"
         message={
           <span>
-            Bu eylem,{' '}
+            This action scans{' '}
             <span className="font-semibold">
-              "Otomatik üret" işaretli aktif planlar
-            </span>
-            {' '}arasında pencere içinde olanları tarar ve eksikler için
-            yeni iş emirleri açar. Tek tıklama düzinelerce iş emrine
-            yol açabilir; her iş emri kendi atama ve uyarısını
-            tetikler. Devam etmek için{' '}
+              active schedules marked "auto-generate"
+            </span>{' '}
+            within the window and opens new work orders for the missing ones.
+            A single click can result in dozens of work orders; each one
+            triggers its own assignment and notification. To continue,{' '}
             <span className="font-mono font-semibold text-purple-700">
               {TYPED_CONFIRM_PHRASE}
             </span>{' '}
-            yazın.
+            below.
           </span>
         }
-        confirmText="Üret"
-        cancelText="İptal"
+        confirmText="Generate"
+        cancelText="Cancel"
         variant="warning"
         isLoading={processMutation.isPending}
         requireTypedConfirmation={TYPED_CONFIRM_PHRASE}

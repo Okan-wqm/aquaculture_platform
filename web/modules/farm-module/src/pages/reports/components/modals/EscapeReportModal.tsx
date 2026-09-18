@@ -21,8 +21,8 @@ interface EscapeReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<EscapeReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
   siteCode?: string;
   gpsCoordinates?: { lat: number; lng: number };
 }
@@ -402,6 +402,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title="Report Fish Escape"
@@ -442,7 +443,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
                 <div className="text-2xl font-bold text-red-700">
-                  {totalEscaped.toLocaleString()}
+                  {totalEscaped.toLocaleString('en-GB')}
                 </div>
                 <div className="text-xs text-red-600">Total Escaped Fish</div>
               </div>
@@ -709,7 +710,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                   {exceedsStock && (
                     <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs text-orange-700">
                       Warning: Escape count exceeds original stock (
-                      {unit.originalCount.toLocaleString()})
+                      {unit.originalCount.toLocaleString('en-GB')})
                     </div>
                   )}
 

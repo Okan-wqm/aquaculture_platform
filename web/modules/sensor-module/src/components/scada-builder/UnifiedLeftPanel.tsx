@@ -33,6 +33,7 @@ import {
   WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES,
 } from '../../constants/scada-widget-sizes';
 import { useScadaPackageStore } from '../../store/scada';
+import { cascadeInsertPosition } from './insertPosition';
 import type { EquipmentSubType } from '../../types/scada-widget.types';
 
 import type { FuxaWidgetCatalogEntry } from './fuxa-bridge/catalog';
@@ -47,9 +48,12 @@ import { SceneTreePanel } from './SceneTreePanel';
 interface UnifiedLeftPanelProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Controlled active tab (wired to the collapsed rail icons). */
+  activeTab?: TabId;
+  onTabChange?: (tab: TabId) => void;
 }
 
-type TabId = 'scene' | 'palette';
+export type TabId = 'scene' | 'palette';
 
 /* ------------------------------------------------------------------ */
 /*  Icon registry                                                      */
@@ -154,10 +158,21 @@ const WidgetCard: React.FC<{
 /* ------------------------------------------------------------------ */
 
 export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
+  activeTab,
+  onTabChange,
   collapsed = false,
   onToggleCollapse,
 }) => {
-  const [tab, setTab] = useState<TabId>('scene');
+  const [internalTab, setInternalTab] = useState<TabId>('scene');
+  // Controlled when the page wires the rail icons; internal otherwise.
+  const tab = activeTab ?? internalTab;
+  const setTab = useCallback(
+    (next: TabId) => {
+      setInternalTab(next);
+      onTabChange?.(next);
+    },
+    [onTabChange],
+  );
   const [query, setQuery] = useState('');
   const [dq, setDq] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -178,10 +193,18 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   const handleFuxaWidgetSelect = useCallback(
     (entry: FuxaWidgetCatalogEntry) => {
       const widgetId = `fuxa-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      // Viewport-aware cascade: insert into the visible area, stacking by
+      // one cell per consecutive insert instead of a fixed {2,2} spot.
+      const st = useScadaPackageStore.getState();
+      const screen = st.screens.find((s) => s.id === activeScreenId);
+      const { col, row } = cascadeInsertPosition({
+        viewport: st.screenViewports[activeScreenId],
+        widgetCount: screen?.widgets.length ?? 0,
+      });
       addWidget(activeScreenId, {
         id: widgetId,
         widgetType: 'fuxaWidget',
-        position: { col: 2, row: 2, w: 2, h: 2 },
+        position: { col, row, w: 2, h: 2 },
         config: {
           label: entry.name,
           catalogId: entry.id,
@@ -385,11 +408,11 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
       {/* Tab toggle */}
       <div className="px-2 pt-2 pb-1.5">
         <div className="flex bg-gray-100 rounded-lg p-1">
-          <button onClick={() => setTab('scene')}
+          <button onClick={() => setTab('scene')} role="tab" aria-selected={tab === 'scene'} aria-label="Scene tree tab"
             className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'scene' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
             <FolderTree className="w-3.5 h-3.5" />Scene
           </button>
-          <button onClick={() => setTab('palette')}
+          <button onClick={() => setTab('palette')} role="tab" aria-selected={tab === 'palette'} aria-label="Widget palette tab"
             className={`flex-1 flex items-center justify-center gap-1.5 h-9 text-sm font-medium rounded-md transition-colors ${tab === 'palette' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
             <Palette className="w-3.5 h-3.5" />Palette
           </button>

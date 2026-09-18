@@ -5,7 +5,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { ALARM_SEVERITY_COLORS } from '../WidgetRenderer';
+import { ALARM_SEVERITY_COLORS, resolveSeverity, type CanonicalSeverity } from '../WidgetRenderer';
 
 const DEMO_ALARMS = [
   { time: '14:32', severity: 'critical', msg: 'pH > 8.5' },
@@ -15,12 +15,11 @@ const DEMO_ALARMS = [
   { time: '13:40', severity: 'critical', msg: 'Tank level alarm' },
 ];
 
-const SEV_COLOR_MAP: Record<string, string> = {
+/** Unified canonical severity colors (legacy medium/low resolve via resolveSeverity). */
+const SEV_COLOR_MAP: Record<CanonicalSeverity, string> = {
   critical: ALARM_SEVERITY_COLORS.critical.bg,
   high:     ALARM_SEVERITY_COLORS.high.bg,
-  medium:   ALARM_SEVERITY_COLORS.medium.bg,
-  warning:  ALARM_SEVERITY_COLORS.medium.bg,
-  low:      ALARM_SEVERITY_COLORS.low.bg,
+  warning:  ALARM_SEVERITY_COLORS.warning.bg,
   info:     ALARM_SEVERITY_COLORS.info.bg,
 };
 
@@ -74,7 +73,7 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: SEV_COLOR_MAP[alarm.severity] ?? '#9ca3af',
+                background: SEV_COLOR_MAP[resolveSeverity(alarm.severity)],
                 flexShrink: 0,
               }}
             />

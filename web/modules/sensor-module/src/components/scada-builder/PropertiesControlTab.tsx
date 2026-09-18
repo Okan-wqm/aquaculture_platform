@@ -4,22 +4,16 @@
  */
 
 import React from 'react';
+import type { ControlPermissionsDef } from '../../store/scada/types';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — canonical definitions live in the store (no duplicate shapes).
+// ControlSecurityConfig is ControlPermissionsDef['securityLevels'];
+// EmergencyStopConfig is the non-null emergencyStop member.
 // ---------------------------------------------------------------------------
 
-export interface ControlSecurityConfig {
-  none: string[];
-  confirm: string[];
-  pin: string[];
-}
-
-export interface EmergencyStopConfig {
-  holdDuration: number;
-  affectedTags: string[];
-  resetRequiresPin: boolean;
-}
+export type ControlSecurityConfig = ControlPermissionsDef['securityLevels'];
+export type EmergencyStopConfig = NonNullable<ControlPermissionsDef['emergencyStop']>;
 
 interface PropertiesControlTabProps {
   controlSecurity: ControlSecurityConfig;

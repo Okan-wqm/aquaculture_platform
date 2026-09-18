@@ -33,8 +33,12 @@ export const UserAvatar = memo<UserAvatarProps>(({ name, avatarUrl, size = 'md' 
     );
   }
 
+  // SUDERRA rail-gradient avatar (same shape/sizes, new palette)
   return (
-    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white font-medium`}>
+    <div
+      className={`${sizeClasses[size]} rounded-full flex items-center justify-center text-white font-medium`}
+      style={{ background: 'linear-gradient(135deg, #14606f, #0b4f60)' }}
+    >
       {initials || '??'}
     </div>
   );

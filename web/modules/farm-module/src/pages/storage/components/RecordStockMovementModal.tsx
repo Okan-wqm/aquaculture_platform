@@ -339,7 +339,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Record Stock Movement" size="lg">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="Record Stock Movement" size="lg">
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Inline error banner — shown when the GraphQL mutation fails */}

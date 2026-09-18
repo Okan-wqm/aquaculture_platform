@@ -15,11 +15,11 @@ import {
 } from '../../../hooks/useRegulatory';
 import type {
   SubmitPlannedSlaughterInput,
-  ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
 import { PlannedSlaughter, CompletedSlaughter, SlaughterReportType } from '../types/reports.types';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
+import { useEffectiveReportSite } from '../hooks/useEffectiveReportSite';
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 import { useSlaughterFacilities } from '../../../hooks/useSlaughterFacilities';
@@ -1530,7 +1530,13 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const { data: regulatorySettings } = useRegulatorySettings();
   const submitPlannedMutation = useSubmitPlannedSlaughterReport();
   const clientRef = useStableClientReference();
-  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+  // Behavior fix (FARM-HIGH-128 class): resolve the filing site through the
+  // SSoT hook instead of the raw (never-passed) siteId prop, which made the
+  // lokalitetsnummer lookup miss and planned submissions fall back to 0.
+  const { effectiveSiteId, siteMappings } = useEffectiveReportSite(siteId);
+  // Mapping name is optional; neutral fallback keeps titles non-fabricated.
+  const effectiveSiteName =
+    siteMappings.find((m) => m.siteId === effectiveSiteId)?.siteName ?? 'Unknown site';
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SlaughterFormData>) => {
@@ -1545,10 +1551,9 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     setError(null);
-    setSubmissionResult(null);
     try {
       const siteMapping = regulatorySettings?.siteLocalityMappings?.find(
-        (m) => m.siteId === siteId,
+        (m) => m.siteId === effectiveSiteId,
       );
       const orgNr =
         formData.regulatory.organisasjonsnummer || regulatorySettings?.organisationNumber || '';
@@ -1602,13 +1607,8 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
             },
           ],
         };
-        const result = await submitPlannedMutation.mutateAsync(plannedInput);
-        setSubmissionResult(result);
-        if (!result.success) {
-          setError(result.feilmelding || 'Planned slaughter submission failed');
-          setIsSubmitting(false);
-          return;
-        }
+        // The mutation throws on failure; reaching here means acceptance.
+        await submitPlannedMutation.mutateAsync(plannedInput);
       }
 
       if (formData.reportType === 'completed') {
@@ -1641,7 +1641,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   }, [
     formData,
     regulatorySettings,
-    siteId,
+    effectiveSiteId,
     clientRef,
     submitPlannedMutation,
   ]);
@@ -1657,7 +1657,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
           <ReportTypeStep
             formData={formData}
             onChange={handleFormChange}
-            siteName={'Default Site'}
+            siteName={effectiveSiteName}
           />
         ),
       },
@@ -1697,10 +1697,10 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={'Default Site'} />,
+        content: <ReviewStep formData={formData} siteName={effectiveSiteName} />,
       },
     ],
-    [formData, handleFormChange, batchOptions],
+    [formData, handleFormChange, batchOptions, effectiveSiteName],
   );
 
   return (
@@ -1728,12 +1728,12 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
       <SubmissionHistorySection
         reportType="SLAUGHTER_PLANNED"
         title="Planned Slaughter Submissions"
-        siteId={siteId}
+        siteId={effectiveSiteId}
       />
       <SubmissionHistorySection
         reportType="SLAUGHTER_EXECUTED"
         title="Executed Slaughter Submissions"
-        siteId={siteId}
+        siteId={effectiveSiteId}
       />
 
       {/* Wizard Modal */}

@@ -194,7 +194,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Transfer Stock" size="md">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="Transfer Stock" size="md">
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Inline error banner — shown when the GraphQL mutation fails */}

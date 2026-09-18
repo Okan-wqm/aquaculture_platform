@@ -4,15 +4,10 @@ import { useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { useOfflineQueue } from './useOfflineQueue';
 
-import {
-  COMPLETE_TASK,
-  START_TASK,
-  SET_CHECKLIST_ITEM,
-  ADD_TASK_NOTE,
-} from '@/graphql/operations';
+import { COMPLETE_TASK, START_TASK, SET_CHECKLIST_ITEM, ADD_TASK_NOTE } from '@/graphql/operations';
 import { computePayloadHash } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { QueuedPayload } from '@/types';
+import type { ChecklistItemSetInput } from '@/types';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 // WHY: TaskActionResult distinguishes queued-offline actions from confirmed-online
@@ -38,13 +33,16 @@ interface CommandIdentity {
 }
 
 // Lifecycle payload (completeTask/startTask) before the envelope is added.
-type TaskLifecyclePayload = QueuedPayload<'completeTask'>;
-type ChecklistItemSetPayload = QueuedPayload<'setChecklistItem'>;
+type TaskLifecyclePayload = { id: string };
 
 export function useTaskActions(): {
   completeTask: (taskId: string) => Promise<TaskActionResult>;
   startTask: (taskId: string) => Promise<TaskActionResult>;
-  setChecklistItem: (taskId: string, itemId: string, isCompleted: boolean) => Promise<TaskActionResult>;
+  setChecklistItem: (
+    taskId: string,
+    itemId: string,
+    isCompleted: boolean,
+  ) => Promise<TaskActionResult>;
   addNote: (taskId: string, text: string) => Promise<TaskActionResult>;
 } {
   const { addToQueue, isOnline } = useOfflineQueue();
@@ -57,7 +55,7 @@ export function useTaskActions(): {
   // will later hash for its own envelope — so the two paths agree on "the same
   // command" and the server dedups a fall-through retry.
   const mintCommandIdentity = useCallback(
-    async (rawPayload: TaskLifecyclePayload | ChecklistItemSetPayload): Promise<CommandIdentity> => ({
+    async (rawPayload: TaskLifecyclePayload | ChecklistItemSetInput): Promise<CommandIdentity> => ({
       clientCommandId: crypto.randomUUID(),
       payloadHash: await computePayloadHash(rawPayload),
     }),
@@ -77,7 +75,9 @@ export function useTaskActions(): {
       // feedback instead of a false "Task completed!".
       if (isOnline) {
         try {
-          await graphqlRequest(COMPLETE_TASK, { input: { id: taskId, clientCommandId, payloadHash } });
+          await graphqlRequest(COMPLETE_TASK, {
+            input: { id: taskId, clientCommandId, payloadHash },
+          });
           if (tenantId) {
             await invalidateSyncedOperationQueries(queryClient, tenantId, ['completeTask']);
           }
@@ -124,7 +124,7 @@ export function useTaskActions(): {
     // so an offline replay converges instead of reverting the item — which is what
     // makes the checklist safe to queue offline at all.
     async (taskId: string, itemId: string, isCompleted: boolean): Promise<TaskActionResult> => {
-      const rawPayload: ChecklistItemSetPayload = { taskId, itemId, isCompleted };
+      const rawPayload: ChecklistItemSetInput = { taskId, itemId, isCompleted };
       const { clientCommandId, payloadHash } = await mintCommandIdentity(rawPayload);
 
       if (isOnline) {

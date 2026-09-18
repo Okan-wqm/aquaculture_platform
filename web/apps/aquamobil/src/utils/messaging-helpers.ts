@@ -20,10 +20,7 @@ export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 0 || !parts[0]) return '?';
   const first = parts[0].charAt(0).toUpperCase();
-  const last =
-    parts.length > 1
-      ? (parts[parts.length - 1]?.charAt(0).toUpperCase() ?? '')
-      : '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.charAt(0).toUpperCase() ?? '') : '';
   return first + last;
 }
 
@@ -117,6 +114,60 @@ export function getUserDisplayName(user: {
   return 'Unknown';
 }
 
+/** The subset of a user needed to build a display name. */
+interface MessageUserLike {
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+}
+
+/**
+ * The name a human reads for a channel.
+ *
+ * WHY it belongs here rather than on each screen: THREE surfaces title the same
+ * conversation — the phone's channel list, the phone's chat header, and the
+ * board's two-pane Chat view — and each had grown its own copy of this rule. A
+ * DM whose members are loaded must show the OTHER person, never the stored
+ * channel name (empty or an id for a DM), or one conversation reads
+ * "Ola Nordvik" in a pocket and "Direct Message" on the cabin wall.
+ *
+ * `members` is a field-resolver result and is genuinely absent from some list
+ * payloads; falling back to the channel name is the right answer then, not a
+ * papered-over null.
+ */
+export function getChannelDisplayName(
+  channel: {
+    type: string;
+    name: string | null;
+    members?: Array<{ userId: string; user?: MessageUserLike | null }>;
+  },
+  currentUserId: string | undefined,
+): string {
+  if (channel.type === 'direct' && channel.members) {
+    const other = channel.members.find((member) => member.userId !== currentUserId);
+    if (other?.user) return getUserDisplayName(other.user);
+  }
+  return channel.name ?? 'Unnamed Channel';
+}
+
+/**
+ * Whether the OTHER party in a direct channel is online.
+ *
+ * Groups have no single presence to report, so they are always false rather than
+ * showing the dot for whichever member happens to be listed first.
+ */
+export function isOtherMemberOnline(
+  channel: {
+    type: string;
+    members?: Array<{ userId: string; user?: { isOnline?: boolean | null } | null }>;
+  },
+  currentUserId: string | undefined,
+): boolean {
+  if (channel.type !== 'direct' || !channel.members) return false;
+  const other = channel.members.find((member) => member.userId !== currentUserId);
+  return other?.user?.isOnline ?? false;
+}
+
 /**
  * Validate a URL protocol for safe rendering in href/src attributes.
  * Prevents javascript: and data: URI injection attacks.
@@ -131,4 +182,49 @@ export function isSafeUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Flatten infinite-query message pages into an OLDEST-FIRST view array.
+ * Pages stack newest-page-first AND each page's items arrive NEWEST-FIRST
+ * from the subgraph — BOTH levels must be reversed. The old mobile flatten
+ * skipped the per-page reversal, so the conversation rendered inverted and
+ * refetched fresh messages jumped to the top edge (user-reported 2026-09-17).
+ */
+export function flattenMessagePages<M>(pages: readonly {
+  items: readonly M[];
+}[] | undefined): M[] {
+  if (!pages?.length) return [];
+  const out: M[] = [];
+  for (let i = pages.length - 1; i >= 0; i -= 1) {
+    const page = pages[i];
+    if (!page) continue;
+    for (let j = page.items.length - 1; j >= 0; j -= 1) {
+      out.push(page.items[j] as M);
+    }
+  }
+  return out;
+}
+
+/**
+ * Insert `message` into a NEWEST-FIRST items array at its createdAt position
+ * (descending; ISO-8601 strings compare chronologically). Live socket
+ * messages land at the FRONT; reconnect-sync messages older than the head
+ * land at their chronological slot. Dedupes by id defensively.
+ */
+export function insertNewestFirst<M extends { id: string; createdAt: string }>(
+  items: readonly M[],
+  message: M,
+): M[] {
+  if (items.some((m) => m.id === message.id)) {
+    return items.map((m) => (m.id === message.id ? message : m));
+  }
+  const next = [...items];
+  let at = next.length;
+  for (let i = next.length - 1; i >= 0; i -= 1) {
+    if (message.createdAt <= next[i]!.createdAt) break;
+    at = i;
+  }
+  next.splice(at, 0, message);
+  return next;
 }

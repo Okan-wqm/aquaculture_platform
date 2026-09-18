@@ -245,7 +245,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="left"
                     type="monotone"
                     dataKey="weight"
-                    stroke="#3B82F6"
+                    stroke="#146f84"
                     name="Avg Weight (g)"
                     strokeWidth={2}
                   />
@@ -253,9 +253,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="right"
                     type="monotone"
                     dataKey="biomass"
-                    fill="#10B981"
+                    fill="#4abba2"
                     fillOpacity={0.3}
-                    stroke="#10B981"
+                    stroke="#4abba2"
                     name="Biomass (kg)"
                   />
                 </ComposedChart>
@@ -278,14 +278,14 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                   <Bar
                     yAxisId="left"
                     dataKey="dailyFeed"
-                    fill="#F59E0B"
+                    fill="#c89a3c"
                     name="Daily Feed (kg)"
                   />
                   <Line
                     yAxisId="right"
                     type="monotone"
                     dataKey="cumulativeFeed"
-                    stroke="#8B5CF6"
+                    stroke="#6d5ac8"
                     name="Cumulative Feed (kg)"
                     strokeWidth={2}
                   />

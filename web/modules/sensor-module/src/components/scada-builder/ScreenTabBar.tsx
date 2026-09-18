@@ -48,6 +48,7 @@ const ScreenTabBar: React.FC = () => {
   const removeScreen = useScadaPackageStore((s) => s.removeScreen);
   const duplicateScreen = useScadaPackageStore((s) => s.duplicateScreen);
   const updateScreen = useScadaPackageStore((s) => s.updateScreen);
+  const reorderScreens = useScadaPackageStore((s) => s.reorderScreens);
   const setDefaultScreen = useScadaPackageStore((s) => s.setDefaultScreen);
 
   const [showAddDropdown, setShowAddDropdown] = useState(false);
@@ -131,11 +132,9 @@ const ScreenTabBar: React.FC = () => {
     const insertIdx = screensCopy.findIndex((s) => s.id === dropId);
     screensCopy.splice(insertIdx, 0, dragged);
 
-    // Update sortOrder for all screens
-    screensCopy.forEach((screen, idx) => {
-      updateScreen(screen.id, { sortOrder: idx });
-    });
-  }, [updateScreen]);
+    // ONE batch action → array order + sortOrder + a single undo entry
+    reorderScreens(screensCopy.map((s) => s.id));
+  }, [reorderScreens]);
 
   const isLastScreen = screens.length <= 1;
 

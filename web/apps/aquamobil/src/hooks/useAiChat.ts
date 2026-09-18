@@ -159,7 +159,11 @@ export function useAiChat(
     for (const message of messages) {
       const metadata = message.metadata;
       const serverStatus = metadata?.['status'];
-      if (serverStatus !== 'proposed' && serverStatus !== 'confirmed' && serverStatus !== 'failed') {
+      if (
+        serverStatus !== 'proposed' &&
+        serverStatus !== 'confirmed' &&
+        serverStatus !== 'failed'
+      ) {
         continue;
       }
       const override = overrides.get(message.id);
@@ -170,12 +174,16 @@ export function useAiChat(
           ? metadata['actionDescription']
           : 'AI-proposed action';
       const baseStatus: AiActionStatus =
-        serverStatus === 'confirmed' ? 'completed' : serverStatus === 'failed' ? 'failed' : 'proposed';
+        serverStatus === 'confirmed'
+          ? 'completed'
+          : serverStatus === 'failed'
+            ? 'failed'
+            : 'proposed';
 
       cards.push({
         id: message.id,
         description,
-        status: override ? (override.status) : baseStatus,
+        status: override ? override.status : baseStatus,
         resultMessage: override?.resultMessage,
       });
     }

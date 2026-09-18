@@ -74,6 +74,8 @@ export interface IDataProvider {
     tagIds: string[],
     from: Date,
     to: Date,
+    /** Optional server-side aggregation (providers that support DAQ pass it through). */
+    aggregation?: DaqAggregation,
   ): Promise<HistoricalDataResult>;
   /** Connection state of the provider. */
   connectionState: DataProviderConnectionState;
@@ -244,7 +246,18 @@ export interface AlarmInstance {
   colors?: { background: string; text: string };
 }
 
-/** Alarm status summary (pushed to clients). */
+/**
+ * Alarm status summary (pushed to clients).
+ *
+ * ISA-18.2 annunciation contract: `counts` distinguish ACTIVE alarms;
+ * `unacked` (additive, optional until the backend lands it) counts only
+ * UNACKNOWLEDGED alarms — the badge/summary bar FLASH while unacked > 0 and
+ * go STEADY once acknowledged (state-driven flash, severity = color only).
+ *
+ * Known ISA-18.2 deviation: shelving (suppress with auto-unshelve timer) is
+ * NOT implemented — alarms can only be acknowledged. Server-side shelving
+ * must exist before the client can render a shelved state.
+ */
 export interface AlarmStatusSummary {
   critical: number;
   high: number;
@@ -253,6 +266,10 @@ export interface AlarmStatusSummary {
   activeAlarms: AlarmInstance[];
   /** Pending toast/popup actions from alarm triggers. */
   pendingActions?: AlarmActionCommand[];
+  /** Unacknowledged counts per severity (additive backend contract). */
+  unacked?: { critical: number; high: number; warning: number; info: number };
+  /** Total active alarms, as counted by the server (additive). */
+  totalActive?: number;
 }
 
 /** Alarm action definition. */
@@ -664,7 +681,7 @@ export interface NotificationConfig {
 /*  12. VIEW OVERLAY SYSTEM                                            */
 /* ================================================================== */
 
-export type OverlayType = 'dialog' | 'card' | 'iframe';
+export type OverlayType = 'dialog' | 'card' | 'iframe' | 'toast';
 
 export interface ViewOverlay {
   id: string;
@@ -675,6 +692,10 @@ export interface ViewOverlay {
   size?: { width: number; height: number };
   zIndex: number;
   title?: string;
+  /** Toast-only: the actual message text to render (not the severity). */
+  message?: string;
+  /** Toast-only: severity for styling ('error' | 'warning' | 'success' | 'info'). */
+  severity?: string;
 }
 
 /* ================================================================== */

@@ -1,14 +1,6 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
 
-import { GraphQLReplayError, isPermanentGraphQLErrorCode } from './graphql-replay-error';
-
-import type {
-  QueuedOperation,
-  OperationType,
-  OperationPayload,
-  AddToQueueResult,
-  QueuedPayload,
-} from '@/types';
+import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
 import { logger } from '@/utils/logger';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -40,9 +32,7 @@ export const MAX_PENDING_BLOB_BYTES = 26_214_400;
 interface BackgroundSyncRegistration extends ServiceWorkerRegistration {
   readonly sync: { register(tag: string): Promise<void> };
 }
-function hasBackgroundSync(
-  reg: ServiceWorkerRegistration,
-): reg is BackgroundSyncRegistration {
+function hasBackgroundSync(reg: ServiceWorkerRegistration): reg is BackgroundSyncRegistration {
   return 'sync' in reg;
 }
 
@@ -125,24 +115,26 @@ export async function computePayloadHash(payload: OperationPayload): Promise<str
   return sha256Hex(stableStringify(payload));
 }
 
-async function attachCommandEnvelope<K extends OperationType>(
-  type: K,
-  payload: QueuedPayload<K>,
+async function attachCommandEnvelope(
+  type: OperationType,
+  payload: OperationPayload,
   clientCommandId: string,
   payloadHash: string,
-): Promise<OperationPayload<K>> {
+): Promise<OperationPayload> {
   return {
-    ...payload,
+    ...(payload as unknown as Record<string, unknown>),
     clientCommandId,
     clientCreatedAt: new Date().toISOString(),
     deviceId: await getDeviceId(),
     operationType: type,
     payloadHash,
     schemaVersion: 'mobile-command-v1',
-  };
+  } as OperationPayload;
 }
 
-async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
+async function encryptPayload(
+  payload: OperationPayload,
+): Promise<{ iv: string; ciphertext: string }> {
   const key = await getSessionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -273,13 +265,10 @@ async function bumpQueueVersion(tenantId: string): Promise<void> {
  *   When omitted (pure-offline first submit), a fresh id is minted here, which
  *   is the established behaviour for every other queued operation.
  */
-export async function queueOperation<K extends OperationType>(
+export async function queueOperation(
   tenantId: string,
-  type: K,
-  // MOB-HIGH-022: the payload is typed BY the operation — the generated input
-  // for that mutation, envelope stripped — so `type` and `payload` can no
-  // longer disagree at the call site.
-  payload: QueuedPayload<K>,
+  type: OperationType,
+  payload: OperationPayload,
   // SEC-09: Caller supplies hasValidAuth so background sync is only registered
   // when there are valid credentials. If the token expires before the sync fires
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error
@@ -364,14 +353,29 @@ export async function queueOperation<K extends OperationType>(
   // is called by the app), and the SyncManager presence check gates it there.
   if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in globalThis) {
     try {
-      const registration = await navigator.serviceWorker.ready;
+      // WHY THE RACE (2026-09-17 live finding): on origins whose certificate is
+      // not trusted (e.g. by-IP deployments), the SW never registers, and
+      // `serviceWorker.ready` then NEVER SETTLES — awaiting it hung EVERY record
+      // submission on "Recording..." forever because this function never
+      // returned. Bounded wait: if no SW is ready within 3s, skip Background
+      // Sync registration entirely; the in-app auto-sync effect (plain fetch,
+      // no SW required) still drains the queue while the app is open.
+      const registration = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('serviceWorker.ready timeout')), 3_000),
+        ),
+      ]);
       if (hasBackgroundSync(registration)) {
         await registration.sync.register('sync-operations');
 
         // ADR-012: Register messaging-specific sync tag for priority processing.
         // Messaging operations are synced via 'sync-messages' before general ops.
-        const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
-          type === 'deleteMessage' || type === 'markMessagesRead';
+        const isMessagingOp =
+          type === 'sendMessage' ||
+          type === 'editMessage' ||
+          type === 'deleteMessage' ||
+          type === 'markMessagesRead';
         if (isMessagingOp) {
           await registration.sync.register('sync-messages');
         }
@@ -411,16 +415,15 @@ export async function getPendingOperations(tenantId?: string): Promise<QueuedOpe
   // Use dedicated queue store -- no need to filter by prefix across mixed entries (PERF-08)
   const allEntries = await entries<string, StoredOperation>(queueStore);
   // SECURITY (C11): Filter by tenant-scoped key prefix when tenantId is provided
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   const decrypted = await Promise.all(
     allEntries
       .filter(([key]) => String(key).startsWith(prefix))
       .map(([, value]) => decryptOperation(value)),
   );
-  return (decrypted.filter(Boolean) as QueuedOperation[])
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return (decrypted.filter(Boolean) as QueuedOperation[]).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
 }
 
 /**
@@ -432,17 +435,13 @@ export async function getPendingOperations(tenantId?: string): Promise<QueuedOpe
  */
 export async function getPendingCount(tenantId?: string): Promise<number> {
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // WHY the `k is string` guard, not `String(k)`: idb-keyval types keys as
   // IDBValidKey (string | number | Date | BufferSource | IDBValidKey[]), so
   // String(k) would stringify a non-string key to "[object Object]" and mis-count.
   // Our queue keys are ALWAYS the `${QUEUE_PREFIX}…` strings we wrote, so narrowing
   // to string is both correct and avoids the base-to-string hazard.
-  return allKeys.filter(
-    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
-  ).length;
+  return allKeys.filter((k): k is string => typeof k === 'string' && k.startsWith(prefix)).length;
 }
 
 /**
@@ -454,7 +453,10 @@ export async function getPendingCount(tenantId?: string): Promise<number> {
  * @param tenantId - Tenant UUID that owns this operation
  * @param id - Operation UUID
  */
-export async function getOperation(tenantId: string, id: string): Promise<QueuedOperation | undefined> {
+export async function getOperation(
+  tenantId: string,
+  id: string,
+): Promise<QueuedOperation | undefined> {
   const stored = await get<StoredOperation>(`${QUEUE_PREFIX}${tenantId}_${id}`, queueStore);
   if (!stored) return undefined;
   const op = await decryptOperation(stored);
@@ -470,7 +472,11 @@ export async function getOperation(tenantId: string, id: string): Promise<Queued
  * @param id - Operation UUID
  * @param updates - Partial fields to merge into the stored operation
  */
-export async function updateOperation(tenantId: string, id: string, updates: Partial<QueuedOperation>): Promise<void> {
+export async function updateOperation(
+  tenantId: string,
+  id: string,
+  updates: Partial<QueuedOperation>,
+): Promise<void> {
   const storeKey = `${QUEUE_PREFIX}${tenantId}_${id}`;
   const existingStored = await get<StoredOperation>(storeKey, queueStore);
   if (!existingStored) return;
@@ -480,11 +486,7 @@ export async function updateOperation(tenantId: string, id: string, updates: Par
   const { payload: newPayload, ...nonPayloadUpdates } = updates;
   const newEnc = newPayload ? await encryptPayload(newPayload) : existingStored._enc;
 
-  await set(
-    storeKey,
-    { ...existingStored, ...nonPayloadUpdates, _enc: newEnc },
-    queueStore,
-  );
+  await set(storeKey, { ...existingStored, ...nonPayloadUpdates, _enc: newEnc }, queueStore);
 }
 
 /**
@@ -510,9 +512,7 @@ export async function removeOperation(tenantId: string, id: string): Promise<voi
  */
 export async function clearAllOperations(tenantId?: string): Promise<void> {
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // Queue keys are always the `${QUEUE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const queueKeys = allKeys.filter(
@@ -523,9 +523,7 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
   // also resets its re-arm counter — scoped clears drop just this tenant's
   // token, the full logout clear drops every tenant's token. The tokens live in
   // the durable KEY store, so they are scanned/deleted there, not in queueStore.
-  const versionPrefix = tenantId
-    ? `${QUEUE_VERSION_PREFIX}${tenantId}`
-    : QUEUE_VERSION_PREFIX;
+  const versionPrefix = tenantId ? `${QUEUE_VERSION_PREFIX}${tenantId}` : QUEUE_VERSION_PREFIX;
   const allKeyStoreKeys = await keys(keyStore);
   // Version tokens are always the `${QUEUE_VERSION_PREFIX}…` strings we wrote,
   // so narrow to string (avoids the base-to-string hazard on IDBValidKey).
@@ -574,7 +572,12 @@ interface EncryptedCacheEntry {
  * @param data - Data to cache (will be AES-GCM encrypted)
  * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
  */
-export async function cacheData<T>(tenantId: string, key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
+export async function cacheData<T>(
+  tenantId: string,
+  key: string,
+  data: T,
+  ttlMs: number = 1000 * 60 * 60,
+): Promise<void> {
   if (!tenantId) {
     throw new Error('cacheData: tenantId is required for tenant-isolated caching');
   }
@@ -692,9 +695,7 @@ export async function getCachedUserData<T>(
  */
 export async function clearCache(tenantId?: string): Promise<void> {
   const allKeys = await keys(cacheStore);
-  const prefix = tenantId
-    ? `${CACHE_PREFIX}${tenantId}:`
-    : CACHE_PREFIX;
+  const prefix = tenantId ? `${CACHE_PREFIX}${tenantId}:` : CACHE_PREFIX;
   // Cache keys are always the `${CACHE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const cacheKeys = allKeys.filter(
@@ -818,14 +819,11 @@ export async function clearPendingBlobs(tenantId?: string): Promise<void> {
 // Sync Logic
 // ============================================================================
 
-type GraphQLExecutor = (
-  type: OperationType,
-  payload: OperationPayload
-) => Promise<unknown>;
+type GraphQLExecutor = (type: OperationType, payload: OperationPayload) => Promise<unknown>;
 
 export async function syncOperation(
   operation: QueuedOperation,
-  executeGraphQL: GraphQLExecutor
+  executeGraphQL: GraphQLExecutor,
 ): Promise<boolean> {
   try {
     await updateOperation(operation.tenantId, operation.id, { status: 'syncing' });
@@ -833,16 +831,14 @@ export async function syncOperation(
     await removeOperation(operation.tenantId, operation.id);
     return true;
   } catch (error) {
-    const errorMessage = error instanceof Error
-      ? error.message.slice(0, 200) // SEC-07: truncate error messages
-      : 'Unknown error';
+    const errorMessage =
+      error instanceof Error
+        ? error.message.slice(0, 200) // SEC-07: truncate error messages
+        : 'Unknown error';
     await updateOperation(operation.tenantId, operation.id, {
       status: 'failed',
       retryCount: operation.retryCount + 1,
       lastError: errorMessage,
-      // A transport error (no code) deliberately CLEARS a stale code from an
-      // earlier attempt: the classification always describes the last failure.
-      lastErrorCode: error instanceof GraphQLReplayError ? error.code : undefined,
     });
     return false;
   }
@@ -878,35 +874,16 @@ export function calculateRetryDelay(retryCount: number): number {
 }
 
 /**
- * True when the queue will never attempt this operation again on its own:
- * the retry budget is spent, or the last failure was classified permanent.
- * The Sync Status page renders exactly this predicate, so what the user sees
- * as "permanently failed" is what the drain actually skips.
- */
-export function isPermanentlyFailed(
-  op: Pick<QueuedOperation, 'status' | 'retryCount' | 'lastError' | 'lastErrorCode'>,
-): boolean {
-  if (op.status !== 'failed') return false;
-  return op.retryCount >= MAX_RETRY_COUNT || !isRetryableError(op);
-}
-
-/**
  * Determine whether a failed operation is eligible for automatic retry.
  *
- * The server's GraphQL `extensions.code` is authoritative when the last
- * failure recorded one (GraphQLReplayError): a permanent code — bad user
- * input, validation, forbidden, not found — is never retried, any other code
- * is. Only a failure WITHOUT a code (an HTTP/transport error, or a row written
- * before codes were recorded) falls back to the message heuristics below.
+ * Distinguishes between transient errors (network timeouts, 5xx server errors)
+ * and permanent errors (validation failures, 4xx client errors) to avoid
+ * wasting retry budget on operations that will never succeed.
  *
- * @param op - The failed operation's last error message and code
+ * @param errorMessage - The truncated error message from the last sync attempt
  * @returns true if the error is likely transient and worth retrying
  */
-export function isRetryableError(op: Pick<QueuedOperation, 'lastError' | 'lastErrorCode'>): boolean {
-  if (op.lastErrorCode !== undefined) {
-    return !isPermanentGraphQLErrorCode(op.lastErrorCode);
-  }
-  const errorMessage = op.lastError;
+function isRetryableError(errorMessage?: string): boolean {
   if (!errorMessage) return true;
   const lower = errorMessage.toLowerCase();
 
@@ -954,16 +931,21 @@ export async function syncAllOperations(
   // before processing. This prevents operations from being permanently stuck in 'syncing'.
   const allOps = await getPendingOperations(tenantId);
   const staleSync = allOps.filter((op) => op.status === 'syncing');
-  await Promise.all(staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   // BUG-17: Promote retryable 'failed' operations back to 'pending' so they
   // are included in this sync pass. Previously, failed items were skipped
   // permanently -- they never transitioned back to 'pending', leaving the user
   // with a dead queue that only manual deletion could resolve.
   const retryableFailed = allOps.filter(
-    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op),
+    (op) =>
+      op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
   );
-  await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   const pendingOps = await getPendingOperations(tenantId);
   // FARM-HIGH-214 priority drain: escape incidents are legally time-critical

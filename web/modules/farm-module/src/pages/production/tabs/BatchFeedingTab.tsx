@@ -2,9 +2,9 @@
  * BatchFeedingTab
  *
  * Renders the batch's current feed assignments + the action buttons:
- *   - "Atamayı Düzenle" / "İlk atamayı oluştur" → AssignFeedsToBatchModal
+ *   - "Atamayı Düzenle" / "Create the first assignment" → AssignFeedsToBatchModal
  *     (the modal handles both create and edit via the `existing` prop).
- *   - "Atamayı Sil" → ConfirmModal + useDeleteBatchFeedAssignment.
+ *   - "Delete Assignment" → ConfirmModal + useDeleteBatchFeedAssignment.
  *
  * Inline weight-range overlap visualisation will land in a follow-up
  * (tracked under the Scope C plan PR-3 design notes).
@@ -55,14 +55,14 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
     try {
       await deleteMutation.mutateAsync(assignment.id);
       toast({
-        title: 'Yem ataması silindi',
-        description: `${batch.batchNumber} için yem ataması kaldırıldı.`,
+        title: 'Feed assignment deleted',
+        description: `Feed assignment removed for ${batch.batchNumber}.`,
         variant: 'success',
       });
       setShowDeleteConfirm(false);
     } catch (err) {
       toast({
-        title: 'Silme başarısız',
+        title: 'Delete failed',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -74,11 +74,11 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
-            Yem Atamaları
+            Feed Assignments
           </h2>
           <p className="text-sm text-gray-500">
-            Bu partinin ağırlık aralıklarına göre yem atamaları —
-            yemleme planı bu eşlemeyi okur.
+            Feed assignments by weight range for this batch —
+            the feeding schedule reads this mapping.
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -89,7 +89,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
               disabled={deleteMutation.isPending}
               className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40"
             >
-              Atamayı Sil
+              Delete Assignment
             </button>
           )}
           {((assignment && canEdit) || (!assignment && canAssign)) && (
@@ -98,7 +98,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
               onClick={() => setShowAssignModal(true)}
               className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              {assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}
+              {assignment ? 'Edit Assignment' : 'Add Feed Assignments'}
             </button>
           )}
         </div>
@@ -106,13 +106,13 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
 
       {isLoading && (
         <div className="animate-pulse text-gray-500 text-sm">
-          Atamalar yükleniyor…
+          Loading assignments…
         </div>
       )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
-          Atamalar yüklenemedi:{' '}
+          Failed to load assignments:{' '}
           {error instanceof Error ? error.message : 'Bilinmeyen hata'}
         </div>
       )}
@@ -120,7 +120,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       {!isLoading && !error && !assignment && (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center">
           <p className="text-sm text-gray-600">
-            Bu parti için henüz yem ataması yapılmamış.
+            No feed assignments have been made for this batch yet.
           </p>
           {canAssign && (
             <button
@@ -128,7 +128,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
               onClick={() => setShowAssignModal(true)}
               className="mt-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              İlk atamayı oluştur
+              Create the first assignment
             </button>
           )}
         </div>
@@ -149,19 +149,19 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
                 >
-                  Min Ağırlık (g)
+                  Min Weight (g)
                 </th>
                 <th
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
                 >
-                  Max Ağırlık (g)
+                  Max Weight (g)
                 </th>
                 <th
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
                 >
-                  Öncelik
+                  Priority
                 </th>
               </tr>
             </thead>
@@ -189,7 +189,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
           </table>
           {assignment.notes && (
             <div className="border-t border-gray-200 p-3 text-sm text-gray-600">
-              <span className="font-semibold">Notlar:</span>{' '}
+              <span className="font-semibold">Notes:</span>{' '}
               <span className="whitespace-pre-wrap">{assignment.notes}</span>
             </div>
           )}
@@ -208,21 +208,21 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
-        title="Yem ataması silinsin mi?"
+        title="Delete feed assignment?"
         message={
           <span>
             <strong className="font-semibold">{batch.batchNumber}</strong>{' '}
-            partisinin tüm yem ataması (
+            batch's entire feed assignment (
             <span className="font-semibold">
-              {assignment?.feedAssignments.length ?? 0} satır
+              {assignment?.feedAssignments.length ?? 0} rows
             </span>
-            ) silinecek. Bu işlem yemleme programının bu partiyi
-            tanımayan duruma dönmesine yol açar — silmeden önce
-            yerine yeni bir atama planlamanız önerilir.
+            ) will be deleted. This can leave the feeding schedule unable
+            to recognize this batch — plan a replacement assignment
+            before deleting.
           </span>
         }
-        confirmText="Sil"
-        cancelText="İptal"
+        confirmText="Delete"
+        cancelText="Cancel"
         variant="danger"
         isLoading={deleteMutation.isPending}
       />

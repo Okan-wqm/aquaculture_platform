@@ -3,7 +3,7 @@
  * Displays list of SCADA packages with search, status filter, and actions.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -39,6 +39,19 @@ const ScadaPackageListPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Close the row-action dropdown when clicking anywhere outside it
+  useEffect(() => {
+    if (!activeDropdown) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-package-dropdown]')) {
+        setActiveDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [activeDropdown]);
 
   // Fetch packages
   const filter = useMemo(() => {
@@ -263,18 +276,21 @@ const ScadaPackageListPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="relative inline-block">
+                      <div className="relative inline-block" data-package-dropdown>
                         <button
                           onClick={() =>
                             setActiveDropdown(activeDropdown === pkg.id ? null : pkg.id)
                           }
+                          aria-label={`Actions for ${pkg.name}`}
+                          aria-haspopup="menu"
+                          aria-expanded={activeDropdown === pkg.id}
                           className="p-2 hover:bg-gray-100 rounded-lg"
                         >
                           <MoreVertical className="w-4 h-4 text-gray-500" />
                         </button>
 
                         {activeDropdown === pkg.id && (
-                          <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+                          <div role="menu" aria-label="Package actions" className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
                             <Link
                               to={`/sensor/scada-builder/${pkg.id}`}
                               className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"

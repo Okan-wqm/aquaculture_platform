@@ -44,7 +44,7 @@ export interface CompanyAddress {
 }
 
 export interface SiteLocalityMapping {
-  siteId: string;
+  siteId?: string;
   lokalitetsnummer: number;
   siteName?: string;
 }
@@ -325,7 +325,7 @@ interface VarslingBaseInput {
   klientReferanse: string;
   organisasjonsnummer: string;
   lokalitetsnummer: number;
-  siteId: string;
+  siteId?: string;
   siteName: string;
   siteCode?: string;
   kontaktperson: VarslingKontaktpersonInput;

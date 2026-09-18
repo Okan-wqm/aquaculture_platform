@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createScadaStore } from '../createScadaStore';
 import type { ScadaStore } from '../types';
 import { generateId } from '../types';
-import type { ScreenWidget, WidgetPosition } from '../types';
+import type { HistoryEntry, ScreenWidget, WidgetPosition } from '../types';
 import type { ScadaEdge } from '../types';
 import type { AlarmRuleDef, ControlPermissionsDef, TrendConfigDef, ScadaPackageJSON } from '../types';
 
@@ -551,6 +551,9 @@ describe('ScadaStore', () => {
     beforeEach(() => {
       store.getState().addScreen('process', 'Test');
       screenId = store.getState().screens[0].id;
+      // addScreen itself is history-tracked now; these tests exercise the
+      // pushHistory/undo/redo primitives from a clean baseline.
+      store.getState().clearHistory();
     });
 
     it('pushHistory adds to undo stack', () => {
@@ -576,8 +579,9 @@ describe('ScadaStore', () => {
 
     it('undo pops from undo, pushes to redo', () => {
       const w = makeWidget();
+      // addWidget pushes its own history entry atomically (new architecture —
+      // no separate pushHistory call needed)
       store.getState().addWidget(screenId, w);
-      store.getState().pushHistory({ type: 'WIDGET_ADD', screenId, widget: w });
       expect(store.getState().undoStack).toHaveLength(1);
       expect(store.getState().redoStack).toHaveLength(0);
 
@@ -1316,6 +1320,321 @@ describe('ScadaStore', () => {
       store.getState().addScreen('dashboard', 'Store 1');
       expect(store.getState().screens).toHaveLength(1);
       expect(store2.getState().screens).toHaveLength(0);
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
+  /*  History architecture — atomic pushes, batches, re-entrancy      */
+  /* ---------------------------------------------------------------- */
+
+  describe('HistorySlice — atomic architecture', () => {
+    let screenId: string;
+
+    beforeEach(() => {
+      store.getState().addScreen('process', 'Test');
+      screenId = store.getState().screens[0].id;
+      store.getState().clearHistory();
+    });
+
+    it('slice actions push history automatically (widget add/update/remove, edges, alarms)', () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+      expect(store.getState().undoStack).toHaveLength(1);
+      expect(store.getState().undoStack[0].type).toBe('WIDGET_ADD');
+
+      const e = makeEdge(w.id, w.id);
+      store.getState().addEdge(screenId, e);
+      expect(store.getState().undoStack[1].type).toBe('EDGE_ADD');
+
+      store.getState().updateEdgeData(screenId, e.id, { label: 'x' });
+      expect(store.getState().undoStack[2].type).toBe('EDGE_UPDATE');
+
+      store.getState().updateWidget(screenId, w.id, { locked: true });
+      expect(store.getState().undoStack[3].type).toBe('WIDGET_UPDATE');
+
+      store.getState().removeWidget(screenId, w.id);
+      expect(store.getState().undoStack[4].type).toBe('WIDGET_REMOVE');
+
+      const rule = makeAlarmRule();
+      store.getState().addAlarmRule(rule);
+      expect(store.getState().undoStack[5].type).toBe('ALARM_ADD');
+    });
+
+    it('WIDGET_UPDATE entries merge within the window and keep the ORIGINAL before', async () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+
+      store.getState().updateWidget(screenId, w.id, { name: 'A' });
+      store.getState().updateWidget(screenId, w.id, { name: 'B' });
+      // Same widget, same window → ONE merged entry
+      const updates = store.getState().undoStack.filter(
+        (en) => en.type === 'WIDGET_UPDATE',
+      );
+      expect(updates).toHaveLength(1);
+      const entry = updates[0] as Extract<HistoryEntry, { type: 'WIDGET_UPDATE' }>;
+      expect((entry.before as ScreenWidget).name).toBeUndefined();
+      expect((entry.after as ScreenWidget).name).toBe('B');
+
+      // After the window expires, a new entry is pushed
+      const later = { type: 'WIDGET_UPDATE', screenId, widgetId: w.id, before: entry.before, after: { ...entry.after, name: 'C' }, timestamp: Date.now() + 1000 } as HistoryEntry;
+      store.getState().pushHistory(later);
+      expect(
+        store.getState().undoStack.filter((en) => en.type === 'WIDGET_UPDATE'),
+      ).toHaveLength(2);
+    });
+
+    it('different widgets within the window do NOT merge', () => {
+      const w1 = makeWidget();
+      const w2 = makeWidget();
+      store.getState().addWidget(screenId, w1);
+      store.getState().addWidget(screenId, w2);
+
+      store.getState().updateWidgetPosition(screenId, w1.id, { col: 1, row: 1, w: 2, h: 2 });
+      store.getState().updateWidgetPosition(screenId, w2.id, { col: 2, row: 2, w: 2, h: 2 });
+
+      expect(
+        store.getState().undoStack.filter((en) => en.type === 'WIDGET_MOVE'),
+      ).toHaveLength(2);
+    });
+
+    it('re-entrancy: pushes during applyUndo are suppressed (isApplyingHistory)', () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+      const before = store.getState().undoStack.length;
+
+      store.getState().undo();
+      // The undo itself must not have pushed history nor cleared redo
+      expect(store.getState().undoStack).toHaveLength(before - 1);
+      expect(store.getState().redoStack).toHaveLength(1);
+      // Flag is never observable outside the producer
+      expect(store.getState().isApplyingHistory).toBe(false);
+    });
+
+    it('BATCH gesture: 5-widget group drag via moveWidgets = ONE undo step', () => {
+      const widgets = Array.from({ length: 5 }, (_, i) =>
+        makeWidget({ position: { col: i, row: 0, w: 2, h: 2 } }),
+      );
+      widgets.forEach((w) => store.getState().addWidget(screenId, w));
+      store.getState().clearHistory();
+
+      store.getState().moveWidgets(
+        screenId,
+        widgets.map((w, i) => ({
+          id: w.id,
+          position: { col: i + 3, row: 4, w: 2, h: 2 },
+        })),
+      );
+
+      expect(store.getState().undoStack).toHaveLength(1);
+      expect(store.getState().undoStack[0].type).toBe('BATCH');
+
+      store.getState().undo();
+      const positions = store
+        .getState()
+        .screens[0].widgets.map((w) => w.position.col);
+      expect(positions).toEqual([0, 1, 2, 3, 4]);
+
+      store.getState().redo();
+      expect(
+        store.getState().screens[0].widgets.map((w) => w.position.col),
+      ).toEqual([3, 4, 5, 6, 7]);
+    });
+
+    it('memory ceiling: 200×BATCH entries trim to MAX_UNDO_STACK', () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+      store.getState().clearHistory();
+
+      for (let i = 0; i < 220; i++) {
+        store.getState().moveWidgets(screenId, [
+          { id: w.id, position: { col: i % 20, row: 1, w: 2, h: 2 } },
+          { id: w.id, position: { col: i % 20, row: 1, w: 2, h: 2 } },
+        ]);
+      }
+      // moveWidgets skips no-op entries — every call moved at least the first update
+      expect(store.getState().undoStack.length).toBeLessThanOrEqual(200);
+      expect(store.getState().undoStack.length).toBeGreaterThan(150);
+    });
+
+    it('removeWidgets pushes ONE BATCH and restores automation bindings on undo', () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+      store.getState().addAutomationProgram('prog-1', 'Program 1', '', [
+        { id: 'var-1', varName: 'pv', scope: 'INPUT', dataType: 'REAL' },
+      ]);
+      store.getState().bindVariableToWidget('prog-1', 'var-1', w.id, 'tank1.level');
+      store.getState().clearHistory();
+
+      store.getState().removeWidgets(screenId, [w.id]);
+
+      expect(store.getState().undoStack).toHaveLength(1);
+      expect(store.getState().undoStack[0].type).toBe('BATCH');
+      // Binding nulled by the removal
+      const bindingAfter = store
+        .getState()
+        .automationBindings[0].variableBindings[0];
+      expect(bindingAfter.boundWidgetId).toBeNull();
+
+      store.getState().undo();
+      const bindingRestored = store
+        .getState()
+        .automationBindings[0].variableBindings[0];
+      expect(bindingRestored.boundWidgetId).toBe(w.id);
+      expect(bindingRestored.boundTag).toBe('tank1.level');
+      expect(store.getState().screens[0].widgets.map((x) => x.id)).toContain(w.id);
+    });
+
+    it('reorderScreens pushes one BATCH and undo restores order + sortOrder', () => {
+      store.getState().addScreen('dashboard', 'A');
+      store.getState().addScreen('alarms', 'B');
+      const ids = store.getState().screens.map((s) => s.id);
+      store.getState().clearHistory();
+
+      const reversed = [...ids].reverse();
+      store.getState().reorderScreens(reversed);
+      expect(store.getState().screens.map((s) => s.id)).toEqual(reversed);
+      expect(store.getState().undoStack).toHaveLength(1);
+      expect(store.getState().undoStack[0].type).toBe('BATCH');
+
+      store.getState().undo();
+      expect(store.getState().screens.map((s) => s.id)).toEqual(ids);
+      // before-sortOrders restored verbatim (screens were created without
+      // explicit sortOrder → recorded as 0)
+      expect(store.getState().screens.map((s) => s.sortOrder)).toEqual([0, 0, 0]);
+
+      store.getState().redo();
+      expect(store.getState().screens.map((s) => s.id)).toEqual(reversed);
+    });
+
+    it('reorderScreens to the same order is a no-op (no dirty, no history)', () => {
+      const ids = store.getState().screens.map((s) => s.id);
+      store.getState().markClean();
+      store.getState().reorderScreens(ids);
+      expect(store.getState().undoStack).toHaveLength(0);
+      expect(store.getState().isDirty).toBe(false);
+    });
+
+    it('updateScreen no-op guard: same values do not dirty or push history', () => {
+      const id = store.getState().screens[0].id;
+      const name = store.getState().screens[0].name;
+      store.getState().markClean();
+      store.getState().updateScreen(id, { name });
+      expect(store.getState().isDirty).toBe(false);
+      expect(store.getState().undoStack).toHaveLength(0);
+    });
+
+    it('removeScreen BATCH undo restores screen + sibling parents + default flag', () => {
+      const parent = store.getState().screens[0];
+      store.getState().addScreen('dashboard', 'Child');
+      const child = store.getState().screens[1];
+      store.getState().updateScreen(child.id, { parentId: parent.id });
+      store.getState().clearHistory();
+
+      store.getState().removeScreen(parent.id);
+
+      // Child was reparented to root; undo restores both screen and parent link
+      store.getState().undo();
+      const restoredChild = store
+        .getState()
+        .screens.find((s) => s.id === child.id);
+      expect(restoredChild?.parentId).toBe(parent.id);
+      expect(
+        store.getState().screens.some((s) => s.id === parent.id),
+      ).toBe(true);
+    });
+
+    it('loadFromJSON clears history', () => {
+      const w = makeWidget();
+      store.getState().addWidget(screenId, w);
+      expect(store.getState().undoStack.length).toBeGreaterThan(0);
+
+      store.getState().loadFromJSON({ screens: [] });
+      expect(store.getState().undoStack).toHaveLength(0);
+      expect(store.getState().redoStack).toHaveLength(0);
+    });
+
+    it('deepClone round-trips nested config from inside a producer (undo/redo fidelity)', () => {
+      const w = makeWidget({
+        config: { tagName: 'ph', zones: [{ min: 0, max: 10, color: '#0f0' }] },
+      });
+      store.getState().addWidget(screenId, w);
+      store.getState().clearHistory();
+
+      // Nested-config update → undo restores the ORIGINAL nested object
+      store.getState().updateWidget(screenId, w.id, {
+        config: { tagName: 'do', zones: [{ min: 5, max: 50, color: '#f00' }] },
+      });
+      store.getState().undo();
+      const restored = store
+        .getState()
+        .screens[0].widgets.find((x) => x.id === w.id)!;
+      expect(restored.config).toEqual({
+        tagName: 'ph',
+        zones: [{ min: 0, max: 10, color: '#0f0' }],
+      });
+
+      store.getState().redo();
+      const redone = store
+        .getState()
+        .screens[0].widgets.find((x) => x.id === w.id)!;
+      expect(redone.config).toEqual({
+        tagName: 'do',
+        zones: [{ min: 5, max: 50, color: '#f00' }],
+      });
+    });
+
+    it('undo/redo of edge TYPE change restores the geometry type', () => {
+      const a = makeWidget();
+      const b = makeWidget();
+      store.getState().addWidget(screenId, a);
+      store.getState().addWidget(screenId, b);
+      const edge = makeEdge(a.id, b.id);
+      store.getState().addEdge(screenId, edge);
+      store.getState().clearHistory();
+
+      store.getState().updateEdgeType(screenId, edge.id, 'draggable');
+      expect(store.getState().screens[0].edges[0].type).toBe('draggable');
+
+      store.getState().undo();
+      expect(store.getState().screens[0].edges[0].type).toBe('orthogonal');
+
+      store.getState().redo();
+      expect(store.getState().screens[0].edges[0].type).toBe('draggable');
+    });
+
+    it('pasteWidgets cascades offsets (+1, +2, +3) across consecutive pastes', () => {
+      const w = makeWidget({ position: { col: 0, row: 0, w: 2, h: 2 } });
+      store.getState().addWidget(screenId, w);
+      store.getState().setSelectedWidget(w.id);
+      store.getState().clearHistory();
+
+      store.getState().copySelectedWidgets();
+      store.getState().pasteWidgets();
+      store.getState().pasteWidgets();
+      store.getState().pasteWidgets();
+
+      const copies = store
+        .getState()
+        .screens[0].widgets.filter((x) => x.id !== w.id)
+        .map((x) => x.position.col);
+      expect(copies).toEqual([1, 2, 3]);
+    });
+
+    it('duplicateScreen deep-copies layout so edits never mutate the source', () => {
+      const source = store.getState().screens[0];
+      store.getState().duplicateScreen(source.id);
+      const dup = store.getState().screens[1];
+      expect(dup.layout).toEqual(source.layout);
+      expect(dup.layout).not.toBe(source.layout);
+    });
+
+    it('toScadaPackageJSON round-trips the package version', () => {
+      store.getState().setPackageVersion(7);
+      const json = store.getState().toScadaPackageJSON();
+      expect(json.meta?.version).toBe(7);
+
+      store.getState().loadFromJSON(json, { version: 9 });
+      expect(store.getState().packageVersion).toBe(9);
     });
   });
 });

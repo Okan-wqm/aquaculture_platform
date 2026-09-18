@@ -178,7 +178,7 @@ export const SitesTab: React.FC = () => {
     if (deletePreview.affectedItems.departments.length > 0) {
       affectedItems.push({
         type: 'departments',
-        label: 'Departmanlar',
+        label: 'Departments',
         items: deletePreview.affectedItems.departments.map((d) => ({
           id: d.id,
           name: d.name,
@@ -191,7 +191,7 @@ export const SitesTab: React.FC = () => {
     if (deletePreview.affectedItems.systems.length > 0) {
       affectedItems.push({
         type: 'systems',
-        label: 'Sistemler',
+        label: 'Systems',
         items: deletePreview.affectedItems.systems.map((s) => ({
           id: s.id,
           name: s.name,
@@ -204,7 +204,7 @@ export const SitesTab: React.FC = () => {
     if (deletePreview.affectedItems.equipment.length > 0) {
       affectedItems.push({
         type: 'equipment',
-        label: 'Ekipmanlar',
+        label: 'Equipment',
         items: deletePreview.affectedItems.equipment.map((e) => ({
           id: e.id,
           name: e.name,
@@ -217,13 +217,13 @@ export const SitesTab: React.FC = () => {
     if (deletePreview.affectedItems.tanks.length > 0) {
       affectedItems.push({
         type: 'tanks',
-        label: 'Tanklar',
+        label: 'Tanks',
         items: deletePreview.affectedItems.tanks.map((t) => ({
           id: t.id,
           name: t.name,
           code: t.code,
           hasBlocker: t.hasActiveBiomass,
-          blockerReason: t.hasActiveBiomass ? `${t.currentBiomass} kg biyokütle` : undefined,
+          blockerReason: t.hasActiveBiomass ? `${t.currentBiomass} kg biomass` : undefined,
         })),
       });
     }
@@ -567,7 +567,7 @@ export const SitesTab: React.FC = () => {
         isOpen={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
         onConfirm={handleConfirmDelete}
-        title="Site Silme Onayı"
+        title="Confirm Site Deletion"
         entityName={siteToDelete?.name ?? ''}
         entityType="Site"
         preview={dialogPreview}

@@ -8,12 +8,16 @@
  * - Status badges with workflow actions
  * - Kanban-style or table view option
  * - Create/Edit form with all plan fields
+ * DATA SOURCES (all real backend): useHarvestPlanList / useHarvestPlanStats /
+ * useBatchList + 9 workflow mutations against farm-service. The former dead
+ * `_mock*` constants (fallback reference) were deleted - zero references.
+ * SUDERRA restyle: pagehead/actions/sd-seg/stats cards; card/table/kanban
+ * bodies themed via the `.sd-f2` compat layer. UI language: English.
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Modal,
   formatCurrency as sharedFormatCurrency,
-  DEFAULT_CURRENCY,
 } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
@@ -230,256 +234,6 @@ interface FilterState {
 
 type ViewMode = 'table' | 'kanban' | 'cards';
 
-// ============================================================================
-// MOCK DATA (kept for fallback reference, no longer used by component)
-// ============================================================================
-
-const _mockBatches = [
-  { id: 'batch-1', batchNumber: 'B-2024-001', name: 'Sea Bass Batch A' },
-  { id: 'batch-2', batchNumber: 'B-2024-002', name: 'Sea Bream Batch B' },
-  { id: 'batch-3', batchNumber: 'B-2024-003', name: 'Trout Batch C' },
-];
-
-const _mockHarvestPlans: HarvestPlan[] = [
-  {
-    id: 'hp-1',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00001',
-    name: 'Full Harvest - Sea Bass Batch A',
-    description: 'Complete harvest of Sea Bass Batch A for market delivery',
-    batchId: 'batch-1',
-    batchNumber: 'B-2024-001',
-    status: 'scheduled',
-    harvestType: 'full',
-    plannedDate: '2024-03-15',
-    confirmedDate: '2024-03-15',
-    windowStartDate: '2024-03-14',
-    windowEndDate: '2024-03-16',
-    criteria: {
-      targetWeight: { min: 350, max: 450, target: 400 },
-      targetQuantity: { value: 10000, unit: 'pieces' },
-      qualityGrade: 'A',
-    },
-    harvestMethod: 'net',
-    productForm: 'fresh_whole',
-    estimates: {
-      estimatedQuantity: 10000,
-      estimatedBiomass: 4000,
-      estimatedAvgWeight: 400,
-      estimatedYield: 85,
-      confidenceLevel: 'high',
-    },
-    financialProjection: {
-      estimatedRevenue: 48000,
-      estimatedPrice: 12,
-      priceUnit: 'per_kg',
-      estimatedCost: 30000,
-      estimatedProfit: 18000,
-      margin: 37.5,
-      currency: DEFAULT_CURRENCY,
-    },
-    logistics: {
-      harvestStartTime: '06:00',
-      expectedDuration: 8,
-      requiredPersonnel: 12,
-      transportType: 'truck',
-      coldChainRequired: true,
-    },
-    customerOrder: {
-      customerName: 'Fresh Fish Market Co.',
-      orderId: 'ORD-2024-0456',
-      orderQuantity: 4000,
-      orderUnit: 'kg',
-    },
-    createdBy: 'user-1',
-    createdAt: '2024-02-01T10:00:00Z',
-    updatedAt: '2024-02-10T14:30:00Z',
-    daysUntilHarvest: 12,
-    isWithinWindow: true,
-    canEdit: true,
-    canStartHarvest: true,
-    isOverdue: false,
-  },
-  {
-    id: 'hp-2',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00002',
-    name: 'Partial Harvest - Sea Bream',
-    description: 'Selective harvest of larger fish from Sea Bream batch',
-    batchId: 'batch-2',
-    batchNumber: 'B-2024-002',
-    status: 'approved',
-    harvestType: 'partial',
-    plannedDate: '2024-03-20',
-    criteria: {
-      targetWeight: { min: 400, max: 500, target: 450 },
-      targetQuantity: { value: 30, unit: 'percent' },
-    },
-    harvestMethod: 'net',
-    productForm: 'fresh_gutted',
-    estimates: {
-      estimatedQuantity: 3000,
-      estimatedBiomass: 1350,
-      estimatedAvgWeight: 450,
-      estimatedYield: 82,
-      confidenceLevel: 'medium',
-    },
-    financialProjection: {
-      estimatedRevenue: 20250,
-      estimatedPrice: 15,
-      priceUnit: 'per_kg',
-      estimatedCost: 12000,
-      estimatedProfit: 8250,
-      margin: 40.7,
-      currency: DEFAULT_CURRENCY,
-    },
-    createdBy: 'user-1',
-    createdAt: '2024-02-05T09:00:00Z',
-    updatedAt: '2024-02-08T11:00:00Z',
-    daysUntilHarvest: 17,
-    canEdit: true,
-    canSchedule: true,
-    isOverdue: false,
-  },
-  {
-    id: 'hp-3',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00003',
-    name: 'Emergency Thinning - Trout',
-    description: 'Emergency thinning due to high density',
-    batchId: 'batch-3',
-    batchNumber: 'B-2024-003',
-    status: 'in_progress',
-    harvestType: 'thinning',
-    plannedDate: '2024-03-03',
-    confirmedDate: '2024-03-03',
-    criteria: {
-      targetWeight: { min: 250, max: 350, target: 300 },
-      targetQuantity: { value: 2000, unit: 'pieces' },
-    },
-    harvestMethod: 'pump',
-    productForm: 'live',
-    estimates: {
-      estimatedQuantity: 2000,
-      estimatedBiomass: 600,
-      estimatedAvgWeight: 300,
-      estimatedYield: 100,
-      confidenceLevel: 'high',
-    },
-    createdBy: 'user-2',
-    createdAt: '2024-03-01T08:00:00Z',
-    updatedAt: '2024-03-03T06:00:00Z',
-    daysUntilHarvest: 0,
-    canEdit: true,
-    canComplete: true,
-    isOverdue: false,
-  },
-  {
-    id: 'hp-4',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00004',
-    name: 'Draft Plan - New Batch',
-    batchId: 'batch-1',
-    batchNumber: 'B-2024-001',
-    status: 'draft',
-    harvestType: 'full',
-    plannedDate: '2024-04-01',
-    criteria: {
-      targetWeight: { min: 400, max: 500, target: 450 },
-    },
-    productForm: 'fresh_whole',
-    estimates: {
-      estimatedQuantity: 8000,
-      estimatedBiomass: 3600,
-      estimatedAvgWeight: 450,
-      estimatedYield: 85,
-      confidenceLevel: 'low',
-    },
-    createdBy: 'user-1',
-    createdAt: '2024-02-28T10:00:00Z',
-    updatedAt: '2024-02-28T10:00:00Z',
-    daysUntilHarvest: 29,
-    canEdit: true,
-    canDelete: true,
-    isOverdue: false,
-  },
-  {
-    id: 'hp-5',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00005',
-    name: 'Completed Harvest - January',
-    batchId: 'batch-2',
-    batchNumber: 'B-2024-002',
-    status: 'completed',
-    harvestType: 'full',
-    plannedDate: '2024-01-15',
-    confirmedDate: '2024-01-15',
-    criteria: {
-      targetWeight: { min: 350, max: 450, target: 400 },
-    },
-    productForm: 'fresh_whole',
-    estimates: {
-      estimatedQuantity: 5000,
-      estimatedBiomass: 2000,
-      estimatedAvgWeight: 400,
-      estimatedYield: 85,
-      confidenceLevel: 'high',
-    },
-    actualQuantityHarvested: 4850,
-    actualBiomassHarvested: 1940,
-    actualAvgWeight: 400,
-    createdBy: 'user-1',
-    createdAt: '2024-01-01T10:00:00Z',
-    updatedAt: '2024-01-15T18:00:00Z',
-    canEdit: false,
-    isOverdue: false,
-  },
-  {
-    id: 'hp-6',
-    tenantId: 'tenant-1',
-    planCode: 'HP-2024-00006',
-    name: 'Overdue Plan',
-    batchId: 'batch-3',
-    batchNumber: 'B-2024-003',
-    status: 'planned',
-    harvestType: 'partial',
-    plannedDate: '2024-02-25',
-    criteria: {
-      targetWeight: { min: 300, max: 400, target: 350 },
-    },
-    productForm: 'fresh_whole',
-    estimates: {
-      estimatedQuantity: 1500,
-      estimatedBiomass: 525,
-      estimatedAvgWeight: 350,
-      estimatedYield: 85,
-      confidenceLevel: 'medium',
-    },
-    createdBy: 'user-2',
-    createdAt: '2024-02-15T10:00:00Z',
-    updatedAt: '2024-02-15T10:00:00Z',
-    daysUntilHarvest: -6,
-    canEdit: true,
-    canApprove: true,
-    isOverdue: true,
-  },
-];
-
-const _mockStats: HarvestPlanStats = {
-  total: 6,
-  draft: 1,
-  planned: 1,
-  approved: 1,
-  scheduled: 1,
-  inProgress: 1,
-  completed: 1,
-  cancelled: 0,
-  postponed: 0,
-  totalEstimatedBiomass: 12075,
-  totalActualBiomass: 1940,
-  upcomingCount: 3,
-  overdueCount: 1,
-};
 
 // ============================================================================
 // CONSTANTS
@@ -587,10 +341,12 @@ const formatDate = (dateString: string): string => {
 };
 
 const formatNumber = (num: number): string => {
-  return num.toLocaleString();
+  return num.toLocaleString('en-GB');
 };
 
-const formatCurrency = (amount: number, currency: string = DEFAULT_CURRENCY): string => {
+// English UI directive: NOK stays the market currency; the previous
+// DEFAULT_CURRENCY (TRY) default formatted NOK amounts with tr-TR grouping.
+const formatCurrency = (amount: number, currency: string = 'NOK'): string => {
   return sharedFormatCurrency(amount, currency);
 };
 
@@ -623,18 +379,21 @@ const StatsCard: React.FC<{
   color: string;
   onClick?: () => void;
 }> = ({ title, value, subtitle, icon, color, onClick }) => (
+  // SUDERRA stat card; the raw onClick div is preserved deliberately (the
+  // click-to-filter affordance has no button semantics today - a11y
+  // improvement tracked separately).
   <div
-    className={`bg-white rounded-lg shadow p-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+    className={`sd-card sd-card--dash sd-stat-card ${color} ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
     onClick={onClick}
   >
-    <div className="flex items-center">
-      <div className={`flex-shrink-0 p-3 rounded-lg ${color}`}>{icon}</div>
-      <div className="ml-4">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <p className="text-2xl font-semibold text-gray-900">{value}</p>
-        {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
-      </div>
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+      <span className="sd-stat-title">{title}</span>
+      {icon}
     </div>
+    <div>
+      <span className="sd-stat-value">{value}</span>
+    </div>
+    {subtitle && <div className="sd-stat-change"><span className="sd-dot sd-dot--faint" />{subtitle}</div>}
   </div>
 );
 
@@ -1156,6 +915,7 @@ const HarvestPlanFormModal: React.FC<{
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title={plan ? 'Edit Harvest Plan' : 'Create Harvest Plan'}
@@ -2046,7 +1806,7 @@ const CompleteHarvestModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="Complete Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="bg-blue-50 rounded-md p-3 mb-4">
           <p className="text-sm text-blue-800">
@@ -2144,7 +1904,7 @@ const ScheduleModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="Schedule Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="bg-purple-50 rounded-md p-3 mb-4">
           <p className="text-sm text-purple-800">
@@ -2205,7 +1965,7 @@ const PostponeModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="bg-orange-50 rounded-md p-3 mb-4">
           <p className="text-sm text-orange-800">
@@ -2256,7 +2016,7 @@ const ConfirmDeleteModal: React.FC<{
   if (!plan) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="flex items-center gap-4 mb-4">
         <div className="flex-shrink-0 p-3 bg-red-100 rounded-full">
           <Trash2 className="w-6 h-6 text-red-600" />
@@ -2563,44 +2323,30 @@ export const HarvestPlansPage: React.FC = () => {
   }, [filteredPlans]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Harvest Plans</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage harvest planning, scheduling, and execution
-              </p>
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                  showFilters
-                    ? 'border-blue-500 text-blue-700 bg-blue-50'
-                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-                }`}
-              >
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-                {showFilters ? (
-                  <ChevronDown className="w-4 h-4 ml-1" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                )}
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Plan
-              </button>
-            </div>
-          </div>
-        </div>
+    <div className="sd-page sd-f2">
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Harvest Plans</h1>
+        <span className="sd-page-sub">Manage harvest planning, scheduling, and execution</span>
+      </div>
+
+      {/* Actions row */}
+      <div className="sd-actions">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`sd-btn-ghost${showFilters ? '' : ''}`}
+          style={showFilters ? { borderColor: 'rgba(20,111,132,.45)', color: '#0b4f60', background: 'rgba(20,111,132,.07)' } : undefined}
+          aria-pressed={showFilters}
+        >
+          <Filter className="w-4 h-4" />
+          Filters
+          {showFilters ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        </button>
+        <button onClick={() => setShowCreateModal(true)} className="sd-btn-teal">
+          <Plus className="w-4 h-4" />
+          New Plan
+        </button>
       </div>
 
       <div className="px-4 sm:px-6 py-6 space-y-6">
@@ -2700,39 +2446,31 @@ export const HarvestPlansPage: React.FC = () => {
               ? 'Loading...'
               : `Showing ${filteredPlans.length} of ${plansData?.total ?? 0} plans`}
           </p>
-          <div className="flex items-center gap-2">
+          {/* View mode - SUDERRA segmented control */}
+          <div className="sd-seg" role="group" aria-label="View mode">
             <button
               onClick={() => setViewMode('cards')}
-              className={`p-2 rounded-md ${
-                viewMode === 'cards'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
+              className={`sd-seg-btn${viewMode === 'cards' ? ' sd-seg-btn--on' : ''}`}
               title="Card View"
+              aria-pressed={viewMode === 'cards'}
             >
-              <Grid className="w-5 h-5" />
+              <Grid className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`p-2 rounded-md ${
-                viewMode === 'table'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
+              className={`sd-seg-btn${viewMode === 'table' ? ' sd-seg-btn--on' : ''}`}
               title="Table View"
+              aria-pressed={viewMode === 'table'}
             >
-              <List className="w-5 h-5" />
+              <List className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('kanban')}
-              className={`p-2 rounded-md ${
-                viewMode === 'kanban'
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
+              className={`sd-seg-btn${viewMode === 'kanban' ? ' sd-seg-btn--on' : ''}`}
               title="Kanban View"
+              aria-pressed={viewMode === 'kanban'}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"

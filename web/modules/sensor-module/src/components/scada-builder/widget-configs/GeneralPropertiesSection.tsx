@@ -10,6 +10,7 @@
 
 import React, { useCallback } from 'react';
 import type { ScreenWidget } from '../../../types/scada-package.types';
+import { DebouncedInput } from './DebouncedInput';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -53,13 +54,6 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
   visible,
   onUpdate,
 }) => {
-  const handleNameChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      onUpdate({ name: e.target.value });
-    },
-    [onUpdate],
-  );
-
   const handlePositionChange = useCallback(
     (field: 'col' | 'row', value: number) => {
       // Position updates go via the position sub-object so we
@@ -110,21 +104,16 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
 
   return (
     <div className="space-y-3 pb-3 mb-3 border-b border-gray-100" data-testid="general-properties">
-      {/* Widget name */}
-      <div>
-        <label htmlFor={`widget-name-${widgetId}`} className={LABEL_CLASS}>
-          Name
-        </label>
-        <input
-          id={`widget-name-${widgetId}`}
-          type="text"
-          value={name}
-          onChange={handleNameChange}
-          placeholder={typeLabel}
-          className={INPUT_CLASS}
-          data-testid="widget-name-input"
-        />
-      </div>
+      {/* Widget name — debounced (~250ms) so typing does not fire an
+          updateWidget (and a history entry) per keystroke */}
+      <DebouncedInput
+        label="Name"
+        value={name}
+        onCommit={(v) => onUpdate({ name: v })}
+        placeholder={typeLabel}
+        inputId={`widget-name-${widgetId}`}
+        testId="widget-name-input"
+      />
 
       {/* Widget type badge (read-only) */}
       <div>
@@ -137,72 +126,48 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
         </span>
       </div>
 
-      {/* Position (col / row) */}
+      {/* Position (col / row) — debounced */}
       <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label htmlFor={`widget-x-${widgetId}`} className={LABEL_CLASS}>
-            X (col)
-          </label>
-          <input
-            id={`widget-x-${widgetId}`}
-            type="number"
-            min={0}
-            step={1}
-            value={x}
-            onChange={(e) => handlePositionChange('col', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-x-input"
-          />
-        </div>
-        <div>
-          <label htmlFor={`widget-y-${widgetId}`} className={LABEL_CLASS}>
-            Y (row)
-          </label>
-          <input
-            id={`widget-y-${widgetId}`}
-            type="number"
-            min={0}
-            step={1}
-            value={y}
-            onChange={(e) => handlePositionChange('row', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-y-input"
-          />
-        </div>
+        <DebouncedInput
+          label="X (col)"
+          type="number"
+          value={x}
+          min={0}
+          onCommit={(v) => handlePositionChange('col', Number(v))}
+          inputId={`widget-x-${widgetId}`}
+          testId="widget-x-input"
+        />
+        <DebouncedInput
+          label="Y (row)"
+          type="number"
+          value={y}
+          min={0}
+          onCommit={(v) => handlePositionChange('row', Number(v))}
+          inputId={`widget-y-${widgetId}`}
+          testId="widget-y-input"
+        />
       </div>
 
-      {/* Size (w / h) */}
+      {/* Size (w / h) — debounced */}
       <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label htmlFor={`widget-w-${widgetId}`} className={LABEL_CLASS}>
-            W (cols)
-          </label>
-          <input
-            id={`widget-w-${widgetId}`}
-            type="number"
-            min={1}
-            step={1}
-            value={w}
-            onChange={(e) => handleSizeChange('w', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-w-input"
-          />
-        </div>
-        <div>
-          <label htmlFor={`widget-h-${widgetId}`} className={LABEL_CLASS}>
-            H (rows)
-          </label>
-          <input
-            id={`widget-h-${widgetId}`}
-            type="number"
-            min={1}
-            step={1}
-            value={h}
-            onChange={(e) => handleSizeChange('h', Number(e.target.value))}
-            className={INPUT_CLASS}
-            data-testid="widget-h-input"
-          />
-        </div>
+        <DebouncedInput
+          label="W (cols)"
+          type="number"
+          value={w}
+          min={1}
+          onCommit={(v) => handleSizeChange('w', Number(v))}
+          inputId={`widget-w-${widgetId}`}
+          testId="widget-w-input"
+        />
+        <DebouncedInput
+          label="H (rows)"
+          type="number"
+          value={h}
+          min={1}
+          onCommit={(v) => handleSizeChange('h', Number(v))}
+          inputId={`widget-h-${widgetId}`}
+          testId="widget-h-input"
+        />
       </div>
 
       {/* Locked + Visible toggles in a single row */}

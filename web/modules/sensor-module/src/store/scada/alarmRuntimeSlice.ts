@@ -7,8 +7,16 @@
  *
  * This slice is distinct from alarmSlice, which owns design-time alarm
  * rule definitions. This slice owns only operator-mode runtime state.
+ *
+ * ONE STORE / ONE TRANSPORT (T1): this slice lives ONLY inside the unified
+ * useScadaPackageStore (there is no standalone alarm store anymore), and
+ * acknowledgements are NEVER applied locally — ACK commands are emitted over
+ * the ScadaSocketService and the state only changes when the server pushes
+ * the next ALARM_STATUS. A local optimistic ACK would let the UI show an
+ * alarm as acknowledged even when the server rejected it.
  */
 import type { ScadaSliceCreator } from './types';
+import { getScadaSocketService } from '../../services/ScadaSocketService';
 import type {
   AlarmInstance,
   AlarmStatusSummary,
@@ -37,8 +45,15 @@ export interface AlarmRuntimeSlice {
   // Actions
   setActiveAlarms: (alarms: AlarmInstance[]) => void;
   updateAlarmStatus: (summary: AlarmStatusSummary) => void;
-  acknowledgeAlarm: (alarmId: string) => void;
-  acknowledgeAllAlarms: () => void;
+  /**
+   * Socket-only ACK: emits ALARM_ACK to the server. No local mutation —
+   * the acknowledged state arrives with the next ALARM_STATUS push.
+   */
+  submitAlarmAck: (alarmId: string) => void;
+  /** Socket-only ACK-all: emits ALARM_ACK_ALL. No local mutation. */
+  submitAlarmAckAll: () => void;
+  /** Replace the history list from an ALARM_HISTORY_RESULT payload. */
+  setAlarmHistory: (alarms: AlarmInstance[]) => void;
   addToHistory: (alarm: AlarmInstance) => void;
   setAlarmHistoryFilter: (filter: Partial<AlarmHistoryFilter>) => void;
   clearPendingActions: () => void;
@@ -74,24 +89,17 @@ export const createAlarmRuntimeSlice: ScadaSliceCreator<AlarmRuntimeSlice> = (se
       }
     }),
 
-  acknowledgeAlarm: (alarmId) =>
-    set((state) => {
-      const now = Date.now();
-      const alarm = state.activeAlarms.find((a) => a.id === alarmId);
-      if (!alarm) return;
-      alarm.status = 'acknowledged';
-      alarm.ackTime = now;
-    }),
+  submitAlarmAck: (alarmId) => {
+    getScadaSocketService().acknowledgeAlarm(alarmId);
+  },
 
-  acknowledgeAllAlarms: () =>
+  submitAlarmAckAll: () => {
+    getScadaSocketService().acknowledgeAllAlarms();
+  },
+
+  setAlarmHistory: (alarms) =>
     set((state) => {
-      const now = Date.now();
-      for (const alarm of state.activeAlarms) {
-        if (alarm.status !== 'acknowledged') {
-          alarm.status = 'acknowledged';
-          alarm.ackTime = now;
-        }
-      }
+      state.alarmHistory = alarms.slice(-MAX_ALARM_HISTORY);
     }),
 
   addToHistory: (alarm) =>

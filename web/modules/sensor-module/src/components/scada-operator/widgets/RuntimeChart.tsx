@@ -26,6 +26,7 @@ import React, {
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
+import { useTrendData } from '../../../hooks/useTrendData';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -154,6 +155,61 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef(false);
   const [rangeMinutes, setRangeMinutes] = useState(windowMinutes);
+
+  /* ---- Historical backfill (T8) ---- */
+  // Seed the ring buffer with persisted history so the chart opens with
+  // context instead of waiting for new live samples. Only runs when the
+  // widget has REAL tag bindings (series derived from tags/pens).
+  const backfillTagIds = useMemo(
+    () => (seriesList.length > 0 ? seriesList.map((s) => s.tagId) : []),
+    [seriesList],
+  );
+  const backfillRange = useMemo(
+    () => ({ from: new Date(Date.now() - rangeMinutes * 60_000), to: new Date() }),
+    // Recompute only when the window size changes; the refresh button
+    // re-queries via refresh().
+    [rangeMinutes],
+  );
+  const { data: backfillData, refresh: refreshBackfill } = useTrendData(
+    backfillTagIds,
+    backfillRange,
+  );
+
+  // Feed backfilled history into the ring buffers (once per data change).
+  useEffect(() => {
+    if (backfillTagIds.length === 0) return;
+    for (const series of seriesList) {
+      const points = backfillData[series.tagId];
+      if (!points || points.length === 0) continue;
+      if (!bufferRef.current.has(series.tagId)) {
+        bufferRef.current.set(series.tagId, new RingBuffer<[number, number]>(MAX_BUFFER_POINTS));
+      }
+      const ring = bufferRef.current.get(series.tagId)!;
+      const arr = ring.toArray();
+      const oldest = arr.length > 0 ? arr[0][0] : Infinity;
+      for (const pt of points) {
+        const tsSec = pt.timestamp / 1000;
+        const numVal = typeof pt.value === 'number' ? pt.value : parseFloat(String(pt.value));
+        if (isNaN(numVal) || tsSec >= oldest) continue; // live buffer is newer
+        ring.push([tsSec, numVal]);
+      }
+    }
+    // Flush through the shared rAF path so uPlot redraws once.
+    if (!pendingRef.current) {
+      pendingRef.current = true;
+      rafRef.current = requestAnimationFrame(() => {
+        pendingRef.current = false;
+        // Reuse flushBuffer via a custom event: simplest is to call the
+        // instance directly below (setData with merged buffers).
+        const u = uplotRef.current;
+        if (!u) return;
+        flushBufferRef.current?.();
+      });
+    }
+  }, [backfillData, backfillTagIds, seriesList]);
+
+  // flushBuffer is defined below; keep a stable ref for the backfill effect.
+  const flushBufferRef = useRef<(() => void) | null>(null);
 
   /* ---- Build uPlot options ---- */
 
@@ -291,6 +347,9 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     u.setData([timestamps, ...seriesData] as uPlot.AlignedData);
   }, [seriesList, rangeMinutes]);
 
+  // Expose flushBuffer to the backfill effect via a stable ref.
+  flushBufferRef.current = flushBuffer;
+
   /* ---- Feed tag values into buffer ---- */
 
   useEffect(() => {
@@ -343,6 +402,34 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     setRangeMinutes(minutes);
   }, []);
 
+  /* ---- CSV export (T8: keep the trendChart CSV feature) ---- */
+
+  const handleExportCsv = useCallback(() => {
+    const headers = ['timestamp', ...seriesList.map((s) => s.label)];
+    const rows: string[] = [headers.join(',')];
+    // Merge all buffered series into rows keyed by timestamp.
+    const tsSet = new Set<number>();
+    for (const ring of bufferRef.current.values()) {
+      for (const [ts] of ring.toArray()) tsSet.add(ts);
+    }
+    const timestamps = [...tsSet].sort((a, b) => a - b);
+    for (const ts of timestamps) {
+      const cols = seriesList.map((s) => {
+        const pts = bufferRef.current.get(s.tagId)?.toArray() ?? [];
+        const hit = pts.find(([t]) => t === ts);
+        return hit ? String(hit[1]) : '';
+      });
+      rows.push([new Date(ts * 1000).toISOString(), ...cols].join(','));
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trend-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [seriesList]);
+
   /* ---- Render ---- */
 
   return (
@@ -367,6 +454,26 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
               {preset.label}
             </button>
           ))}
+          {/* History backfill refresh */}
+          <button
+            type="button"
+            onClick={refreshBackfill}
+            title="Re-query history"
+            aria-label="Re-query history"
+            className="px-1.5 py-0.5 text-[10px] rounded text-gray-600 hover:bg-gray-200 transition-colors"
+          >
+            ⟳
+          </button>
+          {/* CSV export */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            title="Export CSV"
+            aria-label="Export CSV"
+            className="px-1.5 py-0.5 text-[10px] rounded text-gray-600 hover:bg-gray-200 transition-colors"
+          >
+            CSV
+          </button>
           {title && (
             <span className="ml-auto text-[10px] text-gray-400 truncate max-w-[120px]">
               {title}
@@ -378,7 +485,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       {/* No series warning */}
       {seriesList.length === 0 && (
         <div className="flex-1 flex items-center justify-center text-xs text-gray-400">
-          No series configured
+          No series configured — bind tags to plot trend data
         </div>
       )}
 

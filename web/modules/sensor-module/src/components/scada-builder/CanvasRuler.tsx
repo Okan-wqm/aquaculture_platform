@@ -34,7 +34,10 @@ export const CanvasRuler: React.FC<CanvasRulerProps> = ({
   canvasHeight,
   thickness = 20,
 }) => {
-  // Calculate visible grid range for horizontal ruler
+  // Calculate visible grid range for horizontal ruler.
+  // ONE expression for tick screen position (flow * zoom + viewport offset);
+  // the cull check uses the SAME value — previously it double-applied zoom
+  // (viewportX*zoom) and disagreed with the rendered tick.
   const hTicks = useMemo(() => {
     const ticks: Array<{ col: number; x: number }> = [];
     const cellW = GRID_CELL_W * zoom;
@@ -42,15 +45,15 @@ export const CanvasRuler: React.FC<CanvasRulerProps> = ({
     const endCol = Math.ceil((canvasWidth - viewportX) / (GRID_CELL_W * zoom));
 
     for (let col = Math.max(0, startCol - 1); col <= endCol + 1; col++) {
-      const x = col * cellW + viewportX * zoom;
+      const x = col * GRID_CELL_W * zoom + viewportX;
       if (x >= -cellW && x <= canvasWidth + cellW) {
-        ticks.push({ col, x: col * GRID_CELL_W * zoom + viewportX });
+        ticks.push({ col, x });
       }
     }
     return ticks;
   }, [viewportX, zoom, canvasWidth]);
 
-  // Calculate visible grid range for vertical ruler
+  // Calculate visible grid range for vertical ruler (same unified expression)
   const vTicks = useMemo(() => {
     const ticks: Array<{ row: number; y: number }> = [];
     const cellH = GRID_CELL_H * zoom;
@@ -58,9 +61,9 @@ export const CanvasRuler: React.FC<CanvasRulerProps> = ({
     const endRow = Math.ceil((canvasHeight - viewportY) / (GRID_CELL_H * zoom));
 
     for (let row = Math.max(0, startRow - 1); row <= endRow + 1; row++) {
-      const y = row * cellH + viewportY * zoom;
+      const y = row * GRID_CELL_H * zoom + viewportY;
       if (y >= -cellH && y <= canvasHeight + cellH) {
-        ticks.push({ row, y: row * GRID_CELL_H * zoom + viewportY });
+        ticks.push({ row, y });
       }
     }
     return ticks;

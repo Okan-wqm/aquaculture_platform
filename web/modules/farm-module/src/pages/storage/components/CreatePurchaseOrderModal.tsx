@@ -164,7 +164,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="New Purchase Order" size="lg">
+    <Modal className="sd-f2" isOpen={isOpen} onClose={onClose} title="New Purchase Order" size="lg">
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Category */}

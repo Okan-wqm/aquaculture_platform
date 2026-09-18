@@ -53,21 +53,21 @@ const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
 
   const isActive = schedule.status === 'ACTIVE';
   const blockedReason = !isActive
-    ? 'Sadece aktif planlardan iş emri üretilebilir.'
+    ? 'Work orders can only be generated from active schedules.'
     : undefined;
 
   const handleConfirm = async () => {
     try {
       const workOrder = await generateMutation.mutateAsync(schedule.id);
       toast({
-        title: 'İş emri oluşturuldu',
-        description: `${workOrder.workOrderCode} kodu ile iş emri kuyruğa alındı.`,
+        title: 'Work order created',
+        description: `Work order ${workOrder.workOrderCode} was queued.`,
         variant: 'success',
       });
       setShowConfirm(false);
     } catch (err) {
       toast({
-        title: 'İş emri oluşturulamadı',
+        title: 'Could not create the work order',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -84,26 +84,26 @@ const GenerateWorkOrderButton: React.FC<GenerateWorkOrderButtonProps> = ({
         title={blockedReason}
         className="text-blue-600 hover:text-blue-900"
       >
-        İş Emri Oluştur
+        Generate Work Order
       </Button>
 
       <ConfirmModal
+        className="sd-f2"
         isOpen={showConfirm}
         onClose={() => setShowConfirm(false)}
         onConfirm={handleConfirm}
-        title="İş emri üretilsin mi?"
+        title="Generate a work order?"
         message={
           <span>
             <strong className="font-semibold">{schedule.scheduleCode}</strong>{' '}
-            (<span className="font-medium">{schedule.name}</span>) planından
-            yeni bir iş emri üretilecek. İş emri{' '}
-            <span className="font-semibold">APPROVED</span> durumunda
-            açılır ve görevli ekibe atanmaya hazır olur. Mevcut açık iş
-            emirleri etkilenmez.
+            (<span className="font-medium">{schedule.name}</span>) — a new
+            work order will be generated in <span className="font-semibold">APPROVED</span>{' '}
+            status, opened and made ready for assignment. Existing open work
+            orders are not affected.
           </span>
         }
-        confirmText="İş Emri Oluştur"
-        cancelText="İptal"
+        confirmText="Generate Work Order"
+        cancelText="Cancel"
         variant="info"
         isLoading={generateMutation.isPending}
       />

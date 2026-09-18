@@ -18,8 +18,8 @@ interface WelfareEventModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<WelfareEventReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
 }
 
 interface FormData {
@@ -356,6 +356,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title="Report Welfare Event"
@@ -589,7 +590,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                               {batch.name ? ` - ${batch.name}` : ''}
                             </span>
                             <span className="text-xs text-gray-500 ml-2 flex-shrink-0">
-                              {batch.currentQuantity?.toLocaleString()} fish
+                              {batch.currentQuantity?.toLocaleString('en-GB')} fish
                             </span>
                           </div>
                           <div className="text-xs text-gray-500">

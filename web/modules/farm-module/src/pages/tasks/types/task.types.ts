@@ -117,46 +117,46 @@ export interface TaskStats {
 export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string }> = {
   FEEDING: { label: 'Yemleme', color: 'text-orange-800', bg: 'bg-orange-100' },
   WATER_QUALITY: { label: 'Su Kalitesi', color: 'text-blue-800', bg: 'bg-blue-100' },
-  HEALTH_CHECK: { label: 'Sağlık', color: 'text-red-800', bg: 'bg-red-100' },
-  EQUIPMENT_MAINTENANCE: { label: 'Ekipman Bakım', color: 'text-gray-800', bg: 'bg-gray-100' },
+  HEALTH_CHECK: { label: 'Health', color: 'text-red-800', bg: 'bg-red-100' },
+  EQUIPMENT_MAINTENANCE: { label: 'Equipment Maintenance', color: 'text-gray-800', bg: 'bg-gray-100' },
   STOCK_MANAGEMENT: { label: 'Stok', color: 'text-purple-800', bg: 'bg-purple-100' },
   CLEANING: { label: 'Temizlik', color: 'text-cyan-800', bg: 'bg-cyan-100' },
   REGULATORY: { label: 'Mevzuat', color: 'text-indigo-800', bg: 'bg-indigo-100' },
   HARVEST: { label: 'Hasat', color: 'text-green-800', bg: 'bg-green-100' },
-  ENVIRONMENTAL: { label: 'Çevre', color: 'text-emerald-800', bg: 'bg-emerald-100' },
-  SAFETY: { label: 'Güvenlik', color: 'text-yellow-800', bg: 'bg-yellow-100' },
+  ENVIRONMENTAL: { label: 'Environmental', color: 'text-emerald-800', bg: 'bg-emerald-100' },
+  SAFETY: { label: 'Safety', color: 'text-yellow-800', bg: 'bg-yellow-100' },
   GENERAL: { label: 'Genel', color: 'text-slate-800', bg: 'bg-slate-100' },
 };
 
 export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; bg: string }> = {
   URGENT: { label: 'Acil', color: 'text-red-800', bg: 'bg-red-100' },
-  HIGH: { label: 'Yüksek', color: 'text-orange-800', bg: 'bg-orange-100' },
+  HIGH: { label: 'High', color: 'text-orange-800', bg: 'bg-orange-100' },
   MEDIUM: { label: 'Orta', color: 'text-blue-800', bg: 'bg-blue-100' },
-  LOW: { label: 'Düşük', color: 'text-gray-800', bg: 'bg-gray-100' },
+  LOW: { label: 'Low', color: 'text-gray-800', bg: 'bg-gray-100' },
 };
 
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bg: string }> = {
   PENDING: { label: 'Bekliyor', color: 'text-yellow-800', bg: 'bg-yellow-100' },
   IN_PROGRESS: { label: 'Devam Ediyor', color: 'text-blue-800', bg: 'bg-blue-100' },
-  COMPLETED: { label: 'Tamamlandı', color: 'text-green-800', bg: 'bg-green-100' },
-  OVERDUE: { label: 'Gecikmiş', color: 'text-red-800', bg: 'bg-red-100' },
-  CANCELLED: { label: 'İptal', color: 'text-gray-800', bg: 'bg-gray-100' },
+  COMPLETED: { label: 'Completed', color: 'text-green-800', bg: 'bg-green-100' },
+  OVERDUE: { label: 'Overdue', color: 'text-red-800', bg: 'bg-red-100' },
+  CANCELLED: { label: 'Cancelled', color: 'text-gray-800', bg: 'bg-gray-100' },
 };
 
 export const FREQUENCY_CONFIG: Record<RecurrenceFrequency, { label: string; color: string; bg: string }> = {
   HOURLY: { label: 'Saatlik', color: 'text-purple-800', bg: 'bg-purple-100' },
-  DAILY: { label: 'Günlük', color: 'text-blue-800', bg: 'bg-blue-100' },
-  WEEKLY: { label: 'Haftalık', color: 'text-green-800', bg: 'bg-green-100' },
+  DAILY: { label: 'Daily', color: 'text-blue-800', bg: 'bg-blue-100' },
+  WEEKLY: { label: 'Weekly', color: 'text-green-800', bg: 'bg-green-100' },
   BIWEEKLY: { label: '2 Haftada Bir', color: 'text-teal-800', bg: 'bg-teal-100' },
-  MONTHLY: { label: 'Aylık', color: 'text-orange-800', bg: 'bg-orange-100' },
-  CUSTOM: { label: 'Özel', color: 'text-gray-800', bg: 'bg-gray-100' },
+  MONTHLY: { label: 'Monthly', color: 'text-orange-800', bg: 'bg-orange-100' },
+  CUSTOM: { label: 'Custom', color: 'text-gray-800', bg: 'bg-gray-100' },
 };
 
 export const TRIGGER_CONFIG: Record<AutoRuleTrigger, { label: string; color: string; bg: string }> = {
-  STOCK_LOW: { label: 'Stok Düşük', color: 'text-red-800', bg: 'bg-red-100' },
-  EXPIRY_NEAR: { label: 'Son Kullanma Yakın', color: 'text-orange-800', bg: 'bg-orange-100' },
-  MAINTENANCE_DUE: { label: 'Bakım Zamanı', color: 'text-blue-800', bg: 'bg-blue-100' },
+  STOCK_LOW: { label: 'Stock Low', color: 'text-red-800', bg: 'bg-red-100' },
+  EXPIRY_NEAR: { label: 'Expiry Near', color: 'text-orange-800', bg: 'bg-orange-100' },
+  MAINTENANCE_DUE: { label: 'Maintenance Due', color: 'text-blue-800', bg: 'bg-blue-100' },
   SCHEDULE: { label: 'Zamanlama', color: 'text-green-800', bg: 'bg-green-100' },
-  LICENSE_EXPIRY: { label: 'Lisans Süresi', color: 'text-purple-800', bg: 'bg-purple-100' },
-  WATER_PARAM_ALERT: { label: 'Su Parametre Uyarısı', color: 'text-cyan-800', bg: 'bg-cyan-100' },
+  LICENSE_EXPIRY: { label: 'License Expiry', color: 'text-purple-800', bg: 'bg-purple-100' },
+  WATER_PARAM_ALERT: { label: 'Water Parameter Alert', color: 'text-cyan-800', bg: 'bg-cyan-100' },
 };

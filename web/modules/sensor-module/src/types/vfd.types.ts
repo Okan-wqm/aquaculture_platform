@@ -275,18 +275,10 @@ export interface VfdDevice {
   location?: string;
   description?: string;
   metadata?: Record<string, unknown>;
-  customRegisterMappings?: Array<{
-    parameterName: string;
-    registerAddress: number;
-    registerCount: number;
-    functionCode: number;
-    dataType: string;
-    scalingFactor: number;
-    offset: number;
-    unit: string;
-    byteOrder: string;
-    wordOrder: string;
-  }>;
+  // `customRegisterMappings` mirrored a VfdDevice column that no longer exists.
+  // The backend removed it because provisioning read it as edge write authority
+  // while nothing ever wrote it; per-brand overrides live in the
+  // vfd_register_mappings table instead. Nothing in this module selected it.
   pollIntervalMs: number;
   isPollingEnabled: boolean;
   createdAt: string;
@@ -465,8 +457,13 @@ export interface RegisterVfdInput {
   location?: string;
   description?: string;
   farmId?: string;
-  tankId?: string;
-  pumpId?: string;
+  /**
+   * The farm `equipment.id` this drive turns — a feeder, a pump, a blower.
+   * Replaces the former `tankId` / `pumpId`: a unit is not something a drive is
+   * wired to, and `pumpId` could only name one of the several things a VFD drives.
+   * The backend confirms this id with farm-service before the drive will actuate.
+   */
+  drivenEquipmentId?: string;
   tags?: string[];
   notes?: string;
   skipConnectionTest?: boolean;
@@ -481,7 +478,8 @@ export interface UpdateVfdInput {
   location?: string;
   description?: string;
   farmId?: string;
-  tankId?: string;
+  // No `tankId`: what a drive serves follows from the equipment it turns, which is
+  // changed through `bindVfdDrivenEquipment`, not through a device update.
   tags?: string[];
   status?: VfdDeviceStatus;
   pollIntervalMs?: number;
@@ -579,7 +577,9 @@ export interface VfdRegistrationWizardState {
   selectedModelSeries?: string;
   basicInfo: Partial<RegisterVfdInput>;
   protocolConfig: Partial<VfdProtocolConfiguration>;
-  customRegisterMappings?: VfdRegisterMapping[];
+  // No `customRegisterMappings` step: the wizard never collected one (the field
+  // was initialised to `undefined` and no setter existed), and the column it
+  // would have written is gone from the backend.
   connectionTestResult?: VfdConnectionTestResult;
   isSubmitting: boolean;
   isTestingConnection: boolean;

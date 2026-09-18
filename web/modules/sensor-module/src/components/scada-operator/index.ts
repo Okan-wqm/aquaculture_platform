@@ -4,15 +4,23 @@
  * Public API surface:
  *
  *   OperatorShell         — Root layout container (wraps DataProviderRoot,
- *                           header, sidenav, alarm panel, overlay manager).
- *   OperatorView          — Runtime screen renderer (tag subscriptions,
- *                           widget grid, command routing).
- *   OperatorHeader        — Top navigation bar (alarm badge, clock, user role).
+ *                           header, sidenav, alarm summary bar + panel,
+ *                           COMMS LOST banner, overlay manager).
+ *   OperatorView          — Runtime screen renderer (single bulk tag
+ *                           subscription, adapters, widget grid).
+ *   OperatorHeader        — Top navigation bar (alarm badge, clock, role).
  *   OperatorSidenav       — Left navigation sidebar (nav items, modes).
  *   KioskMode             — Fullscreen kiosk wrapper (cursor hide, triple-tap).
- *   ViewOverlayManager    — Dialog / card / iframe overlay layer.
- *   registerOperatorWidget — Registry function: call this from each runtime
- *                           widget to make it renderable by OperatorView.
+ *   ViewOverlayManager    — Dialog / card / iframe / toast overlay layer.
+ *
+ * RENDERER SWAP (T7e): the WIDGET_REGISTRY / registerOperatorWidget /
+ * FallbackWidget dispatch that used to live in OperatorView is DELETED.
+ * Every widget — builder types and Runtime* types alike — renders through
+ *   components/scada-operator/widgets/RuntimeWidgetRenderer
+ * which owns permission gating, tag-driven actions, event bindings and the
+ * command router. The names below that predate that swap are kept for
+ * import compatibility and marked @deprecated where the renderer is the
+ * replacement.
  */
 
 // ── Main shell ────────────────────────────────────────────────────────────────
@@ -21,9 +29,14 @@ export { OperatorShell }  from './OperatorShell';
 export type { OperatorShellProps } from './OperatorShell';
 
 // ── Runtime view ──────────────────────────────────────────────────────────────
-
-export { OperatorView, registerOperatorWidget } from './OperatorView';
-export type { OperatorViewProps, OperatorWidgetProps } from './OperatorView';
+/**
+ * @deprecated OperatorView no longer dispatches widgets through a registry.
+ * It adapts builder widget config and delegates ALL widget rendering to
+ * RuntimeWidgetRenderer (./widgets/RuntimeWidgetRenderer). Import that
+ * directly when you need to render a single widget outside a screen.
+ */
+export { OperatorView } from './OperatorView';
+export type { OperatorViewProps } from './OperatorView';
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
@@ -53,3 +66,18 @@ export type { CardsDashboardProps, DashboardCardConfig } from './CardsDashboard'
 
 export { TouchKeyboard } from './TouchKeyboard';
 export type { TouchKeyboardProps, KeyboardMode } from './TouchKeyboard';
+
+// ── Alarms ───────────────────────────────────────────────────────────────────
+
+export { AlarmSummaryBar } from './AlarmSummaryBar';
+export type { AlarmSummaryBarProps } from './AlarmSummaryBar';
+export { AlarmPanel } from './AlarmPanel';
+export type { AlarmPanelProps } from './AlarmPanel';
+
+// ── Adapters (builder → runtime) ─────────────────────────────────────────────
+
+export {
+  adaptWidgetPermissions,
+  adaptWidgetEvents,
+  adaptAnimationRules,
+} from './adapters';

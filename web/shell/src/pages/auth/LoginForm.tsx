@@ -82,6 +82,56 @@ const ArrowRightIcon: React.FC = () => (
   </svg>
 );
 
+const FingerprintIcon: React.FC = () => (
+  <svg
+    className="w-[18px] h-[18px]"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.6}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M5 12a7 7 0 0 1 14 0" />
+    <path d="M8 12a4 4 0 0 1 8 0v2" />
+    <path d="M12 12v4" />
+    <path d="M12 19v1" />
+    <path d="M5 16c.5 1 1 1.6 2 2" />
+    <path d="M19 16c-.5 1-1 1.6-2 2" />
+  </svg>
+);
+
+const SsoCardIcon: React.FC = () => (
+  <svg
+    className="w-[18px] h-[18px]"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.6}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="M8 10h8M8 14h5" />
+  </svg>
+);
+
+const PhonePillIcon: React.FC = () => (
+  <svg
+    className="w-[13px] h-[13px]"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    aria-hidden="true"
+  >
+    <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+    <path d="M11 18.5h2" />
+  </svg>
+);
+
 const LoginForm: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -97,6 +147,42 @@ const LoginForm: React.FC = () => {
   const [mfaError, setMfaError] = useState('');
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const mfaInputRef = useRef<HTMLInputElement>(null);
+  const digitRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  // TOTP digits rendered from the code string ("12345" → 1,2,3,4,5,'').
+  const mfaDigits = Array.from({ length: 6 }, (_, i) => mfaCode[i] ?? '');
+
+  const setDigitAt = useCallback((index: number, raw: string): void => {
+    const v = raw.replace(/\D/g, '').slice(-1);
+    setMfaCode((prev) => {
+      const arr = Array.from({ length: 6 }, (_, k) => prev[k] ?? ' ');
+      arr[index] = v || ' ';
+      return arr.join('').replace(/ /g, '');
+    });
+    setMfaError('');
+    if (v && index < 5) {
+      digitRefs.current[index + 1]?.focus();
+    }
+  }, []);
+
+  const handleDigitKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>, index: number): void => {
+      if (e.key === 'Backspace' && !e.currentTarget.value && index > 0) {
+        digitRefs.current[index - 1]?.focus();
+      }
+    },
+    [],
+  );
+
+  const handleDigitsPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>): void => {
+    const text = (e.clipboardData?.getData('text') ?? '').replace(/\D/g, '').slice(0, 6);
+    if (text) {
+      e.preventDefault();
+      setMfaCode(text);
+      setMfaError('');
+      digitRefs.current[Math.min(text.length, 5)]?.focus();
+    }
+  }, []);
 
   // ADR-046: the tenant enforces MFA but this user has no second factor. Login
   // returns a setup token and NO session, so drive enrollment before the login
@@ -105,8 +191,11 @@ const LoginForm: React.FC = () => {
   const [postSetupNotice, setPostSetupNotice] = useState('');
 
   useEffect(() => {
-    if (mfaChallenge && mfaInputRef.current) {
-      mfaInputRef.current.focus();
+    if (!mfaChallenge) return;
+    if (useRecoveryCode) {
+      mfaInputRef.current?.focus();
+    } else {
+      digitRefs.current[0]?.focus();
     }
   }, [mfaChallenge, useRecoveryCode]);
 
@@ -261,7 +350,7 @@ const LoginForm: React.FC = () => {
               ref={mfaInputRef}
               surface="glass"
               className="industrial-auth-field industrial-mfa-field"
-              label={t('login.mfa.verifyRecovery')}
+              label={t('login.mfa.recoveryLabel')}
               type="text"
               name="recoveryCode"
               value={mfaCode}
@@ -273,25 +362,25 @@ const LoginForm: React.FC = () => {
               required
             />
           ) : (
-            <Input
-              ref={mfaInputRef}
-              surface="glass"
-              className="industrial-auth-field industrial-mfa-field"
-              label={t('login.mfa.verifyCode')}
-              type="text"
-              inputMode="numeric"
-              name="mfaCode"
-              value={mfaCode}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                setMfaCode(val);
-                setMfaError('');
-              }}
-              placeholder="000000"
-              maxLength={6}
-              autoComplete="one-time-code"
-              required
-            />
+            <div className="industrial-mfa-digits" onPaste={handleDigitsPaste}>
+              {mfaDigits.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={(el) => {
+                    digitRefs.current[i] = el;
+                  }}
+                  className="industrial-mfa-digit"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  value={digit}
+                  aria-label={t('login.mfa.digitLabel', { n: i + 1 })}
+                  onChange={(e) => setDigitAt(i, e.target.value)}
+                  onKeyDown={(e) => handleDigitKeyDown(e, i)}
+                />
+              ))}
+            </div>
           )}
 
           <Button
@@ -303,10 +392,13 @@ const LoginForm: React.FC = () => {
             disabled={!isMfaCodeReady}
             className="industrial-auth-submit"
           >
-            {useRecoveryCode ? t('login.mfa.verifyRecovery') : t('login.mfa.verifyCode')}
+            {t('login.mfa.verifyCode')}
           </Button>
 
           <div className="industrial-mfa-actions">
+            <button type="button" onClick={handleBackToLogin} className="industrial-auth-link">
+              ← {t('login.mfa.backToLogin')}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -317,9 +409,6 @@ const LoginForm: React.FC = () => {
               className="industrial-auth-link"
             >
               {useRecoveryCode ? t('login.mfa.useAuthenticator') : t('login.mfa.useRecovery')}
-            </button>
-            <button type="button" onClick={handleBackToLogin} className="industrial-auth-link">
-              {t('login.mfa.backToLogin')}
             </button>
           </div>
         </form>
@@ -406,47 +495,42 @@ const LoginForm: React.FC = () => {
           {t('login.signIn')}
         </Button>
 
-        {/* Mobile App Download Banner */}
+        {/* or-divider — alternative sign-in methods below */}
+        <div className="industrial-auth-divider" aria-hidden="true">
+          <span />
+          {t('login.orDivider')}
+          <span />
+        </div>
+
+        {/* Passkey / SSO — visual only until the backend endpoints land */}
+        <div className="industrial-auth-alt-buttons">
+          <button type="button" className="industrial-auth-alt-btn" title={t('login.biometric')}>
+            <FingerprintIcon />
+            <span>{t('login.passkey')}</span>
+          </button>
+          <button type="button" className="industrial-auth-alt-btn" title={t('login.ssoTitle')}>
+            <SsoCardIcon />
+            <span>SSO</span>
+          </button>
+        </div>
+
+        <p className="industrial-auth-no-account">
+          {t('login.noAccount')}{' '}
+          <button type="button" className="industrial-auth-link">
+            {t('login.contactAdmin')}
+          </button>
+        </p>
+
+        {/* AquaMobil — mobile field app */}
         <div className="industrial-mobile-link-wrap">
           <a
             href="/mobile"
             target="_blank"
             rel="noopener noreferrer"
-            className="industrial-mobile-link group"
+            className="industrial-mobile-pill"
           >
-            <div className="industrial-mobile-icon">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.8}
-                aria-hidden="true"
-              >
-                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-                <line x1="12" y1="18" x2="12.01" y2="18" />
-              </svg>
-            </div>
-            <div className="industrial-mobile-copy">
-              <span>{t('login.mobile.title')}</span>
-              <small>{t('login.mobile.subtitle')}</small>
-            </div>
-            <div className="industrial-mobile-arrow">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.8}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                />
-              </svg>
-            </div>
+            <PhonePillIcon />
+            <span>{t('login.mobile.pill')}</span>
           </a>
         </div>
       </form>

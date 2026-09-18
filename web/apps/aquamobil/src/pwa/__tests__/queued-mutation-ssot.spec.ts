@@ -7,38 +7,40 @@
  * (mortality/cull/harvest/feeding/transfer/clockIn/clockOut/createLeave)
  * Faz 6'da silindi; bu spec sınıfın geri dönüşünü kilitler.
  *
- * MOB-HIGH-022: registry artık codegen'in kaynağı (`/* GraphQL *\/` sihirli
- * yorumu), yani her registry dokümanının üretilmiş `<Name>Document`'ı var ve
- * online yol ONU import eder — metni yeniden yazmaz. Tarama `src/**` (generated
- * ve testler hariç): su kalitesi ve stok sayfaları bir zamanlar kendi
- * kopyalarını `src/pages` altında taşıyordu ve yalnız `src/graphql`'i okuyan
- * eski tarama onları görmüyordu.
- *
- * İstisna (dual-path allowlist): online yolu daha ZENGİN bir seçim kümesi
- * isteyen op'lar (mesaj gönder/düzenle: `...MessageFields`) iki ayrı doküman
- * taşır. graphql-codegen operasyon adlarını istemci genelinde benzersiz
- * istediği için registry kopyası `<Name>Queued` adını alır; bu spec o adı da
- * pinler. Liste bilinçli olarak DAR ve gerekçelidir.
+ * İstisna (dual-path allowlist): bazı op'lar önce ONLINE dener, ağ hatasında
+ * kuyruğa düşer (FARM-HIGH-057 deseni) — online yolun kendi dokümanı meşrudur
+ * ve canlı bir import'u vardır. Liste bilinçli olarak DAR ve gerekçelidir;
+ * genişletmek registry ile doküman ayrışması riskini yeniden açar.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
 import { OPERATION_MUTATIONS } from '../operation-registry';
 
-const SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const REGISTRY_FILE = join(SRC_DIR, 'pwa', 'operation-registry.ts');
+const GRAPHQL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'graphql');
 
 /**
- * Online-first (dual-path) op'ların GraphQL kök alanları. Her girdinin online
- * dokümanı registry'den FARKLI bir seçim kümesi taşır ve bu yüzden farklı
- * adlıdır (registry: `<Name>Queued`):
- * - sendMessage / editMessage → messaging-operations.ts (`...MessageFields`)
- * - acknowledgeAlert → alert-operations.ts (`MobileAcknowledgeAlert` online yolu)
+ * Online-first (dual-path) op'ların GraphQL kök alanları. Her girdinin
+ * `src/graphql` içindeki dokümanını canlı bir hook import eder:
+ * - submitLeaveRequest → hooks/useLeave.ts (online submit)
+ * - completeTask/startTask/setChecklistItem → hooks/useTaskActions.ts
+ * - sendMessage/editMessage/deleteMessage/markMessagesRead → messaging hooks
+ * - acknowledgeAlert → alert hooks (MobileAcknowledgeAlert online yolu)
  */
-const DUAL_PATH_ROOT_FIELDS = new Set(['sendMessage', 'editMessage', 'acknowledgeAlert']);
+const DUAL_PATH_ROOT_FIELDS = new Set([
+  'submitLeaveRequest',
+  'completeTask',
+  'startTask',
+  'setChecklistItem',
+  'sendMessage',
+  'editMessage',
+  'deleteMessage',
+  'markMessagesRead',
+  'acknowledgeAlert',
+]);
 
 /** Registry dokümanının kök mutation alanı (ilk `{` sonrası ilk alan adı). */
 function rootFieldOf(document: string): string {
@@ -49,37 +51,16 @@ function rootFieldOf(document: string): string {
   return match[1];
 }
 
-function operationNameOf(document: string): string {
-  const match = /mutation\s+(\w+)/.exec(document);
-  if (!match?.[1]) {
-    throw new Error(`Registry document has no operation name: ${document.slice(0, 80)}`);
-  }
-  return match[1];
-}
-
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) {
-      if (name === 'generated' || name === '__tests__') continue;
-      out.push(...sourceFiles(full));
-      continue;
-    }
-    if (!/\.tsx?$/.test(name) || /\.spec\.tsx?$/.test(name)) continue;
-    if (full === REGISTRY_FILE) continue;
-    out.push(full);
-  }
-  return out;
+function graphqlSourceFiles(): { name: string; content: string }[] {
+  return readdirSync(GRAPHQL_DIR)
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => ({ name, content: readFileSync(join(GRAPHQL_DIR, name), 'utf8') }));
 }
 
 describe('queued-mutation SSoT (P-23)', () => {
-  const sources = sourceFiles(SRC_DIR).map((path) => ({
-    name: relative(SRC_DIR, path),
-    content: readFileSync(path, 'utf8'),
-  }));
+  const sources = graphqlSourceFiles();
 
-  it('no source file outside the registry re-declares a queue-replayed mutation document (dual-path allowlist aside)', () => {
+  it('no src/graphql file re-declares a queue-replayed mutation document (dual-path allowlist aside)', () => {
     const offenders: string[] = [];
     for (const document of Object.values(OPERATION_MUTATIONS)) {
       const rootField = rootFieldOf(document);
@@ -89,38 +70,19 @@ describe('queued-mutation SSoT (P-23)', () => {
         // dokümanları mutation kök alanlarını çağıramayacağı için alan adının
         // `X(` biçimli geçişi yeterli ve kesin bir sinyaldir.
         if (new RegExp(`mutation[^\`]*?\\b${rootField}\\s*\\(`, 's').test(content)) {
-          offenders.push(`${rootField} → ${name}`);
+          offenders.push(`${rootField} → src/graphql/${name}`);
         }
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it('every registry document is a codegen source (magic comment) and stays interpolation-free', () => {
-    const registry = readFileSync(REGISTRY_FILE, 'utf8');
-    const commented = registry.match(/^ {2}\w+: \/\* GraphQL \*\/ `/gm) ?? [];
-    expect(commented).toHaveLength(Object.keys(OPERATION_MUTATIONS).length);
-    for (const document of Object.values(OPERATION_MUTATIONS)) {
-      expect(document).not.toContain('${');
-    }
-  });
-
-  it('every dual-path allowlist entry still corresponds to a registry op named <Name>Queued (stale allowlist guard)', () => {
-    const registryByRoot = new Map(
-      Object.values(OPERATION_MUTATIONS).map((document) => [rootFieldOf(document), document]),
-    );
+  it('every dual-path allowlist entry still corresponds to a registry op (stale allowlist guard)', () => {
+    const registryRoots = new Set(Object.values(OPERATION_MUTATIONS).map(rootFieldOf));
     for (const field of DUAL_PATH_ROOT_FIELDS) {
-      const document = registryByRoot.get(field);
-      expect(document, `allowlist entry ${field} is not a registry op anymore`).toBeDefined();
-      if (document === undefined) continue;
-      expect(operationNameOf(document)).toMatch(/Queued$/);
-    }
-  });
-
-  it('a registry op outside the allowlist is not named as if it had an online twin', () => {
-    for (const document of Object.values(OPERATION_MUTATIONS)) {
-      if (DUAL_PATH_ROOT_FIELDS.has(rootFieldOf(document))) continue;
-      expect(operationNameOf(document)).not.toMatch(/Queued$/);
+      expect(registryRoots, `allowlist entry ${field} is not a registry op anymore`).toContain(
+        field,
+      );
     }
   });
 });

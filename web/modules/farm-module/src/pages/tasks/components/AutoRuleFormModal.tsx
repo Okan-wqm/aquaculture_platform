@@ -31,12 +31,12 @@ export interface AutoRuleFormData {
 }
 
 const TRIGGER_PLACEHOLDERS: Record<AutoRuleTrigger, string> = {
-  STOCK_LOW: 'Örn: Yem stoğu 500 kg altına düştüğünde',
-  EXPIRY_NEAR: 'Örn: İlaç son kullanma tarihi 30 gün kala',
-  MAINTENANCE_DUE: 'Örn: Jeneratör 500 saat çalışma sonrası',
-  SCHEDULE: 'Örn: Her Pazartesi saat 08:00',
-  LICENSE_EXPIRY: 'Örn: Lisans süresi 60 gün kala',
-  WATER_PARAM_ALERT: 'Örn: pH 6.5 altına düştüğünde',
+  STOCK_LOW: 'E.g. When feed stock drops below 500 kg',
+  EXPIRY_NEAR: 'E.g. 30 days before medicine expiry',
+  MAINTENANCE_DUE: 'E.g. After 500 running hours of the generator',
+  SCHEDULE: 'E.g. Every Monday at 08:00',
+  LICENSE_EXPIRY: 'E.g. 60 days before licence expiry',
+  WATER_PARAM_ALERT: 'E.g. When pH drops below 6.5',
 };
 
 export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
@@ -70,22 +70,23 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen
       onClose={onClose}
-      title={isEdit ? 'Kuralı Düzenle' : 'Yeni Otomatik Kural'}
-      description="Koşul sağlandığında otomatik görev oluşturulacaktır."
+      title={isEdit ? 'Edit Rule' : 'New Auto Rule'}
+      description="When the condition is met, a task is created automatically."
       size="lg"
     >
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Rule Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kural Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Rule Name *</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Stok azaldığında sipariş görevi oluştur"
+              placeholder="Create an ordering task when stock runs low"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               required
             />
@@ -93,12 +94,12 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               rows={2}
-              placeholder="Kuralın ne yaptığını kısaca açıklayın..."
+              placeholder="Briefly describe what this rule does…"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -130,7 +131,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
             {/* Trigger Condition */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tetikleyici Koşul *
+                Trigger Condition *
               </label>
               <input
                 type="text"
@@ -147,18 +148,18 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
           {/* Task Section */}
           <div className="bg-green-50 rounded-lg p-4 space-y-3">
-            <h4 className="text-sm font-semibold text-green-900">Oluşturulacak Görev</h4>
+            <h4 className="text-sm font-semibold text-green-900">Task to Create</h4>
 
             {/* Task Title */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Görev Başlığı *
+                Task Title *
               </label>
               <input
                 type="text"
                 value={formData.taskTitle}
                 onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))}
-                placeholder="Yem siparişi ver"
+                placeholder="Order feed"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               />
@@ -167,7 +168,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
             {/* Task Description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Görev Açıklaması
+                Task Description
               </label>
               <textarea
                 value={formData.taskDescription}
@@ -175,7 +176,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                   setFormData((prev) => ({ ...prev, taskDescription: e.target.value }))
                 }
                 rows={2}
-                placeholder="Görev detayları..."
+                placeholder="Task details…"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -202,7 +203,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priority *</label>
                 <select
                   value={formData.taskPriority}
                   onChange={(e) =>
@@ -224,14 +225,14 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
             {/* Assign To */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Atanacak Kişi</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assign To</label>
               <select
                 value={formData.assignTo}
                 onChange={(e) => setFormData((prev) => ({ ...prev, assignTo: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="">
-                  {users.length === 0 ? 'Yükleniyor...' : 'Seçin (opsiyonel)'}
+                  {users.length === 0 ? 'Loading…' : 'Select (optional)'}
                 </option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -251,14 +252,14 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
             className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100"
             disabled={saving}
           >
-            İptal
+            Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
+            {saving ? 'Saving…' : isEdit ? 'Update' : 'Create'}
           </button>
         </div>
       </form>

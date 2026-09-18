@@ -16,6 +16,7 @@
  */
 
 import React, { useCallback, useState, memo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   LayoutDashboard,
   Workflow,
@@ -33,7 +34,7 @@ import {
   List,
 } from 'lucide-react';
 
-import { useOperatorStore } from '../../store/scada/operatorStore';
+import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import type { OperatorNavItem, SidenavMode } from '../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
@@ -180,9 +181,13 @@ NavItemRow.displayName = 'NavItemRow';
 
 export const OperatorSidenav = memo<OperatorSidenavProps>(
   ({ navItems, activeScreenId, mode, onNavigate }) => {
-    const { sidenavOpen } = useOperatorStore((s) => ({
-      sidenavOpen: s.sidenavOpen,
-    }));
+    // useShallow: without it the object selector returns a fresh object each
+    // store update and re-renders every sidenav row (T7g).
+    const { sidenavOpen } = useScadaPackageStore(
+      useShallow((s) => ({
+        sidenavOpen: s.sidenavOpen,
+      })),
+    );
 
     if (mode === 'void') return null;
 

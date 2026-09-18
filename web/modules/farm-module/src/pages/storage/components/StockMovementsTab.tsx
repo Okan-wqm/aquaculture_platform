@@ -220,7 +220,7 @@ export const StockMovementsTab: React.FC = () => {
                       >
                         {label} @ {location}
                         <span className="ml-1 text-gray-500">
-                          ({new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })})
+                          ({new Date(m.performedAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })})
                         </span>
                       </span>
                     </React.Fragment>
@@ -254,9 +254,9 @@ export const StockMovementsTab: React.FC = () => {
                 {displayMovements.map(m => (
                   <tr key={m.id} className={lotTraceMode ? 'hover:bg-purple-50' : 'hover:bg-gray-50'}>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
+                      {new Date(m.performedAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })}
                       <div className="text-xs text-gray-400">
-                        {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(m.performedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                       </div>
                     </td>
                     <td className="px-6 py-4">

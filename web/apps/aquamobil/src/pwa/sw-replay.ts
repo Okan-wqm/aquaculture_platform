@@ -32,7 +32,6 @@
  * queued with retryCount untouched and drain on the next app open.
  */
 
-import { GraphQLReplayError, type GraphQLEnvelopeError } from './graphql-replay-error';
 import { syncAllOperations } from './offline-queue';
 import {
   OPERATION_MUTATIONS,
@@ -78,7 +77,7 @@ interface SwAuthIdentity {
 
 interface GraphQLEnvelope {
   data?: unknown;
-  errors?: GraphQLEnvelopeError[];
+  errors?: Array<{ message?: string }>;
 }
 
 /**
@@ -132,9 +131,7 @@ async function postGraphQL(
   }
   const result = (await response.json()) as GraphQLEnvelope;
   if (result.errors && result.errors.length > 0) {
-    // Same classification as the foreground lane: the server's code decides
-    // whether the queue retries (MOB-CRITICAL-021 class).
-    throw GraphQLReplayError.fromEnvelope(result.errors);
+    throw new Error(result.errors[0]?.message || 'GraphQL error');
   }
   return result.data;
 }
@@ -182,9 +179,10 @@ export interface QueueDrainLockManager {
 
 export interface BackgroundSyncScope {
   clients: {
-    matchAll(options: { type: 'window'; includeUncontrolled: boolean }): Promise<
-      ReadonlyArray<{ postMessage(message: unknown): void }>
-    >;
+    matchAll(options: {
+      type: 'window';
+      includeUncontrolled: boolean;
+    }): Promise<ReadonlyArray<{ postMessage(message: unknown): void }>>;
   };
   navigator: { locks?: QueueDrainLockManager };
 }

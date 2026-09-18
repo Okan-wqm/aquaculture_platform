@@ -124,10 +124,7 @@ describe('auth-ready barrier reset (FE-HIGH-055)', () => {
 
     syncAuthStore(SESSION2_TOKEN, 'tenant-2', failingRefresh);
     await next;
-    // Index arithmetic, not Array.prototype.at: this project's tsconfig declares
-    // lib ES2020, where `.at` is not typed (it arrived in ES2022).
-    const calls = fetchMock.mock.calls;
-    const init = calls[calls.length - 1]?.[1] as RequestInit;
+    const init = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
     expect((init.headers as Record<string, string>)['Authorization']).toBe(
       `Bearer ${SESSION2_TOKEN}`,
     );

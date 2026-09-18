@@ -44,7 +44,7 @@ export const ProvenanceBadge: React.FC<ProvenanceBadgeProps> = ({ meta, size = '
   }
 
   if (meta.provenance === 'SENSOR') {
-    const measured = meta.measuredAt ? new Date(meta.measuredAt).toLocaleString() : undefined;
+    const measured = meta.measuredAt ? new Date(meta.measuredAt).toLocaleString('en-GB') : undefined;
     return (
       <span
         className={`inline-flex items-center ${sizes} font-medium rounded-full bg-blue-100 text-blue-800`}

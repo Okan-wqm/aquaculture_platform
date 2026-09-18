@@ -64,6 +64,7 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title="Start Inventory Count"

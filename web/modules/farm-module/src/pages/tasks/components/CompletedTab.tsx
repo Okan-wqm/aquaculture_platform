@@ -47,10 +47,10 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
     : 0;
 
   const statsCards = [
-    { label: 'Bu Hafta', value: thisWeek, suffix: 'görev' },
-    { label: 'Bu Ay', value: thisMonth, suffix: 'görev' },
-    { label: 'Toplam', value: allCompleted.length, suffix: 'görev' },
-    { label: 'Ort. Süre', value: avgMinutes, suffix: 'dk' },
+    { label: 'This Week', value: thisWeek, suffix: 'tasks' },
+    { label: 'This Month', value: thisMonth, suffix: 'tasks' },
+    { label: 'Total', value: allCompleted.length, suffix: 'tasks' },
+    { label: 'Avg. Time', value: avgMinutes, suffix: 'min' },
   ];
 
   return (
@@ -69,7 +69,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
 
       {/* Date Filter */}
       <div className="flex items-center gap-3">
-        <label className="text-sm text-gray-600">Tarih Aralığı:</label>
+        <label className="text-sm text-gray-600">Date Range:</label>
         <input
           type="date"
           value={dateFrom}
@@ -99,18 +99,18 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Görev</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kategori</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tamamlanma</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tamamlayan</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Süre</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Task</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed By</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {completedTasks.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
-                    Tamamlanan görev bulunamadı.
+                    No completed tasks found.
                   </td>
                 </tr>
               ) : (

@@ -2926,6 +2926,7 @@ type FeedingProtocolV2 {
   updatedAt: DateTime!
   createdBy: ID
   updatedBy: ID
+  version: Int
 }
 
 """Birleşik yemleme protokolü yaşam döngüsü durumu"""

@@ -259,38 +259,29 @@ const WaterChemistryPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Water Chemistry</h1>
-          <p className="mt-1 text-sm text-gray-500">Calculator, analysis, and historical water quality data</p>
-        </div>
+    <div className="sd-page sd-f2">
+      {/* Page Header (SUDERRA pattern) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Water Chemistry</h1>
+        <span className="sd-page-sub">Calculator, analysis, and historical water quality data</span>
       </div>
 
       {/* Tabs */}
-      <div className="px-4 sm:px-6">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
+      <nav className="sd-tabs" aria-label="Tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+          >
+            {tab.name}
+          </button>
+        ))}
+      </nav>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         {activeTab === 'calculator' && <OverviewContent />}
         {activeTab === 'record' && <RecordTab />}
         {activeTab === 'bulk' && canBulk && <BulkRecordTab />}

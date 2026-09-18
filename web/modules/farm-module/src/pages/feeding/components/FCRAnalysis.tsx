@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
+import { colors } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -185,9 +186,9 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
                 <YAxis type="category" dataKey="name" width={100} />
                 <Tooltip />
                 <Legend />
-                <ReferenceLine x={avgTargetFCR} stroke="#10B981" strokeDasharray="3 3" label="Target" />
-                <Bar dataKey="actualFCR" fill="#3B82F6" name="Actual FCR" />
-                <Bar dataKey="targetFCR" fill="#10B981" name="Target FCR" />
+                <ReferenceLine x={avgTargetFCR} stroke={colors.success[500]} strokeDasharray="3 3" label="Target" />
+                <Bar dataKey="actualFCR" fill={colors.info[500]} name="Actual FCR" />
+                <Bar dataKey="targetFCR" fill={colors.success[500]} name="Target FCR" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -203,7 +204,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
                 <YAxis type="category" dataKey="name" width={100} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="sgr" fill="#8B5CF6" name="SGR (%)" />
+                <Bar dataKey="sgr" fill={colors.primary[700]} name="SGR (%)" />
               </BarChart>
             </ResponsiveContainer>
           </div>

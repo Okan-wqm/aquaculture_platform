@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-ui';
 import { describe, expect, it } from 'vitest';
 
 import { sanitizeColor } from './LeaveBalanceWidget';
@@ -9,7 +10,7 @@ describe('LeaveBalanceWidget color policy', () => {
   });
 
   it('falls back for non-color CSS payloads', () => {
-    expect(sanitizeColor('red; background-image: url(//example.invalid)')).toBe('#6366f1');
+    expect(sanitizeColor('red; background-image: url(//example.invalid)')).toBe(colors.primary[500]);
     expect(sanitizeColor(undefined, '#111827')).toBe('#111827');
   });
 });

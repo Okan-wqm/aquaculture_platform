@@ -16,6 +16,7 @@ import {
 import { generatePHIsolines, PHIsoline } from '../engine/deffeyes-calc';
 import { HYDRO_REAGENTS, reagentDirectionLine } from '../engine/reagents';
 import { calcDicOfAlk } from '../engine/carbonate-chemistry';
+import { chartChrome, colors } from '@aquaculture/shared-ui';
 
 interface SimDeffeyesChartProps {
   pH: number;
@@ -36,11 +37,11 @@ const PulseCircle: React.FC<any> = (props) => {
   if (cx == null || cy == null) return null;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={8} fill="#2563eb" fillOpacity={0.25}>
+      <circle cx={cx} cy={cy} r={8} fill={colors.info[600]} fillOpacity={0.25}>
         <animate attributeName="r" values="6;10;6" dur="1.5s" repeatCount="indefinite" />
         <animate attributeName="fill-opacity" values="0.3;0.1;0.3" dur="1.5s" repeatCount="indefinite" />
       </circle>
-      <circle cx={cx} cy={cy} r={5} fill="#2563eb" stroke="#1d4ed8" strokeWidth={1.5} />
+      <circle cx={cx} cy={cy} r={5} fill={colors.info[600]} stroke={colors.info[700]} strokeWidth={1.5} />
     </g>
   );
 };
@@ -52,8 +53,8 @@ const CrossShape: React.FC<any> = (props) => {
   const s = 7;
   return (
     <g>
-      <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
-      <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s} stroke="#111827" strokeWidth={2.5} />
+      <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s} stroke={colors.neutral[900]} strokeWidth={2.5} />
+      <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s} stroke={colors.neutral[900]} strokeWidth={2.5} />
     </g>
   );
 };
@@ -103,7 +104,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       <div style={{ height: 460 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ top: 5, right: 15, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis
               dataKey="CT"
               type="number"
@@ -164,7 +165,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
                 key={`tgt-${iso.pH}`}
                 data={iso.points}
                 dataKey="AT"
-                stroke="#16a34a"
+                stroke={colors.success[600]}
                 strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
@@ -239,7 +240,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
               <Line
                 data={trail}
                 dataKey="AT"
-                stroke="#93c5fd"
+                stroke={colors.primary[200]}
                 strokeWidth={1.5}
                 strokeOpacity={0.6}
                 dot={false}
@@ -273,7 +274,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
                           cx={cx}
                           cy={cy}
                           r={1.5}
-                          fill="#3b82f6"
+                          fill={colors.info[500]}
                           fillOpacity={opacity}
                         />
                       );

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Calendar, Sun, Thermometer, Anchor, Clock } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { useLeaveBalanceSummary } from '../../hooks';
 import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
 
@@ -18,7 +18,7 @@ import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
  * using it in an inline `style` prop.
  *
  * Accepts: #RGB, #RRGGBB, #RRGGBBAA (3, 6, or 8 hex digits).
- * Rejects any other value and falls back to `fallback` (default indigo).
+ * Rejects any other value and falls back to `fallback` (default: the primary token).
  *
  * Background: React's JSX does not sanitise CSS property values.  While
  * modern browsers block JS execution via `style`, a crafted colorCode such as
@@ -26,7 +26,7 @@ import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
  */
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?$/;
 
-export function sanitizeColor(value: string | null | undefined, fallback = '#6366f1'): string {
+export function sanitizeColor(value: string | null | undefined, fallback = colors.primary[500]): string {
   if (value && HEX_COLOR_RE.test(value)) return value;
   return fallback;
 }
@@ -150,7 +150,7 @@ export function LeaveBalanceWidget({
           used={data.totalUsed}
           pending={data.totalPending}
           entitled={data.totalEntitled}
-          color="#6366f1"
+          color={colors.primary[500]}
         />
         <div className="mt-2 flex justify-between text-xs text-gray-500">
           <span>Used: {data.totalUsed}</span>

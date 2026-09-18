@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { cn, useAuth } from '@aquaculture/shared-ui';
+import { cn, useAuth, colors } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -54,12 +54,12 @@ interface ScheduleCategory {
 }
 
 const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Calisma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
-  { code: 'X', name: 'Off', color: '#9CA3AF', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'P', name: 'Izin', color: '#3B82F6', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'OT', name: 'Fazla Mesai', color: '#F59E0B', textColor: '#FFFFFF', isWorking: true, hours: 4 },
-  { code: 'E', name: 'Egitim', color: '#8B5CF6', textColor: '#FFFFFF', isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalik', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
+  { code: 'D', name: 'Calisma', color: colors.success[500], textColor: colors.white, isWorking: true, hours: 9 },
+  { code: 'X', name: 'Off', color: colors.neutral[400], textColor: colors.white, isWorking: false, hours: 0 },
+  { code: 'P', name: 'Izin', color: colors.info[500], textColor: colors.white, isWorking: false, hours: 0 },
+  { code: 'OT', name: 'Fazla Mesai', color: colors.warning[500], textColor: colors.white, isWorking: true, hours: 4 },
+  { code: 'E', name: 'Egitim', color: colors.primary[700], textColor: colors.white, isWorking: true, hours: 8 },
+  { code: 'H', name: 'Hastalik', color: colors.error[500], textColor: colors.white, isWorking: false, hours: 0 },
 ];
 
 // SEC-007: categories storage key is built at runtime with tenant+user identity
@@ -69,8 +69,8 @@ function makeCategoryStorageKey(tenantId: string | null | undefined, userId: str
 }
 
 const CATEGORY_COLORS = [
-  '#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6',
-  '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#9CA3AF',
+  colors.success[500], colors.info[500], colors.warning[500], colors.error[500], colors.primary[700],
+  colors.accent[500], colors.primary[400], colors.secondary[500], colors.accent[600], colors.neutral[400],
 ];
 
 function loadCategories(tenantId?: string | null, userId?: string | null): ScheduleCategory[] {
@@ -110,7 +110,7 @@ export function SchedulingSettingsPage() {
     endTime: '16:00',
     totalMinutes: 480,
     breakMinutes: 60,
-    colorCode: '#3B82F6',
+    colorCode: colors.info[500],
   });
 
   // Category management state — SEC-007: namespaced key
@@ -120,13 +120,13 @@ export function SchedulingSettingsPage() {
   const [categoryForm, setCategoryForm] = useState({
     code: '',
     name: '',
-    color: '#22C55E',
+    color: colors.success[500],
     isWorking: true,
     hours: 9,
   });
 
   const resetCategoryForm = () => {
-    setCategoryForm({ code: '', name: '', color: '#22C55E', isWorking: true, hours: 9 });
+    setCategoryForm({ code: '', name: '', color: colors.success[500], isWorking: true, hours: 9 });
     setEditingCategoryCode(null);
     setShowCategoryForm(false);
   };
@@ -138,7 +138,7 @@ export function SchedulingSettingsPage() {
       code: categoryForm.code.toUpperCase(),
       name: categoryForm.name,
       color: categoryForm.color,
-      textColor: '#FFFFFF',
+      textColor: colors.white,
       isWorking: categoryForm.isWorking,
       hours: categoryForm.isWorking ? categoryForm.hours : 0,
     };
@@ -180,12 +180,12 @@ export function SchedulingSettingsPage() {
   };
 
   const SHIFT_COLORS = [
-    '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444',
-    '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
+    colors.info[500], colors.success[500], colors.warning[500], colors.primary[700], colors.error[500],
+    colors.accent[500], colors.primary[400], colors.secondary[500], colors.accent[600], colors.primary[500],
   ];
 
   const resetShiftForm = () => {
-    setShiftForm({ code: '', name: '', startTime: '08:00', endTime: '16:00', totalMinutes: 480, breakMinutes: 60, colorCode: '#3B82F6' });
+    setShiftForm({ code: '', name: '', startTime: '08:00', endTime: '16:00', totalMinutes: 480, breakMinutes: 60, colorCode: colors.info[500] });
     setEditingShiftId(null);
     setShowShiftForm(false);
   };
@@ -219,7 +219,7 @@ export function SchedulingSettingsPage() {
       endTime: shift.endTime?.substring(0, 5) || '16:00',
       totalMinutes: 480,
       breakMinutes: 0,
-      colorCode: shift.colorCode || '#3B82F6',
+      colorCode: shift.colorCode || colors.info[500],
     });
     setEditingShiftId(shift.id);
     setShowShiftForm(true);
@@ -715,11 +715,11 @@ export function SchedulingSettingsPage() {
                   >
                     <div
                       className="w-4 h-4 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: shift.colorCode || '#9CA3AF' }}
+                      style={{ backgroundColor: shift.colorCode || colors.neutral[400] }}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm" style={{ color: shift.colorCode || '#374151' }}>
+                        <span className="font-semibold text-sm" style={{ color: shift.colorCode || colors.neutral[700] }}>
                           {shift.code}
                         </span>
                         <span className="text-sm text-gray-700">{shift.name}</span>

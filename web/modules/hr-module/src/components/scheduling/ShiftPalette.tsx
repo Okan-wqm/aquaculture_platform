@@ -10,7 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Coffee, GripVertical, Check } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { useShifts } from '../../hooks/useAttendance';
 import { useOptionalSchedulingKeyboard } from './SchedulingKeyboardContext';
 
@@ -35,7 +35,7 @@ function DraggableShift({
   name,
   startTime,
   endTime,
-  colorCode = '#3B82F6',
+  colorCode = colors.info[500],
   isOffDay = false,
 }: DraggableShiftProps) {
   const keyboardCtx = useOptionalSchedulingKeyboard();

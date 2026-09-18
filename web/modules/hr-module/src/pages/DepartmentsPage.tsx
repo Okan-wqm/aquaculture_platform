@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Plus, ChevronRight, Pencil } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors } from '@aquaculture/shared-ui';
 import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
 import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
 
@@ -249,7 +249,7 @@ const DepartmentsPage: React.FC = () => {
       {!isLoading && departments && departments.length > 0 && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {departments.map((department) => {
-            const color = '#6366f1';
+            const color = colors.primary[500];
             return (
               <div
                 key={department.id}

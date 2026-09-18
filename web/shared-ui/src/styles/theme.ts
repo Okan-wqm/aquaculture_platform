@@ -17,7 +17,28 @@
  * the build when the two drift, so "using the tokens" can never mean using a
  * second palette.
  */
-export const colors = {
+type Scale10 = Readonly<Record<50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900, string>>;
+type Scale5 = Readonly<Record<50 | 100 | 500 | 600 | 700, string>>;
+
+export interface ColorTokens {
+  readonly primary: Scale10;
+  readonly secondary: Scale10;
+  readonly accent: Scale10;
+  readonly neutral: Scale10;
+  readonly success: Scale5;
+  readonly warning: Scale5;
+  readonly error: Scale5;
+  readonly info: Scale5;
+  readonly gray: Readonly<Record<400, string>>;
+  readonly white: string;
+  readonly black: string;
+  readonly transparent: string;
+}
+
+// WHY `string` values, not `as const` literals: a token used as a default
+// parameter or a `useState` initial value would otherwise pin that field to
+// ONE hex literal type and reject every other token.
+export const colors: ColorTokens = {
   /** Primary — Ocean Blue */
   primary: {
     50: '#e6f3ff',
@@ -115,13 +136,13 @@ export const colors = {
   white: '#ffffff',
   black: '#000000',
   transparent: 'transparent',
-} as const;
+};
 
 /**
  * Ordered categorical palette for chart series (recharts, pies, gauges):
  * brand first, then the semantic accents, then the deep brand shades.
  */
-export const chartPalette = [
+export const chartPalette: readonly string[] = [
   colors.primary[500],
   colors.secondary[600],
   colors.accent[500],
@@ -130,14 +151,14 @@ export const chartPalette = [
   colors.error[500],
   colors.primary[700],
   colors.accent[700],
-] as const;
+];
 
 /** Chart chrome shared by every chart: grid lines, axis strokes, tooltip borders. */
-export const chartChrome = {
+export const chartChrome: Readonly<{ grid: string; axis: string; border: string }> = {
   grid: colors.neutral[200],
   axis: colors.gray[400],
   border: colors.neutral[200],
-} as const;
+};
 
 // ============================================================================
 // Tipografi

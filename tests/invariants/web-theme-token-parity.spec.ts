@@ -37,8 +37,8 @@ const TOKEN = /--color-([a-z]+)-(\d+):\s*(#[0-9a-fA-F]{6})\s*;/g;
 function cssTokens(): Map<string, string> {
   const css = readFileSync(resolve(REPO_ROOT, THEME_CSS), 'utf8');
   const tokens = new Map<string, string>();
-  for (const match of css.matchAll(TOKEN)) {
-    const [, scale, step, value] = match;
+  for (const [, scale, step, value] of css.matchAll(TOKEN)) {
+    if (scale === undefined || step === undefined || value === undefined) continue;
     tokens.set(`${scale}-${step}`, value.toLowerCase());
   }
   return tokens;
@@ -48,7 +48,8 @@ function tsTokens(): Map<string, string> {
   const tokens = new Map<string, string>();
   for (const [scale, steps] of Object.entries(colors)) {
     if (typeof steps === 'string') continue; // white / black / transparent
-    for (const [step, value] of Object.entries(steps)) {
+    const scaleSteps: Readonly<Record<number, string>> = steps;
+    for (const [step, value] of Object.entries(scaleSteps)) {
       tokens.set(`${scale}-${step}`, value.toLowerCase());
     }
   }

@@ -10,7 +10,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Coffee, Calendar, GraduationCap, Umbrella } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import type { WeeklyPlanEntry, WeeklyPlanEntryType } from '../../types/scheduling.types';
 import { useOptionalSchedulingKeyboard } from './SchedulingKeyboardContext';
 // SEC-006: sanitize API-sourced color codes before interpolation into inline styles
@@ -234,7 +234,7 @@ export function ShiftCell({
   // Work day with shift
   // SEC-006: sanitize colorCode from the API before using in inline style
   const shift = entry.shift;
-  const shiftColor = sanitizeColor(shift?.colorCode, '#3B82F6');
+  const shiftColor = sanitizeColor(shift?.colorCode, colors.info[500]);
 
   return (
     <div

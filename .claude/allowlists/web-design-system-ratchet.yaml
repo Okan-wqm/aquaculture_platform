@@ -24,7 +24,7 @@
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 19
+  ceiling: 12
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -32,60 +32,18 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: camera viewfinder overlay for barcode scanning, not a dialog
-    - site: web/apps/aquamobil/src/components/messaging/AttachmentPicker.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
-    - site: web/apps/aquamobil/src/components/messaging/ConfirmDialog.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
-    - site: web/apps/aquamobil/src/components/messaging/ForwardModal.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
     - site: web/apps/aquamobil/src/components/messaging/ImagePreview.tsx
       batch: runtime
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: full-screen media viewer, not a dialog
-    - site: web/apps/aquamobil/src/components/messaging/MessageBubble.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: long-press action layer over the chat; re-evaluate as bottom sheet
-    - site: web/apps/aquamobil/src/pages/account/AccountPage.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
-    - site: web/apps/aquamobil/src/pages/messaging/ChannelSettingsPage.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
     - site: web/apps/aquamobil/src/pages/messaging/MediaViewerPage.tsx
       batch: runtime
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: full-screen media viewer page, not a dialog
-    - site: web/apps/aquamobil/src/pages/messaging/NewChatPage.tsx
-      batch: mobile
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-065
-      reason: centred desktop-style dialog on a phone; move to a bottom sheet (Drawer side=bottom once aquamobil shares theme.css, Konsta Sheet until then)
     - site: web/modules/sensor-module/src/components/scada-builder/PidFaceplate.tsx
       batch: runtime
       owner: okan

@@ -75,7 +75,16 @@ forms, properties-panel and save-layout dialogs) use `Modal`/`ConfirmModal`;
 the VFD change-set detail and the shell AI assistant use `Drawer`; five
 private Escape listeners, three backdrop handlers and one focus trap go with
 them; overlays 39 → 19. The unified editor's full-screen dark ST editor is
-registered as a runtime surface (needs a Modal theme variant). Remaining
+registered as a runtime surface (needs a Modal theme variant). Batch 5
+(same cycle, AquaMobil): the app cannot import shared-ui (standalone
+lockfile, offline-first) and Konsta's Sheet/Dialog are class maps with no
+dialog semantics, so it gets one local `BottomSheet` primitive (auto/tall/
+full sizes, portal, `useDialogBehavior`: Escape, focus in/trap/restore,
+scroll lock, inert-while-busy) and a `ConfirmSheet` on top of it. Both
+hand-rolled `ConfirmDialog` copies (messaging + AccountPage) are deleted;
+the attachment picker, add-member sheet, forward picker and the message
+long-press menu are sheets; the new-chat "creating" veil is a live-region
+status with the list inert; overlays 19 → 12. Remaining
 files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only

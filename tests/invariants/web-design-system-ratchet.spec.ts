@@ -14,7 +14,8 @@
  * being fixed. So this spec is a governed ratchet, the same shape as
  * `admin-panel-data-layer.spec.ts`:
  *
- *   1. **Overlays are keyed by FILE.** Every file outside shared-ui that
+ *   1. **Overlays are keyed by FILE.** Every file outside shared-ui (and
+ *      outside AquaMobil's own primitives, see PRIMITIVE_DIRS) that
  *      contains `fixed inset-0` must be listed with a batch (dialog → Modal,
  *      drawer → Drawer, mobile → bottom sheet, runtime → a genuine full-screen
  *      surface that is not a dialog), an owner, a future expiry, the finding
@@ -39,6 +40,20 @@ import * as yaml from 'js-yaml';
 const REPO_ROOT = resolve(__dirname, '../..');
 const ALLOWLIST = '.claude/allowlists/web-design-system-ratchet.yaml';
 const ROOTS = ['web/modules', 'web/shell/src', 'web/apps'];
+
+/**
+ * The standalone PWA cannot import shared-ui (own lockfile, offline-first — see
+ * web/apps/aquamobil/CLAUDE.md), so its one sanctioned overlay primitive,
+ * `BottomSheet`, lives here: the mobile counterpart of shared-ui's Modal and
+ * Drawer and, like them, the surface the ratchet migrates TO, not from. Only the
+ * overlay check skips it; its hex and inline-style counts stay in the package
+ * ceilings.
+ */
+const PRIMITIVE_DIRS = ['web/apps/aquamobil/src/components/ui/'];
+
+function isPrimitive(file: string): boolean {
+  return PRIMITIVE_DIRS.some((dir) => file.startsWith(dir));
+}
 
 const OVERLAY = /fixed inset-0/;
 const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
@@ -132,7 +147,7 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
   });
 
   it('ratchets every hand-rolled overlay — governed, live, and only shrinking (FE-HIGH-065)', () => {
-    const actual = new Set(files.filter((file) => OVERLAY.test(read(file))));
+    const actual = new Set(files.filter((file) => !isPrimitive(file) && OVERLAY.test(read(file))));
     const listed = new Set(doc.overlays.entries.map((entry) => entry.site));
 
     // A new overlay cannot ship outside shared-ui without being named here.

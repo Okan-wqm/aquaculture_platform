@@ -4,7 +4,6 @@
  * Tarayıcı confirm()/prompt() ile aynı dönüş sözleşmesi, string kısayolu,
  * kuyruklama ve provider yokken açık hata.
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
@@ -13,7 +12,11 @@ import { ConfirmProvider, useConfirm, usePrompt } from '../useConfirm';
 type ConfirmFn = ReturnType<typeof useConfirm>;
 type PromptFn = ReturnType<typeof usePrompt>;
 
-function Harness({ onReady }: { onReady: (api: { confirm: ConfirmFn; prompt: PromptFn }) => void }): null {
+function Harness({
+  onReady,
+}: {
+  onReady: (api: { confirm: ConfirmFn; prompt: PromptFn }) => void;
+}): null {
   const confirm = useConfirm();
   const prompt = usePrompt();
   onReady({ confirm, prompt });
@@ -41,9 +44,14 @@ describe('useConfirm', () => {
 
     let result: Promise<boolean> | null = null;
     act(() => {
-      result = confirm({ title: 'Planı sil', message: 'Geri alınamaz.', confirmText: 'Sil', variant: 'danger' });
+      result = confirm({
+        title: 'Planı sil',
+        message: 'Geri alınamaz.',
+        confirmText: 'Sil',
+        variant: 'danger',
+      });
     });
-    expect(await screen.findByText('Planı sil')).toBeInTheDocument();
+    expect(await screen.findByText('Planı sil')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Sil' }));
     await expect(result).resolves.toBe(true);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -52,7 +60,7 @@ describe('useConfirm', () => {
     act(() => {
       cancelled = confirm({ title: 'Tekrar?', cancelText: 'Vazgeç' });
     });
-    expect(await screen.findByText('Tekrar?')).toBeInTheDocument();
+    expect(await screen.findByText('Tekrar?')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Vazgeç' }));
     await expect(cancelled).resolves.toBe(false);
   });
@@ -63,7 +71,7 @@ describe('useConfirm', () => {
     act(() => {
       result = confirm('Bu kaydı silmek istediğinize emin misiniz?');
     });
-    expect(await screen.findByText('Bu kaydı silmek istediğinize emin misiniz?')).toBeInTheDocument();
+    expect(await screen.findByText('Bu kaydı silmek istediğinize emin misiniz?')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Onayla' }));
     await expect(result).resolves.toBe(true);
   });
@@ -76,11 +84,11 @@ describe('useConfirm', () => {
       first = confirm('Birinci');
       second = confirm('İkinci');
     });
-    expect(await screen.findByText('Birinci')).toBeInTheDocument();
+    expect(await screen.findByText('Birinci')).toBeTruthy();
     expect(screen.queryByText('İkinci')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Onayla' }));
     await expect(first).resolves.toBe(true);
-    expect(await screen.findByText('İkinci')).toBeInTheDocument();
+    expect(await screen.findByText('İkinci')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'İptal' }));
     await expect(second).resolves.toBe(false);
   });
@@ -119,10 +127,10 @@ describe('usePrompt', () => {
       result = prompt({ title: 'Reddetme gerekçesi', label: 'Gerekçe', confirmText: 'Gönder' });
     });
     const input = await screen.findByRole('textbox', { name: 'Gerekçe' });
-    const submit = screen.getByRole('button', { name: 'Gönder' });
-    expect(submit).toBeDisabled();
+    const submit = screen.getByRole<HTMLButtonElement>('button', { name: 'Gönder' });
+    expect(submit.disabled).toBe(true);
     fireEvent.change(input, { target: { value: '  Eksik kalibrasyon ' } });
-    expect(submit).toBeEnabled();
+    expect(submit.disabled).toBe(false);
     fireEvent.click(submit);
     await expect(result).resolves.toBe('Eksik kalibrasyon');
   });
@@ -144,8 +152,8 @@ describe('usePrompt', () => {
     act(() => {
       result = prompt({ title: 'Süre', defaultValue: '30', required: false });
     });
-    const input = await screen.findByRole('textbox', { name: 'Süre' });
-    expect(input).toHaveValue('30');
+    const input = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Süre' });
+    expect(input.value).toBe('30');
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Tamam' }));
     await expect(result).resolves.toBe('');

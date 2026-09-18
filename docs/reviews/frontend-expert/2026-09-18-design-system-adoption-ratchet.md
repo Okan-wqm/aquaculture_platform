@@ -1,12 +1,13 @@
 # Design-system adoption ratchet — 2026-09-18
 
-**Agent:** `frontend-expert` · **Mode:** WRITER (survey + gates + first migration wave) · **Lane:** web
+**Agent:** `frontend-expert` · **Mode:** WRITER (survey + gates + first
+migration wave) · **Lane:** web
 **Cycle:** `2026-09-18-design-need-map` · **Verdict:** CONDITIONAL
 **Findings:** 4 (HIGH 3 · MEDIUM 1)
 
 > Finding IDs are allocated above the `FE` high-water mark in
-> `docs/reviews/_registry/findings.jsonl` (FE was at 064 at cycle time); registered with `findings:add` in the
-> same change that lands this document.
+> `docs/reviews/_registry/findings.jsonl` (FE was at 064 at cycle time);
+> registered with `findings:add` in the same change that lands this document.
 
 ## Scope
 
@@ -17,8 +18,8 @@ design canvas: _Tasarım İhtiyaç Haritası_ (Design artifact, 7 boards).
 
 ## Executive summary
 
-`web/shared-ui` is a real design system — 61 colour tokens in `theme.css`, Modal /
-ConfirmModal / typed-confirmation delete dialog, Button, form fields, DataTable,
+`web/shared-ui` is a real design system — 61 colour tokens in `theme.css`,
+Modal / ConfirmModal / typed-confirmation delete dialog, Button, form fields, DataTable,
 Charts — that the product mostly does not use. The brand palette
 (`bg|text|border-primary-*`) appears 17 times across the 8 federated remotes
 against 24.070 raw Tailwind defaults; 96 files build their own `fixed inset-0`

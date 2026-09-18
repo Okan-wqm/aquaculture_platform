@@ -4,7 +4,6 @@
  * Modal ile paylaşılan useDialogBehavior'ın Drawer üstünden çalıştığını ve
  * yerleşim seçeneklerinin doğru sınıfları ürettiğini sabitler.
  */
-import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
@@ -26,10 +25,13 @@ describe('Drawer — görünürlük ve erişilebilirlik', () => {
         <p>içerik</p>
       </Drawer>,
     );
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(dialog).toHaveAccessibleName('Widget özellikleri');
-    expect(dialog).toHaveAccessibleDescription('Eşikler ve etiket');
+    // ByRole computes the accessible name/description from aria-labelledby /
+    // aria-describedby, so a match here proves the wiring without jest-dom.
+    const dialog = screen.getByRole('dialog', {
+      name: 'Widget özellikleri',
+      description: 'Eşikler ve etiket',
+    });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 
   it('kapatma butonu erişilebilir etiket taşır ve onClose çağırır', () => {
@@ -135,10 +137,15 @@ describe('Drawer — yerleşim', () => {
 
   it('footer verildiğinde alt şeritte render eder', () => {
     render(
-      <Drawer isOpen onClose={() => {}} title="Panel" footer={<button type="button">Uygula</button>}>
+      <Drawer
+        isOpen
+        onClose={() => {}}
+        title="Panel"
+        footer={<button type="button">Uygula</button>}
+      >
         <p>içerik</p>
       </Drawer>,
     );
-    expect(screen.getByRole('button', { name: 'Uygula' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Uygula' })).toBeTruthy();
   });
 });

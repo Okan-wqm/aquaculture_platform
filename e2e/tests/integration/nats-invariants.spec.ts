@@ -283,19 +283,31 @@ function loadContractSubjectConstants(): Map<string, string> {
     'notification-commands.ts',
     'tenant-commands.ts',
     'websocket-envelopes.ts',
-    'auth-admin-commands.ts',
     'auth-user-queries.ts',
+    'auth-credential-queries.ts',
+    'farm-site-access-queries.ts',
     // Farm AI specialists read contract (FARM-MEDIUM-328): responders and tools
     // reference FARM_AI_QUERY_SUBJECTS.KEY, never a literal.
     'farm-ai-queries.ts',
+    // Edge-device request-reply subjects live in backend-common (not
+    // event-contracts) — entries prefixed 'backend-common/' resolve under
+    // libs/backend-common/src/ instead.
+    'backend-common/constants/nats-patterns.ts',
   ];
+  // FARM-AI 0.2.2 port: a missing contract file must FAIL, not silently
+  // shrink coverage. The old `catch { continue }` let a renamed/split file
+  // quietly drop every literal it carried from RPC-coverage.
+  const missingContractFiles: string[] = [];
   for (const file of contractFiles) {
-    const path = join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);
+    const path = file.startsWith('backend-common/')
+      ? join(REPO_ROOT, 'libs', 'backend-common', 'src', file.slice('backend-common/'.length))
+      : join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);
     let text: string;
     try {
       text = readFileSync(path, 'utf-8');
     } catch {
-      continue; // contract file split/renamed — literals still covered below
+      missingContractFiles.push(file);
+      continue;
     }
     // KEY: 'subject.with.dots'  (object members)
     for (const m of text.matchAll(
@@ -309,6 +321,11 @@ function loadContractSubjectConstants(): Map<string, string> {
     )) {
       constants.set(m[1], m[2]);
     }
+  }
+    if (missingContractFiles.length > 0) {
+    throw new Error(
+      `nats-invariants: contract file(s) listed but missing on disk (RPC coverage silently shrunk):\n  ${missingContractFiles.join('\n  ')}`,
+    );
   }
   return constants;
 }

@@ -43,9 +43,9 @@ const BatchTraceabilityTab = React.lazy(
  * mount point.
  */
 const TABS = [
-  { to: 'overview', label: 'Genel Bakış' },
-  { to: 'tanks', label: 'Tanklar' },
-  { to: 'feeding', label: 'Yem Atamaları' },
+  { to: 'overview', label: 'Overview' },
+  { to: 'tanks', label: 'Tanks' },
+  { to: 'feeding', label: 'Feed Assignments' },
   { to: 'traceability', label: 'Traceability' },
 ] as const;
 
@@ -64,7 +64,7 @@ const BatchDetailPage: React.FC = () => {
     return (
       <div className="p-6">
         <div className="animate-pulse text-gray-500">
-          Parti detayı yükleniyor…
+          Loading batch details…
         </div>
       </div>
     );
@@ -75,18 +75,18 @@ const BatchDetailPage: React.FC = () => {
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <h2 className="text-lg font-semibold text-red-800">
-            Parti bulunamadı
+            Batch not found
           </h2>
           <p className="mt-1 text-sm text-red-700">
-            Parti ID <code>{batchId}</code> sistemde mevcut değil veya
-            erişiminiz yok.
+            Batch ID <code>{batchId}</code> does not exist in the system or
+            you do not have access.
           </p>
           <button
             type="button"
             onClick={() => navigate('/sites/tanks')}
             className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
           >
-            Listeye dön
+            Back to list
           </button>
         </div>
       </div>
@@ -103,7 +103,7 @@ const BatchDetailPage: React.FC = () => {
             onClick={() => navigate('/sites/tanks')}
             className="text-sm text-blue-600 hover:underline"
           >
-            ← Parti Listesi
+            ← Batch List
           </button>
           <h1 className="mt-1 text-2xl font-bold text-gray-900">
             {batch.batchNumber}
@@ -143,7 +143,7 @@ const BatchDetailPage: React.FC = () => {
       <Suspense
         fallback={
           <div className="animate-pulse text-gray-500">
-            Sekme yükleniyor…
+            Loading tab…
           </div>
         }
       >

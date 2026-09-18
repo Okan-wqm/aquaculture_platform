@@ -262,6 +262,7 @@ export const StorageLocationsTab: React.FC = () => {
 
       {/* Modal */}
       <Modal
+        className="sd-f2"
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingId ? 'Edit Location' : 'Add Location'}

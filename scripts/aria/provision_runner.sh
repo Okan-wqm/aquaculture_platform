@@ -70,56 +70,15 @@ if [ "$max_ns" != "unreadable" ] && [ "$max_ns" -gt 0 ] 2>/dev/null; then
 else
   bad "max_user_namespaces=${max_ns} (want > 0; fix via sysctl.d — not auto-set, a cap of 0 is usually a deliberate hardening choice to review)"
 fi
-# Ubuntu >= 23.10 adds a third knob the two above say nothing about:
-# kernel.apparmor_restrict_unprivileged_userns=1 denies user-namespace creation
-# to any binary WITHOUT an AppArmor profile, for unprivileged users only. bwrap
-# then works for root and fails for the runner user ("setting up uid map:
-# Permission denied", "loopback: Failed RTM_NEWADDR"), so a root-run probe
-# reports a backend the lanes never get. Ubuntu's own fix for flatpak, podman
-# and lxc is a per-binary profile granting `userns` and nothing else
-# (scripts/aria/apparmor/bwrap); the capability is then re-checked as an
-# unprivileged user, which is the only verdict that means anything here.
-aa_knob=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
-aa_profile=/etc/apparmor.d/bwrap
-if [ -e "$aa_knob" ] && [ "$(cat "$aa_knob")" = "1" ]; then
-  if [ -f "$aa_profile" ]; then
-    ok "apparmor_restrict_unprivileged_userns=1 and ${aa_profile} present"
-  elif [ "$DRY_RUN" -eq 1 ]; then
-    bad "apparmor_restrict_unprivileged_userns=1 and no ${aa_profile} (bwrap builds namespaces for root only)"
-  else
-    install -m 0644 "${SCRIPT_DIR}/apparmor/bwrap" "$aa_profile" && apparmor_parser -r "$aa_profile" \
-      && ok "installed ${aa_profile} (userns grant for /usr/bin/bwrap)" \
-      || bad "could not load ${aa_profile}"
-  fi
-else
-  ok "apparmor_restrict_unprivileged_userns not enforced (knob absent or 0)"
-fi
-# Capability, as an UNPRIVILEGED user: root passes every namespace check on a
-# host where the runner user fails them all. setpriv drops to nobody so the
-# verdict does not depend on whether the runner user exists yet.
-if setpriv --reuid=65534 --regid=65534 --clear-groups \
-     bwrap --unshare-user --unshare-net --ro-bind / / --proc /proc --dev /dev -- /bin/true 2>/dev/null; then
-  ok "bwrap builds user+net namespaces as an unprivileged user"
-else
-  bad "bwrap cannot build namespaces as an unprivileged user (root may still pass — that is the trap)"
-fi
-# Final authority: the accessor the runtime itself consults before any
-# write-capable spawn — run AS the runner user, because that is who the lanes
-# run it as. Before the user exists the verdict waits, never faked.
+# Final authority: the accessor the runtime itself consults before any write-capable spawn.
 if [ -d "${REPO_ROOT}/aria-kernel" ]; then
-  if ! id "$RUNNER_USER" >/dev/null 2>&1; then
-    note "runner user ${RUNNER_USER} does not exist yet — the kernel accessor is checked on the next run (or by the capability-probe workflow)"
-  elif ! sudo -u "$RUNNER_USER" -H test -r "${REPO_ROOT}/aria-kernel/aria_kernel/__init__.py"; then
-    note "${REPO_ROOT} is not readable as ${RUNNER_USER}; the kernel accessor is checked from the runner's own checkout by the capability-probe workflow"
-  else
-    backend="$(cd "$REPO_ROOT" && sudo -u "$RUNNER_USER" -H env PYTHONPATH=aria-kernel PYTHONDONTWRITEBYTECODE=1 python3 -c \
-      'from aria_kernel.implementation_safety import sandbox_backend; print(sandbox_backend() or "")' 2>/dev/null || echo probe_failed)"
-    case "$backend" in
-      probe_failed) note "kernel probe failed as ${RUNNER_USER} (likely missing python deps outside a job) — the capability-probe workflow is the authoritative check" ;;
-      "") bad "aria_kernel.sandbox_backend() as ${RUNNER_USER} verified NO backend — write-capable spawns will be refused" ;;
-      *) ok "aria_kernel.sandbox_backend() as ${RUNNER_USER} = ${backend}" ;;
-    esac
-  fi
+  backend="$(cd "$REPO_ROOT" && PYTHONPATH=aria-kernel python3 -c \
+    'from aria_kernel.implementation_safety import sandbox_backend; print(sandbox_backend() or "")' 2>/dev/null || echo probe_failed)"
+  case "$backend" in
+    probe_failed) note "kernel probe failed here (likely missing python deps outside a job) — the capability-probe workflow is the authoritative check" ;;
+    "") bad "aria_kernel.sandbox_backend() verified NO backend — write-capable spawns will be refused" ;;
+    *) ok "aria_kernel.sandbox_backend()=${backend}" ;;
+  esac
 fi
 
 section "Runner install + registration (${RUNNER_ROOT})"

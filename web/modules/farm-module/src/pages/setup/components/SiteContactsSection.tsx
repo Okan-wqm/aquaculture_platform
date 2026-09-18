@@ -117,12 +117,12 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     const primaryCount = rows.filter((r) => r.isPrimary).length;
     if (primaryCount > 1) {
       errs.push(
-        `En fazla bir kişi ana irtibat olarak işaretlenebilir; ${primaryCount} kişi seçili.`,
+        `At most one person can be marked as primary contact; ${primaryCount} selected.`,
       );
     }
     rows.forEach((r, idx) => {
       if (!r.name.trim()) {
-        errs.push(`${idx + 1}. satırda isim boş olamaz.`);
+        errs.push(`Name is required on row ${idx + 1}.`);
       }
     });
     return errs;
@@ -131,10 +131,10 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
   if (!siteId) {
     return (
       <div className="mt-6 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Contact Persons</h3>
         <p className="mt-1 text-xs text-gray-500">
-          Site oluşturulduktan sonra irtibat kişileri eklenebilir.
-          Önce yukarıdaki "Kaydet" butonu ile siteyi oluşturun.
+          Contacts can be added after the site is created.
+          Create the site first using the "Save" button above.
         </p>
       </div>
     );
@@ -144,11 +144,11 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     // Read-only render for users who can see contacts but not edit.
     return (
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Contact Persons</h3>
         {contactsQuery.isLoading ? (
-          <p className="mt-1 text-xs text-gray-500">Yükleniyor…</p>
+          <p className="mt-1 text-xs text-gray-500">Loading…</p>
         ) : (contactsQuery.data ?? []).length === 0 ? (
-          <p className="mt-1 text-xs text-gray-500">Tanımlı irtibat yok.</p>
+          <p className="mt-1 text-xs text-gray-500">No contacts defined.</p>
         ) : (
           <ul className="mt-2 space-y-1 text-sm">
             {(contactsQuery.data ?? []).map((c) => (
@@ -210,13 +210,13 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     try {
       await upsertMutation.mutateAsync({ siteId, contacts });
       toast({
-        title: 'İrtibat kişileri güncellendi',
-        description: `${contacts.length} kişi kaydedildi.`,
+        title: 'Contacts updated',
+        description: `${contacts.length} contacts saved.`,
         variant: 'success',
       });
     } catch (err) {
       toast({
-        title: 'İrtibat kaydı başarısız',
+        title: 'Failed to save contacts',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -226,25 +226,25 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
   return (
     <div className="mt-6 border-t border-gray-200 pt-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Contact Persons</h3>
         <button
           type="button"
           onClick={handleAddRow}
           className="text-sm text-blue-600 hover:text-blue-800"
         >
-          + Yeni Kişi
+          + New Contact
         </button>
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        Sitenin operatif irtibat kişileri. En fazla bir kişi "ana
-        irtibat" olarak işaretlenebilir.
+        Operative contacts for this site. At most one person can be
+        marked as "primary contact".
       </p>
 
       {contactsQuery.isLoading ? (
-        <p className="mt-3 text-sm text-gray-500">Yükleniyor…</p>
+        <p className="mt-3 text-sm text-gray-500">Loading…</p>
       ) : rows.length === 0 ? (
         <div className="mt-3 p-3 bg-gray-50 border border-dashed border-gray-300 rounded text-sm text-gray-500 text-center">
-          Tanımlı irtibat yok. "Yeni Kişi" ile satır ekleyin.
+          No contacts defined. Add rows with "New Contact".
         </div>
       ) : (
         <div className="mt-3 space-y-2">
@@ -255,7 +255,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
             >
               <input
                 type="text"
-                placeholder="İsim *"
+                placeholder="Name *"
                 value={row.name}
                 onChange={(e) =>
                   handleChange(row.localKey, { name: e.target.value })
@@ -308,9 +308,9 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                   type="button"
                   onClick={() => handleRemoveRow(row.localKey)}
                   className="text-xs text-red-600 hover:text-red-800"
-                  aria-label={`${row.name || 'Kişi'} satırını çıkar`}
+                  aria-label={`Remove row ${row.name || 'contact'}`}
                 >
-                  Sil
+                  Delete
                 </button>
               </div>
             </div>
@@ -335,7 +335,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
           disabled={errors.length > 0 || upsertMutation.isPending}
           isLoading={upsertMutation.isPending}
         >
-          İrtibatları Kaydet
+          Save Contacts
         </Button>
       </div>
     </div>

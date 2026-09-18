@@ -93,9 +93,9 @@ export function ChannelListItem({
       onClick={() => onPress(channelId)}
       className={clsx(
         'w-full flex items-center gap-3 px-4 py-3 min-h-[64px] text-left transition-colors touch-feedback',
-        isActive
-          ? 'bg-ocean-50 dark:bg-ocean-950/30'
-          : 'bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/60',
+        // Active = the accent's own dim wash, which is how v4 says "selected"
+        // everywhere; inactive rows are the plain content surface.
+        isActive ? 'bg-acc-dim' : 'bg-surface-1 hover:bg-surface-2',
       )}
     >
       {/* Avatar */}
@@ -111,12 +111,12 @@ export function ChannelListItem({
       {/* Name + last message preview */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
+          {/* Unread rows climb one step up the ink ramp rather than changing
+              colour — the badge and the accent timestamp carry the state. */}
           <span
             className={clsx(
-              'text-sm font-semibold truncate',
-              unreadCount > 0
-                ? 'text-gray-900 dark:text-white'
-                : 'text-gray-700 dark:text-gray-200',
+              'text-body font-semibold truncate',
+              unreadCount > 0 ? 'text-ink-1' : 'text-ink-2',
             )}
           >
             {name}
@@ -124,10 +124,8 @@ export function ChannelListItem({
           {lastMessageAt && (
             <span
               className={clsx(
-                'text-[11px] shrink-0',
-                unreadCount > 0
-                  ? 'text-ocean-600 font-semibold'
-                  : 'text-gray-400 dark:text-gray-500 font-medium',
+                'text-meta shrink-0',
+                unreadCount > 0 ? 'text-acc font-semibold' : 'text-ink-3 font-medium',
               )}
             >
               {formatRelativeTime(lastMessageAt)}
@@ -138,10 +136,8 @@ export function ChannelListItem({
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <p
             className={clsx(
-              'text-xs truncate',
-              unreadCount > 0
-                ? 'text-gray-600 dark:text-gray-300 font-medium'
-                : 'text-gray-400 dark:text-gray-500',
+              'text-meta truncate',
+              unreadCount > 0 ? 'text-ink-2 font-medium' : 'text-ink-3',
             )}
           >
             {lastMessage ?? 'No messages yet'}

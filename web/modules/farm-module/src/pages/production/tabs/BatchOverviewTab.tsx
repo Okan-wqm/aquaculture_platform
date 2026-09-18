@@ -4,8 +4,8 @@
  * Renders batch metadata cards (quantity / biomass / dates / status)
  * + the action buttons that wire the Tier 1 mutation modals:
  *
- *   - "Durum Güncelle" → UpdateBatchStatusModal
- *   - "Partiyi Kapat" → CloseBatchModal
+ *   - "Update Status" → UpdateBatchStatusModal
+ *   - "Close Batch" → CloseBatchModal
  *
  * Both buttons are gated by `useCanMutate(...)` so a MODULE_USER
  * who lacks the role sees no button. The modals themselves
@@ -52,7 +52,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
             onClick={() => setShowEditModal(true)}
             className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
           >
-            Düzenle
+            Edit
           </button>
         )}
         {canUpdateStatus && (
@@ -61,7 +61,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
             onClick={() => setShowStatusModal(true)}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            Durum Güncelle
+            Update Status
           </button>
         )}
         {canClose && (
@@ -71,12 +71,12 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
             disabled={closeButtonDisabled}
             title={
               closeButtonDisabled
-                ? 'Bu durumdaki bir parti kapatılamaz'
+                ? 'A batch in this status cannot be closed'
                 : undefined
             }
             className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Partiyi Kapat
+            Close Batch
           </button>
         )}
       </div>
@@ -84,19 +84,19 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
       {/* Metadata grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <MetadataCard
-          label="İlk Adet"
+          label="Initial Count"
           value={batch.initialQuantity.toLocaleString('tr-TR')}
         />
         <MetadataCard
-          label="Mevcut Adet"
+          label="Current Count"
           value={batch.currentQuantity.toLocaleString('tr-TR')}
         />
         <MetadataCard
-          label="Toplam Mortalite"
+          label="Total Mortality"
           value={`${batch.totalMortality.toLocaleString('tr-TR')} (${(batch.mortalityRate ?? 0).toFixed(2)}%)`}
         />
         <MetadataCard
-          label="Mevcut Biyokütle"
+          label="Current Biomass"
           value={
             batch.currentBiomassKg !== undefined
               ? `${batch.currentBiomassKg.toFixed(1)} kg`
@@ -104,7 +104,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           }
         />
         <MetadataCard
-          label="Ortalama Ağırlık"
+          label="Average Weight"
           value={
             batch.currentAvgWeightG !== undefined
               ? `${batch.currentAvgWeightG.toFixed(1)} g`
@@ -112,10 +112,10 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           }
         />
         <MetadataCard
-          label="Üretimde Kalan Gün"
+          label="Days in Production"
           value={
             batch.daysInProduction !== undefined
-              ? `${batch.daysInProduction} gün`
+              ? `${batch.daysInProduction} days`
               : '—'
           }
         />
@@ -132,7 +132,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           }
         />
         <MetadataCard
-          label="FCR (hedef / gerçek)"
+          label="FCR (target / actual)"
           value={`${batch.fcr.target.toFixed(2)} / ${(batch.fcr.actual ?? 0).toFixed(2)}`}
         />
       </div>
@@ -143,7 +143,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           {batch.description && (
             <div>
               <div className="text-xs font-semibold text-gray-500 uppercase">
-                Açıklama
+                Description
               </div>
               <p className="mt-1 text-sm text-gray-700">
                 {batch.description}
@@ -153,7 +153,7 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           {batch.notes && (
             <div className="mt-3">
               <div className="text-xs font-semibold text-gray-500 uppercase">
-                Notlar
+                Notes
               </div>
               <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
                 {batch.notes}

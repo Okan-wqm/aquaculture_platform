@@ -1,10 +1,10 @@
 /**
  * Norwegian Regulatory Thresholds
  *
- * Bu dosya Norwegian aquaculture regulatory compliance için
- * gerekli tüm threshold değerlerini içerir.
+ * All threshold values required for Norwegian aquaculture
+ * regulatory compliance.
  *
- * Kaynaklar:
+ * Sources:
  * - Mattilsynet (Norwegian Food Safety Authority)
  * - Fiskeridirektoratet (Directorate of Fisheries)
  * - Norwegian regulations for aquaculture
@@ -40,12 +40,7 @@ export const SEA_LICE_THRESHOLDS = {
   REPORTING_DAY: 2, // 0 = Sunday, 2 = Tuesday
 } as const;
 
-export const SEA_LICE_SEVERITY = {
-  NORMAL: { max: 0.2, label: 'Normal', color: 'green' },
-  ELEVATED: { min: 0.2, max: 0.5, label: 'Elevated', color: 'yellow' },
-  HIGH: { min: 0.5, max: 1.0, label: 'High', color: 'orange' },
-  CRITICAL: { min: 1.0, label: 'Critical', color: 'red' },
-} as const;
+
 
 // ============================================================================
 // Mortality Thresholds (Mattilsynet)
@@ -68,71 +63,13 @@ export const MORTALITY_THRESHOLDS = {
   },
 } as const;
 
-export const MORTALITY_SEVERITY = {
-  NORMAL: {
-    threshold: 0.5,
-    label: 'Normal',
-    color: 'green',
-    requiresReport: false,
-    description: 'Within acceptable limits',
-  },
-  ELEVATED: {
-    threshold: 0.5,
-    label: 'Elevated',
-    color: 'yellow',
-    requiresReport: false,
-    description: 'Above normal, monitoring recommended',
-  },
-  HIGH: {
-    threshold: 1.0,
-    label: 'High',
-    color: 'orange',
-    requiresReport: true,
-    description: 'Above threshold, reporting required',
-  },
-  CRITICAL: {
-    threshold: 5.0,
-    label: 'Critical',
-    color: 'red',
-    requiresReport: true,
-    description: 'Critical level, immediate report required',
-  },
-  MASS: {
-    threshold: 10.0,
-    label: 'Mass Mortality',
-    color: 'red',
-    requiresReport: true,
-    description: 'Emergency - immediate action required',
-  },
-} as const;
+
 
 // ============================================================================
 // Welfare Indicators
 // ============================================================================
 
-export const WELFARE_INDICATORS = {
-  /** Fin erosion scale (0-3, where 3 is severe) */
-  FIN_EROSION: {
-    NONE: 0,
-    MILD: 1,
-    MODERATE: 2,
-    SEVERE: 3,
-  },
 
-  /** Scale loss thresholds (% affected area) */
-  SCALE_LOSS: {
-    NORMAL: 5,      // < 5% is normal
-    ELEVATED: 10,   // 5-10% is elevated
-    HIGH: 20,       // 10-20% is high
-    SEVERE: 20,     // > 20% is severe
-  },
-
-  /** Eye damage - binary */
-  EYE_DAMAGE: {
-    PRESENT: true,
-    ABSENT: false,
-  },
-} as const;
 
 // ============================================================================
 // Disease Classification (Norwegian Lists)
@@ -183,23 +120,7 @@ export const DISEASE_LISTS = {
 } as const;
 
 /** Disease code to list mapping */
-export const DISEASE_TO_LIST: Record<string, 'A' | 'C' | 'F'> = {
-  ISA: 'A',
-  IHN: 'A',
-  VHS: 'A',
-  SVC: 'A',
-  KHV: 'A',
-  PD: 'C',
-  BKD: 'C',
-  IPN: 'C',
-  FURUNCULOSIS: 'C',
-  VER: 'C',
-  CMS: 'F',
-  HSMI: 'F',
-  AGD: 'F',
-  PGI: 'F',
-  WINTER_ULCERS: 'F',
-};
+
 
 // ============================================================================
 // Reporting Deadlines
@@ -263,32 +184,7 @@ export const REPORTING_DEADLINES = {
 // Cleaner Fish Species
 // ============================================================================
 
-export const CLEANER_FISH_SPECIES = {
-  LUMPFISH: {
-    code: 'lumpfish',
-    scientificName: 'Cyclopterus lumpus',
-    norwegianName: 'Rognkjeks',
-    englishName: 'Lumpfish',
-  },
-  BALLAN_WRASSE: {
-    code: 'ballan_wrasse',
-    scientificName: 'Labrus bergylta',
-    norwegianName: 'Berggylt',
-    englishName: 'Ballan wrasse',
-  },
-  CORKWING_WRASSE: {
-    code: 'corkwing_wrasse',
-    scientificName: 'Symphodus melops',
-    norwegianName: 'Grønngylt',
-    englishName: 'Corkwing wrasse',
-  },
-  GOLDSINNY_WRASSE: {
-    code: 'goldsinny_wrasse',
-    scientificName: 'Ctenolabrus rupestris',
-    norwegianName: 'Bergnebb',
-    englishName: 'Goldsinny wrasse',
-  },
-} as const;
+
 
 // ============================================================================
 // Escape Report Categories
@@ -334,41 +230,10 @@ export const ESCAPE_CAUSES = {
 /**
  * Calculate mortality severity based on daily rate
  */
-export function calculateMortalitySeverity(dailyRate: number): keyof typeof MORTALITY_SEVERITY {
-  if (dailyRate >= MORTALITY_THRESHOLDS.DAILY.MASS) return 'MASS';
-  if (dailyRate >= MORTALITY_THRESHOLDS.DAILY.CRITICAL) return 'CRITICAL';
-  if (dailyRate >= MORTALITY_THRESHOLDS.DAILY.HIGH) return 'HIGH';
-  if (dailyRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED) return 'ELEVATED';
-  return 'NORMAL';
-}
 
-/**
- * Calculate sea lice severity based on adult female count per fish
- */
-export function calculateSeaLiceSeverity(adultFemalePerFish: number): keyof typeof SEA_LICE_SEVERITY {
-  if (adultFemalePerFish >= SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER) return 'CRITICAL';
-  if (adultFemalePerFish >= SEA_LICE_THRESHOLDS.ALERT_LEVEL) return 'HIGH';
-  if (adultFemalePerFish >= SEA_LICE_SEVERITY.ELEVATED.min!) return 'ELEVATED';
-  return 'NORMAL';
-}
 
-/**
- * Check if mortality rate requires immediate reporting
- */
-export function requiresImmediateReport(dailyRate: number): boolean {
-  return dailyRate >= MORTALITY_THRESHOLDS.DAILY.CRITICAL;
-}
 
-/**
- * Get disease list classification
- */
-export function getDiseaseList(diseaseCode: string): 'A' | 'C' | 'F' | null {
-  return DISEASE_TO_LIST[diseaseCode.toUpperCase()] || null;
-}
 
-/**
- * Calculate next deadline date for a report type
- */
 export function getNextDeadline(reportType: keyof typeof REPORTING_DEADLINES): Date {
   const config = REPORTING_DEADLINES[reportType];
   const now = new Date();

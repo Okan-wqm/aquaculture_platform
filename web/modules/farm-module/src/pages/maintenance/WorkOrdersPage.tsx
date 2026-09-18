@@ -60,34 +60,34 @@ const priorityColors: Record<WorkOrderPriority, string> = {
 };
 
 const statusLabels: Record<WorkOrderStatus, string> = {
-  DRAFT: 'Taslak',
-  PENDING_APPROVAL: 'Onay Bekliyor',
-  APPROVED: 'Onaylandı',
-  SCHEDULED: 'Planlandı',
-  IN_PROGRESS: 'Devam Ediyor',
-  ON_HOLD: 'Beklemede',
-  COMPLETED: 'Tamamlandı',
-  VERIFIED: 'Doğrulandı',
-  CANCELLED: 'İptal',
+  DRAFT: 'Draft',
+  PENDING_APPROVAL: 'Pending Approval',
+  APPROVED: 'Approved',
+  SCHEDULED: 'Scheduled',
+  IN_PROGRESS: 'In Progress',
+  ON_HOLD: 'On Hold',
+  COMPLETED: 'Completed',
+  VERIFIED: 'Verified',
+  CANCELLED: 'Cancelled',
 };
 
 const priorityLabels: Record<WorkOrderPriority, string> = {
-  LOW: 'Düşük',
-  MEDIUM: 'Orta',
-  HIGH: 'Yüksek',
-  CRITICAL: 'Kritik',
+  LOW: 'Low',
+  MEDIUM: 'Medium',
+  HIGH: 'High',
+  CRITICAL: 'Critical',
 };
 
 const typeLabels: Record<WorkOrderType, string> = {
-  PREVENTIVE: 'Önleyici',
-  CORRECTIVE: 'Düzeltici',
-  EMERGENCY: 'Acil',
-  INSPECTION: 'Muayene',
-  CALIBRATION: 'Kalibrasyon',
-  CLEANING: 'Temizlik',
-  INSTALLATION: 'Kurulum',
-  UPGRADE: 'Yükseltme',
-  ROUTINE: 'Rutin',
+  PREVENTIVE: 'Preventive',
+  CORRECTIVE: 'Corrective',
+  EMERGENCY: 'Emergency',
+  INSPECTION: 'Inspection',
+  CALIBRATION: 'Calibration',
+  CLEANING: 'Cleaning',
+  INSTALLATION: 'Installation',
+  UPGRADE: 'Upgrade',
+  ROUTINE: 'Routine',
 };
 
 // ============================================================================
@@ -148,7 +148,7 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
     case 'DRAFT':
       actions.push({
         action: 'submit',
-        label: 'Onaya Gönder',
+        label: 'Submit for Approval',
         color: 'text-blue-700',
         bgColor: 'bg-blue-50',
         hoverColor: 'hover:bg-blue-100',
@@ -167,12 +167,12 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       });
       actions.push({
         action: 'cancel',
-        label: 'İptal Et',
+        label: 'Cancel',
         color: 'text-red-700',
         bgColor: 'bg-red-50',
         hoverColor: 'hover:bg-red-100',
         needsReason: true,
-        confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
+        confirmMessage: 'Are you sure you want to cancel this work order?',
       });
       break;
 
@@ -180,7 +180,7 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
     case 'SCHEDULED':
       actions.push({
         action: 'start',
-        label: 'Başlat',
+        label: 'Start',
         color: 'text-purple-700',
         bgColor: 'bg-purple-50',
         hoverColor: 'hover:bg-purple-100',
@@ -188,19 +188,19 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       });
       actions.push({
         action: 'cancel',
-        label: 'İptal Et',
+        label: 'Cancel',
         color: 'text-red-700',
         bgColor: 'bg-red-50',
         hoverColor: 'hover:bg-red-100',
         needsReason: true,
-        confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
+        confirmMessage: 'Are you sure you want to cancel this work order?',
       });
       break;
 
     case 'IN_PROGRESS':
       actions.push({
         action: 'complete',
-        label: 'Tamamla',
+        label: 'Complete',
         color: 'text-green-700',
         bgColor: 'bg-green-50',
         hoverColor: 'hover:bg-green-100',
@@ -208,28 +208,28 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       });
       actions.push({
         action: 'hold',
-        label: 'Beklet',
+        label: 'Put On Hold',
         color: 'text-orange-700',
         bgColor: 'bg-orange-50',
         hoverColor: 'hover:bg-orange-100',
         needsReason: true,
-        confirmMessage: 'Bu iş emrini beklemeye almak istediğinizden emin misiniz?',
+        confirmMessage: 'Are you sure you want to put this work order on hold?',
       });
       actions.push({
         action: 'cancel',
-        label: 'İptal Et',
+        label: 'Cancel',
         color: 'text-red-700',
         bgColor: 'bg-red-50',
         hoverColor: 'hover:bg-red-100',
         needsReason: true,
-        confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
+        confirmMessage: 'Are you sure you want to cancel this work order?',
       });
       break;
 
     case 'ON_HOLD':
       actions.push({
         action: 'resume',
-        label: 'Devam Et',
+        label: 'Resume',
         color: 'text-purple-700',
         bgColor: 'bg-purple-50',
         hoverColor: 'hover:bg-purple-100',
@@ -237,19 +237,19 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       });
       actions.push({
         action: 'cancel',
-        label: 'İptal Et',
+        label: 'Cancel',
         color: 'text-red-700',
         bgColor: 'bg-red-50',
         hoverColor: 'hover:bg-red-100',
         needsReason: true,
-        confirmMessage: 'Bu iş emrini iptal etmek istediğinizden emin misiniz?',
+        confirmMessage: 'Are you sure you want to cancel this work order?',
       });
       break;
 
     case 'COMPLETED':
       actions.push({
         action: 'verify',
-        label: 'Doğrula',
+        label: 'Verify',
         color: 'text-teal-700',
         bgColor: 'bg-teal-50',
         hoverColor: 'hover:bg-teal-100',
@@ -267,12 +267,12 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('tr-TR');
+  return new Date(dateStr).toLocaleDateString('en-GB');
 }
 
 function formatDateTime(dateStr?: string): string {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleString('tr-TR');
+  return new Date(dateStr).toLocaleString('en-GB');
 }
 
 // ============================================================================
@@ -388,7 +388,7 @@ export const WorkOrdersPage: React.FC = () => {
           estimatedDurationMinutes: formData.estimatedDurationMinutes,
           notes: formData.notes || undefined,
         });
-        showFeedback('success', 'İş emri güncellendi.');
+        showFeedback('success', 'Work order updated.');
       } else {
         const input: CreateWorkOrderInput = {
           title: formData.title,
@@ -400,28 +400,28 @@ export const WorkOrdersPage: React.FC = () => {
           notes: formData.notes || undefined,
         };
         await createMutation.mutateAsync(input);
-        showFeedback('success', 'İş emri oluşturuldu.');
+        showFeedback('success', 'Work order created.');
       }
       setIsModalOpen(false);
       refetch();
     } catch (err) {
       console.error('Error saving work order:', err);
-      showFeedback('error', 'İş emri kaydedilirken bir hata oluştu.');
+      showFeedback('error', 'An error occurred while saving the work order.');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu iş emrini silmek istediğinizden emin misiniz?')) {
+    if (window.confirm('Are you sure you want to delete this work order?')) {
       try {
         await deleteMutation.mutateAsync(id);
         if (selectedWorkOrder?.id === id) {
           setSelectedWorkOrder(null);
         }
-        showFeedback('success', 'İş emri silindi.');
+        showFeedback('success', 'Work order deleted.');
         refetch();
       } catch (err) {
         console.error('Error deleting work order:', err);
-        showFeedback('error', 'İş emri silinirken bir hata oluştu.');
+        showFeedback('error', 'An error occurred while deleting the work order.');
       }
     }
   };
@@ -464,7 +464,7 @@ export const WorkOrdersPage: React.FC = () => {
         switch (action) {
           case 'submit':
             await submitForApprovalMutation.mutateAsync(workOrder.id);
-            showFeedback('success', 'İş emri onaya gönderildi.');
+            showFeedback('success', 'Work order submitted for approval.');
             break;
 
           case 'approve':
@@ -472,7 +472,7 @@ export const WorkOrdersPage: React.FC = () => {
               id: workOrder.id,
               approvalNotes: notes || undefined,
             });
-            showFeedback('success', 'İş emri onaylandı.');
+            showFeedback('success', 'Work order approved.');
             break;
 
           case 'start':
@@ -480,7 +480,7 @@ export const WorkOrdersPage: React.FC = () => {
               id: workOrder.id,
               notes: notes || undefined,
             });
-            showFeedback('success', 'İş emri başlatıldı.');
+            showFeedback('success', 'Work order started.');
             break;
 
           case 'complete':
@@ -488,7 +488,7 @@ export const WorkOrdersPage: React.FC = () => {
               id: workOrder.id,
               completionNotes: notes || undefined,
             });
-            showFeedback('success', 'İş emri tamamlandı.');
+            showFeedback('success', 'Work order completed.');
             break;
 
           case 'verify':
@@ -497,7 +497,7 @@ export const WorkOrdersPage: React.FC = () => {
               verificationNotes: notes || undefined,
               approved: true,
             });
-            showFeedback('success', 'İş emri doğrulandı.');
+            showFeedback('success', 'Work order verified.');
             break;
 
           case 'cancel':
@@ -505,7 +505,7 @@ export const WorkOrdersPage: React.FC = () => {
               id: workOrder.id,
               reason: reason || undefined,
             });
-            showFeedback('success', 'İş emri iptal edildi.');
+            showFeedback('success', 'Work order cancelled.');
             break;
 
           case 'hold':
@@ -513,12 +513,12 @@ export const WorkOrdersPage: React.FC = () => {
               id: workOrder.id,
               reason: reason || undefined,
             });
-            showFeedback('success', 'İş emri beklemeye alındı.');
+            showFeedback('success', 'Work order put on hold.');
             break;
 
           case 'resume':
             await resumeMutation.mutateAsync(workOrder.id);
-            showFeedback('success', 'İş emri devam ettirildi.');
+            showFeedback('success', 'Work order resumed.');
             break;
         }
 
@@ -534,7 +534,7 @@ export const WorkOrdersPage: React.FC = () => {
         }
       } catch (err) {
         console.error(`Error executing ${action}:`, err);
-        showFeedback('error', `İşlem sırasında bir hata oluştu.`);
+        showFeedback('error', `An error occurred during the operation.`);
       }
 
       setConfirmAction(null);
@@ -574,7 +574,7 @@ export const WorkOrdersPage: React.FC = () => {
   if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
-        <Alert type="error">İş emirleri yüklenirken bir hata oluştu.</Alert>
+        <Alert type="error">An error occurred while loading work orders.</Alert>
       </div>
     );
   }
@@ -587,7 +587,7 @@ export const WorkOrdersPage: React.FC = () => {
           type="warning"
           action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
         >
-          İş emirleri yenilenemedi — son yüklenen veriler gösteriliyor.
+          Could not refresh work orders — showing the last loaded data.
         </Alert>
       )}
 
@@ -601,19 +601,19 @@ export const WorkOrdersPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">İş Emirleri</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Work Orders</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Bakım iş emirlerini görüntüleyin ve yönetin
+            View and manage maintenance work orders
           </p>
         </div>
-        <Button onClick={handleOpenCreate}>Yeni İş Emri</Button>
+        <Button onClick={handleOpenCreate}>New Work Order</Button>
       </div>
 
       {/* Filters */}
       <Card className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
-            placeholder="Ara..."
+            placeholder="Search…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -621,7 +621,7 @@ export const WorkOrdersPage: React.FC = () => {
             value={filter.status?.[0] || ''}
             onChange={(e) => handleFilterChange('status', e.target.value)}
             options={[
-              { value: '', label: 'Tüm Durumlar' },
+              { value: '', label: 'All Statuses' },
               ...Object.entries(statusLabels).map(([value, label]) => ({
                 value,
                 label,
@@ -632,7 +632,7 @@ export const WorkOrdersPage: React.FC = () => {
             value={filter.priority?.[0] || ''}
             onChange={(e) => handleFilterChange('priority', e.target.value)}
             options={[
-              { value: '', label: 'Tüm Öncelikler' },
+              { value: '', label: 'All Priorities' },
               ...Object.entries(priorityLabels).map(([value, label]) => ({
                 value,
                 label,
@@ -656,7 +656,7 @@ export const WorkOrdersPage: React.FC = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Kod / Başlık
+                      Code / Title
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Tip
@@ -665,13 +665,13 @@ export const WorkOrdersPage: React.FC = () => {
                       Durum
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Öncelik
+                      Priority
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Bitiş Tarihi
+                      Due Date
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      İşlemler
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -679,7 +679,7 @@ export const WorkOrdersPage: React.FC = () => {
                   {filteredItems.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        Henüz iş emri bulunmuyor
+                        No work orders yet
                       </td>
                     </tr>
                   ) : (
@@ -721,7 +721,7 @@ export const WorkOrdersPage: React.FC = () => {
                             }}
                             className="text-indigo-600 hover:text-indigo-900 mr-4"
                           >
-                            Düzenle
+                            Edit
                           </button>
                           <button
                             onClick={(e) => {
@@ -745,7 +745,7 @@ export const WorkOrdersPage: React.FC = () => {
           {data && data.totalPages > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
               <div className="text-sm text-gray-500">
-                Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
+                {data.total} records total, Page {data.page} / {data.totalPages}
               </div>
               <div className="flex gap-2">
                 <Button
@@ -754,7 +754,7 @@ export const WorkOrdersPage: React.FC = () => {
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
                 >
-                  Önceki
+                  Previous
                 </Button>
                 <Button
                   variant="secondary"
@@ -762,7 +762,7 @@ export const WorkOrdersPage: React.FC = () => {
                   disabled={!data.hasNextPage}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  Sonraki
+                  Next
                 </Button>
               </div>
             </div>
@@ -807,7 +807,7 @@ export const WorkOrdersPage: React.FC = () => {
                 if (actions.length === 0) return null;
                 return (
                   <div className="space-y-2">
-                    <h3 className="text-sm font-medium text-gray-700">İş Akışı</h3>
+                    <h3 className="text-sm font-medium text-gray-700">Workflow</h3>
                     <div className="flex flex-wrap gap-2">
                       {actions.map((actionDef) => (
                         <button
@@ -835,25 +835,25 @@ export const WorkOrdersPage: React.FC = () => {
               <div className="space-y-3 border-t border-gray-200 pt-4">
                 <DetailRow label="Tip" value={typeLabels[selectedWorkOrder.type]} />
                 {selectedWorkOrder.description && (
-                  <DetailRow label="Açıklama" value={selectedWorkOrder.description} />
+                  <DetailRow label="Description" value={selectedWorkOrder.description} />
                 )}
-                <DetailRow label="Bitiş Tarihi" value={formatDate(selectedWorkOrder.dueDate)} />
+                <DetailRow label="Due Date" value={formatDate(selectedWorkOrder.dueDate)} />
                 <DetailRow
-                  label="Tahmini Süre"
+                  label="Estimated Time"
                   value={
                     selectedWorkOrder.estimatedDurationMinutes
-                      ? `${selectedWorkOrder.estimatedDurationMinutes} dk`
+                      ? `${selectedWorkOrder.estimatedDurationMinutes} min`
                       : '-'
                   }
                 />
                 {selectedWorkOrder.actualStartTime && (
-                  <DetailRow label="Başlangıç Zamanı" value={formatDateTime(selectedWorkOrder.actualStartTime)} />
+                  <DetailRow label="Start Time" value={formatDateTime(selectedWorkOrder.actualStartTime)} />
                 )}
                 {selectedWorkOrder.actualEndTime && (
-                  <DetailRow label="Bitiş Zamanı" value={formatDateTime(selectedWorkOrder.actualEndTime)} />
+                  <DetailRow label="End Time" value={formatDateTime(selectedWorkOrder.actualEndTime)} />
                 )}
                 {selectedWorkOrder.actualDurationMinutes != null && (
-                  <DetailRow label="Gerçek Süre" value={`${selectedWorkOrder.actualDurationMinutes} dk`} />
+                  <DetailRow label="Actual Duration" value={`${selectedWorkOrder.actualDurationMinutes} min`} />
                 )}
                 {selectedWorkOrder.approvedBy && (
                   <DetailRow label="Onaylayan" value={selectedWorkOrder.approvedBy} />
@@ -868,10 +868,10 @@ export const WorkOrdersPage: React.FC = () => {
                   <DetailRow label="Tamamlanma Tarihi" value={formatDateTime(selectedWorkOrder.completedAt)} />
                 )}
                 {selectedWorkOrder.verifiedBy && (
-                  <DetailRow label="Doğrulayan" value={selectedWorkOrder.verifiedBy} />
+                  <DetailRow label="Verified By" value={selectedWorkOrder.verifiedBy} />
                 )}
                 {selectedWorkOrder.verifiedAt && (
-                  <DetailRow label="Doğrulama Tarihi" value={formatDateTime(selectedWorkOrder.verifiedAt)} />
+                  <DetailRow label="Verified At" value={formatDateTime(selectedWorkOrder.verifiedAt)} />
                 )}
                 {selectedWorkOrder.completionNotes && (
                   <DetailRow label="Tamamlama Notu" value={selectedWorkOrder.completionNotes} />
@@ -879,15 +879,15 @@ export const WorkOrdersPage: React.FC = () => {
                 {selectedWorkOrder.notes && (
                   <DetailRow label="Notlar" value={selectedWorkOrder.notes} />
                 )}
-                <DetailRow label="Oluşturulma" value={formatDateTime(selectedWorkOrder.createdAt)} />
-                <DetailRow label="Son Güncelleme" value={formatDateTime(selectedWorkOrder.updatedAt)} />
+                <DetailRow label="Created" value={formatDateTime(selectedWorkOrder.createdAt)} />
+                <DetailRow label="Last Updated" value={formatDateTime(selectedWorkOrder.updatedAt)} />
               </div>
 
               {/* Checklist Progress */}
               {selectedWorkOrder.checklistProgress != null && (
                 <div className="border-t border-gray-200 pt-4">
                   <h3 className="text-sm font-medium text-gray-700 mb-2">
-                    Kontrol Listesi İlerlemesi
+                    Checklist Progress
                   </h3>
                   <div className="w-full bg-gray-200 rounded-full h-2.5">
                     <div
@@ -896,7 +896,7 @@ export const WorkOrdersPage: React.FC = () => {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    %{Math.round(selectedWorkOrder.checklistProgress)} tamamlandı
+                    %{Math.round(selectedWorkOrder.checklistProgress)} completed
                   </p>
                 </div>
               )}
@@ -904,19 +904,19 @@ export const WorkOrdersPage: React.FC = () => {
               {/* Cost Summary */}
               {selectedWorkOrder.costSummary && (
                 <div className="border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Maliyet Özeti</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">Cost Summary</h3>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">İşçilik</span>
-                      <span>{selectedWorkOrder.costSummary.laborCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
+                      <span className="text-gray-500">Labor</span>
+                      <span>{selectedWorkOrder.costSummary.laborCost.toLocaleString('en-GB')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Malzeme</span>
-                      <span>{selectedWorkOrder.costSummary.materialCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
+                      <span>{selectedWorkOrder.costSummary.materialCost.toLocaleString('en-GB')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                     <div className="flex justify-between font-medium border-t pt-1">
                       <span className="text-gray-700">Toplam</span>
-                      <span>{selectedWorkOrder.costSummary.totalCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
+                      <span>{selectedWorkOrder.costSummary.totalCost.toLocaleString('en-GB')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                   </div>
                 </div>
@@ -930,7 +930,7 @@ export const WorkOrdersPage: React.FC = () => {
                     size="sm"
                     onClick={() => handleOpenEdit(selectedWorkOrder)}
                   >
-                    Düzenle
+                    Edit
                   </Button>
                 )}
                 {(selectedWorkOrder.status === 'DRAFT' || selectedWorkOrder.status === 'CANCELLED') && (
@@ -951,19 +951,20 @@ export const WorkOrdersPage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       <Modal
+        className="sd-f2"
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingId ? 'İş Emri Düzenle' : 'Yeni İş Emri'}
+        title={editingId ? 'Edit Work Order' : 'New Work Order'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Başlık"
+            label="Title"
             value={formData.title}
             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
             required
           />
           <Input
-            label="Açıklama"
+            label="Description"
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
@@ -980,7 +981,7 @@ export const WorkOrdersPage: React.FC = () => {
               }))}
             />
             <Select
-              label="Öncelik"
+              label="Priority"
               value={formData.priority}
               onChange={(e) =>
                 setFormData({ ...formData, priority: e.target.value as WorkOrderPriority })
@@ -993,13 +994,13 @@ export const WorkOrdersPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Bitiş Tarihi"
+              label="Due Date"
               type="date"
               value={formData.dueDate}
               onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
             />
             <Input
-              label="Tahmini Süre (dk)"
+              label="Estimated Time (min)"
               type="number"
               value={formData.estimatedDurationMinutes}
               onChange={(e) =>
@@ -1017,7 +1018,7 @@ export const WorkOrdersPage: React.FC = () => {
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
-              İptal
+              Cancel
             </Button>
             <Button
               type="submit"
@@ -1033,6 +1034,7 @@ export const WorkOrdersPage: React.FC = () => {
 
       {/* Confirmation Dialog for Destructive/Reason Actions */}
       <Modal
+        className="sd-f2"
         isOpen={!!confirmAction}
         onClose={() => setConfirmAction(null)}
         title={confirmAction?.actionDef.label || ''}
@@ -1072,7 +1074,7 @@ export const WorkOrdersPage: React.FC = () => {
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder={
                   confirmAction.actionDef.action === 'cancel'
-                    ? 'İptal sebebini belirtin...'
+                    ? 'State the cancellation reason…'
                     : 'Beklemeye alma sebebini belirtin...'
                 }
               />
@@ -1098,7 +1100,7 @@ export const WorkOrdersPage: React.FC = () => {
           {/* Action Buttons */}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setConfirmAction(null)}>
-              Vazgeç
+              Discard
             </Button>
             <Button
               onClick={handleConfirmAction}
@@ -1111,7 +1113,7 @@ export const WorkOrdersPage: React.FC = () => {
                     : ''
               }
             >
-              {isLifecyclePending ? 'İşleniyor...' : confirmAction?.actionDef.label}
+              {isLifecyclePending ? 'Processing…' : confirmAction?.actionDef.label}
             </Button>
           </div>
         </div>

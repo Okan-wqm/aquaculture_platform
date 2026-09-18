@@ -36,16 +36,6 @@ vi.mock('../../../hooks/useSensorTypeDefinitions', () => ({
 import { ChildSensorFormModal } from '../ChildSensorFormModal';
 import { SensorType } from '../../../types/registration.types';
 
-// SENSOR-HIGH-117: dataPath is required in create mode — fill the mandatory
-// fields so these legacy specs submit successfully under the new validation.
-function fillMandatoryFields(): void {
-  const name = screen.getByText('Data Name').parentElement?.querySelector('input');
-  if (!name) throw new Error('Data Name input not found');
-  fireEvent.change(name, { target: { value: 'Probe Parameter' } });
-  const dataPath = screen.getByPlaceholderText('e.g. temperature, sensors.mid');
-  fireEvent.change(dataPath, { target: { value: 'probe_value' } });
-}
-
 function selectCustomType(value: string): HTMLFormElement {
   // The custom-type <select> is the one carrying the "None …" sentinel option.
   const sentinel = screen.getByRole('option', {
@@ -72,7 +62,6 @@ describe('ChildSensorFormModal custom type-definition picker (SENSOR-MEDIUM-071)
     render(<ChildSensorFormModal isOpen onClose={vi.fn()} onSave={onSave} />);
 
     const form = selectCustomType('td-ph');
-    fillMandatoryFields();
     fireEvent.submit(form);
 
     expect(onSave).toHaveBeenCalledTimes(1);
@@ -87,7 +76,6 @@ describe('ChildSensorFormModal custom type-definition picker (SENSOR-MEDIUM-071)
     render(<ChildSensorFormModal isOpen onClose={vi.fn()} onSave={onSave} />);
 
     const form = selectCustomType('td-trout');
-    fillMandatoryFields();
     fireEvent.submit(form);
 
     const saved = onSave.mock.calls[0][0];

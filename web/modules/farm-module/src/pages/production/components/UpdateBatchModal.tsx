@@ -88,34 +88,34 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
 
     const trimmedName = name.trim();
     if (trimmedName.length > NAME_MAX) {
-      errs.push(`İsim ${NAME_MAX} karakteri aşamaz.`);
+      errs.push(`Name cannot exceed ${NAME_MAX} characters.`);
     }
 
     if (expectedHarvestDate) {
       const stocked = new Date(batch.stockedAt);
       const target = new Date(expectedHarvestDate);
       if (Number.isNaN(target.getTime())) {
-        errs.push('Hasat tarihi geçerli bir tarih olmalı.');
+        errs.push('Harvest date must be a valid date.');
       } else if (target < stocked) {
-        errs.push('Hasat tarihi stoklama tarihinden önce olamaz.');
+        errs.push('Harvest date cannot be before the stocking date.');
       }
     }
 
     if (targetFCRParsed !== null) {
       if (Number.isNaN(targetFCRParsed)) {
-        errs.push('Hedef FCR sayısal bir değer olmalı.');
+        errs.push('Target FCR must be a numeric value.');
       } else if (
         targetFCRParsed < TARGET_FCR_MIN ||
         targetFCRParsed > TARGET_FCR_MAX
       ) {
         errs.push(
-          `Hedef FCR ${TARGET_FCR_MIN.toFixed(1)} ile ${TARGET_FCR_MAX.toFixed(1)} arasında olmalı.`,
+          `Target FCR must be between ${TARGET_FCR_MIN.toFixed(1)} and ${TARGET_FCR_MAX.toFixed(1)}.`,
         );
       }
     }
 
     if (notes.length > NOTES_MAX) {
-      errs.push(`Notlar ${NOTES_MAX} karakteri aşamaz.`);
+      errs.push(`Notes cannot exceed ${NOTES_MAX} characters.`);
     }
 
     return errs;
@@ -180,15 +180,15 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
         ...(notes !== currentNotes && { notes }),
       });
       toast({
-        title: 'Parti güncellendi',
-        description: `${batch.batchNumber} bilgileri güncellendi.`,
+        title: 'Batch updated',
+        description: `${batch.batchNumber} has been updated.`,
         variant: 'success',
       });
       onSuccess?.();
       onClose();
     } catch (err) {
       toast({
-        title: 'Güncelleme başarısız',
+        title: 'Update failed',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -199,12 +199,12 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Parti Bilgilerini Düzenle"
+      title="Edit Batch Details"
       size="md"
     >
       <div className="space-y-4">
         <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Parti</p>
+          <p className="text-xs text-gray-500">Batch</p>
           <p className="font-medium text-gray-900">{batch.batchNumber}</p>
         </div>
 
@@ -213,7 +213,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             htmlFor="update-batch-name"
             className="block text-sm font-medium text-gray-700"
           >
-            İsim
+            Name
           </label>
           <input
             id="update-batch-name"
@@ -222,7 +222,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             onChange={(e) => setName(e.target.value)}
             maxLength={NAME_MAX}
             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            placeholder="(opsiyonel) parti için anlamlı bir isim"
+            placeholder="(optional) a meaningful name for the batch"
           />
         </div>
 
@@ -251,7 +251,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             htmlFor="update-batch-fcr"
             className="block text-sm font-medium text-gray-700"
           >
-            Hedef FCR
+            Target FCR
           </label>
           <input
             id="update-batch-fcr"
@@ -265,7 +265,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             placeholder={`${TARGET_FCR_MIN.toFixed(1)} – ${TARGET_FCR_MAX.toFixed(1)}`}
           />
           <p className="mt-1 text-xs text-gray-500">
-            Mevcut: hedef {batch.fcr.target.toFixed(2)} / gerçek{' '}
+            Current: target {batch.fcr.target.toFixed(2)} / actual{' '}
             {(batch.fcr.actual ?? 0).toFixed(2)}
           </p>
         </div>
@@ -275,7 +275,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             htmlFor="update-batch-notes"
             className="block text-sm font-medium text-gray-700"
           >
-            Notlar
+            Notes
           </label>
           <textarea
             id="update-batch-notes"
@@ -300,7 +300,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
 
         {!hasChanges && errors.length === 0 && (
           <p className="text-xs text-gray-500 italic">
-            Hiçbir alan değişmedi — kaydetmek için bir alanı düzenleyin.
+            No fields changed — edit a field to save.
           </p>
         )}
 
@@ -311,7 +311,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             onClick={onClose}
             disabled={updateBatch.isPending}
           >
-            İptal
+            Cancel
           </Button>
           <Button
             type="button"
@@ -319,7 +319,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             onClick={handleSubmit}
             disabled={!canSubmit}
           >
-            {updateBatch.isPending ? 'Kaydediliyor…' : 'Kaydet'}
+            {updateBatch.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </div>

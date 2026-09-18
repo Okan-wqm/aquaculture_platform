@@ -17,18 +17,13 @@
  * @returns error — query error, if any
  */
 
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
-
 import { useAuth } from './useAuth';
 
-import type {
-  ChannelEligibleUsersQuery,
-  ChannelEligibleUsersQueryVariables,
-} from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { MessageUser } from '@/types/messaging';
 import { getUserDisplayName } from '@/utils/messaging-helpers';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -40,7 +35,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
  * federated auth `User`; isOnline comes from messaging presence. `email` is
  * deliberately NOT requested (display-only — not exposed to channel members).
  */
-const CHANNEL_ELIGIBLE_USERS_QUERY: TypedDocumentNode<ChannelEligibleUsersQuery, ChannelEligibleUsersQueryVariables> = gql`
+const CHANNEL_ELIGIBLE_USERS_QUERY = gql`
   query ChannelEligibleUsers {
     channelEligibleUsers {
       id
@@ -65,7 +60,9 @@ export interface TenantUserItem {
  * Fetch tenant users and normalize to UI-friendly shape.
  */
 async function fetchTenantUsers(): Promise<TenantUserItem[]> {
-  const result = await graphqlRequest(CHANNEL_ELIGIBLE_USERS_QUERY);
+  const result = await graphqlRequest<{
+    channelEligibleUsers: MessageUser[];
+  }>(CHANNEL_ELIGIBLE_USERS_QUERY);
 
   if (!result.channelEligibleUsers) {
     throw new Error('Failed to fetch eligible users');
@@ -77,8 +74,8 @@ async function fetchTenantUsers(): Promise<TenantUserItem[]> {
     // email is display-only (never exposed to channel members) — not requested;
     // the picker renders name + avatar + presence.
     email: '',
-    avatarUrl: u.profileImageUrl,
-    isOnline: u.isOnline,
+    avatarUrl: u.profileImageUrl ?? u.avatarUrl ?? null,
+    isOnline: u.isOnline ?? false,
   }));
 }
 

@@ -934,7 +934,7 @@ export const ProtocolBuilderTab: React.FC = () => {
   const { t } = useI18n();
   const [modalProtocol, setModalProtocol] = useState<FeedingProtocolV2 | 'new' | null>(null);
 
-  const { data, isLoading, isError } = useFeedingProtocolsV2();
+  const { data, isLoading, isError, error } = useFeedingProtocolsV2();
   const archiveMutation = useArchiveFeedingProtocolV2();
 
   const canCreate = useCanMutate('createFeedingProtocolV2');
@@ -971,8 +971,11 @@ export const ProtocolBuilderTab: React.FC = () => {
         </div>
       )}
       {isError && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+        <div className="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700" role="alert">
           {t('feedingV2.loadError')}
+          {/* Surface the underlying message — schema/backend failures were
+              previously indistinguishable from "no protocols". */}
+          {error ? `: ${(error as Error).message}` : ''}
         </div>
       )}
 

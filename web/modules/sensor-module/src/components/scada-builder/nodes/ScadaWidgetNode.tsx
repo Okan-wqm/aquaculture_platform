@@ -15,7 +15,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import type { NodeProps } from '@xyflow/react';
-import { Handle, Position, type Node } from '@xyflow/react';
+import { Handle, Position, useReactFlow, type Node } from '@xyflow/react';
 import { Lock } from 'lucide-react';
 import { WidgetRenderer } from '../WidgetRenderer';
 import { WidgetTooltip } from '../WidgetTooltip';
@@ -33,6 +33,7 @@ import {
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS, EQUIPMENT_VIEWBOX } from '../equipment-symbols/types';
 import { useScadaPackageStore } from '../../../store/scada';
+import { groupColorFor } from '../groupColor';
 import type { SimTagValue } from '../../../store/scada/types';
 // FIX: useScadaRuntime throw eder — doğrudan context kullanarak Rules of Hooks ihlalini önlüyoruz
 // FIX: useScadaRuntime throws — use context directly to prevent Rules of Hooks violation
@@ -284,12 +285,21 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
   }, [data.width, data.height, isEquipment, svgAspectRatio]);
 
   /* ---------- Resize logic ---------------------------------------- */
+  /**
+   * Zoom is captured ONCE per resize gesture (at pointer-down) via the
+   * ReactFlow instance — imperative read, no per-node transform
+   * subscription. Pointer deltas are divided by this zoom so resize speed
+   * matches the cursor at any zoom level.
+   */
+  const rfInstance = useReactFlow();
+
   const dragRef = useRef<{
     dir: HandleDir;
     startX: number;
     startY: number;
     startW: number;
     startH: number;
+    zoom: number;
   } | null>(null);
 
   /* ---------- Tooltip hover state ------------------------------------ */
@@ -375,6 +385,8 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
         startY: e.clientY,
         startW: sizeRef.current.width,
         startH: sizeRef.current.height,
+        // xyflow v12: getZoom() is the imperative zoom accessor
+        zoom: Math.max(rfInstance.getZoom(), 0.01),
       };
       // Hide tooltip immediately when resize starts
       setTooltipVisible(false);
@@ -384,15 +396,17 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
         hoverTimerRef.current = null;
       }
     },
-    [],
+    [rfInstance],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragRef.current) return;
-      const { dir, startX, startY, startW, startH } = dragRef.current;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
+      const { dir, startX, startY, startW, startH, zoom } = dragRef.current;
+      // Pointer deltas are screen-space — convert to flow space via the
+      // zoom captured at gesture start
+      const dx = (e.clientX - startX) / zoom;
+      const dy = (e.clientY - startY) / zoom;
 
       let w = startW;
       let h = startH;
@@ -408,10 +422,25 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
 
   const onPointerUp = useCallback(() => {
     if (dragRef.current) {
+      const { dir, startW, startH } = dragRef.current;
       dragRef.current = null;
-      // Notify parent of final size
-      if (data.onResize) {
-        data.onResize(data.widgetType, sizeRef.current.width, sizeRef.current.height);
+      const width = sizeRef.current.width;
+      const height = sizeRef.current.height;
+
+      // North/west drags move the ORIGIN (the SE corner stays put): report
+      // the origin shift so the store can update col/row, not just w/h.
+      const originDelta = {
+        x: dir.includes('w') ? -(width - startW) : 0,
+        y: dir.includes('n') ? -(height - startH) : 0,
+      };
+
+      const commit = data.onResizeCommit as
+        | ((width: number, height: number, originDelta: { x: number; y: number }) => void)
+        | undefined;
+      if (commit) {
+        commit(width, height, originDelta);
+      } else if (data.onResize) {
+        data.onResize(data.widgetType, width, height);
       }
     }
   }, [data]);
@@ -430,16 +459,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
    * so each group gets a distinctive color. Only shown when the widget
    * is part of a group AND is either selected or highlighted.
    */
-  const groupColor = useMemo(() => {
-    const gid = data.groupId;
-    if (!gid) return undefined;
-    // Simple hash: sum char codes modulo 360 for hue
-    let hash = 0;
-    for (let i = 0; i < gid.length; i++) {
-      hash = (hash + gid.charCodeAt(i) * 37) % 360;
-    }
-    return `hsl(${hash}, 70%, 55%)`;
-  }, [data.groupId]);
+  const groupColor = useMemo(() => groupColorFor(data.groupId), [data.groupId]);
 
   const showGroupIndicator = !!data.groupId && (selected || isHighlighted);
 
@@ -586,7 +606,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
             padding: 2,
             lineHeight: 0,
           }}
-          title="Kilitli"
+          title="Locked"
         >
           <Lock style={{ width: 12, height: 12, color: '#ffffff' }} />
         </div>

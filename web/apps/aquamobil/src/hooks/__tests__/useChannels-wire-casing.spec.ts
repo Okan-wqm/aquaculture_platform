@@ -47,9 +47,8 @@ vi.mock('../useAuth', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  useQuery: <T,>(config: QueryConfig<T>) => {
-    capturedQueryPromise =
-      config.enabled === false ? Promise.resolve(undefined) : config.queryFn();
+  useQuery: <T>(config: QueryConfig<T>) => {
+    capturedQueryPromise = config.enabled === false ? Promise.resolve(undefined) : config.queryFn();
     return { data: undefined, error: null, isLoading: true, refetch: vi.fn() };
   },
 }));

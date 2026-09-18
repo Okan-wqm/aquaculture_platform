@@ -20,14 +20,14 @@ const movementTypeBadge: Record<string, string> = {
 };
 
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
-  FEED: { label: 'Feed', color: '#F59E0B', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  feed: { label: 'Feed', color: '#F59E0B', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  CHEMICAL: { label: 'Chemical', color: '#3B82F6', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  chemical: { label: 'Chemical', color: '#3B82F6', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  CONSUMABLE: { label: 'Consumable', color: '#10B981', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  consumable: { label: 'Consumable', color: '#10B981', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  HEALTHCARE: { label: 'Healthcare', color: '#8B5CF6', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
-  healthcare: { label: 'Healthcare', color: '#8B5CF6', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
+  FEED: { label: 'Feed', color: '#c89a3c', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
+  feed: { label: 'Feed', color: '#c89a3c', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
+  CHEMICAL: { label: 'Chemical', color: '#146f84', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
+  chemical: { label: 'Chemical', color: '#146f84', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
+  CONSUMABLE: { label: 'Consumable', color: '#4abba2', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
+  consumable: { label: 'Consumable', color: '#4abba2', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
+  HEALTHCARE: { label: 'Healthcare', color: '#6d5ac8', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
+  healthcare: { label: 'Healthcare', color: '#6d5ac8', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
 };
 
 export const OverviewTab: React.FC = () => {
@@ -75,7 +75,7 @@ export const OverviewTab: React.FC = () => {
       .map(cat => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: cat.totalQuantity,
-        color: CATEGORY_CONFIG[cat.category]?.color || '#6B7280',
+        color: CATEGORY_CONFIG[cat.category]?.color || '#5c7783',
       }));
   }, [overview?.categoryTotals, visibleCategories]);
 
@@ -87,7 +87,7 @@ export const OverviewTab: React.FC = () => {
       .map(cat => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: parseMoney(cat.totalValueDecimal),
-        color: CATEGORY_CONFIG[cat.category]?.color || '#6B7280',
+        color: CATEGORY_CONFIG[cat.category]?.color || '#5c7783',
       }));
   }, [overview?.categoryTotals, visibleCategories]);
 
@@ -100,7 +100,7 @@ export const OverviewTab: React.FC = () => {
     return filtered.map(loc => ({
       label: loc.locationName,
       value: loc.usedCapacity,
-      color: loc.fillPercentage > 90 ? '#EF4444' : loc.fillPercentage > 70 ? '#F59E0B' : '#3B82F6',
+      color: loc.fillPercentage > 90 ? '#b04a28' : loc.fillPercentage > 70 ? '#c89a3c' : '#146f84',
     }));
   }, [overview?.locationFillRates, selectedLocationIds]);
 
@@ -219,7 +219,7 @@ export const OverviewTab: React.FC = () => {
                 />
                 <span
                   className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: visibleCategories.has(cat) ? CATEGORY_CONFIG[cat].color : '#D1D5DB' }}
+                  style={{ backgroundColor: visibleCategories.has(cat) ? CATEGORY_CONFIG[cat].color : 'rgba(10,31,43,.15)' }}
                 />
                 {CATEGORY_CONFIG[cat].label}
               </label>
@@ -334,7 +334,7 @@ export const OverviewTab: React.FC = () => {
                       <td className="px-6 py-3 text-sm text-gray-500 font-mono">{item.lotNumber || '-'}</td>
                       <td className="px-6 py-3 text-sm font-medium text-gray-900">{item.quantity} {item.unit}</td>
                       <td className="px-6 py-3 text-sm text-gray-500">
-                        {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-'}
+                        {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('en-GB') : '-'}
                       </td>
                     </tr>
                   ))}
@@ -403,7 +403,7 @@ export const OverviewTab: React.FC = () => {
                       {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(m.performedAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 </div>

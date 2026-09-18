@@ -56,6 +56,13 @@ const aquamobilDocuments = [
   '!web/apps/aquamobil/src/generated/**',
   '!web/apps/aquamobil/src/**/__tests__/**',
   '!web/apps/aquamobil/src/**/*.spec.{ts,tsx}',
+  // VFD feeder operations (vfd-operations.ts) target the aquamobil-v4 BACKEND
+  // schema (feederSetup/driveBinding/drivenUnit) which is not in this PR's
+  // subgraph set. They are consumed only by the drives surfaces, which render
+  // graceful empty states until that backend ships; excluding them here keeps
+  // this PR's codegen honest about the schema it actually serves. They return
+  // with the v4 backend change.
+  '!web/apps/aquamobil/src/graphql/vfd-operations.ts',
 ];
 
 const config: CodegenConfig = {

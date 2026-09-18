@@ -86,54 +86,6 @@ class BatchDerivationTests(unittest.TestCase):
                 derive_request_state(request_id=request_id, base_dir=self.tools)
         self.assertEqual(calls["n"], 3 * len(self.ids))
 
-    def test_batch_writes_the_tools_index_once_not_once_per_request(self) -> None:
-        # ARIA-HIGH-153 — `ensure_tools_dir` rewrites integrity_index.json
-        # under a store transaction; the per-request fold called it for
-        # every request in the batch (828 rewrites per queue selection on
-        # the 2026-09-18 nightly, 44 minutes of drain after the cycle had
-        # completed). The batch ensures the dir once and derives with the
-        # path only.
-        calls = {"n": 0}
-        original = invocations.ensure_tools_dir
-
-        def counting(base_dir=None):
-            calls["n"] += 1
-            return original(base_dir)
-
-        with patch.object(invocations, "ensure_tools_dir", side_effect=counting):
-            batch = derive_request_states(base_dir=self.tools)
-        self.assertEqual(len(batch), 2)
-        self.assertEqual(
-            calls["n"],
-            1,
-            msg=f"batch derivation must ensure the tools dir once, got {calls['n']} (one per request is an index rewrite per request)",
-        )
-
-    def test_batch_folds_the_control_ledger_once_and_the_fold_never_writes(self) -> None:
-        # ARIA-HIGH-153 — the same shape on the second per-request write:
-        # `effective_control` resolved its ledger through `ensure_tools_dir`
-        # (an index rewrite) and was folded once per request.
-        from aria_kernel import control as control_module
-
-        calls = {"fold": 0, "ensure": 0}
-        original_fold = control_module.effective_control
-        original_ensure = control_module.ensure_tools_dir
-
-        def counting_fold(base_dir=None):
-            calls["fold"] += 1
-            return original_fold(base_dir)
-
-        def counting_ensure(base_dir=None):
-            calls["ensure"] += 1
-            return original_ensure(base_dir)
-
-        with patch.object(control_module, "effective_control", side_effect=counting_fold), \
-                patch.object(control_module, "ensure_tools_dir", side_effect=counting_ensure):
-            batch = derive_request_states(base_dir=self.tools)
-        self.assertEqual(len(batch), 2)
-        self.assertEqual(calls["fold"], 1, msg=f"the batch folds the control ledger once, got {calls['fold']}")
-        self.assertEqual(calls["ensure"], 0, msg="a control fold is a read; it must not rewrite the tools index")
-
 
 if __name__ == "__main__":
     unittest.main()

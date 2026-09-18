@@ -2,6 +2,7 @@ import { Bell } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { IconButton } from '@/components/ui';
 import { useNotifications } from '@/hooks/useNotifications';
 
 export function NotificationBell(): ReactElement {
@@ -18,23 +19,29 @@ export function NotificationBell(): ReactElement {
       : 'Notifications';
 
   return (
-    <button
+    <IconButton
       onClick={() => navigate('/notifications')}
       aria-label={ariaLabel}
-      className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors relative"
+      // IconButton bakes in the 44px floor; the classes are ALSO named here
+      // because src/__tests__/field-ergonomics.invariant.spec.ts reads this
+      // file's text for them (MOB-MEDIUM-009). Keep both.
+      className="min-h-touch min-w-touch bg-surface-2 rounded-xl relative"
     >
-      <Bell size={18} />
+      <Bell size={18} className="text-ink-2" />
       {isCountError ? (
-        <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
+        // FE-LOW-051: warn, not crit — the count is unknown, which is not the
+        // same claim as "there are alarms". Deliberately quieter than the
+        // count badge below so the two states stay tellable apart.
+        <span className="absolute -top-1 -right-1 bg-warn-dim border border-warn text-warn text-meta font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1">
           !
         </span>
       ) : (
         unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
+          <span className="absolute -top-1 -right-1 bg-crit text-white text-meta font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 tabular-nums">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )
       )}
-    </button>
+    </IconButton>
   );
 }

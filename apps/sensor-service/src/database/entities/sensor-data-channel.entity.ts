@@ -390,32 +390,25 @@ export class SensorDataChannel {
 
   /**
    * Check if a value is within physical bounds
-   *
-   * Bounds are nullable columns: TypeORM hydrates missing bounds as `null`,
-   * not `undefined`. Comparing against a `null` bound coerces it to 0, which
-   * made every positive value "Above physical maximum" when bounds were unset
-   * (and every reading BAD). `!= null` treats null and undefined as unbounded,
-   * matching isWithinRange above.
    */
   isWithinPhysicalBounds(value: number): boolean {
-    if (this.physicalMin != null && value < Number(this.physicalMin)) {
+    if (this.physicalMin !== undefined && value < this.physicalMin) {
       return false;
     }
-    if (this.physicalMax != null && value > Number(this.physicalMax)) {
+    if (this.physicalMax !== undefined && value > this.physicalMax) {
       return false;
     }
     return true;
   }
 
   /**
-   * Check if a value is within operational bounds (see isWithinPhysicalBounds
-   * for the null-handling rationale)
+   * Check if a value is within operational bounds
    */
   isWithinOperationalBounds(value: number): boolean {
-    if (this.operationalMin != null && value < Number(this.operationalMin)) {
+    if (this.operationalMin !== undefined && value < this.operationalMin) {
       return false;
     }
-    if (this.operationalMax != null && value > Number(this.operationalMax)) {
+    if (this.operationalMax !== undefined && value > this.operationalMax) {
       return false;
     }
     return true;

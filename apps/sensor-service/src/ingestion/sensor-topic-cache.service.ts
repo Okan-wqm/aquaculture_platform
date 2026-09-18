@@ -1,8 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { listActiveTenantSchemaIdentities, runInTenantRead } from '@aquaculture/backend-common/database';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { DataSource } from 'typeorm';
+
+import { Sensor } from '../database/entities/sensor.entity';
+
+/**
+ * Quote identifier for safe SQL interpolation
+ * Escapes double quotes and wraps in double quotes
+ */
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
 
 /**
  * Cached sensor data structure for topic lookups
@@ -220,37 +230,50 @@ export class SensorTopicCacheService implements OnModuleInit {
       const startTime = Date.now();
       let sensorCount = 0;
 
-      // SENSOR-HIGH-119: per-tenant reads (see findSensorInDatabase) — a bare
-      // cross-schema scan is blinded by FORCE RLS on the deny-by-default pool.
-      const identities = await listActiveTenantSchemaIdentities(this.dataSource);
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const identity of identities) {
+      for (const schema_name of tenantSchemas) {
         try {
-          // Get all sensors with MQTT topics. The read runs with the tenant
-          // schema on search_path; protocol_configuration is aliased to
-          // camelCase to match the row mapping below.
-          const sensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
-            qr.query(`
-            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
-            FROM sensors
+          // Check if sensors table exists
+          const tableCheck = await this.dataSource.query(`
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = $1 AND table_name = 'sensors'
+          `, [schema_name]);
+
+          if (tableCheck.length === 0) continue;
+
+          // Get all sensors with MQTT topics
+          // Schema name is validated above, safe to interpolate with quoting
+          const sensors: Sensor[] = await this.dataSource.query(`
+            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration, metadata
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' IS NOT NULL
-          `),
-          );
+          `);
 
           for (const sensor of sensors) {
             const topic = (sensor.protocolConfiguration as Record<string, unknown>)?.['topic'] as string;
             if (topic) {
-              const cachedInfo = this.toCachedSensorInfo(sensor, identity.schemaName);
+              const cachedInfo: CachedSensorInfo = {
+                id: sensor.id,
+                name: sensor.name,
+                type: sensor.type,
+                tenantId: sensor.tenantId,
+                schemaName: schema_name,
+                protocolConfiguration: sensor.protocolConfiguration || {},
+                metadata: sensor.metadata,
+              };
+
               await this.cacheResult(this.normalizeTopic(topic), cachedInfo);
               sensorCount++;
             }
           }
         } catch (schemaError) {
-          this.logger.debug(`Error warming cache for schema ${identity.schemaName}: ${(schemaError as Error).message}`);
+          this.logger.debug(`Error warming cache for schema ${schema_name}: ${(schemaError as Error).message}`);
         }
       }
+
       const duration = Date.now() - startTime;
-      this.logger.log(`Cache warmed up: ${sensorCount} sensors from ${identities.length} tenants in ${duration}ms`);
+      this.logger.log(`Cache warmed up: ${sensorCount} sensors from ${tenantSchemas.length} schemas in ${duration}ms`);
     } catch (error) {
       this.logger.error(`Error warming up cache: ${(error as Error).message}`);
     }
@@ -262,57 +285,72 @@ export class SensorTopicCacheService implements OnModuleInit {
    */
   private async findSensorInDatabase(topic: string): Promise<CachedSensorInfo | null> {
     try {
-      // SENSOR-HIGH-119: tenant schemas carry FORCE RLS and the pooled
-      // connections default to deny (bypass 'off' outside a request
-      // context), so a plain cross-schema SELECT sees zero rows. Enumerate
-      // active tenants from the least-privilege platform mapping and read
-      // each schema inside runInTenantRead, which pins the tenant GUC for
-      // the transaction — no bypass, policy enforced per tenant.
-      const identities = await listActiveTenantSchemaIdentities(this.dataSource);
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const identity of identities) {
+      for (const schema_name of tenantSchemas) {
         try {
-          // Try exact topic match. The read runs with the tenant schema on
-          // search_path, so the table name stays unqualified.
-          const sensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
-            qr.query(
-              `
-            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
-            FROM sensors
+          // Check if sensors table exists
+          const tableCheck = await this.dataSource.query(`
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = $1 AND table_name = 'sensors'
+          `, [schema_name]);
+
+          if (tableCheck.length === 0) continue;
+
+          // Try exact topic match
+          // Schema name is validated above, safe to interpolate with quoting
+          const sensors: Array<{
+            id: string;
+            name: string;
+            type: string;
+            tenantId: string;
+            protocol_configuration: Record<string, unknown>;
+            metadata: Record<string, unknown>;
+          }> = await this.dataSource.query(`
+            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration, metadata
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' = $1
             LIMIT 1
-          `,
-              [topic],
-            ),
-          );
+          `, [topic]);
 
           const sensor = sensors[0];
           if (sensor) {
-            return this.toCachedSensorInfo(sensor, identity.schemaName);
+            return {
+              id: sensor.id,
+              name: sensor.name,
+              type: sensor.type,
+              tenantId: sensor.tenantId,
+              schemaName: schema_name,
+              protocolConfiguration: sensor.protocol_configuration || {},
+              metadata: sensor.metadata,
+            };
           }
 
           // Try wildcard match
-          const wildcardSensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
-            qr.query(
-              `
-            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
-            FROM sensors
+          // Schema name is validated above, safe to interpolate with quoting
+          const wildcardSensors = await this.dataSource.query(`
+            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration, metadata
+            FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' LIKE '%#%'
                OR protocol_configuration->>'topic' LIKE '%+%'
-          `,
-            ),
-          );
+          `);
 
-          for (const wildcardSensor of wildcardSensors) {
-            const configTopic = wildcardSensor.protocolConfiguration?.topic;
+          for (const sensor of wildcardSensors) {
+            const configTopic = sensor.protocol_configuration?.topic as string;
             if (configTopic && this.topicMatches(configTopic, topic)) {
-              return this.toCachedSensorInfo(wildcardSensor, identity.schemaName);
+              return {
+                id: sensor.id,
+                name: sensor.name,
+                type: sensor.type,
+                tenantId: sensor.tenantId,
+                schemaName: schema_name,
+                protocolConfiguration: sensor.protocol_configuration || {},
+                metadata: sensor.metadata,
+              };
             }
           }
         } catch (schemaError) {
-          this.logger.debug(
-            `Error searching schema ${identity.schemaName}: ${(schemaError as Error).message}`,
-          );
+          this.logger.debug(`Error searching schema ${schema_name}: ${(schemaError as Error).message}`);
         }
       }
 
@@ -321,31 +359,6 @@ export class SensorTopicCacheService implements OnModuleInit {
       this.logger.error(`Database lookup error: ${(error as Error).message}`);
       return null;
     }
-  }
-
-  /**
-   * Map a raw pg row (aliases as selected above) to the cached shape.
-   */
-  private toCachedSensorInfo(
-    sensor: {
-      id: string;
-      name: string;
-      type: string;
-      tenantId: string;
-      protocolConfiguration: Record<string, unknown>;
-      metadata?: Record<string, unknown>;
-    },
-    schemaName: string,
-  ): CachedSensorInfo {
-    return {
-      id: sensor.id,
-      name: sensor.name,
-      type: sensor.type,
-      tenantId: sensor.tenantId,
-      schemaName,
-      protocolConfiguration: sensor.protocolConfiguration || {},
-      metadata: sensor.metadata,
-    };
   }
 
   /**

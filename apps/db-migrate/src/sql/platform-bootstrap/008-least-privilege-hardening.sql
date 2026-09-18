@@ -53,10 +53,10 @@ BEGIN
         {"schema_name":"admin","owner_role":"admin_schema_owner","runtime_role":"admin_service","provisioner_role":null},
         {"schema_name":"observability","owner_role":"observability_schema_owner","runtime_role":"observability_service","provisioner_role":null},
         {"schema_name":"event_store","owner_role":"event_store_schema_owner","runtime_role":"event_store_service","provisioner_role":null},
-        {"schema_name":"config","owner_role":"config_schema_owner","runtime_role":"config_service","provisioner_role":null,"runtime_owned_tables":["configurations","configuration_history"]},
+        {"schema_name":"config","owner_role":"config_schema_owner","runtime_role":"config_service","provisioner_role":null},
         {"schema_name":"gateway","owner_role":"gateway_schema_owner","runtime_role":"gateway_service","provisioner_role":null}
       ]'::jsonb
-    ) AS x(schema_name text, owner_role text, runtime_role text, provisioner_role text, runtime_owned_tables jsonb)
+    ) AS x(schema_name text, owner_role text, runtime_role text, provisioner_role text)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = spec.owner_role) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN', spec.owner_role);
@@ -91,36 +91,16 @@ BEGIN
     -- re-running the stage performs zero ALTERs on an aligned database, so
     -- a least-privilege db_migrate run cannot trip over objects it could
     -- not re-own anyway).
-    -- Runtime-owned RLS tables stay with the runtime role: the config schema's
-    -- configurations/configuration_history must be owned by config_service so
-    -- its boot-time RLS install can run (the invariant asserted by
-    -- RestoreConfigSchemaOwnerBoundary1807400000000's postCondition). On a
-    -- pre-existing database this stage used to re-own them to the schema
-    -- owner, which the migration then rolled the whole deploy back over —
-    -- CI never saw it because bootstrap-from-scratch runs before any table
-    -- exists. Every other table keeps converging to the schema owner.
     FOR relation IN
-      SELECT c.oid::regclass::text AS qualified_name,
-             CASE
-               WHEN spec.runtime_owned_tables IS NOT NULL
-                AND c.relname = ANY (SELECT jsonb_array_elements_text(spec.runtime_owned_tables))
-               THEN spec.runtime_role
-               ELSE spec.owner_role
-             END AS target_role
+      SELECT c.oid::regclass::text AS qualified_name
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
       JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
       WHERE n.nspname = spec.schema_name
         AND c.relkind IN ('r', 'p', 'f')
-        AND r.rolname IS DISTINCT FROM
-            CASE
-              WHEN spec.runtime_owned_tables IS NOT NULL
-               AND c.relname = ANY (SELECT jsonb_array_elements_text(spec.runtime_owned_tables))
-              THEN spec.runtime_role
-              ELSE spec.owner_role
-            END
+        AND r.rolname IS DISTINCT FROM spec.owner_role
     LOOP
-      EXECUTE format('ALTER TABLE %s OWNER TO %I', relation.qualified_name, relation.target_role);
+      EXECUTE format('ALTER TABLE %s OWNER TO %I', relation.qualified_name, spec.owner_role);
     END LOOP;
 
     FOR relation IN

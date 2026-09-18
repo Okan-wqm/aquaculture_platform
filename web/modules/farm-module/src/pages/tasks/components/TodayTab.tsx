@@ -56,10 +56,10 @@ export const TodayTab: React.FC<TodayTabProps> = ({
 
   const statCards = [
     // Tailwind v4 removed `bg-opacity-*`; bake the 10% alpha into the color token via slash syntax.
-    { label: 'Bugün Toplam', value: stats.totalToday, color: 'bg-blue-500/10', icon: '📋' },
-    { label: 'Tamamlanan', value: stats.completedToday, color: 'bg-green-500/10', icon: '✅' },
-    { label: 'Gecikmiş', value: stats.overdueCount, color: 'bg-red-500/10', icon: '⚠️' },
-    { label: 'Yaklaşan', value: stats.upcomingCount, color: 'bg-yellow-500/10', icon: '⏰' },
+    { label: 'Today Total', value: stats.totalToday, color: 'bg-blue-500/10', icon: '📋' },
+    { label: 'Completed', value: stats.completedToday, color: 'bg-green-500/10', icon: '✅' },
+    { label: 'Overdue', value: stats.overdueCount, color: 'bg-red-500/10', icon: '⚠️' },
+    { label: 'Upcoming', value: stats.upcomingCount, color: 'bg-yellow-500/10', icon: '⏰' },
   ];
 
   return (
@@ -88,7 +88,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           onChange={(e) => setFilterCategory(e.target.value)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
         >
-          <option value="all">Tüm Kategoriler</option>
+          <option value="all">All Categories</option>
           {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
             <option key={key} value={key}>{val.label}</option>
           ))}
@@ -98,7 +98,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           onChange={(e) => setFilterAssignee(e.target.value)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
         >
-          <option value="all">Tüm Kişiler</option>
+          <option value="all">All Assignees</option>
           {assignees.map((a: { id: string; name: string }) => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
@@ -108,7 +108,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           onChange={(e) => setFilterPriority(e.target.value)}
           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
         >
-          <option value="all">Tüm Öncelikler</option>
+          <option value="all">All Priorities</option>
           {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
             <option key={key} value={key}>{val.label}</option>
           ))}
@@ -119,7 +119,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
       <div className="space-y-2">
         {sortedTasks.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <p className="text-gray-500">Bugün için görev bulunmuyor.</p>
+            <p className="text-gray-500">No tasks for today.</p>
           </div>
         ) : (
           sortedTasks.map(task => {
@@ -159,7 +159,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                       </span>
                       {isOverdue && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                          Gecikmiş
+                          Overdue
                         </span>
                       )}
                     </div>

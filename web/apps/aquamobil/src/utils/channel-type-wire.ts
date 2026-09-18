@@ -16,7 +16,7 @@
  *
  * Consequences for AquaMobil, which uses the lowercase form internally
  * (`type ChannelType = 'direct' | 'group' | 'ai'`) across ~20 read comparisons:
- *   - SEND: posting `type: 'group'` in CreateChannelInput is coerced by the
+ *   - SEND: posting `type: 'group'` in CreateChannelPayload is coerced by the
  *     server enum and rejected with a 400 before the resolver runs — the
  *     chartered MSG-HIGH-054 "Group/AI channel creation 400".
  *   - READ: the messaging subgraph *serializes* the stored `'group'` back to
@@ -62,7 +62,7 @@ const WIRE_TO_INTERNAL: Record<ChannelTypeWire, ChannelType> = Object.fromEntrie
 /**
  * Convert an internal lowercase {@link ChannelType} to the GraphQL wire KEY
  * the messaging subgraph enum accepts. Use at every GraphQL *write* boundary
- * (CreateChannelInput.type).
+ * (CreateChannelPayload.type).
  *
  * @param type - internal lowercase channel type (`'direct' | 'group' | 'ai'`)
  * @returns the wire KEY (`'DIRECT' | 'GROUP' | 'AI'`)

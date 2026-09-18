@@ -20,15 +20,6 @@ export const BOOT_INVARIANT_SIGNALS = {
     pattern: 'aqua-db-migrate complete',
     description: 'Centralized db-migrate runner reached its success exit.',
   },
-  /**
-   * SENSOR-MEDIUM-123: a connected-but-unsubscribed MQTT listener used to
-   * deploy green (subscribe failures logged at warn, no gate watched them).
-   * The client emits this once the full filter set is broker-acknowledged.
-   */
-  mqtt_subscribed_topics: {
-    pattern: 'MQTT boot signal: subscribed to',
-    description: 'MQTT listener subscribed its full topic filter set with no broker denial.',
-  },
 } as const;
 
 export type BootInvariantSignalKey = keyof typeof BOOT_INVARIANT_SIGNALS;

@@ -7,11 +7,14 @@ import {
 } from '../types/task.types';
 
 interface RecurringTabProps {
+  /** Opens the create-template modal (create-only; edit path unwired). */
+  onCreateTemplate?: () => void;
   templates: RecurringTemplate[];
   onToggleActive: (templateId: string) => void;
 }
 
-export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleActive }) => {
+export const RecurringTab: React.FC<RecurringTabProps> = ({ templates,
+  onCreateTemplate, onToggleActive }) => {
   const [search, setSearch] = useState('');
 
   const filtered = templates.filter(t =>
@@ -27,15 +30,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Şablon ara..."
+            placeholder="Search templates…"
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           />
           <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
-          + Yeni Şablon
+        <button onClick={onCreateTemplate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
+          + New Template
         </button>
       </div>
 
@@ -45,12 +48,12 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Şablon</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Template</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kategori</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sıklık</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Öncelik</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Frequency</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Atanan</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Son Oluşturma</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Generated</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sonraki</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
               </tr>
@@ -59,7 +62,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                    Tekrarlayan şablon bulunamadı.
+                    No recurring templates found.
                   </td>
                 </tr>
               ) : (
@@ -100,8 +103,8 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700">{tmpl.assignedToName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.lastGenerated ? new Date(tmpl.lastGenerated).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.nextGeneration ? new Date(tmpl.nextGeneration).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.lastGenerated ? new Date(tmpl.lastGenerated).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{tmpl.nextGeneration ? new Date(tmpl.nextGeneration).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => onToggleActive(tmpl.id)}

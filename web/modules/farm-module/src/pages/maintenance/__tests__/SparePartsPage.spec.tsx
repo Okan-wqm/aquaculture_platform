@@ -44,7 +44,7 @@ describe('SparePartsPage', () => {
   it('renders the spare-parts page from the backend list + stock-summary queries', async () => {
     renderWithProviders(<SparePartsPage />);
 
-    expect(await screen.findByText('Yedek Parçalar')).toBeInTheDocument();
+    expect(await screen.findByText('Spare Parts')).toBeInTheDocument();
     await waitFor(() => {
       expect(
         requestMock.mock.calls.some(([q]) => (q as string).includes('query SpareParts')),

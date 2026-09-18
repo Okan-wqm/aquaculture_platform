@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'crypto';
 
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -10,7 +10,7 @@ import {
 } from '../../scada-runtime/services/scada-activation.events';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
+import { Repository, FindOptionsWhere, ILike, In, Not, QueryFailedError } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -69,8 +69,27 @@ export class ScadaPackageService {
   /** Max number of scripts a single package may carry. */
   private static readonly MAX_SCRIPTS_PER_PACKAGE = 50;
 
+  /**
+   * Max number of SERVER-mode scripts a single package may carry. Server
+   * scripts execute on the cloud runtime (scheduler + sandbox slots per
+   * active tenant), so their count is bounded separately from the total.
+   */
+  private static readonly MAX_SERVER_SCRIPTS_PER_PACKAGE = 50;
+
   /** Modes a stored script may declare. */
   private static readonly VALID_SCRIPT_MODES = new Set(['server', 'client']);
+
+  /** Minimum PIN length accepted at the set/hash boundary (M3 policy). */
+  private static readonly PIN_MIN_LENGTH = 6;
+
+  /**
+   * Legacy plaintext PIN acceptance ends here. Far-future by design: legacy
+   * rows are migrated opportunistically (verify-then-rehash on first
+   * successful verification), so the cutoff only refuses rows whose tenant
+   * NEVER re-verified — flip it down once telemetry says the legacy set is
+   * empty.
+   */
+  private static readonly LEGACY_PIN_CUTOFF = new Date('2030-01-01T00:00:00.000Z');
 
   private validatePackageDataSize(data: Record<string, unknown>): void {
     const size = Buffer.byteLength(JSON.stringify(data), 'utf8');
@@ -119,6 +138,7 @@ export class ScadaPackageService {
         `packageData.scripts exceeds the maximum of ${ScadaPackageService.MAX_SCRIPTS_PER_PACKAGE} scripts`,
       );
     }
+    let serverScripts = 0;
     for (const entry of data.scripts) {
       if (!entry || typeof entry !== 'object') {
         throw new BadRequestException('Each packageData.scripts entry must be an object');
@@ -139,6 +159,15 @@ export class ScadaPackageService {
       if (mode !== undefined && (typeof mode !== 'string' || !ScadaPackageService.VALID_SCRIPT_MODES.has(mode))) {
         throw new BadRequestException("Script `mode` must be 'server' or 'client'");
       }
+      if (mode === 'server') serverScripts += 1;
+    }
+    // Server scripts run on the cloud runtime (scheduler slots + sandbox
+    // executions per active tenant) — bound them explicitly so a package
+    // cannot monopolise the runtime even before the activation bridge loads it.
+    if (serverScripts > ScadaPackageService.MAX_SERVER_SCRIPTS_PER_PACKAGE) {
+      throw new BadRequestException(
+        `packageData.scripts exceeds the maximum of ${ScadaPackageService.MAX_SERVER_SCRIPTS_PER_PACKAGE} server-mode scripts`,
+      );
     }
   }
 
@@ -285,6 +314,31 @@ export class ScadaPackageService {
   /* ── Control-security PIN (SENSOR-CRITICAL-006) ─────────────────────── */
 
   /**
+   * PIN policy at the set/hash boundary (M3): minimum length, and no
+   * trivially-guessable digit patterns (all-same or strictly
+   * ascending/descending runs). Applies wherever a NEW pin value enters the
+   * system — widget plaintext pins and builder-written pinHash values.
+   */
+  private static assertPinPolicy(pin: string): void {
+    if (pin.length < ScadaPackageService.PIN_MIN_LENGTH) {
+      throw new BadRequestException(
+        `Control PIN must be at least ${ScadaPackageService.PIN_MIN_LENGTH} characters`,
+      );
+    }
+    if (/^\d+$/.test(pin)) {
+      const digits = pin.split('').map((d) => Number(d));
+      const allSame = digits.every((d) => d === digits[0]);
+      const ascending = digits.every((d, i) => i === 0 || d === digits[i - 1]! + 1);
+      const descending = digits.every((d, i) => i === 0 || d === digits[i - 1]! - 1);
+      if (allSame || ascending || descending) {
+        throw new BadRequestException(
+          'Control PIN is too weak: repeated or sequential digits are not allowed',
+        );
+      }
+    }
+  }
+
+  /**
    * Harden control security at the SAVE boundary — plaintext can never
    * persist through a save:
    *  - every plaintext `widget.config.pin` is stripped, replaced with
@@ -294,6 +348,8 @@ export class ScadaPackageService {
    *  - a plaintext value written into `pinHash` by the builder is hashed too;
    *  - a null/absent incoming `pinHash` (the read path redacts it) preserves
    *    the stored hash so a load→edit→save roundtrip cannot wipe the PIN.
+   *
+   * New PINs must satisfy the M3 policy (min length, no trivial digit runs).
    */
   private hardenControlSecurity(
     data: Record<string, unknown>,
@@ -323,12 +379,16 @@ export class ScadaPackageService {
         }
       }
     }
+    if (plaintextPin) {
+      ScadaPackageService.assertPinPolicy(plaintextPin);
+    }
 
     if (cp.pinHash === '[REDACTED]') {
       // Roundtripped read-path redaction marker — restore the stored hash.
       cp.pinHash = existingPinHash ?? null;
     } else if (typeof cp.pinHash === 'string' && cp.pinHash.length > 0 && !isPinHash(cp.pinHash)) {
       // The builder wrote a raw PIN into the hash field — never store it as-is.
+      ScadaPackageService.assertPinPolicy(cp.pinHash);
       cp.pinHash = hashPin(cp.pinHash);
     }
     if (plaintextPin) {
@@ -345,16 +405,42 @@ export class ScadaPackageService {
   }
 
   /**
+   * Constant-time plaintext comparison (M3): both sides are SHA-256 digested
+   * first so `timingSafeEqual` always sees equal-length buffers, making the
+   * comparison time independent of where the first differing byte sits.
+   */
+  private static constantTimeEquals(a: string, b: string): boolean {
+    const da = createHash('sha256').update(a, 'utf8').digest();
+    const db = createHash('sha256').update(b, 'utf8').digest();
+    return timingSafeEqual(da, db);
+  }
+
+  /**
    * Verify a PIN against a package's stored hash (PIN_VERIFY socket flow).
-   * Legacy rows saved before hardening carry only plaintext widget pins —
-   * those compare directly and harden on their next save.
+   * Hashed values verify through the scrypt `verifyPin` (itself
+   * timingSafeEqual-based). Legacy rows saved before hardening carry only
+   * plaintext pins — those compare in CONSTANT TIME and harden IN PLACE on
+   * their first successful verification (verify-then-rehash migration);
+   * plaintext acceptance ends at LEGACY_PIN_CUTOFF.
    */
   async verifyPackagePin(packageId: string, tenantId: string, pin: string): Promise<boolean> {
     const pkg = await this.scadaPackageRepository.findOne({ where: { id: packageId, tenantId } });
     if (!pkg) return false;
     const stored = this.extractPinHash(pkg.packageData);
     if (stored) {
-      return isPinHash(stored) ? verifyPin(pin, stored) : stored === pin;
+      if (isPinHash(stored)) {
+        return verifyPin(pin, stored);
+      }
+      // Legacy: plaintext in the pinHash slot.
+      if (Date.now() > ScadaPackageService.LEGACY_PIN_CUTOFF.getTime()) {
+        this.logger.warn(
+          `verifyPackagePin: package ${pkg.id} still carries a legacy plaintext PIN after the cutoff — refused`,
+        );
+        return false;
+      }
+      if (!ScadaPackageService.constantTimeEquals(pin, stored)) return false;
+      await this.migrateLegacyPin(pkg, pin);
+      return true;
     }
     // Legacy: per-widget plaintext pins (pre-hardening rows).
     const screens = Array.isArray(pkg.packageData.screens) ? pkg.packageData.screens : [];
@@ -363,10 +449,69 @@ export class ScadaPackageService {
       if (!Array.isArray(widgets)) continue;
       for (const widget of widgets) {
         const wpin = (widget as { config?: Record<string, unknown> })?.config?.pin;
-        if (typeof wpin === 'string' && wpin.length > 0 && wpin === pin) return true;
+        if (typeof wpin === 'string' && wpin.length > 0) {
+          if (Date.now() > ScadaPackageService.LEGACY_PIN_CUTOFF.getTime()) {
+            this.logger.warn(
+              `verifyPackagePin: package ${pkg.id} still carries legacy widget plaintext PINs after the cutoff — refused`,
+            );
+            return false;
+          }
+          if (ScadaPackageService.constantTimeEquals(pin, wpin)) {
+            await this.migrateLegacyPin(pkg, pin);
+            return true;
+          }
+        }
       }
     }
     return false;
+  }
+
+  /**
+   * Verify-then-rehash migration (M3): once a legacy plaintext PIN is proven
+   * known, hash it into the package-level `controlPermissions.pinHash`,
+   * strip the widget plaintext, and persist — the row is hardened the first
+   * time its owner successfully uses it. Deliberately NOT run through the
+   * set-time PIN policy: this migrates an existing secret, it does not
+   * accept a new one.
+   */
+  private async migrateLegacyPin(pkg: ScadaPackage, pin: string): Promise<void> {
+    try {
+      const data = pkg.packageData;
+      const cp = (data.controlPermissions ??= {
+        securityLevels: { none: [], confirm: [], pin: [] },
+        pinHash: null,
+        emergencyStop: null,
+      }) as Record<string, unknown>;
+      const levels = (cp.securityLevels ??= { none: [], confirm: [], pin: [] }) as Record<
+        string,
+        unknown
+      >;
+      const pinLevel: unknown[] = Array.isArray(levels.pin) ? levels.pin : (levels.pin = []);
+      const screens = Array.isArray(data.screens) ? data.screens : [];
+      for (const screen of screens) {
+        const widgets = (screen as { widgets?: unknown[] })?.widgets;
+        if (!Array.isArray(widgets)) continue;
+        for (const widget of widgets) {
+          const w = widget as { id?: string; config?: Record<string, unknown> };
+          if (typeof w.config?.pin === 'string' && w.config.pin.length > 0) {
+            delete w.config.pin;
+            w.config.requirePin = true;
+            if (w.id && !pinLevel.includes(w.id)) pinLevel.push(w.id);
+          }
+        }
+      }
+      cp.pinHash = hashPin(pin);
+      await this.scadaPackageRepository.save(pkg);
+      this.logger.warn(
+        `DEPRECATION: migrated legacy plaintext PIN to a salted hash for package ${pkg.id} (tenant ${pkg.tenantId}) — plaintext PIN storage is deprecated and refused after ${ScadaPackageService.LEGACY_PIN_CUTOFF.toISOString()}`,
+      );
+    } catch (error) {
+      // The verification itself already succeeded; a failed migration must
+      // not flip it to a denial (the row simply stays legacy until next try).
+      this.logger.error(
+        `migrateLegacyPin: failed to harden package ${pkg.id} — ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -428,6 +573,25 @@ export class ScadaPackageService {
     return [...names];
   }
 
+  /**
+   * Map a Postgres unique-violation (23505) on the partial index
+   * `uq_scada_packages_tenant_process` to a friendly conflict message naming
+   * the process; anything else rethrows unchanged.
+   */
+  private mapProcessLinkConflict<T>(save: Promise<T>, processId?: string | null): Promise<T> {
+    return save.catch((error: unknown) => {
+      const code =
+        (error as { code?: string } | null)?.code ??
+        (error as { driverError?: { code?: string } } | null)?.driverError?.code;
+      if (error instanceof QueryFailedError && code === '23505') {
+        throw new BadRequestException(
+          `A package is already linked to this process${processId ? ` (${processId})` : ''} — unlink or delete the existing package first`,
+        );
+      }
+      throw error;
+    });
+  }
+
   async createScadaPackage(
     input: CreateScadaPackageInput,
     tenantId: string,
@@ -460,7 +624,10 @@ export class ScadaPackageService {
       version: 1,
       createdBy: userId,
     });
-    return this.scadaPackageRepository.save(pkg);
+    return this.mapProcessLinkConflict(
+      this.scadaPackageRepository.save(pkg),
+      input.processId ?? null,
+    );
   }
 
   async updateScadaPackage(
@@ -473,13 +640,21 @@ export class ScadaPackageService {
     if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
 
     if (input.processId !== undefined) {
-      const process = await this.processRepository.findOne({
-        where: { id: input.processId, tenantId },
-      });
-      if (!process) {
-        throw new NotFoundException(
-          `Process with id ${input.processId} not found in current tenant`,
-        );
+      if (input.processId === null) {
+        // Explicit null = UNLINK: skip process validation (there is nothing
+        // to validate) and clear the column. Previously null fell through to
+        // `findOne({ id: null })` nonsense.
+        pkg.processId = null;
+      } else {
+        const process = await this.processRepository.findOne({
+          where: { id: input.processId, tenantId },
+        });
+        if (!process) {
+          throw new NotFoundException(
+            `Process with id ${input.processId} not found in current tenant`,
+          );
+        }
+        pkg.processId = input.processId;
       }
     }
 
@@ -494,14 +669,16 @@ export class ScadaPackageService {
 
     if (input.name !== undefined) pkg.name = input.name;
     if (input.description !== undefined) pkg.description = input.description;
-    if (input.processId !== undefined) pkg.processId = input.processId;
     // `status` is intentionally not applied here — it is owned by the lifecycle
     // methods (create/deploy/delete), not by a client update (see DTO comment).
 
     pkg.version = pkg.version + 1;
     pkg.updatedBy = userId;
 
-    return this.scadaPackageRepository.save(pkg);
+    return this.mapProcessLinkConflict(
+      this.scadaPackageRepository.save(pkg),
+      pkg.processId ?? null,
+    );
   }
 
   /**
@@ -606,6 +783,84 @@ export class ScadaPackageService {
     return this.sanitizePackageData(pkg);
   }
 
+  /**
+   * Operator consumption gate (M4): the PUBLISHED representation of a package.
+   * Returns null when the package does not exist OR is not PUBLISHED — the
+   * resolver turns both into the same FORBIDDEN 'Package is not published'
+   * error so the gate leaks nothing about which id exists. `getScadaPackage`
+   * above stays unrestricted (the builder needs DRAFT rows).
+   */
+  async getPublishedScadaPackage(id: string, tenantId: string): Promise<ScadaPackage | null> {
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
+    if (!pkg || pkg.status !== ScadaPackageStatus.PUBLISHED) return null;
+    const deviceCode = await this.resolveDeviceCode(
+      (pkg.packageData?.meta as Record<string, unknown> | undefined)?.edgeDeviceId,
+      tenantId,
+    );
+    pkg.packageData = upcastScadaPackageDoc(
+      pkg.packageData,
+      deviceCode ? { deviceCode } : undefined,
+    );
+    return this.sanitizePackageData(pkg);
+  }
+
+  /**
+   * Derive `publishedAt` (M4) from the deploy history — NO schema migration.
+   * The scada_packages table has no published_at column; the latest deploy
+   * log row that actually shipped (i.e. not FAILED / ROLLED_BACK /
+   * UNDEPLOY_*) carries the publication timestamp as its `updatedAt ?? sentAt`
+   * (updatedAt advances as the row progresses SENT → … → SUCCESS, which is
+   * the closest durable witness of "running as PUBLISHED"). Null when the
+   * package never shipped or no deploy-log service/history exists.
+   */
+  async derivePublishedAt(packageId: string, tenantId: string): Promise<Date | null> {
+    if (!this.scadaDeployLogService) return null;
+    let logs: ScadaDeployLog[];
+    try {
+      logs = await this.scadaDeployLogService.getByPackage(packageId, tenantId);
+    } catch {
+      return null;
+    }
+    const notShipped = new Set<ScadaDeployStatus>([
+      ScadaDeployStatus.FAILED,
+      ScadaDeployStatus.ROLLED_BACK,
+      ScadaDeployStatus.UNDEPLOY_SENT,
+      ScadaDeployStatus.UNDEPLOYED,
+    ]);
+    for (const log of logs) {
+      // getByPackage orders sentAt DESC — the first shipped row is the latest.
+      if (notShipped.has(log.status)) continue;
+      return log.updatedAt ?? log.sentAt ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * Publish WITHOUT an edge round-trip (M5): flips the package to PUBLISHED
+   * through the SAME shared transition the deploy/ack paths use (so the
+   * activation bridge reloads the tenant's runtime), but touches no broker,
+   * no signing, no artifacts. Refuses ARCHIVED packages (a deleted package
+   * must not re-enter the runtime).
+   */
+  async publishScadaPackage(
+    id: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ success: boolean; message: string; version: number }> {
+    const pkg = await this.scadaPackageRepository.findOne({ where: { id, tenantId } });
+    if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
+    if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      throw new BadRequestException(
+        `ScadaPackage ${id} is archived (deleted) and cannot be published`,
+      );
+    }
+    await this.applyPublishState(pkg);
+    this.logger.log(
+      `Package "${pkg.name}" v${pkg.version} published without deploy (user: ${userId ?? 'system'})`,
+    );
+    return { success: true, message: 'Package published', version: pkg.version };
+  }
+
   async listScadaPackages(
     tenantId: string,
     filter?: ScadaPackageFilterInput,
@@ -616,7 +871,15 @@ export class ScadaPackageService {
     const offset = (page - 1) * limit;
 
     const where: FindOptionsWhere<ScadaPackage> = { tenantId };
-    if (filter?.status) where.status = filter.status;
+    if (filter?.status) {
+      where.status = filter.status;
+    } else if (filter?.includeArchived !== true) {
+      // Archive semantics (M6b): with no status filter the default EXCLUDES
+      // ARCHIVED — a soft-deleted package must not surface in package
+      // pickers (the unified editor's processId-only query included it).
+      // Callers that really want tombstones opt in with includeArchived.
+      where.status = Not(ScadaPackageStatus.ARCHIVED);
+    }
     if (filter?.processId) where.processId = filter.processId;
 
     let whereConditions: FindOptionsWhere<ScadaPackage> | FindOptionsWhere<ScadaPackage>[];
@@ -641,6 +904,19 @@ export class ScadaPackageService {
   }
 
   /**
+   * Shared PUBLISHED transition (M5): the single place a package row flips to
+   * PUBLISHED and signals the activation bridge. Used by the bundle-ack
+   * path (`markPackagePublished`), the single-command deploy path, and the
+   * deploy-less `publishScadaPackage` mutation — one transition, one event.
+   */
+  private async applyPublishState(pkg: ScadaPackage): Promise<ScadaPackage> {
+    pkg.status = ScadaPackageStatus.PUBLISHED;
+    const saved = await this.scadaPackageRepository.save(pkg);
+    this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, pkg.tenantId, pkg.id);
+    return saved;
+  }
+
+  /**
    * Flip a package to PUBLISHED — called by the bundle-ack path when the
    * edge CONFIRMS the atomic apply (Faz 5). The single-command deploy
    * path still flips on publish; the bundle path only flips on device
@@ -655,9 +931,7 @@ export class ScadaPackageService {
       this.logger.warn(`Cannot mark package ${packageId} PUBLISHED — not found`);
       return;
     }
-    pkg.status = ScadaPackageStatus.PUBLISHED;
-    await this.scadaPackageRepository.save(pkg);
-    this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, tenantId, pkg.id);
+    await this.applyPublishState(pkg);
   }
 
   /**
@@ -697,12 +971,24 @@ export class ScadaPackageService {
     if (!pkg) throw new NotFoundException(`ScadaPackage ${id} not found`);
 
     if (pkg.status === ScadaPackageStatus.ARCHIVED) {
+      // Idempotent no-op sweep — but still finish any pending unlink so a
+      // legacy archived row cannot hold the 1:1 process link hostage forever.
+      if (pkg.processId != null) {
+        pkg.processId = null;
+        await this.scadaPackageRepository.save(pkg);
+      }
       return { archived: true, undeploy: [] };
     }
 
     const undeploy = await this.undeployPackageFromDevices(pkg, tenantId, userId);
 
     pkg.status = ScadaPackageStatus.ARCHIVED;
+    // Unlink the process (M6a): the partial unique index
+    // uq_scada_packages_tenant_process (WHERE process_id IS NOT NULL) would
+    // otherwise block re-creating a package for the same process FOREVER —
+    // the migration's own dedup step documents process_id → NULL as the
+    // intended unlink semantics. NULL rows sit outside the index.
+    pkg.processId = null;
     await this.scadaPackageRepository.save(pkg);
     this.emitPackageLifecycle(SCADA_PACKAGE_ARCHIVED, tenantId, pkg.id);
     return { archived: true, undeploy };
@@ -770,7 +1056,7 @@ export class ScadaPackageService {
       return {
         deviceId,
         sent: false,
-        message: 'undeploy altyapısı mevcut değil (MQTT/device servisi) — yalnızca arşivlendi',
+        message: 'undeploy infrastructure unavailable (MQTT/device service) — package archived only',
       };
     }
 
@@ -778,17 +1064,17 @@ export class ScadaPackageService {
     try {
       device = await this.edgeDeviceService.findByIdOrFail(deviceId, tenantId);
     } catch {
-      return { deviceId, sent: false, message: `cihaz ${deviceId} bulunamadı` };
+      return { deviceId, sent: false, message: `device ${deviceId} not found` };
     }
     if (!device.isOnline) {
       return {
         deviceId: device.id,
         sent: false,
-        message: `${device.deviceCode} çevrimdışı — undeploy gönderilemedi`,
+        message: `${device.deviceCode} is offline — undeploy not sent`,
       };
     }
     if (!this.mqttClient.isConnectedToBroker()) {
-      return { deviceId: device.id, sent: false, message: 'MQTT broker bağlantısı yok' };
+      return { deviceId: device.id, sent: false, message: 'No MQTT broker connection' };
     }
 
     const commandId = randomUUID();
@@ -808,7 +1094,7 @@ export class ScadaPackageService {
       return {
         deviceId: device.id,
         sent: false,
-        message: `undeploy payload kontrat ihlali: ${detail}`,
+        message: `undeploy payload violates the canonical contract: ${detail}`,
       };
     }
 
@@ -835,11 +1121,11 @@ export class ScadaPackageService {
       this.logger.log(
         `undeploy_scada_package sent for package ${pkg.id} to device ${device.deviceCode} (command: ${commandId})`,
       );
-      return { deviceId: device.id, sent: true, message: `${device.deviceCode}: undeploy gönderildi` };
+      return { deviceId: device.id, sent: true, message: `${device.deviceCode}: undeploy sent` };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to publish undeploy to device ${device.id}: ${msg}`);
-      return { deviceId: device.id, sent: false, message: `${device.deviceCode}: publish hatası — ${msg}` };
+      return { deviceId: device.id, sent: false, message: `${device.deviceCode}: publish failed — ${msg}` };
     }
   }
 
@@ -866,9 +1152,9 @@ export class ScadaPackageService {
     totalRefs: number,
   ): void {
     if (unresolved.length === 0) return;
-    const detail = `${unresolved.length}/${totalRefs} tag binding çözülemedi: ${JSON.stringify(unresolved)}`;
+    const detail = `${unresolved.length}/${totalRefs} tag bindings could not be resolved: ${JSON.stringify(unresolved)}`;
     if (this.isTagGateEnforced()) {
-      throw new BadRequestException(`${context}: ${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+      throw new BadRequestException(`${context}: ${detail} — deploy blocked (SCADA_DEPLOY_TAG_GATE=enforce)`);
     }
     this.logger.warn(`${context}: ${detail}`);
   }
@@ -889,15 +1175,15 @@ export class ScadaPackageService {
     const transform = transformScadaDocForEdgeDeploy(doc);
     if (!transform.ok) {
       const detail = transform.rejected
-        .map((r) => `${r.widgetType} (widget ${r.widgetId}, ekran ${r.screenId})`)
+        .map((r) => `${r.widgetType} (widget ${r.widgetId}, screen ${r.screenId})`)
         .join(', ');
       throw new BadRequestException(
-        `${context}: ${transform.rejected.length} widget edge runtime'da desteklenmiyor ve kontrol semantiği taşıdığı için sessizce çıkarılamaz: ${detail}. Bu widget'ları kaldırın veya edge-destekli karşılıklarıyla değiştirin.`,
+        `${context}: ${transform.rejected.length} widget(s) are not supported by the edge runtime and carry control semantics, so they cannot be silently stripped: ${detail}. Remove these widgets or replace them with edge-supported equivalents.`,
       );
     }
     if (transform.stripped.length > 0) {
       this.logger.warn(
-        `${context}: ${transform.stripped.length} display-only/decorative widget edge payload'ından çıkarıldı (kayıtlı paket değişmedi): ` +
+        `${context}: ${transform.stripped.length} display-only/decorative widget(s) stripped from the edge payload (the stored package is unchanged): ` +
           transform.stripped.map((r) => `${r.widgetType}#${r.widgetId}`).join(', '),
       );
     }
@@ -984,37 +1270,49 @@ export class ScadaPackageService {
     // archived (volatile envelope fields like deployedAt stay out so
     // identical content dedupes to one artifact). Rollback = republish by
     // artifact id with a fresh envelope.
-    let artifact = null;
-    if (this.artifactService) {
-      try {
-        artifact = await this.artifactService.snapshot(tenantId, {
-          artifactType: DeployArtifactType.SCADA_PACKAGE,
-          // The snapshot archives EXACTLY what ships (the transformed edge
-          // doc) so rollback republishes device-parseable content verbatim.
-          content: edgeDoc,
-          schemaVersion: edgeDoc.meta.schemaVersion,
-          sourceEntityId: pkg.id,
-          sourceEntityVersion: pkg.version,
-          createdBy: userId,
-        });
-      } catch (snapshotError) {
-        this.logger.error(
-          `Failed to snapshot SCADA package artifact: ${(snapshotError as Error).message}`,
-        );
-      }
+    //
+    // FAIL-CLOSED (M1): a snapshot failure ABORTS the deploy. The previous
+    // behavior swallowed the error and shipped an unsnapshotted — and
+    // therefore unrollbackable — payload. Signing is deferred platform-wide
+    // (decision), but snapshotting is NOT optional: no artifact, no deploy.
+    if (!this.artifactService) {
+      throw new BadRequestException(
+        'Artifact service not available — deploys are fail-closed without a content-addressed snapshot',
+      );
+    }
+    let artifact: Awaited<ReturnType<ArtifactService['snapshot']>>;
+    try {
+      artifact = await this.artifactService.snapshot(tenantId, {
+        artifactType: DeployArtifactType.SCADA_PACKAGE,
+        // The snapshot archives EXACTLY what ships (the transformed edge
+        // doc) so rollback republishes device-parseable content verbatim.
+        content: edgeDoc,
+        schemaVersion: edgeDoc.meta.schemaVersion,
+        sourceEntityId: pkg.id,
+        sourceEntityVersion: pkg.version,
+        createdBy: userId,
+      });
+    } catch (snapshotError) {
+      this.logger.error(
+        `Failed to snapshot SCADA package artifact: ${(snapshotError as Error).message}`,
+      );
+      throw new BadRequestException(
+        `Deploy aborted: snapshotting the package artifact failed (${(snapshotError as Error).message}) — fail-closed, no unsigned-and-unsnapshotted deploy`,
+      );
     }
 
     // Faz 4: ed25519 signature over tenant + artifact sha256 under domain
     // tag `scada-pkg-v1` — verified by the edge against
-    // firmware_signing_pubkey before applying the package.
-    const signature =
-      artifact && this.deploySigningService
-        ? this.deploySigningService.signDeployArtifact(
-            'scada-package',
-            tenantId,
-            artifact.contentSha256,
-          )
-        : null;
+    // firmware_signing_pubkey before applying the package. Null (unsigned)
+    // when the key seed is not configured — the result message then carries
+    // the UNSIGNED marker.
+    const signature = this.deploySigningService
+      ? this.deploySigningService.signDeployArtifact(
+          'scada-package',
+          tenantId,
+          artifact.contentSha256,
+        )
+      : null;
 
     const packagePayload = {
       ...edgeDoc,
@@ -1026,7 +1324,7 @@ export class ScadaPackageService {
         deployedBy: userId || 'system',
         deployedAt: new Date().toISOString(),
         edgeDeviceId: device.id,
-        ...(artifact ? { artifactSha256: artifact.contentSha256 } : {}),
+        artifactSha256: artifact.contentSha256,
         ...(signature ? { signature } : {}),
       },
     };
@@ -1064,8 +1362,8 @@ export class ScadaPackageService {
           commandId,
           version: pkg.version,
           deployedBy: userId,
-          artifactId: artifact?.id,
-          checksumSha256: artifact?.contentSha256,
+          artifactId: artifact.id,
+          checksumSha256: artifact.contentSha256,
         });
       } catch (logError) {
         this.logger.error(`Failed to create SCADA deploy log: ${(logError as Error).message}`);
@@ -1075,9 +1373,7 @@ export class ScadaPackageService {
 
     try {
       await this.mqttClient.publish(topic, payload);
-      pkg.status = ScadaPackageStatus.PUBLISHED;
-      await this.scadaPackageRepository.save(pkg);
-      this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, pkg.tenantId, pkg.id);
+      await this.applyPublishState(pkg);
 
       this.logger.log(
         `SCADA package "${pkg.name}" v${pkg.version} deployed to device ${device.deviceCode} (command: ${commandId})`,
@@ -1086,9 +1382,17 @@ export class ScadaPackageService {
       // surprised by widgets present in the builder but absent on the HMI.
       const strippedNote =
         stripped.length > 0
-          ? ` (${stripped.length} görüntü-amaçlı widget dağıtımdan çıkarıldı — pakette korunuyor: ${stripped.map((r) => r.widgetType).join(', ')})`
+          ? ` (${stripped.length} display-only widget(s) stripped from the deploy — kept in the package: ${stripped.map((r) => r.widgetType).join(', ')})`
           : '';
-      return { success: true, message: `SCADA package deployed successfully${strippedNote}` };
+      // UNSIGNED marker (M1): platform-wide signing is deferred by decision —
+      // the result message must say so; the frontend labels it.
+      const unsignedNote = signature
+        ? ''
+        : ' [UNSIGNED — deploy signing not configured; the edge will warn]';
+      return {
+        success: true,
+        message: `SCADA package deployed successfully${strippedNote}${unsignedNote}`,
+      };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to deploy SCADA package: ${msg}`);
@@ -1100,6 +1404,11 @@ export class ScadaPackageService {
    * REAL rollback (Faz 3): republish a previously-shipped artifact snapshot
    * verbatim. Unlike the edge's single previous-version slot, any retained
    * artifact can be restored, any number of times.
+   *
+   * Rollback PARITY with a fresh deploy (M1): the same ARCHIVED guard and
+   * the same tag-gate terms apply — rollback is a deploy, so a package that
+   * could not be freshly deployed (archived, or unresolved bindings under
+   * SCADA_DEPLOY_TAG_GATE=enforce) cannot be rolled back either.
    */
   async rollbackScadaPackageDeploy(
     artifactId: string,
@@ -1117,6 +1426,23 @@ export class ScadaPackageService {
       );
     }
 
+    // Archived/deleted packages never reach a device — same guard, same
+    // terms as deployScadaPackageToEdge.
+    if (!artifact.sourceEntityId) {
+      throw new BadRequestException(
+        `Artifact ${artifactId} has no source package — cannot roll back`,
+      );
+    }
+    const pkg = await this.scadaPackageRepository.findOne({
+      where: { id: artifact.sourceEntityId, tenantId },
+    });
+    if (!pkg) {
+      throw new NotFoundException(
+        `ScadaPackage ${artifact.sourceEntityId} (source of artifact ${artifactId}) not found`,
+      );
+    }
+    this.assertPackageDeployable(pkg);
+
     if (!this.edgeDeviceService) {
       throw new BadRequestException('Edge device service not available');
     }
@@ -1129,6 +1455,21 @@ export class ScadaPackageService {
     }
     if (!this.mqttClient.isConnectedToBroker()) {
       throw new BadRequestException('Not connected to MQTT broker');
+    }
+
+    // Tag SSoT gate — same coverage as the single-command deploy path,
+    // evaluated against the artifact's archived content.
+    if (this.tagResolutionService) {
+      const tagNames = this.collectWidgetTagNames(artifact.content);
+      if (tagNames.length > 0) {
+        const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
+        const resolution = await this.tagResolutionService.resolve(tenantId, refs);
+        this.handleUnresolvedBindings(
+          `rollback_scada_package ${artifactId}`,
+          resolution.unresolved,
+          refs.length,
+        );
+      }
     }
 
     const commandId = randomUUID();
@@ -1196,7 +1537,14 @@ export class ScadaPackageService {
       this.logger.log(
         `Rolled back device ${device.deviceCode} to SCADA artifact ${artifact.id} (v${version}, command: ${commandId})`,
       );
-      return { success: true, message: `Rollback to artifact v${version} sent` };
+      // UNSIGNED marker (M1) — parity with the deploy result message.
+      const unsignedNote = signature
+        ? ''
+        : ' [UNSIGNED — deploy signing not configured; the edge will warn]';
+      return {
+        success: true,
+        message: `Rollback to artifact v${version} sent${unsignedNote}`,
+      };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to publish rollback: ${msg}`);

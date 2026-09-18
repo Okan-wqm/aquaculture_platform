@@ -27,19 +27,16 @@
  * response drift is a compile error at this call site.
  */
 
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 import { useCallback, useRef, useState } from 'react';
 
-import type {
-  IncidentMediaType,
-  RequestIncidentMediaUploadMutation,
-  RequestIncidentMediaUploadMutationVariables,
-} from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { IncidentMediaType } from '@/generated/graphql';
 
-/** Incident category — the generated `IncidentMediaType` enum (MOB-HIGH-022). */
-export type { IncidentMediaType } from '@/generated/graphql';
+export type { IncidentMediaType };
+
+/** Incident category — mirrors the backend `IncidentMediaType` enum. */
+
 
 /**
  * Images-only client allowlist. Incident photos are visual evidence, so only
@@ -47,11 +44,7 @@ export type { IncidentMediaType } from '@/generated/graphql';
  * server's presign handler remains the enforcing boundary. `image/svg+xml` is
  * deliberately absent (stored-XSS vector).
  */
-export const INCIDENT_MEDIA_MIME_ALLOWLIST = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-] as const;
+export const INCIDENT_MEDIA_MIME_ALLOWLIST = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 const ALLOWED_MIME_TYPES = new Set<string>(INCIDENT_MEDIA_MIME_ALLOWLIST);
 
@@ -64,12 +57,19 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
 /** Target size after compression. */
 const COMPRESSION_TARGET = 1.5 * 1024 * 1024; // 1.5 MB
 
+/** Response shape of the `requestIncidentMediaUpload` mutation. */
+interface IncidentMediaUploadResponse {
+  uploadUrl: string;
+  storageKey: string;
+  expiresAt: string;
+}
+
 /**
  * Presigned-upload request. tenantId/userId come from the JWT via backend
  * decorators, never as variables — the same convention as every other mobile
  * operation.
  */
-const REQUEST_INCIDENT_MEDIA_UPLOAD: TypedDocumentNode<RequestIncidentMediaUploadMutation, RequestIncidentMediaUploadMutationVariables> = gql`
+const REQUEST_INCIDENT_MEDIA_UPLOAD = gql`
   mutation RequestIncidentMediaUpload($input: RequestIncidentMediaUploadInput!) {
     requestIncidentMediaUpload(input: $input) {
       uploadUrl
@@ -237,7 +237,9 @@ export function useIncidentMediaUpload(): UseIncidentMediaUploadReturn {
         }
 
         // Step 1: presigned PUT URL from farm-service.
-        const result = await graphqlRequest(REQUEST_INCIDENT_MEDIA_UPLOAD, {
+        const result = await graphqlRequest<{
+          requestIncidentMediaUpload: IncidentMediaUploadResponse;
+        }>(REQUEST_INCIDENT_MEDIA_UPLOAD, {
           input: {
             incidentType,
             filename: file.name,

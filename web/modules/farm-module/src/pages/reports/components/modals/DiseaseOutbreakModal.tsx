@@ -14,8 +14,8 @@ interface DiseaseOutbreakModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<DiseaseOutbreakReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
   siteCode?: string;
   gpsCoordinates?: { lat: number; lng: number };
   showHealthEventLink?: boolean;
@@ -334,8 +334,10 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           tanks: affectedTankNames,
         },
         facility: {
-          siteId,
-          siteName,
+          // Draft-level placeholders: empty strings are falsy, so the tab's
+          // `data.siteId || effectiveSiteId` resolution still applies.
+          siteId: siteId ?? '',
+          siteName: siteName ?? '',
           siteCode: siteCode || '',
           gpsCoordinates,
         },
@@ -381,6 +383,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title="Report Disease Outbreak"
@@ -627,7 +630,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                     </div>
                     {tank.batchMetrics?.pieces && (
                       <span className="text-xs text-gray-400">
-                        {tank.batchMetrics.pieces.toLocaleString()} fish
+                        {tank.batchMetrics.pieces.toLocaleString('en-GB')} fish
                       </span>
                     )}
                   </label>
@@ -665,7 +668,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         <>
                           <span className="text-gray-500">|</span>
                           <span className="text-gray-600">
-                            {tank.batchMetrics.pieces.toLocaleString()} fish
+                            {tank.batchMetrics.pieces.toLocaleString('en-GB')} fish
                           </span>
                         </>
                       )}

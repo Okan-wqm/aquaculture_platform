@@ -28,12 +28,6 @@ const PAGES_DIR = resolve(REPO_ROOT, 'web/apps/aquamobil/src/pages');
  * page shows the operator the operation's real state some other way.
  */
 const HONEST_WITHOUT_BADGE: ReadonlyMap<string, string> = new Map([
-  [
-    'messaging/ChatRoomPage.tsx',
-    'Chat renders per-message state instead: optimistic sends carry `_status` ' +
-      "'pending' / 'failed' on the bubble itself, which is the chat-native form of " +
-      'the same honesty and is finer-grained than one badge per screen.',
-  ],
 ]);
 
 function collectPages(dir: string, out: string[]): void {

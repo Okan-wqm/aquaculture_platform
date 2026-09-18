@@ -21,6 +21,7 @@ import { useState, useCallback, useRef } from 'react';
 
 import { REQUEST_MEDIA_UPLOAD } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { MediaUploadResponse } from '@/types/messaging';
 
 /** Maximum file size: 25 MB (matches backend validation). */
 const MAX_FILE_SIZE = 26_214_400;
@@ -213,15 +214,14 @@ export function useMediaUpload(channelId: string | undefined): UseMediaUploadRet
       try {
         // Step 0: Compress images > 2MB
         let uploadBlob: Blob = file;
-        if (
-          file.size > COMPRESSION_THRESHOLD &&
-          file.type.startsWith('image/')
-        ) {
+        if (file.size > COMPRESSION_THRESHOLD && file.type.startsWith('image/')) {
           uploadBlob = await compressImage(file);
         }
 
         // Step 1: Get presigned URL from backend
-        const result = await graphqlRequest(REQUEST_MEDIA_UPLOAD, {
+        const result = await graphqlRequest<{
+          requestMediaUpload: MediaUploadResponse;
+        }>(REQUEST_MEDIA_UPLOAD, {
           input: {
             channelId,
             filename: file.name,
@@ -243,8 +243,7 @@ export function useMediaUpload(channelId: string | undefined): UseMediaUploadRet
 
         return storageKey;
       } catch (err) {
-        const uploadError =
-          err instanceof Error ? err : new Error('Upload failed');
+        const uploadError = err instanceof Error ? err : new Error('Upload failed');
         setError(uploadError);
         throw uploadError;
       } finally {

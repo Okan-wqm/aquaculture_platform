@@ -108,14 +108,14 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
 
     if (isMeterBased) {
       if (meterReadingParsed === null) {
-        errs.push('Sayaç bazlı plan için sayaç okuması zorunludur.');
+        errs.push('A meter reading is required for meter-based schedules.');
       } else if (Number.isNaN(meterReadingParsed)) {
-        errs.push('Sayaç okuması geçerli bir sayı olmalı.');
+        errs.push('The meter reading must be a valid number.');
       } else if (meterReadingParsed < 0) {
-        errs.push('Sayaç okuması negatif olamaz.');
+        errs.push('The meter reading cannot be negative.');
       } else if (lastMeter != null && meterReadingParsed < lastMeter) {
         errs.push(
-          `Yeni sayaç okuması (${meterReadingParsed}) son bakım okumasından (${lastMeter}) küçük olamaz.`,
+          `The new meter reading (${meterReadingParsed}) cannot be lower than the last reading (${lastMeter}).`,
         );
       }
     }
@@ -145,15 +145,15 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
     try {
       const updated = await completeMutation.mutateAsync(input);
       toast({
-        title: 'Bakım tamamlandı',
-        description: `${schedule.scheduleCode} planı kapatıldı (${updated.executionCount}. tamamlama).`,
+        title: 'Maintenance completed',
+        description: `Schedule ${schedule.scheduleCode} was closed (completion #${updated.executionCount}).`,
         variant: 'success',
       });
       onSuccess?.();
       onClose();
     } catch (err) {
       toast({
-        title: 'Bakım tamamlanamadı',
+        title: 'Could not complete the maintenance',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -164,9 +164,10 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
-      title="Bakım Kapanışı"
+      title="Complete Maintenance"
       size="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -176,11 +177,11 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             {schedule.scheduleCode} — {schedule.name}
           </p>
           <p className="mt-1 text-xs text-gray-500">
-            Şu ana kadar {schedule.executionCount} kez tamamlandı
+            Completed {schedule.executionCount} time(s) so far
             {schedule.lastExecutedDate && (
               <>
                 {' '}
-                · son: {new Date(schedule.lastExecutedDate).toLocaleDateString('tr-TR')}
+                · son: {new Date(schedule.lastExecutedDate).toLocaleDateString('en-GB')}
               </>
             )}
           </p>
@@ -192,9 +193,9 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               Kontrol Listesi (referans)
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
-              Bu liste planın şablonudur — bu kapanış işlemi tek başına
-              kontrol durumlarını kaydetmez. Detaylı tik takibi için iş
-              emri akışını kullanın.
+              This list is the schedule template — completing this cycle alone
+              does not persist checklist states. Use the work-order flow for
+              detailed check tracking.
             </p>
             <ul className="mt-2 space-y-1 text-sm">
               {checklistItems.map((item, idx) => (
@@ -223,7 +224,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               htmlFor="complete-maint-meter"
               className="block text-sm font-medium text-gray-700"
             >
-              Sayaç Okuması{' '}
+              Meter Reading{' '}
               <span className="text-red-600">*</span>
             </label>
             <input
@@ -238,7 +239,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             />
             {lastMeter != null && (
               <p className="mt-1 text-xs text-gray-500">
-                Son bakım okuması: {lastMeter}
+                Last reading: {lastMeter}
               </p>
             )}
           </div>
@@ -258,7 +259,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar"
+            placeholder="(optional) work done, observations, issues"
           />
           <p className="mt-1 text-xs text-gray-500">
             {notes.length} / {NOTES_MAX}
@@ -280,7 +281,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             onClick={onClose}
             disabled={isSubmitting}
           >
-            İptal
+            Cancel
           </Button>
           <Button
             type="submit"
@@ -288,7 +289,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             disabled={!isFormValid || isSubmitting}
             isLoading={isSubmitting}
           >
-            Bakımı Tamamla
+            Complete Maintenance
           </Button>
         </div>
       </form>

@@ -56,9 +56,15 @@ export const MessageDateSeparator = React.memo(function MessageDateSeparator({
 }: MessageDateSeparatorProps) {
   const label = formatDateLabel(date);
 
+  // WHY the pill is opaque now and the backdrop-blur is gone: the 80%-opaque
+  // grey it replaces cannot be expressed as a token. Tailwind cannot parse
+  // `var(--s2)` as a colour, so an alpha modifier on a surface token emits NO
+  // rule at all and the pill would render with no background whatsoever. A
+  // solid surface-2 pill is the readable answer, and a backdrop blur behind an
+  // opaque fill did nothing anyway.
   return (
     <div className="flex justify-center py-3 px-4 sticky top-0 z-10">
-      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 bg-gray-200/80 dark:bg-gray-700/80 backdrop-blur-sm px-3 py-1 rounded-full">
+      <span className="text-meta font-semibold text-ink-2 bg-surface-2 px-3 py-1 rounded-full">
         {label}
       </span>
     </div>

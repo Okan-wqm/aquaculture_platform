@@ -6610,6 +6610,7 @@ export type FeedingProtocolV2 = {
   tenantId: Scalars['ID']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['ID']['output']>;
+  version?: Maybe<Scalars['Int']['output']>;
 };
 
 export type FeedingProtocolV2Connection = {
@@ -9670,6 +9671,7 @@ export type Mutation = {
   postponeHarvestPlan: HarvestPlan;
   processAutoGenerateWorkOrders: Array<WorkOrder>;
   publishAnnouncement: Announcement;
+  publishScadaPackage: PublishScadaPackageResultType;
   publishWeeklyPlan: WeeklyPlan;
   pushIoConfigToDevice: PushIoConfigResult;
   putWorkOrderOnHold: WorkOrder;
@@ -11717,6 +11719,11 @@ export type MutationPostponeHarvestPlanArgs = {
 
 
 export type MutationPublishAnnouncementArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationPublishScadaPackageArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -15158,6 +15165,12 @@ export type PublicUserProfile = {
   profileImageUrl?: Maybe<Scalars['String']['output']>;
 };
 
+export type PublishScadaPackageResultType = {
+  message?: Maybe<Scalars['String']['output']>;
+  success: Scalars['Boolean']['output'];
+  version: Scalars['Int']['output'];
+};
+
 /** Category of purchase order */
 export type PurchaseOrderCategory =
   | 'CHEMICAL'
@@ -15669,6 +15682,7 @@ export type Query = {
   protocolSummaries: Array<ProtocolSummaryType>;
   protocols: Array<ProtocolInfoType>;
   publicUserProfile?: Maybe<PublicUserProfile>;
+  publishedScadaPackage: ScadaPackageType;
   purchaseOrder?: Maybe<PurchaseOrderResponse>;
   purchaseOrders: PaginatedPurchaseOrdersResponse;
   readOpcUaHistoricalData: Array<OpcUaHistoricalDataPoint>;
@@ -17334,6 +17348,11 @@ export type QueryProtocolsArgs = {
 
 
 export type QueryPublicUserProfileArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryPublishedScadaPackageArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -19466,6 +19485,7 @@ export type ScadaDeployStepResultType = {
 };
 
 export type ScadaPackageFilterInput = {
+  includeArchived?: InputMaybe<Scalars['Boolean']['input']>;
   processId?: InputMaybe<Scalars['String']['input']>;
   searchTerm?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<ScadaPackageStatus>;
@@ -19503,6 +19523,7 @@ export type ScadaPackageType = {
   packageData: Scalars['JSON']['output'];
   processId?: Maybe<Scalars['String']['output']>;
   processName?: Maybe<Scalars['String']['output']>;
+  publishedAt?: Maybe<Scalars['DateTime']['output']>;
   status: ScadaPackageStatus;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
@@ -19600,7 +19621,7 @@ export type Sensor = {
   calibrationOffset?: Maybe<Scalars['Float']['output']>;
   childSensors?: Maybe<Array<Sensor>>;
   configuration?: Maybe<Scalars['JSON']['output']>;
-  connectionStatus?: Maybe<SensorConnectionStatusType>;
+  connectionStatus?: Maybe<Scalars['JSON']['output']>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   dataPath?: Maybe<Scalars['String']['output']>;

@@ -2645,7 +2645,6 @@ def derive_request_state(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
     _ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
-    _control: Any | None = None,
 ) -> str:
     """Derive the Plan 016 lifecycle state from request + claims + results ledgers.
 
@@ -2656,18 +2655,10 @@ def derive_request_state(
     `derive_request_states`) — private on purpose: callers that derive many
     requests must use the batch form, not reload three ledgers per call.
     """
+    root = ensure_tools_dir(base_dir)
     if _ledgers is not None:
-        # ARIA-HIGH-153 — the batch caller already ensured the tools dir.
-        # `ensure_tools_dir` is a WRITE: it rewrites `integrity_index.json`
-        # under a store transaction that locks the whole index group, so
-        # calling it here per request made one queue selection over the
-        # 828-row backlog of 2026-09-18 cost ~140 s and touch every ledger
-        # ~830 times (planner drain: 6 index rewrites per second, 44 min
-        # after the cycle had completed). Resolve the path; write nothing.
-        root = tools_dir(base_dir)
         requests, results, claims = _ledgers
     else:
-        root = ensure_tools_dir(base_dir)
         requests = load_declared_jsonl(
             root / "agent-invocations" / "requests.jsonl",
             expected_surface="agent_invocation_requests",
@@ -2722,10 +2713,7 @@ def derive_request_state(
     # did not already land an accepted result. Derived from the control
     # ledger (not from a claim row) so a cancel before the first claim binds.
     from .control import CANCELLED_BY_OPERATOR_STATE, effective_control
-    # ARIA-HIGH-153 — the batch folds the control ledger once and injects
-    # it; the single form folds it here.
-    control = _control if _control is not None else effective_control(root)
-    if control.is_cancelled(request_id):
+    if effective_control(root).is_cancelled(request_id):
         return CANCELLED_BY_OPERATOR_STATE
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
@@ -3204,15 +3192,12 @@ def derive_request_states(
             expected_surface="agent_invocation_claims",
         ),
     )
-    from .control import effective_control
-    control = effective_control(root)
     return {
         str(row["request_id"]): derive_request_state(
             request_id=str(row["request_id"]),
             base_dir=base_dir,
             now=now,
             _ledgers=ledgers,
-            _control=control,
         )
         for row in ledgers[0]
         if row.get("request_id")

@@ -59,7 +59,6 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/farm-shared` | libs/<domain>/ | web/farm-module |
 | `libs/node-components` | libs/node-components/ | web/sensor-module (process-editor, scada-builder) |
 | `libs/migration-harness` | libs/backend-common/ (deploy-time only) | apps/db-migrate CLI |
-| `libs/mqtt-test-harness` | libs/backend-common/ (deploy-time only) | apps/sensor-service MQTT ACL E2E spec (SENSOR-HIGH-118: real Mosquitto+go-auth container wired to the MqttAuthService under test) |
 | `libs/shared-contracts` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
 | `libs/sdk` | libs/<domain>/ (TypeScript SDK generator outputs) | scripts/sdk codegen, agent harness |
 | `libs/sensor-automation-types` | libs/<domain>/ (IEC 61131 ST AST types) | apps/sensor-service parser/analyzer/formatter, web/modules/sensor-module simulator |

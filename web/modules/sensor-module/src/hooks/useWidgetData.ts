@@ -9,18 +9,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { WidgetConfig, TimeRange, SensorMetric, SENSOR_METRICS, SelectedChannel } from '../components/dashboard/types';
 import { useSensorSocket, SensorReading as SocketSensorReading } from './useSensorSocket';
 import { graphqlFetch } from '../config/api';
-import {
-  GET_AGGREGATED_READINGS_QUERY,
-  extractAggregatedValueByChannelKey,
-  type AggregatedDataPoint,
-} from '../graphql/aggregatedReadings';
-
-export { GET_AGGREGATED_READINGS_QUERY, extractAggregatedValueByChannelKey };
-export type { AggregatedDataPoint };
 import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 // PERF-011: module-scope cache shared across all useWidgetData instances
-const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown>; dataChannels?: unknown[] }>();
+const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown> }>();
 
 // SECURITY (ADMIN-HIGH-105's gate, same class as the sensor stores below/above):
 // this cache is module-scoped, so it outlives every component that reads it and
@@ -80,7 +72,25 @@ export interface HistoryPoint {
   timestamp: Date;
 }
 
-
+export interface AggregatedDataPoint {
+  bucket: string;
+  count: number;
+  avgTemperature?: number;
+  minTemperature?: number;
+  maxTemperature?: number;
+  avgPh?: number;
+  minPh?: number;
+  maxPh?: number;
+  avgDissolvedOxygen?: number;
+  minDissolvedOxygen?: number;
+  maxDissolvedOxygen?: number;
+  avgSalinity?: number;
+  avgAmmonia?: number;
+  avgNitrite?: number;
+  avgNitrate?: number;
+  avgTurbidity?: number;
+  avgWaterLevel?: number;
+}
 
 export interface AggregatedReadingsResponse {
   sensorId: string;
@@ -153,33 +163,47 @@ const GET_READINGS_HISTORY_QUERY = `
  * Aggregated readings query - uses TimescaleDB time_bucket for efficient aggregation
  * Auto-selects optimal interval based on time range if not specified
  */
+const GET_AGGREGATED_READINGS_QUERY = `
+  query GetAggregatedReadings($sensorId: ID!, $startTime: DateTime!, $endTime: DateTime!, $interval: AggregationInterval) {
+    aggregatedReadings(sensorId: $sensorId, startTime: $startTime, endTime: $endTime, interval: $interval) {
+      sensorId
+      sensorName
+      interval
+      startTime
+      endTime
+      totalDataPoints
+      data {
+        bucket
+        count
+        avgTemperature
+        minTemperature
+        maxTemperature
+        avgPh
+        minPh
+        maxPh
+        avgDissolvedOxygen
+        minDissolvedOxygen
+        maxDissolvedOxygen
+        avgSalinity
+        minSalinity
+        maxSalinity
+        avgAmmonia
+        avgNitrite
+        avgNitrate
+        avgTurbidity
+        avgWaterLevel
+      }
+    }
+  }
+`;
 
-
-// SENSOR-MEDIUM-122: thresholds live on the sensor's data channels, which the
-// composed supergraph exposes via the dataChannelsBySensor root (the `sensor`
-// query returns the federated Sensor entity, not the registration DTO shape).
-export const GET_SENSOR_INFO_QUERY = `
+const GET_SENSOR_INFO_QUERY = `
   query GetSensorInfo($id: ID!) {
     sensor(id: $id) {
       id
       name
       type
-    }
-    dataChannelsBySensor(sensorId: $id) {
-      id
-      channelKey
-      unit
-      alertThresholds {
-        warning {
-          low
-          high
-        }
-        critical {
-          low
-          high
-        }
-        hysteresis
-      }
+      alertThresholds
     }
   }
 `;
@@ -241,10 +265,42 @@ const METRIC_TO_AGGREGATED_FIELD: Record<SensorMetric, keyof AggregatedDataPoint
 };
 
 // Map channel key to aggregated data field name (more flexible than SensorMetric)
-
+const CHANNEL_KEY_TO_AGGREGATED_FIELD: Record<string, keyof AggregatedDataPoint> = {
+  temperature: 'avgTemperature',
+  ph: 'avgPh',
+  dissolvedOxygen: 'avgDissolvedOxygen',
+  dissolved_oxygen: 'avgDissolvedOxygen',
+  salinity: 'avgSalinity',
+  ammonia: 'avgAmmonia',
+  nitrite: 'avgNitrite',
+  nitrate: 'avgNitrate',
+  turbidity: 'avgTurbidity',
+  waterLevel: 'avgWaterLevel',
+  water_level: 'avgWaterLevel',
+};
 
 // Extract value from aggregated data by channel key
+function extractAggregatedValueByChannelKey(
+  dataPoint: AggregatedDataPoint,
+  channelKey: string
+): number | null {
+  const fieldName = CHANNEL_KEY_TO_AGGREGATED_FIELD[channelKey];
+  if (fieldName) {
+    const value = dataPoint[fieldName];
+    if (value !== undefined && value !== null) {
+      return value as number;
+    }
+  }
 
+  // Try direct match with readings field name pattern
+  const avgKey = `avg${channelKey.charAt(0).toUpperCase()}${channelKey.slice(1)}` as keyof AggregatedDataPoint;
+  const value = dataPoint[avgKey];
+  if (value !== undefined && value !== null) {
+    return value as number;
+  }
+
+  return null;
+}
 
 // Extract value from raw readings by channel key
 function extractRawValueByChannelKey(
@@ -510,25 +566,13 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
     try {
       const result = await graphqlFetch<{
-        sensor: { id: string; name: string; type: string };
-        dataChannelsBySensor?: Array<{
-          channelKey: string;
-          alertThresholds?: Record<string, unknown>;
-        }>;
+        sensor: { id: string; name: string; type: string; alertThresholds?: Record<string, unknown> };
       }>(GET_SENSOR_INFO_QUERY, { id: sensorId });
 
       const info = {
         name: result.sensor.name,
         type: result.sensor.type,
-        thresholds: (result.dataChannelsBySensor ?? []).reduce<Record<string, unknown>>(
-          (acc, channel) => {
-            if (channel.channelKey && channel.alertThresholds) {
-              acc[channel.channelKey] = channel.alertThresholds;
-            }
-            return acc;
-          },
-          {},
-        ),
+        thresholds: result.sensor.alertThresholds,
       };
       sharedSensorInfoCache.set(sensorId, info);
       return info;

@@ -54,33 +54,43 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
   return (
     <div className="space-y-6">
       {/* Headline cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Operational cost</p>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
+      <div className="sd-stat-grid">
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <p className="sd-stat-title">Operational cost</p>
+          <p className="sd-stat-value" style={{ fontSize: 30 }}>
             {formatMoney(summary.totalExpenseDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="sd-stat-change">
+            <span className="sd-dot sd-dot--cyan" />
             {period.from} → {period.to}
           </p>
         </div>
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Revenue</p>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <p className="sd-stat-title">Revenue</p>
+          <p className="sd-stat-value" style={{ fontSize: 30 }}>
             {formatMoney(summary.totalRevenueDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">Harvest sales</p>
+          <p className="sd-stat-change">
+            <span className="sd-dot sd-dot--mint" />
+            Harvest sales
+          </p>
         </div>
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Net result</p>
+        <div
+          className={`sd-card sd-card--dash sd-stat-card${
+            parseMoney(summary.netResultDecimal) < 0 ? ' sd-stat-card--danger' : ''
+          }`}
+        >
+          <p className="sd-stat-title">Net result</p>
           <p
-            className={`mt-1 text-3xl font-semibold ${
-              parseMoney(summary.netResultDecimal) >= 0 ? 'text-green-700' : 'text-red-700'
-            }`}
+            className={`sd-stat-value ${parseMoney(summary.netResultDecimal) >= 0 ? 'text-green-700' : 'text-red-700'}`}
+            style={{ fontSize: 30 }}
           >
             {formatMoney(summary.netResultDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">Revenue − operational cost</p>
+          <p className="sd-stat-change">
+            <span className="sd-dot sd-dot--amber" />
+            Revenue − operational cost
+          </p>
         </div>
       </div>
 

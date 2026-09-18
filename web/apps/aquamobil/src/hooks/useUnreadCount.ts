@@ -40,6 +40,9 @@ export interface UseUnreadCountReturn {
   unreadCount: number;
   /** True during the initial fetch. */
   isLoading: boolean;
+  /** ORPHAN-HIGH-595: a swallowed error makes the badge read "0 unread"
+   *  when it means "we could not ask". Carried out so callers can tell. */
+  isError: boolean;
 }
 
 export function useUnreadCount(): UseUnreadCountReturn {
@@ -48,7 +51,9 @@ export function useUnreadCount(): UseUnreadCountReturn {
   const query = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(TOTAL_UNREAD_MESSAGE_COUNT);
+      const result = await graphqlRequest<{ totalUnreadMessageCount: number }>(
+        TOTAL_UNREAD_MESSAGE_COUNT,
+      );
 
       if (typeof result.totalUnreadMessageCount !== 'number') {
         return 0;
@@ -67,5 +72,6 @@ export function useUnreadCount(): UseUnreadCountReturn {
   return {
     unreadCount: query.data ?? 0,
     isLoading: query.isLoading,
+    isError: query.isError,
   };
 }

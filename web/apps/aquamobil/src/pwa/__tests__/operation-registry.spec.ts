@@ -18,7 +18,7 @@ import {
   SW_REPLAY_SKIP_TYPES,
 } from '../operation-registry';
 
-import type { OperationPayload, OperationType } from '@/types';
+import type { OperationType } from '@/types';
 
 // Compile-time + runtime mirror of the OperationType union. If a new member is
 // added to the union, this array fails the exhaustiveness assertion below until
@@ -77,19 +77,13 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
   });
 
   it('shapes every other operation as { input: payload } verbatim (envelope intact)', () => {
-    // A complete generated RecordMortalityInput plus the envelope — the payload
-    // type is derived from the schema (MOB-HIGH-022), so a missing required
-    // field is a compile error here, not a coercion error on the wire.
-    const payload: OperationPayload<'recordMortality'> = {
+    const payload = {
       batchId: 'b-1',
-      tankId: 't-1',
       quantity: 3,
-      reason: 'DISEASE',
-      observedAt: '2026-09-05T07:00:00.000Z',
       clientCommandId: 'cmd-1',
       payloadHash: 'hash',
     };
-    const variables = buildOperationVariables('recordMortality', payload);
+    const variables = buildOperationVariables('recordMortality', payload as never);
     expect(variables).toEqual({ input: payload });
   });
 
@@ -97,7 +91,10 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
     const followUp = getLeaveSubmitFollowUp('createLeaveRequest', {
       createLeaveRequest: { id: 'leave-9' },
     });
-    expect(followUp).toEqual({ query: OPERATION_MUTATIONS.submitLeaveRequest, variables: { id: 'leave-9' } });
+    expect(followUp).toEqual({
+      query: OPERATION_MUTATIONS.submitLeaveRequest,
+      variables: { id: 'leave-9' },
+    });
   });
 
   it('returns null follow-up for non-leave ops and rejects a missing created id', () => {

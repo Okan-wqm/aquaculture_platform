@@ -99,7 +99,7 @@ export const DepartmentsTab: React.FC = () => {
     if (deletePreview.affectedItems.equipment.length > 0) {
       affectedItems.push({
         type: 'equipment',
-        label: 'Ekipmanlar',
+        label: 'Equipment',
         items: deletePreview.affectedItems.equipment.map((e) => ({
           id: e.id,
           name: e.name,
@@ -112,13 +112,13 @@ export const DepartmentsTab: React.FC = () => {
     if (deletePreview.affectedItems.tanks.length > 0) {
       affectedItems.push({
         type: 'tanks',
-        label: 'Tanklar',
+        label: 'Tanks',
         items: deletePreview.affectedItems.tanks.map((t) => ({
           id: t.id,
           name: t.name,
           code: t.code,
           hasBlocker: t.hasActiveBiomass,
-          blockerReason: t.hasActiveBiomass ? `${t.currentBiomass} kg biyokütle` : undefined,
+          blockerReason: t.hasActiveBiomass ? `${t.currentBiomass} kg biomass` : undefined,
         })),
       });
     }
@@ -589,9 +589,9 @@ export const DepartmentsTab: React.FC = () => {
         isOpen={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
         onConfirm={handleConfirmDelete}
-        title="Departman Silme Onayı"
+        title="Confirm Department Deletion"
         entityName={deptToDelete?.name ?? ''}
-        entityType="Departman"
+        entityType="Department"
         preview={dialogPreview}
         isLoading={isPreviewLoading}
         isDeleting={deleteDepartmentMutation.isPending}

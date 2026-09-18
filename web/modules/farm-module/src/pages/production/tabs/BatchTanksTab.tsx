@@ -55,8 +55,8 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
             Tank Tahsisleri
           </h2>
           <p className="text-sm text-gray-500">
-            Bu partinin tanklara dağılımı. Yeni tank tahsisi için
-            "Tanka Tahsis Et" butonunu kullanın.
+            Distribution of this batch across tanks. Use the
+            "Allocate to Tank" button for new allocations.
           </p>
         </div>
         {canAllocate && (
@@ -67,13 +67,13 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
             title={
               buttonDisabled
                 ? batch.currentQuantity <= 0
-                  ? 'Tahsis edilebilir adet kalmadı'
+                  ? 'No count left to allocate'
                   : 'Bu durumdaki bir parti tahsis edilemez'
                 : undefined
             }
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Tanka Tahsis Et
+            Allocate to Tank
           </button>
         )}
       </div>
@@ -84,7 +84,7 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase">
-              İlk Stok Adet
+              Initial Stock Count
             </div>
             <div className="mt-1 text-lg font-medium text-gray-900">
               {batch.initialQuantity.toLocaleString('tr-TR')}
@@ -92,7 +92,7 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
           </div>
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase">
-              Mevcut Adet
+              Current Count
             </div>
             <div className="mt-1 text-lg font-medium text-gray-900">
               {batch.currentQuantity.toLocaleString('tr-TR')}
@@ -100,7 +100,7 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
           </div>
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase">
-              Mevcut Biyokütle
+              Current Biomass
             </div>
             <div className="mt-1 text-lg font-medium text-gray-900">
               {batch.currentBiomassKg !== undefined

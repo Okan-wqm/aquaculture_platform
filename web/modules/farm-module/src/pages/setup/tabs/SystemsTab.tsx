@@ -133,7 +133,7 @@ export const SystemsTab: React.FC = () => {
     if (deletePreview.affectedItems.childSystems.length > 0) {
       affectedItems.push({
         type: 'childSystems',
-        label: 'Alt Sistemler',
+        label: 'Sub-Systems',
         items: deletePreview.affectedItems.childSystems.map((s) => ({
           id: s.id,
           name: s.name,
@@ -146,7 +146,7 @@ export const SystemsTab: React.FC = () => {
     if (deletePreview.affectedItems.equipment.length > 0) {
       affectedItems.push({
         type: 'equipment',
-        label: 'Ekipmanlar',
+        label: 'Equipment',
         items: deletePreview.affectedItems.equipment.map((e) => ({
           id: e.id,
           name: e.name,
@@ -760,10 +760,10 @@ export const SystemsTab: React.FC = () => {
               >
                 <option value="">
                   {deptError
-                    ? 'Departmanlar yüklenemedi'
+                    ? 'Failed to load departments'
                     : departments.length === 0 && formData.siteId
-                      ? 'Bu site için departman bulunamadı'
-                      : 'Departman seçin'}
+                      ? 'No departments found for this site'
+                      : 'Select a department'}
                 </option>
                 {departments.map((dept) => (
                   <option key={dept.id} value={dept.id}>
@@ -772,7 +772,7 @@ export const SystemsTab: React.FC = () => {
                 ))}
               </select>
               {deptError && (
-                <p className="text-xs text-red-500 mt-1">Departmanlar yüklenirken hata oluştu</p>
+                <p className="text-xs text-red-500 mt-1">Error loading departments</p>
               )}
             </div>
             <div>
@@ -850,9 +850,9 @@ export const SystemsTab: React.FC = () => {
         isOpen={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
         onConfirm={handleConfirmDelete}
-        title="Sistem Silme Onayı"
+        title="Confirm System Deletion"
         entityName={systemToDelete?.name ?? ''}
-        entityType="Sistem"
+        entityType="System"
         preview={dialogPreview}
         isLoading={isPreviewLoading}
         isDeleting={deleteSystem.isPending}

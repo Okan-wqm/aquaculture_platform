@@ -87,30 +87,11 @@ cat /proc/sys/user/max_user_namespaces           # want > 0
 ```
 
 If either knob blocks, persist the fix via `/etc/sysctl.d/` (the
-provision script writes `99-aria-userns.conf`).
-
-Ubuntu ≥ 23.10 has a third knob the two above say nothing about:
-`kernel.apparmor_restrict_unprivileged_userns=1` denies user-namespace
-creation to any binary without an AppArmor profile — for unprivileged
-users only. `bwrap` then works for root and fails for `gharunner`
-(`setting up uid map: Permission denied`, `loopback: Failed
-RTM_NEWADDR`), so every check run as root passes on a host where the
-lanes get no backend (2026-09-18, capability-probe run 35321850013:
-`sandbox_backend=none`). The fix is the one Ubuntu ships for flatpak,
-podman and lxc — a per-binary profile granting `userns` and nothing
-else; the provision script installs it, or by hand:
+provision script writes `99-aria-userns.conf`). Final authority is the
+kernel's own probe — the same accessor the runtime consults:
 
 ```bash
-install -m 0644 scripts/aria/apparmor/bwrap /etc/apparmor.d/bwrap
-apparmor_parser -r /etc/apparmor.d/bwrap
-```
-
-Final authority is the kernel's own probe — the same accessor the
-runtime consults — run **as the runner user**, because root's verdict
-is the trap above:
-
-```bash
-sudo -u gharunner -H env PYTHONPATH=aria-kernel python3 -c \
+PYTHONPATH=aria-kernel python3 -c \
   'from aria_kernel.implementation_safety import sandbox_backend; print(sandbox_backend())'
 ```
 
@@ -314,8 +295,8 @@ claude` (or `gh api repos/Okan-wqm/aquaculture_platform/actions/runners`).
    gh workflow run aria-runner-capability-probe.yml
    ```
 
-   Expect `sandbox_backend=bwrap` (the accessor's own spelling), the
-   userns knobs readable, and sane sudo/apt lines.
+   Expect `sandbox_backend=bubblewrap`, the userns knobs readable, and
+   sane sudo/apt lines.
 
 3. **One manual cycle:**
 

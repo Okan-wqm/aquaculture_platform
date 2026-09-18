@@ -23,6 +23,7 @@ import { useState, useRef, useCallback, useEffect, type ReactElement } from 'rea
 import { MentionPicker } from './MentionPicker';
 import { VoiceRecorder } from './VoiceRecorder';
 
+import { IconButton } from '@/components/ui';
 import type { ChannelMember } from '@/types/messaging';
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,13 @@ const MAX_ROWS = 5;
 const DEFAULT_MAX_LENGTH = 4000;
 const CHAR_WARNING_THRESHOLD = 3800;
 const LINE_HEIGHT_PX = 20;
+
+/**
+ * The composer bar. It docks against the bottom edge, so it takes the raised
+ * content surface with a hairline above it rather than the page ground.
+ */
+const BAR_CLASS =
+  'sticky bottom-0 z-30 bg-surface-1 border-t border-line pb-safe transition-transform';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -126,7 +134,8 @@ export function MessageInput({
 
     const adjustPosition = (): void => {
       if (window.visualViewport) {
-        const offset = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+        const offset =
+          window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
         container.style.transform = offset > 0 ? `translateY(-${offset}px)` : '';
       }
     };
@@ -237,8 +246,7 @@ export function MessageInput({
 
       // Build the mention text
       const displayName = member.user
-        ? [member.user.firstName, member.user.lastName].filter(Boolean).join(' ')
-          || member.userId
+        ? [member.user.firstName, member.user.lastName].filter(Boolean).join(' ') || member.userId
         : member.userId;
 
       const beforeMention = text.slice(0, mentionStartPos);
@@ -286,10 +294,7 @@ export function MessageInput({
   // -----------------------------------------------------------------------
   if (isVoiceMode) {
     return (
-      <div
-        ref={containerRef}
-        className="sticky bottom-0 z-30 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 pb-safe transition-transform"
-      >
+      <div ref={containerRef} className={BAR_CLASS}>
         <VoiceRecorder
           onRecordingComplete={handleVoiceComplete}
           onCancel={handleVoiceCancel}
@@ -303,27 +308,22 @@ export function MessageInput({
   // Render: Text input mode
   // -----------------------------------------------------------------------
   return (
-    <div
-      ref={containerRef}
-      className="sticky bottom-0 z-30 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 pb-safe transition-transform"
-    >
+    <div ref={containerRef} className={BAR_CLASS}>
       {/* Reply preview bar */}
       {replyTo && (
         <div className="flex items-center gap-2 px-4 pt-2 pb-1">
-          <div className="flex-1 min-w-0 border-l-2 border-ocean-500 pl-2.5 py-1">
-            <p className="text-xs font-bold text-ocean-600 dark:text-ocean-400 truncate">
-              {replyTo.senderName}
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{replyTo.text}</p>
+          <div className="flex-1 min-w-0 border-l-2 border-acc pl-2.5 py-1">
+            <p className="text-meta font-bold text-acc truncate">{replyTo.senderName}</p>
+            <p className="text-meta text-ink-3 truncate">{replyTo.text}</p>
           </div>
           {onCancelReply && (
-            <button
+            <IconButton
               onClick={onCancelReply}
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback transition-colors"
+              className="hover:bg-surface-2 transition-colors"
               aria-label="Cancel reply"
             >
-              <X size={18} className="text-gray-400" />
-            </button>
+              <X size={18} className="text-ink-3" />
+            </IconButton>
           )}
         </div>
       )}
@@ -342,20 +342,17 @@ export function MessageInput({
           visible={showMentionPicker}
         />
 
-        {/* Attachment button */}
-        <button
+        {/* Attachment button. IconButton already carries the disabled fade and
+            the 44px floor, so the hand-rolled size + opacity pair goes away. */}
+        <IconButton
+          size="lg"
           onClick={onAttachmentPress}
           disabled={disabled}
-          className={clsx(
-            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full touch-feedback transition-colors',
-            disabled
-              ? 'opacity-50'
-              : 'hover:bg-gray-100 dark:hover:bg-gray-800',
-          )}
+          className="hover:bg-surface-2 transition-colors"
           aria-label="Add attachment"
         >
-          <Paperclip size={22} className="text-gray-500 dark:text-gray-400" />
-        </button>
+          <Paperclip size={22} className="text-ink-2" />
+        </IconButton>
 
         {/* Auto-resizing textarea */}
         <div className="flex-1 relative">
@@ -368,19 +365,22 @@ export function MessageInput({
             disabled={disabled}
             rows={1}
             className={clsx(
-              'w-full resize-none rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800',
-              'px-4 py-3 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400',
-              'focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500 transition-all',
+              // The well is a recessed surface inside the bar, so it takes the
+              // next tone up rather than a border-only outline.
+              'w-full resize-none rounded-2xl border border-line bg-surface-2',
+              'px-4 py-3 text-body text-ink-1 placeholder-ink-3',
+              'focus:outline-none focus:ring-2 focus:ring-acc focus:border-acc transition-all',
               disabled && 'opacity-50 cursor-not-allowed',
             )}
             style={{ lineHeight: `${LINE_HEIGHT_PX}px` }}
           />
-          {/* Character counter */}
+          {/* Character counter — crit only once the limit is actually reached,
+              because that is the point at which typing stops working. */}
           {showCharCounter && (
             <span
               className={clsx(
-                'absolute bottom-1.5 right-3 text-[10px] font-semibold tabular-nums',
-                charCount >= maxLength ? 'text-red-500' : 'text-gray-400',
+                'absolute bottom-1.5 right-3 text-meta font-semibold tabular-nums',
+                charCount >= maxLength ? 'text-crit' : 'text-ink-3',
               )}
             >
               {charCount}/{maxLength}
@@ -394,37 +394,34 @@ export function MessageInput({
          * messages, but the visual treatment makes clear the message will be
          * queued locally and sent when connectivity returns. */}
         {canSend ? (
-          <button
+          <IconButton
+            size="lg"
             onClick={handleSend}
             disabled={!canSend}
-            className={clsx(
-              'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-              isOnline
-                ? 'bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean'
-                : 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/30',
-            )}
+            className={clsx('transition-all', isOnline ? 'bg-acc shadow-acc' : 'bg-warn')}
             aria-label={isOnline ? 'Send message' : 'Queue message for later'}
           >
+            {/* WHY the on-accent ink on the WARN fill too: `--on-acc` is the ink
+                the theme puts on a saturated fill, and warn tracks the accent's
+                lightness in every theme (both light on night/colour, both dark
+                on day). There is no `--on-warn`, and a hardcoded white would
+                fail contrast on the night amber. */}
             {isOnline ? (
-              <Send size={20} className="text-white" />
+              <Send size={20} className="text-acc-on" />
             ) : (
-              <Clock size={20} className="text-white" />
+              <Clock size={20} className="text-acc-on" />
             )}
-          </button>
+          </IconButton>
         ) : (
-          <button
+          <IconButton
+            size="lg"
             onClick={handleVoiceToggle}
             disabled={disabled}
-            className={clsx(
-              'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-              disabled
-                ? 'opacity-50 cursor-not-allowed'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-800',
-            )}
+            className="hover:bg-surface-2 transition-all"
             aria-label="Record voice note"
           >
-            <Mic size={22} className="text-gray-500 dark:text-gray-400" />
-          </button>
+            <Mic size={22} className="text-ink-2" />
+          </IconButton>
         )}
       </div>
     </div>

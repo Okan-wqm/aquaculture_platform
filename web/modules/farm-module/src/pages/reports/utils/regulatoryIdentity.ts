@@ -54,7 +54,7 @@ export class RegulatoryConfigError extends Error {
  */
 export function buildRegulatoryIdentity(
   settings: RegulatorySettings | undefined,
-  siteId: string,
+  siteId: string | undefined,
 ): RegulatoryIdentity {
   if (!settings) {
     throw new RegulatoryConfigError(

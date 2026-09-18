@@ -43,14 +43,15 @@ const tooltipStyle = {
 // Status color mapping for pie chart
 // ============================================================================
 
+// SUDERRA chart tokens (mint/amber/ink/brick family)
 const STATUS_COLORS: Record<string, string> = {
-  operational: '#22c55e',
-  active: '#22c55e',
-  maintenance: '#f59e0b',
-  fallow: '#94a3b8',
-  quarantine: '#ef4444',
-  inactive: '#6b7280',
-  empty: '#d1d5db',
+  operational: '#1f9d78',
+  active: '#1f9d78',
+  maintenance: '#c89a3c',
+  fallow: '#8aa0aa',
+  quarantine: '#b04a28',
+  inactive: '#5c7783',
+  empty: 'rgba(10, 31, 43, 0.15)',
 };
 
 // ============================================================================
@@ -117,7 +118,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     return Array.from(statusMap.entries()).map(([name, value]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
-      color: STATUS_COLORS[name] || '#6b7280',
+      color: STATUS_COLORS[name] || '#5c7783',
     }));
   }, [tankData]);
 
@@ -252,8 +253,8 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={biomassByTank} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" stroke="#6b7280" />
-                  <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
+                  <XAxis type="number" stroke="#5c7783" />
+                  <YAxis dataKey="tank" type="category" stroke="#5c7783" width={80} />
                   <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="biomass" name="Biomass (kg)" fill="#0073e6" radius={[0, 4, 4, 0]} />
                 </BarChart>

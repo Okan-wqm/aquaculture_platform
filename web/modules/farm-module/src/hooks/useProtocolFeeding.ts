@@ -50,6 +50,45 @@ export type FeedingProtocolV2Status = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 export type ProtocolAssignmentStatus = 'ACTIVE' | 'PAUSED' | 'ENDED';
 export type FeedingUnitType = 'TANK' | 'POND' | 'CAGE';
 export type ProtocolFcrSource = 'band' | 'matrix' | 'feed';
+
+/**
+ * Wire-format mapping for `settings.fcrSource`. The GraphQL `ProtocolFcrSource`
+ * enum travels as its NAME (BAND/MATRIX/FEED — TypeGraphQL serializes enum
+ * names), while the entity stores and RETURNS the lowercase value through the
+ * GraphQLJSON `settings` passthrough. The frontend domain type is the lowercase
+ * value, so map NAME<->value exactly once, at this hook boundary.
+ */
+const FCR_SOURCE_TO_WIRE: Record<ProtocolFcrSource, string> = {
+  band: 'BAND',
+  matrix: 'MATRIX',
+  feed: 'FEED',
+};
+const FCR_SOURCE_FROM_WIRE: Record<string, ProtocolFcrSource> = {
+  BAND: 'band',
+  MATRIX: 'matrix',
+  FEED: 'feed',
+  band: 'band',
+  matrix: 'matrix',
+  feed: 'feed',
+};
+
+/** Domain -> wire for create/update variables. */
+const protocolInputToWire = <T extends { settings?: ProtocolSettings }>(input: T): T => ({
+  ...input,
+  settings: input.settings
+    ? { ...input.settings, fcrSource: FCR_SOURCE_TO_WIRE[input.settings.fcrSource] ?? 'BAND' }
+    : undefined,
+});
+
+/** Wire -> domain for anything carrying a protocol settings object (queries
+ *  return lowercase jsonb today; tolerate enum names if that ever changes). */
+const protocolFromWire = <T extends FeedingProtocolV2>(protocol: T): T => ({
+  ...protocol,
+  settings: {
+    ...protocol.settings,
+    fcrSource: FCR_SOURCE_FROM_WIRE[protocol.settings?.fcrSource] ?? 'band',
+  },
+});
 export type EffectiveTemperatureSource = 'sensor' | 'manual' | 'none';
 
 export interface MealScheduleEntry {
@@ -113,7 +152,6 @@ export interface FeedingProtocolV2 {
   migrationNote?: string;
   createdAt: string;
   updatedAt: string;
-  version: number;
 }
 
 export interface FcrOverride {
@@ -240,7 +278,10 @@ export function useFeedingProtocolsV2(filter?: FeedingProtocolsV2Filter) {
         speciesId: filter?.speciesId,
         pagination: { page: 1, limit: 100 },
       });
-      return data.feedingProtocolsV2;
+      return {
+        ...data.feedingProtocolsV2,
+        items: data.feedingProtocolsV2.items.map(protocolFromWire),
+      };
     },
     { staleTime: 30000 },
   );
@@ -254,7 +295,7 @@ export function useFeedingProtocolV2(id: string | null) {
         FEEDING_PROTOCOL_V2_QUERY,
         { id },
       );
-      return data.feedingProtocolV2;
+      return protocolFromWire(data.feedingProtocolV2);
     },
     { staleTime: 30000, enabled: !!id },
   );
@@ -322,9 +363,9 @@ export function useCreateFeedingProtocolV2() {
     mutationFn: async (input: CreateFeedingProtocolV2Input) => {
       const data = await graphqlClient.request<{ createFeedingProtocolV2: FeedingProtocolV2 }>(
         CREATE_FEEDING_PROTOCOL_V2_MUTATION,
-        { input },
+        { input: protocolInputToWire(input) },
       );
-      return data.createFeedingProtocolV2;
+      return protocolFromWire(data.createFeedingProtocolV2);
     },
     onSuccess: () => invalidate(),
   });
@@ -336,9 +377,9 @@ export function useUpdateFeedingProtocolV2() {
     mutationFn: async (input: UpdateFeedingProtocolV2Input) => {
       const data = await graphqlClient.request<{ updateFeedingProtocolV2: FeedingProtocolV2 }>(
         UPDATE_FEEDING_PROTOCOL_V2_MUTATION,
-        { input },
+        { input: protocolInputToWire(input) },
       );
-      return data.updateFeedingProtocolV2;
+      return protocolFromWire(data.updateFeedingProtocolV2);
     },
     onSuccess: () => invalidate(),
   });

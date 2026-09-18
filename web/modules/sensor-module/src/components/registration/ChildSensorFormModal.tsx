@@ -9,12 +9,6 @@ import { useSensorTypeDefinitions } from '../../hooks/useSensorTypeDefinitions';
 
 interface ChildSensorFormModalProps {
   sensor?: ChildSensorConfig;
-  /**
-   * SENSOR-HIGH-117: paths already configured on other rows — supplied so
-   * create mode can reject a duplicate dataPath inline instead of letting the
-   * wizard's upsert-by-dataPath silently overwrite an existing row.
-   */
-  existingDataPaths?: string[];
   isOpen: boolean;
   onClose: () => void;
   onSave: (sensor: ChildSensorConfig) => void;
@@ -58,7 +52,6 @@ const COLORS = [
 
 export function ChildSensorFormModal({
   sensor,
-  existingDataPaths,
   isOpen,
   onClose,
   onSave,
@@ -74,8 +67,6 @@ export function ChildSensorFormModal({
     calibrationOffset: 0,
   });
 
-  const [dataPathError, setDataPathError] = useState<string | null>(null);
-
   useEffect(() => {
     if (sensor) {
       setFormData({
@@ -86,22 +77,8 @@ export function ChildSensorFormModal({
           color: '#3B82F6',
         },
       });
-    } else {
-      // Create mode: reset to a blank row. Without this, opening "add" after
-      // editing another row kept the previous row's values.
-      setFormData({
-        dataPath: '',
-        name: '',
-        type: SensorType.MULTI_PARAMETER,
-        selected: true,
-        isConfigured: false,
-        calibrationEnabled: false,
-        calibrationMultiplier: 1,
-        calibrationOffset: 0,
-      });
     }
-    setDataPathError(null);
-  }, [sensor, isOpen]);
+  }, [sensor]);
 
   const { types: typeDefinitions } = useSensorTypeDefinitions();
 
@@ -164,21 +141,8 @@ export function ChildSensorFormModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const dataPath = formData.dataPath.trim();
-    if (!dataPath) {
-      setDataPathError('Data path is required — it is the payload key ingestion extracts.');
-      return;
-    }
-    const duplicate = (existingDataPaths ?? []).some(
-      (path) => path === dataPath && path !== sensor?.dataPath,
-    );
-    if (duplicate) {
-      setDataPathError(`Another parameter already uses the data path "${dataPath}".`);
-      return;
-    }
     onSave({
       ...formData,
-      dataPath,
       isConfigured: true,
     });
   };
@@ -203,7 +167,7 @@ export function ChildSensorFormModal({
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
             <div>
               <h2 className="text-xl font-semibold text-gray-900">
-                {sensor ? `Configure Data: ${sensor.dataPath}` : 'Add Sensor Parameter'}
+                Configure Data: {sensor?.dataPath}
               </h2>
               {sensor?.sampleValue !== undefined && (
                 <p className="text-sm text-gray-500 mt-1">
@@ -239,32 +203,6 @@ export function ChildSensorFormModal({
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     required
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Data Path (payload key) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.dataPath}
-                    onChange={(e) => {
-                      handleChange('dataPath', e.target.value);
-                      setDataPathError(null);
-                    }}
-                    disabled={!!sensor}
-                    placeholder="e.g. temperature, sensors.mid"
-                    className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 ${
-                      dataPathError ? 'border-red-400' : 'border-gray-300'
-                    }`}
-                  />
-                  {dataPathError ? (
-                    <p className="text-sm text-red-600 mt-1" role="alert">{dataPathError}</p>
-                  ) : (
-                    <p className="text-xs text-gray-500 mt-1">
-                      The key inside the MQTT payload this parameter is read from (dot paths allowed).
-                    </p>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

@@ -23,7 +23,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
 // ============================================================================
@@ -270,6 +270,10 @@ export class FeedingProtocolV2 {
   @Column('uuid', { nullable: true })
   updatedBy?: string;
 
+  // @Field intentionally added so the GraphQL schema exposes the optimistic-
+  // lock version (frontend previously selected it and failed schema
+  // validation on builds whose entity lacked this decorator).
+  @Field(() => Int, { nullable: true })
   @VersionColumn()
   version!: number;
 

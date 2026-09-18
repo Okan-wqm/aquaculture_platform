@@ -20,6 +20,9 @@ import {
   type DaqResultPayload,
   type DeviceStatusChange,
   type DataProviderConnectionState,
+  type AlarmStatusSummary,
+  type AlarmInstance,
+  type AlarmHistoryFilter,
 } from '../types/scada-runtime.types';
 
 // ── URL resolution (mirrors existing hooks pattern) ──────────────────────────
@@ -58,6 +61,17 @@ export interface ScadaEventPayloadMap {
   [ScadaSocketEvent.COMMAND_OPEN_CARD]: { screenId: string; x?: number; y?: number };
   [ScadaSocketEvent.COMMAND_TOAST]: { message: string; type?: string };
   [ScadaSocketEvent.PIN_RESULT]: { valid: boolean; expiresAt?: number; lockedUntil?: number };
+  // ── Alarm runtime (single transport: everything flows through this service) ──
+  [ScadaSocketEvent.ALARM_STATUS]: AlarmStatusSummary;
+  [ScadaSocketEvent.ALARM_ACK]: { alarmInstanceId: string };
+  [ScadaSocketEvent.ALARM_ACK_ALL]: Record<string, never>;
+  [ScadaSocketEvent.ALARM_HISTORY_QUERY]: AlarmHistoryFilter;
+  [ScadaSocketEvent.ALARM_HISTORY_RESULT]: { alarms?: AlarmInstance[] };
+  // ── Script console push ──
+  [ScadaSocketEvent.SCRIPT_CONSOLE]: { scriptId: string; message: string };
+  // ── Auth handshake result (server-authoritative role, T4) ──
+  // Shape mirrors scada-runtime.gateway handleConnection: { status: 'authenticated', ... }.
+  [ScadaSocketEvent.AUTH]: { status: string; role: string; tenantId: string; userId: string };
 }
 
 export type ScadaEventCallback<E extends keyof ScadaEventPayloadMap> = (
@@ -79,6 +93,22 @@ export class ScadaSocketService {
   private listeners: ListenerMap = {};
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Connection-state subscribers (T6: previously a private field with no observer). */
+  private connectionStateListeners = new Set<(state: DataProviderConnectionState) => void>();
+
+  /**
+   * Refcount for shared ownership of the connection (T6). The operator
+   * bootstrap and the live data provider both mount over this singleton;
+   * a bare disconnect() from one would tear the socket out from under the
+   * other. Owners call acquire()/release(); release() only disconnects when
+   * the last owner lets go. Logout/tenant-change teardown still uses the
+   * unconditional disconnect().
+   */
+  private ownerCount = 0;
+
+  /** True once an owner has requested unbounded reconnection (operator route). */
+  private persistentReconnect = false;
 
   /** Heartbeat timeout: if no inbound frame arrives within this window → 'error'. */
   private readonly HEARTBEAT_TIMEOUT_MS = 35_000;
@@ -114,10 +144,62 @@ export class ScadaSocketService {
   }
 
   /**
+   * Subscribe to connection-state transitions. Returns an unsubscribe fn.
+   * The callback is invoked once immediately with the current state so
+   * late subscribers converge without polling (T6).
+   */
+  onConnectionStateChange(
+    callback: (state: DataProviderConnectionState) => void,
+  ): () => void {
+    this.connectionStateListeners.add(callback);
+    callback(this._connectionState);
+    return () => {
+      this.connectionStateListeners.delete(callback);
+    };
+  }
+
+  /**
+   * Register shared ownership of the connection (T6). The socket is only
+   * torn down by release() when the LAST owner releases. Idempotent per
+   * owner: pair each acquire() with exactly one release().
+   */
+  acquire(): void {
+    this.ownerCount += 1;
+  }
+
+  /**
+   * Release shared ownership. Disconnects only when the refcount reaches 0.
+   * The unconditional disconnect() (logout / tenant switch) is unaffected.
+   */
+  release(): void {
+    this.ownerCount = Math.max(0, this.ownerCount - 1);
+    if (this.ownerCount === 0) {
+      // A7/Plan 2: unbounded reconnection is an OPERATOR-ROUTE property.
+      // Reset it with the last owner so a later builder-preview session in
+      // the same tab does not inherit Infinity retries (sticky ratchet).
+      this.persistentReconnect = false;
+      this.disconnect();
+    }
+  }
+
+  /**
    * Connect (or reconnect) to the /scada namespace.
    * Safe to call multiple times — no-op when already connected.
+   *
+   * @param options.persistent when true, reconnection attempts are UNBOUNDED
+   *   (operator route: an operator station must keep retrying through a full
+   *   gateway outage and self-heal). Builder preview connections keep the
+   *   bounded default so a dead upstream is not amplifed by a retry storm.
    */
-  connect(): void {
+  connect(options?: { persistent?: boolean }): void {
+    if (options?.persistent) {
+      this.persistentReconnect = true;
+      // Socket already exists? Update its manager options in place.
+      if (this.socket) {
+        this.socket.io.opts.reconnectionAttempts = Infinity;
+      }
+    }
+
     if (this.socket?.connected) return;
 
     const token = getAccessToken();
@@ -139,6 +221,9 @@ export class ScadaSocketService {
     if (this.socket) {
       // Reuse existing socket instance; just update auth and reconnect.
       (this.socket as Socket & { auth: Record<string, unknown> }).auth = { token };
+      if (this.persistentReconnect) {
+        this.socket.io.opts.reconnectionAttempts = Infinity;
+      }
       this.socket.connect();
       return;
     }
@@ -152,10 +237,10 @@ export class ScadaSocketService {
       transports: ['websocket', 'polling'],
       auth: { token },
       reconnection: true,
-      // Bounded, not Infinity: a full gateway/SCADA outage must not be amplified by
-      // an unbounded reconnect storm against a dead upstream. The backoff already
-      // caps the delay; this caps the count so the storm ends.
-      reconnectionAttempts: 20,
+      // Default is bounded (20): builder-preview callers must not amplify a full
+      // outage with an unbounded retry storm. Operator callers pass
+      // { persistent: true } which flips this to Infinity (T6).
+      reconnectionAttempts: this.persistentReconnect ? Infinity : 20,
       reconnectionDelay: BACKOFF_BASE_MS,
       reconnectionDelayMax: BACKOFF_MAX_MS,
       randomizationFactor: 0.3,
@@ -263,6 +348,49 @@ export class ScadaSocketService {
       };
       this.on(ScadaSocketEvent.PIN_RESULT, handler);
       this.emit(ScadaSocketEvent.PIN_VERIFY, { packageId, pin });
+    });
+  }
+
+  // ── Alarm runtime convenience methods (single transport, T1) ─────────────
+
+  /**
+   * Acknowledge a single alarm instance over the socket. State only changes
+   * when the server pushes the next ALARM_STATUS — there is deliberately NO
+   * optimistic local mutation.
+   */
+  acknowledgeAlarm(alarmInstanceId: string): void {
+    this.emit(ScadaSocketEvent.ALARM_ACK, { alarmInstanceId });
+  }
+
+  /** Acknowledge all active alarms over the socket (server-authoritative). */
+  acknowledgeAllAlarms(): void {
+    this.emit(ScadaSocketEvent.ALARM_ACK_ALL, {});
+  }
+
+  /**
+   * Query alarm history. Resolves with the alarm list from the server's
+   * ALARM_HISTORY_RESULT push; rejects on timeout / no connection.
+   */
+  queryAlarmHistory(
+    filter: AlarmHistoryFilter,
+    timeoutMs = 15_000,
+  ): Promise<AlarmInstance[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.isConnected) {
+        reject(new Error('Not connected to SCADA server'));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.off(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
+        reject(new Error('Alarm history query timed out'));
+      }, timeoutMs);
+      const handler = (payload: { alarms?: AlarmInstance[] }): void => {
+        clearTimeout(timer);
+        this.off(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
+        resolve(payload.alarms ?? []);
+      };
+      this.on(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
+      this.emit(ScadaSocketEvent.ALARM_HISTORY_QUERY, filter);
     });
   }
 
@@ -392,6 +520,14 @@ export class ScadaSocketService {
   private _setConnectionState(state: DataProviderConnectionState): void {
     if (this._connectionState === state) return;
     this._connectionState = state;
+    // Notify subscribers (T6) — failures here must never break the socket loop.
+    this.connectionStateListeners.forEach((cb) => {
+      try {
+        cb(state);
+      } catch (err) {
+        console.error('[ScadaSocketService] connection-state listener error:', err);
+      }
+    });
   }
 
   private _resetHeartbeatTimer(): void {

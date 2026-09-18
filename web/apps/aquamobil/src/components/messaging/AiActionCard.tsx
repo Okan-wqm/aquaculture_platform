@@ -11,6 +11,8 @@ import { clsx } from 'clsx';
 import { Check, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useCallback, type ReactElement } from 'react';
 
+import { Button, Card } from '@/components/ui';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -59,26 +61,29 @@ export function AiActionCard({
 
   const isResolved = status === 'completed' || status === 'failed';
 
+  // The card's BORDER carries the outcome (green confirmed, coral failed,
+  // accent while the decision is still the user's). WHY the accent and not the
+  // violet this replaces: v4 gives the accent every action and active state, and
+  // there is no AI token — a hand-picked purple is a colour no theme owns.
   return (
-    <div
+    <Card
       className={clsx(
-        'mx-4 my-2 rounded-2xl border p-4 shadow-sm',
-        'bg-white dark:bg-gray-900',
-        status === 'completed' && 'border-green-200 dark:border-green-800',
-        status === 'failed' && 'border-red-200 dark:border-red-800',
-        !isResolved && 'border-purple-200 dark:border-purple-800',
+        'mx-4 my-2 p-4',
+        status === 'completed' && 'border-ok',
+        status === 'failed' && 'border-crit',
+        !isResolved && 'border-acc',
       )}
     >
       {/* Action description */}
       <div className="flex items-start gap-3 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <div className="w-8 h-8 rounded-lg bg-acc-dim flex items-center justify-center flex-shrink-0 mt-0.5">
           {status === 'completed' ? (
-            <CheckCircle2 size={18} className="text-green-500" />
+            <CheckCircle2 size={18} className="text-ok" />
           ) : status === 'failed' ? (
-            <AlertCircle size={18} className="text-red-500" />
+            <AlertCircle size={18} className="text-crit" />
           ) : (
             <svg
-              className="w-[18px] h-[18px] text-purple-500"
+              className="w-[18px] h-[18px] text-acc"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -93,41 +98,38 @@ export function AiActionCard({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">
+          <p className="text-meta font-semibold text-acc uppercase tracking-wider mb-1">
             AI Proposed Action
           </p>
-          <p className="text-sm text-gray-900 dark:text-white leading-relaxed">
-            {description}
-          </p>
+          <p className="text-body text-ink-1 leading-relaxed">{description}</p>
         </div>
       </div>
 
-      {/* Result message (after resolution) */}
+      {/* Result message (after resolution). `--ok` has no dim twin and
+          `--type-harvest` is the same value in every theme, so the harvest tint
+          is the green wash. */}
       {isResolved && resultMessage && (
         <div
           className={clsx(
-            'text-xs rounded-lg px-3 py-2 mb-3',
-            status === 'completed'
-              ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300'
-              : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300',
+            'text-meta rounded-lg px-3 py-2 mb-3',
+            status === 'completed' ? 'bg-type-harvest-dim text-ok' : 'bg-crit-dim text-crit',
           )}
         >
           {resultMessage}
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* Action buttons. Confirm is this card's ONE accent action — v4 reserves
+          the teal for exactly that, so the pre-v4 green fill (which competed
+          with the green "completed" state above it) becomes the primary variant
+          and the outcome colours stay on the icon and the result row. */}
       {!isResolved && (
         <div className="flex items-center gap-3">
-          <button
+          <Button
+            variant="primary"
+            block
             onClick={handleConfirm}
             disabled={status === 'confirming'}
-            className={clsx(
-              'flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 touch-feedback transition-all',
-              status === 'confirming'
-                ? 'bg-green-100 text-green-400 cursor-not-allowed'
-                : 'bg-green-500 text-white active:scale-95 shadow-sm shadow-green-500/30',
-            )}
           >
             {status === 'confirming' ? (
               <Loader2 size={18} className="animate-spin" />
@@ -135,23 +137,19 @@ export function AiActionCard({
               <Check size={18} />
             )}
             {status === 'confirming' ? 'Confirming...' : 'Confirm'}
-          </button>
+          </Button>
 
-          <button
+          <Button
+            variant="secondary"
+            block
             onClick={handleCancel}
             disabled={status === 'confirming'}
-            className={clsx(
-              'flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 touch-feedback transition-all',
-              status === 'confirming'
-                ? 'bg-gray-100 text-gray-300 dark:bg-gray-800 dark:text-gray-600 cursor-not-allowed'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:scale-95',
-            )}
           >
             <X size={18} />
             Cancel
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

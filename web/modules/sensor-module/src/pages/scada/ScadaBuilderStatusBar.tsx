@@ -22,6 +22,10 @@ export interface ScadaBuilderStatusBarProps {
   activeScreenId: string | null;
   mode: BuilderMode;
   selectedDeviceName: string | null;
+  /** Real package lifecycle status from the backend entity (DRAFT/PUBLISHED/...). */
+  packageStatus?: string | null;
+  /** Real package version from the backend entity. */
+  packageVersion?: number | null;
 }
 
 export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
@@ -29,6 +33,8 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
   activeScreenId,
   mode,
   selectedDeviceName,
+  packageStatus = null,
+  packageVersion = null,
 }) => {
   const totalWidgets = screens.reduce((sum, s) => sum + s.widgetCount, 0);
   const totalEdges = screens.reduce((sum, s) => sum + s.edgeCount, 0);
@@ -37,8 +43,8 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
   return (
     <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
       <div className="flex items-center gap-4">
-        <span>Status: Draft</span>
-        <span>v1</span>
+        <span>Status: {packageStatus ?? 'Draft'}</span>
+        <span>v{packageVersion ?? 1}</span>
         <span>{screens.length} screens</span>
         <span>{totalWidgets} widget</span>
         <span>{totalEdges} connections</span>

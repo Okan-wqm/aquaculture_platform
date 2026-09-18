@@ -5,14 +5,15 @@ export interface RoleBadgeProps {
   role: string;
 }
 
-const roleConfig: Record<string, { bg: string; text: string; label: string }> = {
-  SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
-  TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
-  MODULE_MANAGER: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Module Manager' },
-  MODULE_USER: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Module User' },
+// SUDERRA tints via the shell's sd-rolepill primitives
+const roleConfig: Record<string, { cls: string; label: string }> = {
+  SUPER_ADMIN: { cls: 'sd-rolepill sd-rolepill--super', label: 'Super Admin' },
+  TENANT_ADMIN: { cls: 'sd-rolepill sd-rolepill--tenant', label: 'Tenant Admin' },
+  MODULE_MANAGER: { cls: 'sd-rolepill sd-rolepill--manager', label: 'Module Manager' },
+  MODULE_USER: { cls: 'sd-rolepill sd-rolepill--user', label: 'Module User' },
 };
 
-const defaultConfig = { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Unknown' };
+const defaultConfig = { cls: 'sd-rolepill sd-rolepill--user', label: 'Unknown' };
 
 /**
  * Renders a role name with appropriate color badge.
@@ -21,8 +22,8 @@ export const RoleBadge = memo<RoleBadgeProps>(({ role }) => {
   const config = roleConfig[role] ?? defaultConfig;
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
-      <Shield className="w-3 h-3 mr-1" />
+    <span className={config.cls}>
+      <Shield size={12} aria-hidden="true" />
       {config.label}
     </span>
   );

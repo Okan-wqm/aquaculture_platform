@@ -22,7 +22,7 @@ import { useAuth } from './useAuth';
 
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { CreateChannelInput } from '@/types/messaging';
+import type { Channel, CreateChannelPayload } from '@/types/messaging';
 import { toWireChannelType } from '@/utils/channel-type-wire';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -50,10 +50,7 @@ export function useCreateChannel(): UseCreateChannelReturn {
 
   const dmMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const result = await graphqlRequest(
-        DIRECT_CHANNEL,
-        { userId },
-      );
+      const result = await graphqlRequest<{ directChannel: Channel }>(DIRECT_CHANNEL, { userId });
       if (!result.directChannel?.id) {
         throw new Error('Failed to create or retrieve DM channel');
       }
@@ -61,7 +58,9 @@ export function useCreateChannel(): UseCreateChannelReturn {
     },
     onSuccess: () => {
       // WHY void: invalidation is fire-and-forget (React Query owns the refetch).
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {
@@ -71,22 +70,21 @@ export function useCreateChannel(): UseCreateChannelReturn {
 
   const groupMutation = useMutation({
     mutationFn: async (params: { name: string; memberIds: string[] }) => {
-      const input: CreateChannelInput = {
+      const input: CreateChannelPayload = {
         type: toWireChannelType('group'),
         name: params.name,
         memberIds: params.memberIds,
       };
-      const result = await graphqlRequest(
-        CREATE_CHANNEL,
-        { input },
-      );
+      const result = await graphqlRequest<{ createChannel: Channel }>(CREATE_CHANNEL, { input });
       if (!result.createChannel?.id) {
         throw new Error('Failed to create group channel');
       }
       return result.createChannel;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {
@@ -96,23 +94,22 @@ export function useCreateChannel(): UseCreateChannelReturn {
 
   const aiMutation = useMutation({
     mutationFn: async (params: { aiPersona?: string; name?: string }) => {
-      const input: CreateChannelInput = {
+      const input: CreateChannelPayload = {
         type: toWireChannelType('ai'),
         name: params.name,
         memberIds: [], // Creator auto-added on backend
         aiPersona: params.aiPersona,
       };
-      const result = await graphqlRequest(
-        CREATE_CHANNEL,
-        { input },
-      );
+      const result = await graphqlRequest<{ createChannel: Channel }>(CREATE_CHANNEL, { input });
       if (!result.createChannel?.id) {
         throw new Error('Failed to create AI channel');
       }
       return result.createChannel;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {

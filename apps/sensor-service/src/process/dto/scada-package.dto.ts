@@ -1,5 +1,5 @@
 import { InputType, ObjectType, Field, ID, Int } from '@nestjs/graphql';
-import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsUUID, MaxLength, IsObject, IsArray, IsBoolean } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
@@ -49,10 +49,11 @@ export class UpdateScadaPackageInput {
   @IsString()
   description?: string;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @IsOptional()
   @IsUUID()
-  processId?: string;
+  /** Explicit null = UNLINK the process (M6d); undefined = leave unchanged. */
+  processId?: string | null;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
@@ -83,6 +84,16 @@ export class ScadaPackageFilterInput {
   @IsOptional()
   @IsString()
   searchTerm?: string;
+
+  /**
+   * Archive semantics (M6b): when `status` is NOT set, the list defaults to
+   * EXCLUDING archived (soft-deleted) packages; set this to true to include
+   * them. When `status` IS set this flag is moot (the enum decides).
+   */
+  @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
+  includeArchived?: boolean;
 }
 
 // ============================================================================
@@ -106,8 +117,9 @@ export class ScadaPackageType {
   @Field(() => Int)
   version!: number;
 
-  @Field({ nullable: true })
-  processId?: string;
+  // Explicit type fn: design:type reflection cannot infer `string | null`.
+  @Field(() => String, { nullable: true })
+  processId?: string | null;
 
   @Field({ nullable: true })
   processName?: string;
@@ -117,6 +129,15 @@ export class ScadaPackageType {
 
   @Field(() => ScadaPackageStatus)
   status!: ScadaPackageStatus;
+
+  /**
+   * When this package became PUBLISHED (operator contract, M4). The entity
+   * has no published_at column — the resolver derives it from the latest
+   * shipped deploy-log row (see ScadaPackageService.derivePublishedAt), so
+   * the field is nullable and absent only for a package that never shipped.
+   */
+  @Field(() => Date, { nullable: true })
+  publishedAt?: Date | null;
 
   @Field({ nullable: true })
   createdBy?: string;
@@ -147,6 +168,24 @@ export class DeployScadaPackageResultType {
 
   @Field(() => ID, { nullable: true })
   deviceId?: string;
+}
+
+/**
+ * Result of the deploy-less publish mutation (M5): flips a package to
+ * PUBLISHED through the shared transition (activation bridge reloads the
+ * runtime) without touching the edge, MQTT, or signing.
+ */
+@ObjectType()
+export class PublishScadaPackageResultType {
+  @Field()
+  success!: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+
+  /** Package version at publish time. */
+  @Field(() => Int)
+  version!: number;
 }
 
 /**

@@ -78,9 +78,9 @@ describe('useIncidentMediaUpload', () => {
 
   it('rejects a non-image file client-side (no network call)', async () => {
     const { result } = renderHook(() => useIncidentMediaUpload());
-    await expect(
-      result.current.uploadPhoto(fakeFile('application/pdf'), 'ESCAPE'),
-    ).rejects.toThrow(/image/i);
+    await expect(result.current.uploadPhoto(fakeFile('application/pdf'), 'ESCAPE')).rejects.toThrow(
+      /image/i,
+    );
     expect(mockGraphqlRequest).not.toHaveBeenCalled();
   });
 

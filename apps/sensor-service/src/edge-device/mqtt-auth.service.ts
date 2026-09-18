@@ -317,25 +317,6 @@ export class MqttAuthService implements OnModuleInit {
         // SEC-MEDIUM-130 (№75): wildcard subscribe across ALL tenants
         // (tenants/+/...) removed — the service subscribes per-tenant.
         if (isTenantTopic) return true;
-        // SENSOR-HIGH-118: Mosquitto 2.x + go-auth checks wildcard SUBSCRIBEs
-        // with acc=4 (MOSQ_ACL_SUBSCRIBE). The listener subscribes one fixed,
-        // enumerated filter set (SENSOR_SERVICE_SUBSCRIPTION_FILTERS in
-        // mqtt-listener.service.ts); grant the subscribe bit — and a
-        // filter-level read for go-auth variants that re-check acc=1 on the
-        // filter — for exactly those tenant-device LEAF filters and the
-        // temperature-array pattern. The broad `tenants/+/devices/+/#`
-        // grant stays DENIED, preserving the SEC-MEDIUM-130 intent; the
-        // parameterized unit test derives from the exported filter list so
-        // this grant cannot drift from what the listener subscribes.
-        if (
-          (acc & 4 || acc === 1 || acc === 3) &&
-          /^tenants\/\+\/devices\/\+\/(telemetry|status|response|responses|io_data|alarms|capabilities|lora_events)$/.test(topic)
-        ) {
-          return true;
-        }
-        if ((acc & 4 || acc === 1 || acc === 3) && topic === '+/+/+/temperature-array') {
-          return true;
-        }
         // Legacy topics during migration
         if (topic.startsWith('sensor/') || topic.startsWith('sensors/') || topic.startsWith('edge/')) return true;
         if (topic.startsWith('aquaculture/')) return true;

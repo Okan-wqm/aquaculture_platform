@@ -1,22 +1,18 @@
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 import { useAuth } from './useAuth';
 
-import type {
-  FarmStockInventoryQuery,
-  FarmStockInventoryQueryVariables,
-} from '@/generated/graphql';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Tank } from '@/types';
+import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANK_PAGE_SIZE = 100;
 
-const FARM_STOCK_INVENTORY_QUERY: TypedDocumentNode<FarmStockInventoryQuery, FarmStockInventoryQueryVariables> = gql`
+const FARM_STOCK_INVENTORY_QUERY = gql`
   query FarmStockInventory($filter: FarmStockInventoryFilterInput) {
     farmStockInventory(filter: $filter) {
       items {
@@ -82,7 +78,48 @@ interface FarmStockInventoryResult {
   };
 }
 
-function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInventory']['items'][number]): Tank {
+/**
+ * The eight members of the backend `TankStatus` enum, as a runtime set.
+ *
+ * ORPHAN-HIGH-583: the wire type for this field is a free-form String, and this
+ * mapper used to force it into the union with `as Tank['status']`. When the
+ * frontend union was missing CLEANING and FALLOW, a fallowing pen — routine
+ * between production cycles — reached the render tree as a status no lookup
+ * table had, and the unit detail crashed on `STATUS_META[tank.status].tone`.
+ *
+ * Completing the union fixed that crash; this removes the mechanism that let
+ * wire drift reach the render tree at all. A cast asserts; this checks.
+ */
+const TANK_STATUSES: ReadonlySet<string> = new Set<Tank['status']>([
+  'ACTIVE',
+  'PREPARING',
+  'CLEANING',
+  'MAINTENANCE',
+  'HARVESTING',
+  'FALLOW',
+  'QUARANTINE',
+  'INACTIVE',
+]);
+
+/**
+ * Narrow the wire value, or fall back loudly.
+ *
+ * A status the frontend does not know means the backend enum grew and this app
+ * has not caught up — a real event that should be visible, not a silent
+ * default. INACTIVE is the safe landing: it renders, it reads as "not in
+ * production", and it never implies a pen is stocked and healthy.
+ */
+export function narrowTankStatus(raw: string | null | undefined): Tank['status'] {
+  if (raw == null) return 'ACTIVE';
+  const upper = raw.toUpperCase();
+  if (TANK_STATUSES.has(upper)) return upper as Tank['status'];
+  logger.warn('[useTanks] unknown container status from the wire', { status: raw });
+  return 'INACTIVE';
+}
+
+function mapInventoryItemToTank(
+  item: FarmStockInventoryResult['farmStockInventory']['items'][number],
+): Tank {
   // FARM-LOW-216: the container's PRIMARY batch drives species/batch
   // attribution for field capture. Prefer the explicit isPrimary row (the
   // tank-composition ledger's primaryBatchId, projected into the snapshot);
@@ -94,7 +131,11 @@ function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInvento
     name: item.container.name,
     code: item.container.code,
     volume: item.container.volume ?? 0,
-    status: (item.container.status?.toUpperCase() ?? 'ACTIVE') as Tank['status'],
+    status: narrowTankStatus(item.container.status),
+    // The container's OWN totals, across every batch in it. These are what
+    // unit- and farm-level figures must use; the per-batch block below covers
+    // only the primary batch and understates a mixed pen.
+    currentQuantity: item.container.currentQuantity ?? 0,
     currentBiomass: item.container.currentBiomassKg ?? 0,
     maxBiomass: item.container.maxBiomassKg ?? 0,
     siteId: item.container.siteId,
@@ -117,7 +158,7 @@ function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInvento
 }
 
 async function fetchTanksPage(page: number): Promise<{ items: Tank[]; total: number }> {
-  const result = await graphqlRequest(FARM_STOCK_INVENTORY_QUERY, {
+  const result = await graphqlRequest<FarmStockInventoryResult>(FARM_STOCK_INVENTORY_QUERY, {
     filter: {
       page,
       limit: TANK_PAGE_SIZE,

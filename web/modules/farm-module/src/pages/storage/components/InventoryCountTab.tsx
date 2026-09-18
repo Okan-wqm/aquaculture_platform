@@ -169,7 +169,7 @@ export const InventoryCountTab: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {ic.startedAt
-                      ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
+                      ? new Date(ic.startedAt).toLocaleDateString('en-GB')
                       : '-'}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">

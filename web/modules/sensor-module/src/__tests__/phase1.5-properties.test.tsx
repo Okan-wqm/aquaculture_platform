@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 
 import { GeneralPropertiesSection } from '../components/scada-builder/widget-configs/GeneralPropertiesSection';
@@ -101,28 +101,50 @@ describe('GeneralPropertiesSection', () => {
     expect(badge.textContent).toBe('trend Chart');
   });
 
-  it('dispatches position update when X input changes', () => {
-    const onUpdate = vi.fn();
-    const { getByTestId } = render(
-      <GeneralPropertiesSection {...defaultGeneralProps({ onUpdate, x: 2, y: 3, w: 4, h: 2 })} />,
-    );
-    const xInput = getByTestId('widget-x-input');
-    fireEvent.change(xInput, { target: { value: '10' } });
-    expect(onUpdate).toHaveBeenCalledWith({
-      position: { col: 10, row: 3, w: 4, h: 2 },
-    });
+  // Inputs are debounced (~250ms, see DebouncedInput): typing does not fire
+  // an updateWidget (and a history entry) per keystroke. Tests advance the
+  // debounce timer to observe the committed update.
+  it('dispatches position update when X input changes (debounced)', () => {
+    vi.useFakeTimers();
+    try {
+      const onUpdate = vi.fn();
+      const { getByTestId } = render(
+        <GeneralPropertiesSection {...defaultGeneralProps({ onUpdate, x: 2, y: 3, w: 4, h: 2 })} />,
+      );
+      const xInput = getByTestId('widget-x-input');
+      fireEvent.change(xInput, { target: { value: '10' } });
+      // Not yet — debounce window still open
+      expect(onUpdate).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(onUpdate).toHaveBeenCalledWith({
+        position: { col: 10, row: 3, w: 4, h: 2 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('dispatches size update when W input changes', () => {
-    const onUpdate = vi.fn();
-    const { getByTestId } = render(
-      <GeneralPropertiesSection {...defaultGeneralProps({ onUpdate, x: 2, y: 3, w: 4, h: 2 })} />,
-    );
-    const wInput = getByTestId('widget-w-input');
-    fireEvent.change(wInput, { target: { value: '8' } });
-    expect(onUpdate).toHaveBeenCalledWith({
-      position: { col: 2, row: 3, w: 8, h: 2 },
-    });
+  it('dispatches size update when W input changes (debounced)', () => {
+    vi.useFakeTimers();
+    try {
+      const onUpdate = vi.fn();
+      const { getByTestId } = render(
+        <GeneralPropertiesSection {...defaultGeneralProps({ onUpdate, x: 2, y: 3, w: 4, h: 2 })} />,
+      );
+      const wInput = getByTestId('widget-w-input');
+      fireEvent.change(wInput, { target: { value: '8' } });
+      expect(onUpdate).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      expect(onUpdate).toHaveBeenCalledWith({
+        position: { col: 2, row: 3, w: 8, h: 2 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

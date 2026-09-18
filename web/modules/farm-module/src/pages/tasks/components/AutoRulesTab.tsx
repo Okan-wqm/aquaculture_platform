@@ -7,22 +7,25 @@ import {
 } from '../types/task.types';
 
 interface AutoRulesTabProps {
+  /** Opens the create-rule modal (create-only; edit path unwired). */
+  onCreateRule?: () => void;
   rules: AutoRule[];
   onToggleActive: (ruleId: string) => void;
 }
 
-export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActive }) => {
+export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules,
+  onCreateRule, onToggleActive }) => {
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <p className="text-sm text-gray-500">
-            Koşul bazlı otomatik görev oluşturma kuralları. Koşul sağlandığında ilgili görev otomatik oluşturulur.
+            Condition-based automatic task rules. When the condition is met, the task is created automatically.
           </p>
         </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
-          + Yeni Kural
+        <button onClick={onCreateRule} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
+          + New Rule
         </button>
       </div>
 
@@ -56,7 +59,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                     {/* Trigger -> Action Flow */}
                     <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Tetikleyici Koşul</p>
+                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Trigger Condition</p>
                         <p className="text-sm text-gray-700 font-medium">{rule.triggerCondition}</p>
                       </div>
                       <div className="flex-shrink-0">
@@ -65,7 +68,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                         </svg>
                       </div>
                       <div className="flex-1">
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Oluşturulacak Görev</p>
+                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Task to Create</p>
                         <div className="flex items-center gap-2">
                           <p className="text-sm text-gray-700 font-medium">{rule.taskTitle}</p>
                           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${cat.bg} ${cat.color}`}>
@@ -82,7 +85,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
                     <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
                       <span>Tetiklenme: {rule.triggerCount} kez</span>
                       {rule.lastTriggered && (
-                        <span>Son: {new Date(rule.lastTriggered).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>Son: {new Date(rule.lastTriggered).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                       )}
                     </div>
                   </div>

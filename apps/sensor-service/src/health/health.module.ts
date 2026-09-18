@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 
-import { SharedMqttModule } from '../shared-mqtt/shared-mqtt.module';
 import { HealthController } from './health.controller';
 
 /**
@@ -8,7 +7,6 @@ import { HealthController } from './health.controller';
  * Provides health check endpoints for kubernetes probes
  */
 @Module({
-  imports: [SharedMqttModule],
   controllers: [HealthController],
 })
  

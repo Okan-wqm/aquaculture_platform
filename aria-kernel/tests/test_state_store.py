@@ -3642,3 +3642,67 @@ class PortableValidationContinuity(StateStoreTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
+    """ARIA-HIGH-155 — the store directory is there, its worktree registered,
+    its ``.git`` link gone (``git clean -ffdx`` between two jobs on the
+    persistent runner), and ``tools/`` re-created by a later step. git run
+    inside resolves the ENCLOSING repository: on 2026-09-18 the executor lane
+    read the workspace's ``main`` as 6450 unpushed store commits and refused
+    (run 35339272100). A tree without ``.git`` holds no commit."""
+
+    def _hollow_store_inside_the_repo(self):
+        root = self.repo / ".aria-state-store"
+        store = checkout_state_store(self.repo, store_dir=root)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        # The sweep: the link goes, the registration stays, a later step
+        # writes into the same path.
+        (root / ".git").unlink()
+        (root / "tools").mkdir(exist_ok=True)
+        (root / "tools" / "stray.txt").write_text("bytes a later step wrote\n", encoding="utf-8")
+        self.assertTrue(state_store._worktree_registered(self.repo, root))
+        # And git inside answers for the enclosing repository, not the store.
+        self.assertEqual(
+            _git(root, "rev-parse", "--show-toplevel").strip(),
+            _git(self.repo, "rev-parse", "--show-toplevel").strip(),
+        )
+        return root
+
+    def test_the_checkout_sets_the_bytes_aside_and_restores_the_tip(self) -> None:
+        root = self._hollow_store_inside_the_repo()
+
+        store = checkout_state_store(self.repo, store_dir=root)
+
+        self.assertEqual(store.root, root)
+        self.assertTrue((root / ".git").exists())
+        self.assertEqual(_git(root, "rev-parse", "--show-toplevel").strip(), str(root.resolve()))
+        aside = sorted(self.repo.glob(".aria-state-store.hollow-*"))
+        self.assertEqual(len(aside), 1, aside)
+        self.assertEqual(
+            (aside[0] / "tools" / "stray.txt").read_text(encoding="utf-8"),
+            "bytes a later step wrote\n",
+        )
+        self.assertFalse((root / "tools" / "stray.txt").exists())
+        rows = [
+            json.loads(line)
+            for line in (tools_root(store) / "governance.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        disclosed = [row for row in rows if row.get("kind") == "state_store_rematerialized_after_missing"]
+        self.assertEqual(len(disclosed), 1)
+        self.assertEqual(disclosed[0]["details"]["hollow_set_aside"], aside[0].as_posix())
+        self.assertIn("hollow", disclosed[0]["details"]["note"])
+
+    def test_a_real_worktree_with_an_unpushed_commit_is_still_refused(self) -> None:
+        root = self.repo / ".aria-state-store"
+        store = checkout_state_store(self.repo, store_dir=root)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        self._seed_surface(store, '{"row": "committed-never-pushed"}\n')
+        self._commit_in_store(store, "local commit the remote does not have")
+        with self.assertRaises(StateStoreRefusal) as ctx:
+            checkout_state_store(self.repo, store_dir=root)
+        self.assertIn("state_store_unpushed_commits", str(ctx.exception))
+        self.assertFalse(sorted(self.repo.glob(".aria-state-store.hollow-*")))

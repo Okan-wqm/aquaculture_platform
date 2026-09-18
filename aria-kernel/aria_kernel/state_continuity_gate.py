@@ -98,20 +98,61 @@ def losses_not_attested_by_compaction(
             "state_publish_governance_ledger_unreadable: the compaction "
             f"attestation could not be read ({str(exc)[:200]})"
         ) from exc
-    if not attested:
+    # ARIA-HIGH-154 — the second attestation: ``run-artifacts/compacted.jsonl``
+    # (ARIA-HIGH-117), the ledger of every artifact a compaction stripped,
+    # backfilled from the compact archives for a store stripped before the
+    # ledger existed. On the live store the losses were exactly those: hot
+    # artifacts stripped by compactions whose governance rows predate
+    # ``pruned_paths``, still claimed by a tip no kernel publish had moved
+    # since 2026-09-04. The next compaction stripped nothing (``pruned_paths``
+    # empty) and attested 176 artifacts on the ledger — and this gate, reading
+    # governance only, refused the publish that carried the heal. A ledger row
+    # vouches for its artifact's path when the archive it names is present:
+    # the rows ride the archive, so an attestation whose archive is gone is
+    # a claim about nothing.
+    compacted = _compacted_artifact_paths(tools_root(store))
+    if not attested and not compacted:
         return lost
     driving = set(write_driving_lost(lost))
     unattested: list[str] = []
     for key in lost:
         claim = previous_surfaces.get(key)
         claim = claim if isinstance(claim, dict) else {}
+        path = str(claim.get("path") or "")
         if (
             key in driving
             or claim.get("root_kind") != "tools"
-            or not prune_attested(str(claim.get("path") or ""), attested)
+            or not (prune_attested(path, attested) or path in compacted)
         ):
             unattested.append(key)
     return unattested
+
+
+def _compacted_artifact_paths(tools: Any) -> frozenset[str]:
+    """Tools-relative paths of every artifact the compaction ledger attests
+    whose archive is present. A broken ledger chain is the publish's refusal
+    (``state_publish_governance_ledger_unreadable`` names the same class)."""
+    from pathlib import Path
+
+    from .ledger import LedgerIntegrityError, LedgerReadLimitError
+    from .runtime_artifacts import compacted_artifacts
+    from .state_store import StateStoreRefusal
+
+    root = Path(tools)
+    try:
+        rows = compacted_artifacts(root).rows
+    except (LedgerIntegrityError, LedgerReadLimitError) as exc:
+        raise StateStoreRefusal(
+            "state_publish_compaction_ledger_unreadable: the artifact "
+            f"compaction ledger could not be read ({str(exc)[:200]})"
+        ) from exc
+    paths: set[str] = set()
+    for row in rows:
+        uri = str(row.get("uri") or "")
+        archive = str(row.get("archive") or "")
+        if uri and archive and (root / archive).is_file():
+            paths.add(uri)
+    return frozenset(paths)
 
 
 def governance_rows_claimed_by(published: dict[str, Any]) -> int:

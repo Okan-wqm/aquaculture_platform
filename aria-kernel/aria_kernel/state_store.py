@@ -528,6 +528,22 @@ def _checkout_state_store_locked(
     # governance event on the freshly restored store.
     vanished_while_registered = (not root.exists()) and _worktree_registered(repo_root, root)
 
+    # ARIA-HIGH-155 — the hollow shape of the same sweep: the directory is
+    # still there, its worktree still registered, but the ``.git`` link the
+    # worktree lives by is gone (``git clean -ffdx`` takes the link; a later
+    # step of the same job re-creates ``tools/``). Every git command run inside
+    # then discovers the PARENT repository and answers with ITS commits — on
+    # 2026-09-18 the executor lane read the workspace's ``main`` as "6450
+    # commit(s) ahead of origin/aria/state" and refused a store that held no
+    # commit at all (run 35339272100). A tree without ``.git`` cannot hold a
+    # commit; what it holds are bytes, and bytes are preserved aside, never
+    # judged as unpublished work and never silently deleted.
+    hollow_set_aside: Path | None = None
+    if root.exists() and _worktree_registered(repo_root, root) and _worktree_is_hollow(root):
+        hollow_set_aside = _set_aside_hollow_store(root)
+        _git(repo_root, "worktree", "prune", check=False)
+        vanished_while_registered = True
+
     if root.exists():
         _clear_existing_store(
             repo_root,
@@ -559,7 +575,9 @@ def _checkout_state_store_locked(
             remote_head,
         )
         if vanished_while_registered:
-            _disclose_rematerialized_after_missing(root, branch=branch)
+            _disclose_rematerialized_after_missing(
+                root, branch=branch, hollow_set_aside=hollow_set_aside,
+            )
         store = StateStore(
             root=root,
             branch=branch,
@@ -621,7 +639,30 @@ def _worktree_registered(repo_root: Path, root: Path) -> bool:
     return any(line.strip() == needle for line in listing.splitlines())
 
 
-def _disclose_rematerialized_after_missing(root: Path, *, branch: str) -> None:
+def _worktree_is_hollow(root: Path) -> bool:
+    """A linked worktree lives by its ``.git`` link (a file naming the
+    repository's ``worktrees/<name>``); without it the directory is a plain
+    tree that git resolves to whatever repository encloses it."""
+    return not (root / ".git").exists()
+
+
+def _set_aside_hollow_store(root: Path) -> Path:
+    """Move a hollow store directory next to itself, stamped; nothing is deleted."""
+    from datetime import datetime, timezone
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    aside = root.with_name(f"{root.name}.hollow-{stamp}")
+    suffix = 0
+    while aside.exists():
+        suffix += 1
+        aside = root.with_name(f"{root.name}.hollow-{stamp}-{suffix}")
+    root.rename(aside)
+    return aside
+
+
+def _disclose_rematerialized_after_missing(
+    root: Path, *, branch: str, hollow_set_aside: Path | None = None,
+) -> None:
     """Z1 (ORPHAN-712) — the store vanished between runs; say so, durably.
 
     Written onto the FRESHLY RESTORED store so the disclosure itself is
@@ -631,17 +672,25 @@ def _disclose_rematerialized_after_missing(root: Path, *, branch: str) -> None:
     try:
         from .tool_registry import append_tools_governance
 
+        details: dict[str, Any] = {
+            "branch": branch,
+            "store_root": root.as_posix(),
+            "note": (
+                "store directory was deleted while its worktree stayed "
+                "registered; anything unpublished at deletion time is gone"
+            ),
+        }
+        if hollow_set_aside is not None:
+            details["note"] = (
+                "store directory lost its .git link while its worktree stayed "
+                "registered (a hollow tree holds no commit); its bytes were set "
+                "aside, not deleted, and the store was checked out fresh"
+            )
+            details["hollow_set_aside"] = hollow_set_aside.as_posix()
         append_tools_governance(
             root / "tools",
             "state_store_rematerialized_after_missing",
-            {
-                "branch": branch,
-                "store_root": root.as_posix(),
-                "note": (
-                    "store directory was deleted while its worktree stayed "
-                    "registered; anything unpublished at deletion time is gone"
-                ),
-            },
+            details,
         )
     except Exception:
         pass

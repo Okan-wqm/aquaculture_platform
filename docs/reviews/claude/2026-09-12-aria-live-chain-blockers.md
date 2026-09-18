@@ -1724,3 +1724,65 @@ permitted` — and `_git_containment_probe_reason()` is
   that out. The single-request form is unchanged. Pinned in
   `test_derive_request_states_batch.py`: the batch ensures the tools dir exactly once (3 before,
   for two requests), folds control once, and the fold never calls `ensure_tools_dir`.
+
+## ARIA-HIGH-154 — the continuity gate could not read the attestation the heal wrote
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence:** the first production cycle since 2026-09-04 (run 35322803000) completed and was
+  **not published**: `integrity verify` refused the store with 3,897 issues — 3,825
+  `raw_pointer_corrupt`, 36 `artifact_ref_missing`, 36 `artifact_index_ref_missing`,
+  `compacted_artifact_count: 0` (quarantine-evidence-35322803000) — ARIA-HIGH-117's signature,
+  on a store that has never carried `run-artifacts/compacted.jsonl`. The heal that finding
+  built runs in the maintenance lane's compaction, and that lane's first run with the fix
+  (35262206853, 2026-09-17 18:59Z; the fix reached `main` with #1553 at 03:08Z) attested 176
+  artifacts from the archives (`compacted_artifacts_attested: 176`, `hot_artifacts_removed: 0`,
+  `pruned_paths: []`) and was then refused by the publish's continuity gate:
+  `state_publish_continuity_surfaces_lost` naming 18 `runtime_artifact_hot` surfaces of
+  `cyc-20260904T093220Z-auto` and `cyc-20260904T194353Z-auto`. The published tip's
+  `snapshot.json` is `executor-33920896040-1` (2026-09-04) — no kernel publish has moved it
+  since; the compactions of 09-05, 09-11 and 09-12 stripped those artifacts under governance
+  rows that predate `pruned_paths`, and the maintenance commits of 09-14..16 were made by the
+  pre-fix code. `losses_not_attested_by_compaction` read one attestation — governance
+  `state_compacted.pruned_paths` since the tip — and the only attestation that existed was the
+  ledger the gate did not read. Two guards, each honest, and between them a store no lane could
+  publish: the maintenance lane's heal refused for losses it had just attested, the nightly
+  refusing a store it could not heal.
+- **Rule:** a guard reads every attestation the kernel writes for the loss it judges; a heal
+  the publish cannot carry is not a heal.
+- **What is now true (2026-09-18):** the continuity gate also reads
+  `run-artifacts/compacted.jsonl` (`_compacted_artifact_paths`): a lost tools surface whose path
+  a ledger row names is attested when the archive the row names is present — the rows ride the
+  archive, so a row whose archive is gone vouches for nothing. A broken ledger chain is a
+  refusal by name (`state_publish_compaction_ledger_unreadable`), never silence. A hand-deleted
+  artifact no row names is refused as before (the runtime-artifact verification names it first).
+  Pinned in `test_state_publish_maintenance.py`: the live shape — tip claims the artifact, a
+  pre-ledger compaction strips it (governance row without `pruned_paths`), the next compaction
+  strips nothing and backfills the ledger — publishes with `compaction_attested_surfaces`
+  naming the loss and no operator acknowledgment; red before (`state_publish_continuity_surfaces_lost`).
+
+## ARIA-HIGH-155 — a hollow store worktree was read as the workspace's unpushed commits
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence (executor run 35339272100, 2026-09-18 11:22Z, the `workflow_run` that followed the
+  cycle):** `state checkout` refused with `state_store_unpushed_commits:
+…/.aria-state-store is 6450 commit(s) ahead of origin/aria/state (HEAD=4335bd5be118)`.
+  `4335bd5be1` is `main` — the workspace's own HEAD — and 6450 is the distance from an orphan
+  branch to it. On the persistent runner the executor job's first step (`git clean -ffdx -e
+node_modules`) had taken the store worktree's `.git` link; a later step re-created
+  `.aria-state-store/tools`; `git worktree list` still registered the path (prunable). The
+  guard asked registration only (`_is_worktree_of`) and then ran git inside a directory with no
+  `.git`, which resolves to the enclosing repository — so the parent's history was judged as the
+  store's unpublished work and the lane that runs every Claude invocation stopped before its
+  first claim. The earlier shape of the same sweep (the directory gone entirely, ORPHAN-712)
+  was already disclosed by name; the hollow shape was not.
+- **Rule:** a tree without `.git` holds no commit; bytes found there are preserved aside and
+  disclosed, never judged as unpublished work and never silently deleted.
+- **What is now true (2026-09-18):** `checkout_state_store` recognises a registered worktree
+  whose `.git` link is gone (`_worktree_is_hollow`), moves the directory next to itself stamped
+  (`.aria-state-store.hollow-<utc>`), prunes the stale registration and checks the tip out
+  fresh; the disclosure row (`state_store_rematerialized_after_missing`) names the set-aside
+  path and the hollow shape. A real worktree with an unpushed commit is refused exactly as
+  before. Pinned in `test_state_store.py` (`AHollowWorktreeIsNotUnpublishedWork`): the live
+  shape — link removed, registration kept, `tools/` re-created inside the workspace repository,
+  git inside answering for the workspace — checks out, sets the bytes aside and discloses; red
+  before with the production refusal.

@@ -44,8 +44,9 @@ describe('INVARIANT: migration file timestamps are unique per directory', () => 
     for (const file of migrationFiles()) {
       const parts = file.split('/');
       const directory = parts.slice(0, -1).join('/');
-      const timestamp = (parts.pop() ?? '').split('-')[0];
-      if (!/^\d{13}$/.test(timestamp)) continue;
+      const basename = parts.pop() ?? '';
+      const timestamp = basename.slice(0, 13);
+      if (!/^\d{13}$/.test(timestamp) || basename.charAt(13) !== '-') continue;
       const inner = byDirectory.get(directory) ?? new Map<string, string[]>();
       const existing = inner.get(timestamp) ?? [];
       existing.push(file);

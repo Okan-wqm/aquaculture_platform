@@ -1819,3 +1819,24 @@ expired and could not be refreshed`. The managed spawn binds the login's one fil
   `test_claude_auth_failure_classification.py` (the primary verdict survives the rung).
   The host's login must be renewed once more by the operator before the next drain; after this
   fix it is renewed by the runtime itself.
+
+## ARIA-HIGH-158 — an open route walked the whole queue, one selection at a time
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence (executor run 35369756222):** after two failed attempts opened the circuit for
+  `anthropic/opus`, the drain logged `drain_circuit_skip` for the next request every ~30 s —
+  each skip re-ran the queue selection (`agent next-pending`, a kernel subprocess over the
+  828-row request ledger with its anchor probes) and excluded one more id. The queue is ~800
+  rows; the drain budget is 21,000 s; the run was cancelled by hand at 17:20Z to free the
+  single-slot runner, which nothing else could use meanwhile (the concurrency group holds the
+  cycle lane too). The breaker's own contract — an open circuit skips without claiming — was
+  kept; what it did not say is when to stop asking.
+- **Rule:** a route that is open is a fact about the route, not about the next request; a
+  drain that learns it stops by name and leaves the queue pending, instead of spending the
+  runner proving it once per row.
+- **What is now true (2026-09-18):** `CIRCUIT_SKIP_STREAK_STOP` (5) consecutive open-circuit
+  skips with no dispatch between them end the drain with `stop_reason=circuit_open_streak`
+  and a stage line naming the open routes; a dispatch on another route resets the streak, so
+  a queue that interleaves healthy routes keeps draining. Pinned in
+  `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
+  selections; a dispatch between skips resets it.

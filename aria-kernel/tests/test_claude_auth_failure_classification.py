@@ -106,6 +106,33 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
         self.assertEqual(attempts[0][0], "opus")
         self.assertEqual(attempts[1][0], "glm-5.3")
 
+    def test_an_unconfigured_cross_rung_does_not_replace_the_primary_verdict(self) -> None:
+        # ARIA-HIGH-157 — the first production drain (2026-09-18) released
+        # every claim under "zai_credential_not_configured" while the cause
+        # was the managed login's OAuth refresh. The terminal error names the
+        # primary marker and its remedy, and the rung's unavailability after.
+        attempts: list[str] = []
+
+        def run(model: str, effort: str) -> cr.ClaudeRunResult:
+            attempts.append(model)
+            if model == "opus":
+                return _result(
+                    returncode=1,
+                    stderr="Failed to authenticate: OAuth session expired and could not be refreshed",
+                    auth_failure={"kind": "auth_failure", "marker": "could not be refreshed",
+                                  "remedy": "re-authenticate the Claude CLI on the runner host"},
+                )
+            raise cr.ClaudeAuthUnavailable("zai_credential_not_configured: set ARIA_ZAI_API_KEY_FILE")
+
+        with self.assertRaises(cr.ClaudeAuthFailure) as caught:
+            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+        message = str(caught.exception)
+        self.assertEqual(attempts, ["opus", "glm-5.3"])
+        self.assertTrue(message.startswith("claude_auth_failure: could not be refreshed on 'opus'"), message)
+        self.assertIn("zai_credential_not_configured", message)
+        self.assertIn("re-authenticate the Claude CLI on the runner host", message)
+        self.assertIsInstance(caught.exception.__cause__, cr.ClaudeAuthUnavailable)
+
     def test_a_write_scope_role_gets_no_second_attempt(self) -> None:
         # The other vendors' runtimes are read-only: an implementer whose
         # session expired is terminal after ONE attempt, in those words.

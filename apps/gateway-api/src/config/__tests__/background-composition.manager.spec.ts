@@ -82,13 +82,17 @@ describe('BackgroundCompositionManager', () => {
     expect(state.getLastError()).toBeNull();
   });
 
-  it('records the error and does not throw or compose on terminal background failure', async () => {
+  it('records the error and does not throw or compose when a round exhausts its budget', async () => {
+    // A sleep that never resolves parks the loop after the first round, so the
+    // assertions read the state exactly as /health/ready would between rounds.
+    const parked = (): Promise<void> => new Promise(() => undefined);
     const retryable: Pick<RetryableIntrospectAndCompose, 'initialize'> = {
       initialize: jest.fn().mockRejectedValue(new Error('all subgraphs unreachable')),
     };
     const manager = new BackgroundCompositionManager({
       retryable: retryable as RetryableIntrospectAndCompose,
       state,
+      sleep: parked,
     });
 
     // initialize() itself must resolve cleanly (the failure is on the background path).
@@ -98,5 +102,69 @@ describe('BackgroundCompositionManager', () => {
     expect(options.update).not.toHaveBeenCalled();
     expect(state.isComposed()).toBe(false);
     expect(state.getLastError()).toBe('all subgraphs unreachable');
+  });
+
+  // GW-COMPOSITION-CONVERGES — 2026-09-18: the gateway restarted 3.5 minutes
+  // before auth-service came back, the composer's budget exhausted, and the
+  // gateway served for hours with no `auth` subgraph ("Unknown type
+  // LoginInput") until a human restarted it. Composition is a loop, not a
+  // verdict: a subgraph that is merely late is composed when it arrives.
+  it('keeps composing after an exhausted round and converges when the late subgraph arrives', async () => {
+    const sleeps: number[] = [];
+    const sleep = (ms: number): Promise<void> => {
+      sleeps.push(ms);
+      return Promise.resolve();
+    };
+    const initialize = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('auth ECONNREFUSED'))
+      .mockRejectedValueOnce(new Error('auth ECONNREFUSED'))
+      .mockResolvedValueOnce({ supergraphSdl: 'type Query { login: String }', cleanup: jest.fn() });
+    const retryable: Pick<RetryableIntrospectAndCompose, 'initialize'> = { initialize };
+    const manager = new BackgroundCompositionManager({
+      retryable: retryable as RetryableIntrospectAndCompose,
+      state,
+      recomposeBackoff: { baseMs: 5_000, maxMs: 60_000 },
+      sleep,
+    });
+
+    await manager.initialize(options);
+    await flushAsync();
+    await flushAsync();
+
+    expect(initialize).toHaveBeenCalledTimes(3);
+    expect(sleeps).toEqual([5_000, 10_000]);
+    expect(options.update).toHaveBeenCalledWith('type Query { login: String }');
+    expect(state.isComposed()).toBe(true);
+    expect(state.getLastError()).toBeNull();
+  });
+
+  it('caps the back-off between rounds and never stops trying', async () => {
+    const sleeps: number[] = [];
+    let rounds = 0;
+    const sleep = (ms: number): Promise<void> => {
+      sleeps.push(ms);
+      // Park after six rounds so the test can observe a bounded prefix of an unbounded loop.
+      return sleeps.length >= 6 ? new Promise(() => undefined) : Promise.resolve();
+    };
+    const initialize = jest.fn().mockImplementation(() => {
+      rounds += 1;
+      return Promise.reject(new Error(`round ${rounds} unreachable`));
+    });
+    const retryable: Pick<RetryableIntrospectAndCompose, 'initialize'> = { initialize };
+    const manager = new BackgroundCompositionManager({
+      retryable: retryable as RetryableIntrospectAndCompose,
+      state,
+      recomposeBackoff: { baseMs: 5_000, maxMs: 60_000 },
+      sleep,
+    });
+
+    await manager.initialize(options);
+    for (let i = 0; i < 8; i += 1) await flushAsync();
+
+    expect(sleeps).toEqual([5_000, 10_000, 20_000, 40_000, 60_000, 60_000]);
+    expect(state.isComposed()).toBe(false);
+    expect(state.getLastError()).toBe('round 6 unreachable');
+    expect(options.update).not.toHaveBeenCalled();
   });
 });

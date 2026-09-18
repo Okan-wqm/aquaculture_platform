@@ -1752,7 +1752,20 @@ def run_with_model_fallback(
     if completed.auth_failure is not None:
         cross = _cross_provider_auth_fallback(model, write_capable=write_capable)
         if cross is not None:
-            retried = run(cross, effort)
+            try:
+                retried = run(cross, effort)
+            except ClaudeAuthUnavailable as exc:
+                # ARIA-HIGH-157 — a rung whose credential is not even
+                # configured must not replace the PRIMARY's verdict with its
+                # own: the first production drain released every claim as
+                # "zai credential not configured" while the cause was the
+                # managed login's refresh. Terminal, naming both, with the
+                # primary's remedy first.
+                raise ClaudeAuthFailure(
+                    f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
+                    f"{model!r}, and the cross-provider rung {cross!r} is unavailable "
+                    f"({exc}); remedy: {completed.auth_failure.get('remedy')}"
+                ) from exc
             if retried.auth_failure is not None:
                 raise ClaudeAuthFailure(
                     f"claude_auth_failure: {completed.auth_failure.get('marker')} on "

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, useConfirm } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -44,6 +44,7 @@ const defaultForm: FeatureToggleForm = {
 // ============================================================================
 
 export const FeatureTogglesPage: React.FC = () => {
+  const confirm = useConfirm();
   // State
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -182,7 +183,7 @@ export const FeatureTogglesPage: React.FC = () => {
   };
 
   const handleDelete = async (toggle: FeatureToggle): Promise<void> => {
-    if (!confirm(`Are you sure you want to delete "${toggle.name}"?`)) return;
+    if (!(await confirm({ title: `Delete toggle "${toggle.name}"?`, message: 'Code paths reading this flag fall back to their default.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
     try {
       await deleteToggle.mutateAsync(toggle.id);
     } catch {

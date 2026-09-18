@@ -14,7 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
   useFeedingProtocolsV2,
@@ -551,9 +551,9 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     });
   };
 
+  const confirm = useConfirm();
   const handleUnassign = async (assignment: ProtocolAssignment) => {
-    if (!window.confirm(t('feedingV2.assignments.unassignConfirm', { unit: assignment.unitName })))
-      return;
+    if (!(await confirm({ title: t('feedingV2.assignments.unassignConfirm', { unit: assignment.unitName }), variant: 'danger' }))) return;
     await unassign.mutateAsync(assignment.id);
   };
 
@@ -720,22 +720,21 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                 }
                 onClick={() => {
                   const label = `${band.feedName} (${band.feedCode})`;
-                  if (
-                    !window.confirm(
-                      t('feedingV2.assignments.manualTransitionConfirm', {
-                        unit: transitionAssignment.unitCode,
-                        feed: label,
-                      }),
-                    )
-                  ) {
-                    return;
-                  }
-                  void transitionFeed
-                    .mutateAsync({
-                      unitId: transitionAssignment.unitId,
-                      toFeedId: band.feedId,
-                    })
-                    .then(() => setTransitionAssignment(null));
+                  void confirm({
+                    title: t('feedingV2.assignments.manualTransitionConfirm', {
+                      unit: transitionAssignment.unitCode,
+                      feed: label,
+                    }),
+                    variant: 'warning',
+                  }).then((ok) => {
+                    if (!ok) return;
+                    void transitionFeed
+                      .mutateAsync({
+                        unitId: transitionAssignment.unitId,
+                        toFeedId: band.feedId,
+                      })
+                      .then(() => setTransitionAssignment(null));
+                  });
                 }}
                 className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
               >

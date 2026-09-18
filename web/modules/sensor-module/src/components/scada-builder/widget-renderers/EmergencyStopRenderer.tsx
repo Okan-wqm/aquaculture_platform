@@ -3,19 +3,21 @@
  */
 
 import React, { memo, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 
 const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
+  const confirm = useConfirm();
   const label = (config.label ?? 'E-STOP') as string;
   const activated = isEditing ? false : Boolean(value);
 
-  const handleEmergencyStop = useCallback(() => {
+  const handleEmergencyStop = useCallback(async (): Promise<void> => {
     if (isEditing) return;
-    const confirmed = window.confirm('EMERGENCY STOP will be activated. Are you sure?');
+    const confirmed = await confirm({ title: 'Activate EMERGENCY STOP?', message: 'Every connected drive stops immediately.', confirmText: 'Activate E-STOP', cancelText: 'Cancel', variant: 'danger' });
     if (confirmed && onCommand) {
       onCommand('emergencyStop', true);
     }
-  }, [isEditing, onCommand]);
+  }, [isEditing, onCommand, confirm]);
 
   const h = height - 16; // account for padding
   const labelFontSize = Math.min(h * 0.14, 22);
@@ -29,7 +31,7 @@ const EmergencyStopRenderer: React.FC<WidgetRendererProps> = ({ config, value, w
       viewBox="0 0 200 200"
       preserveAspectRatio="xMidYMid meet"
       style={{ display: 'block', cursor: isEditing ? 'default' : 'pointer' }}
-      onClick={handleEmergencyStop}
+      onClick={() => void handleEmergencyStop()}
       role="button"
       aria-label="Emergency Stop"
     >

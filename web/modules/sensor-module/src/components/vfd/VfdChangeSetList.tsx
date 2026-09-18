@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { usePrompt, type PromptFn } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -130,6 +131,7 @@ export function VfdChangeSetList({
   onCancel,
   onSubmitForApproval,
 }: VfdChangeSetListProps) {
+  const prompt = usePrompt();
   const { changeSetFilter, setChangeSetFilter, selectedChangeSetId, setSelectedChangeSetId } =
     useVfdProgrammingStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -275,7 +277,7 @@ export function VfdChangeSetList({
                     >
                       View Details
                     </button>
-                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval })}
+                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval }, prompt)}
                   </div>
                 </div>
 
@@ -366,7 +368,7 @@ interface ActionCallbacks {
   onSubmitForApproval: (id: string) => Promise<unknown>;
 }
 
-function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode {
+function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn): React.ReactNode {
   const buttons: React.ReactNode[] = [];
 
   if (cs.status === VfdChangeSetStatus.DRAFT) {
@@ -404,10 +406,11 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
       <button
         key="reject"
         type="button"
-        onClick={() => {
-          const reason = window.prompt('Rejection reason:');
-          if (reason) cbs.onReject(cs.id, reason);
-        }}
+        onClick={() =>
+          void prompt({ title: 'Reject change set', label: 'Rejection reason', confirmText: 'Reject', cancelText: 'Cancel' }).then((reason) => {
+            if (reason) void cbs.onReject(cs.id, reason);
+          })
+        }
         className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
       >
         <X className="h-3 w-3" /> Reject
@@ -450,10 +453,11 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
       <button
         key="rollback"
         type="button"
-        onClick={() => {
-          const reason = window.prompt('Rollback reason:');
-          if (reason) cbs.onRollback(cs.id, reason);
-        }}
+        onClick={() =>
+          void prompt({ title: 'Roll back change set', label: 'Rollback reason', confirmText: 'Roll back', cancelText: 'Cancel' }).then((reason) => {
+            if (reason) void cbs.onRollback(cs.id, reason);
+          })
+        }
         className="inline-flex items-center gap-1 rounded-md border border-purple-200 px-3 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50"
       >
         <RotateCcw className="h-3 w-3" /> Rollback

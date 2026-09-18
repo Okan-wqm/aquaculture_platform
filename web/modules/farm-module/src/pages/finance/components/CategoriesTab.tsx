@@ -10,7 +10,7 @@
  */
 import React, { useState } from 'react';
 
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm } from '@aquaculture/shared-ui';
 
 import {
   FinanceCategory,
@@ -67,9 +67,10 @@ export const CategoriesTab: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleArchive = async (category: FinanceCategory): Promise<void> => {
     setErrorMessage(null);
-    if (!window.confirm(`Archive category "${category.name}"? Existing entries keep it as history.`)) {
+    if (!(await confirm({ title: `Archive category "${category.name}"?`, message: 'Existing entries keep it as history.', confirmText: 'Archive', cancelText: 'Cancel', variant: 'warning' }))) {
       return;
     }
     try {

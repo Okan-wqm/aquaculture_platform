@@ -6,16 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import {
-  X,
-  Copy,
-  Check,
-  Terminal,
-  Clock,
-  AlertCircle,
-  RefreshCw,
-  Loader2,
-} from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
 import {
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
@@ -103,38 +95,21 @@ export function InstallerCommandModal({
   if (!isOpen || !provisioningData) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-600 to-green-700">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white/10 rounded-lg">
-                <Terminal className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-white">
-                  Cihaz Başarıyla Oluşturuldu!
-                </h2>
-                <p className="text-sm text-green-100">
-                  Aşağıdaki komutu Linux cihazınızda çalıştırın
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-white/80 hover:text-white focus:outline-hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="lg"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-3">
+          <span className="p-2 bg-green-100 rounded-lg">
+            <Terminal className="w-6 h-6 text-green-700" />
+          </span>
+          Cihaz Başarıyla Oluşturuldu!
+        </span>
+      }
+      description="Aşağıdaki komutu Linux cihazınızda çalıştırın"
+    >
 
           {/* Content */}
           <div className="p-6 space-y-6">
@@ -268,9 +243,7 @@ export function InstallerCommandModal({
               Tamam
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

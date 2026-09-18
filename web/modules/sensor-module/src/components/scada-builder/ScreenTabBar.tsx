@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -41,6 +42,7 @@ function getScreenIcon(iconName: string): React.ReactNode {
 }
 
 const ScreenTabBar: React.FC = () => {
+  const confirm = useConfirm();
   const screens = useScadaPackageStore((s) => s.screens);
   const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
   const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
@@ -108,11 +110,11 @@ const ScreenTabBar: React.FC = () => {
     setContextMenu(null);
   }, [duplicateScreen]);
 
-  const handleDelete = useCallback((screenId: string) => {
-    if (!window.confirm('Are you sure you want to delete this screen?')) return;
+  const handleDelete = useCallback(async (screenId: string): Promise<void> => {
+    if (!(await confirm({ title: 'Delete this screen?', message: 'Widgets placed on it are removed with it.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
     removeScreen(screenId);
     setContextMenu(null);
-  }, [removeScreen]);
+  }, [removeScreen, confirm]);
 
   const handleSetDefault = useCallback((screenId: string) => {
     setDefaultScreen(screenId);
@@ -232,7 +234,7 @@ const ScreenTabBar: React.FC = () => {
           <Plus className="w-4 h-4" />
         </button>
         <button
-          onClick={() => activeScreenId && handleDelete(activeScreenId)}
+          onClick={() => { if (activeScreenId) void handleDelete(activeScreenId); }}
           disabled={isLastScreen}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             isLastScreen
@@ -305,7 +307,7 @@ const ScreenTabBar: React.FC = () => {
             </button>
             <hr className="my-1 border-gray-200" />
             <button
-              onClick={() => handleDelete(contextMenu.screenId)}
+              onClick={() => void handleDelete(contextMenu.screenId)}
               disabled={isLastScreen}
               className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
                 isLastScreen

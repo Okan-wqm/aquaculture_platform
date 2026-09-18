@@ -8,16 +8,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import {
-  Monitor,
-  Wifi,
-  WifiOff,
-  Upload,
-  X,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-} from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Monitor, Wifi, WifiOff, Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useEdgeDevices, EdgeDevice, formatLastSeen } from '../../hooks/useEdgeDevices';
 
 export type DeployAccent = 'cyan' | 'purple';
@@ -91,18 +83,6 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
   const { data: deviceConnection, isLoading, isError, error } = useEdgeDevices({ limit: 100 });
   const classes = ACCENT_CLASSES[accent];
 
-  // Handle ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Reset state when dialog opens
   useEffect(() => {
     if (isOpen) {
@@ -141,36 +121,19 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      className="max-h-[85vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={
+        <span className="flex items-center gap-2">
+          <Monitor className={`w-5 h-5 ${classes.icon}`} />
+          {title}
+        </span>
+      }
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="deploy-dialog-title"
-        className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3
-            id="deploy-dialog-title"
-            className="text-lg font-semibold text-gray-900 flex items-center gap-2"
-          >
-            <Monitor className={`w-5 h-5 ${classes.icon}`} />
-            {title}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close"
-            title="Close"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -324,8 +287,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

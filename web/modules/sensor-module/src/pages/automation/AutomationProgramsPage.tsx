@@ -35,7 +35,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useConfirm, usePrompt } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
   ProgramStatus,
@@ -335,6 +335,8 @@ const ProgramRow: React.FC<{
 // ============================================================================
 
 const AutomationProgramsPage: React.FC = () => {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { token, tenantId } = useAuth();
@@ -438,8 +440,8 @@ const AutomationProgramsPage: React.FC = () => {
     cloneMutation.mutate({ id: program.id, newCode });
   };
 
-  const handleDelete = (program: AutomationProgram) => {
-    if (window.confirm(`Are you sure you want to delete "${program.programName}"?`)) {
+  const handleDelete = async (program: AutomationProgram): Promise<void> => {
+    if (await confirm({ title: `Delete "${program.programName}"?`, message: 'The program and its revision history are removed.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       deleteMutation.mutate(program.id);
     }
   };
@@ -448,14 +450,14 @@ const AutomationProgramsPage: React.FC = () => {
     archiveMutation.mutate(program.id);
   };
 
-  const handleApprove = (program: AutomationProgram) => {
-    if (window.confirm(`Are you sure you want to approve "${program.programName}"?`)) {
+  const handleApprove = async (program: AutomationProgram): Promise<void> => {
+    if (await confirm({ title: `Approve "${program.programName}"?`, message: 'An approved program can be deployed to edge devices.', confirmText: 'Approve', cancelText: 'Cancel', variant: 'warning' })) {
       approveMutation.mutate(program.id);
     }
   };
 
-  const handleReject = (program: AutomationProgram) => {
-    const reason = window.prompt(`Reason for rejecting "${program.programName}":`);
+  const handleReject = async (program: AutomationProgram): Promise<void> => {
+    const reason = await prompt({ title: `Reject "${program.programName}"`, label: 'Reason for rejecting', confirmText: 'Reject', cancelText: 'Cancel' });
     if (reason !== null && reason.trim()) {
       rejectMutation.mutate({ id: program.id, reason: reason.trim() });
     }
@@ -603,9 +605,9 @@ const AutomationProgramsPage: React.FC = () => {
               program={program}
               onClone={() => handleClone(program)}
               onArchive={() => handleArchive(program)}
-              onDelete={() => handleDelete(program)}
-              onApprove={() => handleApprove(program)}
-              onReject={() => handleReject(program)}
+              onDelete={() => void handleDelete(program)}
+              onApprove={() => void handleApprove(program)}
+              onReject={() => void handleReject(program)}
             />
           ))}
         </div>
@@ -630,9 +632,9 @@ const AutomationProgramsPage: React.FC = () => {
                   program={program}
                   onClone={() => handleClone(program)}
                   onArchive={() => handleArchive(program)}
-                  onDelete={() => handleDelete(program)}
-                  onApprove={() => handleApprove(program)}
-                  onReject={() => handleReject(program)}
+                  onDelete={() => void handleDelete(program)}
+                  onApprove={() => void handleApprove(program)}
+                  onReject={() => void handleReject(program)}
                 />
               ))}
             </tbody>

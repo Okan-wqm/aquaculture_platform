@@ -8,6 +8,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { ConfirmProvider } from '@aquaculture/shared-ui';
 import App from './App';
 
 const root = document.getElementById('root');
@@ -15,7 +16,9 @@ const root = document.getElementById('root');
 if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <App />
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
     </React.StrictMode>
   );
 }

@@ -2,7 +2,7 @@
  * HR Expenses tab — manual HR expense ledger (training, recruitment,
  * PPE, travel, custom) with dynamic category management.
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, useConfirm } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 import {
@@ -27,6 +27,12 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
   const createCategory = useCreateHrFinanceCategory();
   const archiveCategory = useArchiveHrFinanceCategory();
   const deleteEntry = useDeleteHrFinanceEntry();
+  const confirm = useConfirm();
+
+  const handleDeleteEntry = async (id: string): Promise<void> => {
+    if (!(await confirm({ title: 'Delete this HR expense?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
+    deleteEntry.mutate(id);
+  };
 
   const [modal, setModal] = useState<{ open: boolean; entry?: HrFinanceEntry }>({ open: false });
   const [newCategory, setNewCategory] = useState('');
@@ -165,9 +171,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
                       Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (window.confirm('Delete this HR expense?')) deleteEntry.mutate(entry.id);
-                      }}
+                      onClick={() => void handleDeleteEntry(entry.id)}
                       className="font-medium text-red-600 hover:text-red-800 dark:text-red-400"
                     >
                       Delete

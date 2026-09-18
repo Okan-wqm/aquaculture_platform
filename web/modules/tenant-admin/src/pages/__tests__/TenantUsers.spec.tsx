@@ -33,7 +33,10 @@ const mockAuthState = vi.hoisted(() => ({
   epoch: 0,
 }));
 
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // The dialogs under test render through the real shared-ui Modal (portal,
+  // focus trap, Escape); only the auth/session seams are faked.
+  Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: mockAuthState.role },

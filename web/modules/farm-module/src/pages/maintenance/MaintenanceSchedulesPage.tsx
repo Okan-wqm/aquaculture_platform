@@ -32,7 +32,7 @@ import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
 import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
 import UpdateMeterReadingButton from './components/UpdateMeterReadingButton';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -228,8 +228,9 @@ export const MaintenanceSchedulesPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu bakım planını silmek istediğinizden emin misiniz?')) {
+    if (await confirm({ title: 'Bakım planını sil?', message: 'Plana bağlı gelecek görevler de kaldırılır.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();

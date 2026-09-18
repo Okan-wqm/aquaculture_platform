@@ -4,19 +4,10 @@
  * Modal for creating and editing tenant users with role selection.
  */
 
-import React, { useState, useEffect, useId } from 'react';
-import {
-  X,
-  User,
-  Mail,
-  Phone,
-  Shield,
-  RefreshCw,
-  Check,
-  AlertCircle,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
+import { User, Mail, Phone, Shield, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
-import { useFocusTrap } from '../../hooks';
 
 // ============================================================================
 // Types
@@ -65,18 +56,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
 }) => {
   const isEditing = !!user;
 
-  // Generate unique IDs for ARIA attributes
-  const titleId = useId();
-  const descriptionId = useId();
 
-  // Focus trap for accessibility
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   // Form state
   const [formData, setFormData] = useState<UserFormData>({
@@ -162,47 +142,15 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={isEditing ? 'Edit User' : 'Add New User'}
+      description={isEditing ? `Editing ${user?.email}` : 'Create a new user and assign a role'}
     >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
-          <div>
-            <h2 id={titleId} className="text-xl font-bold text-gray-900">
-              {isEditing ? 'Edit User' : 'Add New User'}
-            </h2>
-            <p id={descriptionId} className="text-sm text-gray-500 mt-0.5">
-              {isEditing
-                ? `Editing ${user?.email}`
-                : 'Create a new user and assign a role'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
@@ -474,8 +422,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

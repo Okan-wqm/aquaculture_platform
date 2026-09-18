@@ -25,7 +25,7 @@ import {
 // ARCH-NOTE: Always use SupplierType enum, never hardcode string values. GraphQL enums are case-sensitive.
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useConfirm } from '@aquaculture/shared-ui';
 
 // Predefined species tags
 const PREDEFINED_TAGS = [
@@ -339,8 +339,9 @@ export const SpeciesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this species?')) {
+    if (await confirm({ title: 'Delete this species?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       setDeleteError(null);
       try {
         await deleteSpeciesMutation.mutateAsync(id);

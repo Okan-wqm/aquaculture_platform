@@ -4,6 +4,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { InstallPrompt } from './components/InstallPrompt';
 import { MultiFeatureRoute } from './components/MultiFeatureRoute';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { useAuth } from './hooks/useAuth';
 import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
 import { useSwNavigation } from './hooks/useSwNavigation';
@@ -210,6 +211,7 @@ export function App(): ReactElement {
   return (
     <>
       <InstallPrompt />
+      <UpdatePrompt />
       {/* PERF-03: MobilePermissionsProvider wraps all protected routes so permissions
           are fetched exactly once and shared to all consumers via context. */}
       <MobilePermissionsProvider>

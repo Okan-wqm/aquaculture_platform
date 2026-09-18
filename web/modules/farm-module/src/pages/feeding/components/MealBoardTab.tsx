@@ -11,7 +11,7 @@
  * komut olduğundan zarf ZORUNLUDUR (C-17) — hook zarfı üretir.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
@@ -205,8 +205,9 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  const confirm = useConfirm();
   const onRegenerate = async (plan: FeedingDayPlanView): Promise<void> => {
-    if (!window.confirm(t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }))) {
+    if (!(await confirm({ title: t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }), variant: 'warning' }))) {
       return;
     }
     setActionError(null);

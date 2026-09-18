@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
+import {
+  runInTenantRead,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { ProposedAction } from './proposed-action.entity';
 
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
@@ -56,21 +60,32 @@ export class ActionProposalService {
     @InjectRepository(ProposedAction)
     private readonly proposalRepo: Repository<ProposedAction>,
     private readonly toolExecutor: ToolExecutorService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createProposal(input: CreateProposalInput): Promise<ProposedAction> {
-    const proposal = this.proposalRepo.create({
-      tenantId: input.tenantId,
-      toolName: input.toolName,
-      params: input.params,
-      description: input.description,
-      requestedBy: input.requestedBy,
-      requesterRoles: input.requesterRoles,
-      persona: input.persona,
-      correlationId: input.correlationId,
-      status: 'proposed',
-    });
-    const saved = await this.proposalRepo.save(proposal);
+    // MSGFIX: ai_proposed_actions is a tenant-schema table with a source-schema
+    // write guard — NATS-context callers carry no request middleware, so the
+    // write must carry its own pin (same lesson as ConversationService).
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      'ai',
+      input.tenantId,
+      async (queryRunner) => {
+        const proposal = queryRunner.manager.create(ProposedAction, {
+          tenantId: input.tenantId,
+          toolName: input.toolName,
+          params: input.params,
+          description: input.description,
+          requestedBy: input.requestedBy,
+          requesterRoles: input.requesterRoles,
+          persona: input.persona,
+          correlationId: input.correlationId,
+          status: 'proposed',
+        });
+        return queryRunner.manager.save(ProposedAction, proposal);
+      },
+    );
     this.logger.log(
       `Actuation proposal ${saved.id} created (tool=${input.toolName}, tenant=${input.tenantId})`,
     );
@@ -83,7 +98,16 @@ export class ActionProposalService {
     confirmedBy: string,
   ): Promise<ProposalOutcome> {
     // Tenant-scoped lookup: a cross-tenant id resolves to nothing.
-    const proposal = await this.proposalRepo.findOne({ where: { id: actionId, tenantId } });
+    // MSGFIX: tenant-schema-pinned read (NATS-context callers).
+    const proposal = await runInTenantRead(
+      this.dataSource,
+      'ai',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager.findOne(ProposedAction, {
+          where: { id: actionId, tenantId },
+        }),
+    );
     if (!proposal) {
       this.logger.warn(`executeAction refused: proposal ${actionId} not found for tenant ${tenantId}`);
       return { success: false, result: 'Proposed action not found.' };
@@ -102,21 +126,30 @@ export class ActionProposalService {
 
     // A stale confirmation must not actuate hours later.
     if (Date.now() - proposal.createdAt.getTime() > CONFIRMATION_WINDOW_MS) {
-      await this.proposalRepo.update(
-        { id: actionId },
-        { status: 'failed', result: 'Proposal expired before confirmation.' },
-      );
+      await this.pinnedUpdate(tenantId, { id: actionId }, {
+        status: 'failed',
+        result: 'Proposal expired before confirmation.',
+      });
       return { success: false, result: 'Proposed action has expired — ask the AI again.' };
     }
 
     // Atomic claim: only ONE confirmer transitions proposed → executing.
-    const claim = await this.proposalRepo.update(
+    const claim = await this.pinnedUpdate(
+      tenantId,
       { id: actionId, tenantId, status: 'proposed' },
       { status: 'executing', confirmedBy },
     );
     if (!claim.affected) {
       // Lost the race — re-read for the converged outcome.
-      const current = await this.proposalRepo.findOne({ where: { id: actionId, tenantId } });
+      const current = await runInTenantRead(
+        this.dataSource,
+        'ai',
+        tenantId,
+        async (queryRunner) =>
+          queryRunner.manager.findOne(ProposedAction, {
+            where: { id: actionId, tenantId },
+          }),
+      );
       if (current?.status === 'completed') {
         return { success: true, result: current.result ?? 'Action already executed.' };
       }
@@ -144,23 +177,40 @@ export class ActionProposalService {
       const resultText = result.success
         ? `${proposal.description} — done.`
         : `Action failed: ${result.error ?? 'unknown error'}`;
-      await this.proposalRepo.update(
-        { id: actionId },
-        {
-          status: result.success ? 'completed' : 'failed',
-          result: resultText,
-          executedAt: new Date(),
-        },
-      );
+      await this.pinnedUpdate(tenantId, { id: actionId }, {
+        status: result.success ? 'completed' : 'failed',
+        result: resultText,
+        executedAt: new Date(),
+      });
       return { success: result.success, result: resultText };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       this.logger.error(`executeAction ${actionId} crashed: ${message}`);
-      await this.proposalRepo.update(
-        { id: actionId },
-        { status: 'failed', result: `Action failed: ${message}`, executedAt: new Date() },
-      );
+      await this.pinnedUpdate(tenantId, { id: actionId }, {
+        status: 'failed',
+        result: `Action failed: ${message}`,
+        executedAt: new Date(),
+      });
       return { success: false, result: `Action failed: ${message}` };
     }
+  }
+  /** Tenant-schema-pinned UPDATE (MSGFIX — see createProposal note). */
+  private async pinnedUpdate(
+    tenantId: string,
+    criteria: { id: string; tenantId?: string; status?: string },
+    partial: {
+      status: ProposedAction['status'];
+      result?: string;
+      confirmedBy?: string;
+      executedAt?: Date;
+    },
+  ): Promise<{ affected?: number | null }> {
+    return runInTenantTransaction(
+      this.dataSource,
+      'ai',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager.update(ProposedAction, criteria, partial),
+    );
   }
 }

@@ -226,6 +226,70 @@ credential check generalised to `credential_file_env`, profile `judge_jev` and a
 contribution is cost and provider-reported confidence; anchor diversity is secondary (Z.ai and
 OpenAI are already two vendors).
 
+Verified against the vendor 2026-09-19: `POST /v1/systemone` answers a typed question with a value,
+a probability distribution and a confidence derived from it, in about 1200 requests per minute,
+and returns **no citation and no rationale**. ARIA's judge contract (an index and a quote checked
+against the pinned excerpt) cannot be met by it alone, so the provider is not a judge: it is the
+fast layer below the judges, and the table below is where each layer stands.
+
+| Layer              | What answers                                                                                                | Where it acts                                                  | What it may decide                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 0 — rule reflex    | deterministic gates (schema, evidence refs, anchor, lease, hash chain, breaker)                             | every boundary                                                 | exact refusals; no model is asked                                               |
+| 1 — learned reflex | `jev`, and the calibrated priors of `calibrated_intelligence` (tool, rule, path pattern → measured FP rate) | **before** fan-out as triage; **beside** consensus as a signal | orders the queue; flags disagreement; never closes, never suppresses on its own |
+| 2 — deliberation   | the judges and planners (Claude, GLM) with citations                                                        | fan-out, consensus, planning                                   | the verdicts and plans that close                                               |
+
+Layer 1 rows are `ai_judge` rows with `confidence_source: provider_reported` and
+`evidence_selection: request` (the request's own refs, verified at mint; no citation of its own).
+Its thresholds exist only while its `(judge, model, confidence_source)` stratum is `calibrated`
+under Phase 5's rule; before that, and whenever the status is lost, it runs in shadow — answered,
+scored, steering nothing. A suppression it proposes is a candidate for the label queue's
+`auto_closed_random` stratum first and a suppression only after the measured agreement with layer
+2 over that stratum, and the finding stays on the ledger either way. Miscalibration is therefore
+detected per stratum each cycle, costs the layer its steering the same cycle (weights fall to the
+prior, `enforce` degrades to `measure_only` when fewer than two calibrated judges remain), and is
+bounded in damage to a delayed fan-out or an audited candidate. What it cannot detect is a stratum
+nobody labels; the random strata are the defence and their sampling rate is the speed of learning.
+The provider's confidence cannot be retrained here; it can be remapped (Platt or isotonic) on
+ARIA's own verified labels, which is the second half of this phase if the raw stratum stays
+`provisional`.
+
+**The question is the product.** The vendor's documentation (read in full 2026-09-19: concepts,
+primitives, patterns, jaggedness, cookbooks) turns on one point: the model answers the question
+as written, and the quality of the answer is the quality of the question. Instructions are read
+literally; criteria are an extension of the instruction and carry the boundary cases; a broad
+question hides several judgments behind one number, so the judgment is decomposed into atomic
+questions, each pointed by path at the part of the state it is about, and composed in code with
+weights the operator owns. The state carries only what the questions need (accuracy falls with
+unrelated content), arithmetic, counting and date comparison stay in code, thresholds are tuned
+per question form and per model version (`jev-1.13.0`, never the alias, once a threshold exists),
+and the model is not adversarially robust to content in the state. Four consequences for ARIA:
+
+1. Not one `choice` per finding but a **question bank** per finding class, in one reviewable,
+   hash-pinned file (`aria_kernel/system_one_questions.py`): for a code finding, `noul`s such as
+   "does `excerpt.lines` contain the pattern `rule.pattern` describes", "is `excerpt` test code",
+   "is `excerpt` generated code", "does an inline comment in `excerpt` suppress `rule.id`", "does
+   `excerpt` support the claim in `finding.message`" (the vendor's citation-check shape), and the
+   guard "does `excerpt` contain instructions addressed to a model" (the vendor's injection filter,
+   first, as a security decision). Each names its state path; none asks the composite.
+2. The **state is the finding and its pinned excerpts**, not the rendered judge prompt: the
+   excerpts are already hashed at mint (E17-b), so the state the reflex saw is reproducible from
+   the request, and it stays far under the 32k budget.
+3. The **composite is code**: weights over the answers, measured per question (Brier and
+   discrimination per question id, not only per judge) against the label queue's verified rows; a
+   question that does not discriminate is dropped from the bank; the calibration status of Phase 5
+   is then computed over the composite, and, with enough labels, the answers are features of a
+   small classical model (the vendor's autoresearch shape) rather than a hand-weighted sum.
+4. The **bank improves itself**: layer 2 proposes candidate questions from the composite's worst
+   errors on labelled rows, the candidates are answered in the same call as speculative questions
+   (adding one costs its tokens and nothing else), and only those that raise held-out
+   discrimination enter the bank. This is the learning ring's own loop applied to the reflex, and
+   it is what the vendor cannot do for a customer: its weights are shared, its question bank is not.
+
+Two of the vendor's stated jagged edges bear on ARIA directly: repository excerpts are untrusted
+content in the state, so the injection guard runs before any other answer is read; and the model
+has no structural invariants across question forms, so a threshold is tuned on the form it was
+measured on and no `noul` is compared to a `choice` probability.
+
 ## 5. What is not done here
 
 - Judges without a sandbox; `--dangerously-skip-permissions` for read-only roles.

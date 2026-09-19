@@ -37,12 +37,28 @@ SAMPLE_RECENCY_HOURS = 168
 # apart on what counts as a legitimate non-verdict outcome.
 CONSENSUS_UNCERTAINTY_REASONS = (
     "conformal_abstain",
+    # Typed-judgment plan Phase 6 (ARIA-HIGH-167/173) — under `enforce`, the
+    # judges that agreed did not include two CALIBRATED judges of distinct
+    # models; their verdict is a suggestion the label queue reads, never
+    # a closer.
+    "confidence_uncalibrated",
     "evidence_not_repo_verified",
     "judge_disagreement",
     "low_confidence",
     "missing_confidence",
+    # ARIA-MEDIUM-164 — emitted for years by `generate_ai_consensus` and
+    # absent from this vocabulary, so the sweep dropped it as benign: an
+    # anchor-grade group whose observer has no model identity.
+    "observer_identity_missing",
     "single_judge",
 )
+# Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
+# `measure_only`: the legacy confidence gate bit for bit, the row records
+# what `enforce` would have excluded; `enforce`: closing authority belongs
+# to calibrated judges of distinct models alone.
+CALIBRATION_GATES = ("measure_only", "enforce")
+CALIBRATED_QUORUM_MIN_JUDGES = 2
+CALIBRATED_QUORUM_MIN_MODELS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
 # Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
@@ -517,6 +533,7 @@ def record_operator_feedback(
     observers: list[dict[str, str]] | None = None,
     confidence_source: str | None = None,
     evidence_selection: str | None = None,
+    calibration_basis: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -631,6 +648,9 @@ def record_operator_feedback(
         # actually carries.
         "confidence_source": confidence_source,
         "evidence_selection": evidence_selection,
+        # Phase 6 — on a consensus row: the gate the row closed under and
+        # the agreeing judges the calibrated quorum left out.
+        "calibration_basis": calibration_basis,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -774,6 +794,8 @@ def generate_ai_consensus(
     base_dir: str | Path | None = None,
     judge_weights: dict[str, float] | None = None,
     conformal_floor: float | None = None,
+    judge_calibration: dict[str, str] | None = None,
+    calibration_gate: str = "measure_only",
 ) -> dict[str, Any]:
     """Kalibre Zekâ Z2a/Z2c — both knobs default OFF, preserving the
     legacy gate bit for bit:
@@ -793,6 +815,13 @@ def generate_ai_consensus(
     """
     if min_confidence < 0 or min_confidence > 1:
         raise GovernanceError("min_confidence must be between 0 and 1")
+    if calibration_gate not in CALIBRATION_GATES:
+        raise GovernanceError(f"unknown calibration_gate: {calibration_gate}")
+    # Typed-judgment plan Phase 6 — without a calibration map there is
+    # nothing to enforce: the gate is measure_only by construction (the
+    # legacy callers and their pins are unchanged).
+    if judge_calibration is None:
+        calibration_gate = "measure_only"
     ai_rows = [
         row
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
@@ -875,8 +904,33 @@ def generate_ai_consensus(
         # because one row lacked a number. Absent confidence now stays out of
         # the mean; a group with NO numeric confidence at all escalates under
         # its own name instead of masquerading as low confidence.
+        # Phase 6 — closing authority. Under `enforce` the mean is taken over
+        # the agreeing judges whose confidence is calibrated, and two of them
+        # of distinct models must exist (a calibrated judge alone would close
+        # a split its uncalibrated partner only detected); under
+        # `measure_only` the legacy mean stands and the row records what
+        # `enforce` would have left out.
+        calibrated_agreeing = [
+            row for row in agreeing
+            if judge_calibration is not None
+            and judge_calibration.get(str(row.get("judge_id") or "")) == "calibrated"
+        ]
+        excluded_judges = sorted(
+            str(row.get("judge_id") or "") for row in agreeing if row not in calibrated_agreeing
+        ) if judge_calibration is not None else []
+        closing = agreeing
+        if calibration_gate == "enforce":
+            distinct_models = {str(row.get("model") or "").strip() for row in calibrated_agreeing if str(row.get("model") or "").strip()}
+            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_models) < CALIBRATED_QUORUM_MIN_MODELS:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
+                continue
+            closing = calibrated_agreeing
+        calibration_basis = (
+            {"gate": calibration_gate, "excluded_judges": excluded_judges}
+            if judge_calibration is not None else None
+        )
         confidences = [
-            gated for row in agreeing
+            gated for row in closing
             if (gated := confidence_in_unit_interval(row.get("confidence"))) is not None
         ]
         if not confidences:
@@ -902,7 +956,7 @@ def generate_ai_consensus(
             continue
         dissenting = len(rows) - len(agreeing)
         severity = _max_severity(str(row.get("severity") or "medium") for row in agreeing)
-        note = f"AI consensus from {len(agreeing)} independent judges"
+        note = f"AI consensus from {len(closing)} independent judges"
         if dissenting:
             note += (
                 f" over {dissenting} dissenting (weighted majority; "
@@ -915,8 +969,8 @@ def generate_ai_consensus(
         # Fail-closed: a group that would settle at anchor grade but cannot
         # name its observers escalates as an uncertainty instead of
         # laundering unknown provenance into repository truth.
-        if len(agreeing) >= ANCHOR_MIN_JUDGE_COUNT and any(
-            not str(row.get("model") or "").strip() for row in agreeing
+        if len(closing) >= ANCHOR_MIN_JUDGE_COUNT and any(
+            not str(row.get("model") or "").strip() for row in closing
         ):
             uncertainties.append(
                 _consensus_uncertainty(
@@ -952,7 +1006,7 @@ def generate_ai_consensus(
                         "judge_id": str(row.get("judge_id") or ""),
                         "model": str(row.get("model") or ""),
                     }
-                    for row in agreeing
+                    for row in closing
                     # A judge row that cannot name its model contributes no
                     # receipt. Dropping it here rather than writing an empty
                     # one keeps the sub-anchor lane writable while the anchor
@@ -960,8 +1014,8 @@ def generate_ai_consensus(
                     if str(row.get("model") or "").strip()
                 ] or None,
                 confidence=round(avg_confidence, 3),
-                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in agreeing if row.get("rationale") or row.get("note"))[:2000],
-                evidence_refs=sorted({ref for row in agreeing for ref in _optional_string_list(row.get("evidence_refs"))}),
+                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],
+                evidence_refs=sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))}),
                 judgment_group_id=group_id,
                 finding_fingerprint=next((str(row.get("finding_fingerprint")) for row in rows if row.get("finding_fingerprint")), ""),
                 # JJ-1 - the anchor discriminator, read off the pair
@@ -969,8 +1023,9 @@ def generate_ai_consensus(
                 # and >= ANCHOR_MIN_JUDGE_COUNT is what makes this row
                 # ground-truth-bearing; anything less still settles the
                 # finding for the adapter-precision lane and nothing else.
-                judge_count=len(agreeing),
+                judge_count=len(closing),
                 judges_voted=len(rows),
+                calibration_basis=calibration_basis,
                 base_dir=base_dir,
             ),
         )

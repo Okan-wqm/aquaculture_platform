@@ -8,7 +8,7 @@
  * Only active locations are shown — decommissioned locations cannot be counted.
  */
 import React, { useState } from 'react';
-import { Modal, useToast, Button, Textarea } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Select, Textarea } from '@aquaculture/shared-ui';
 import { useCreateInventoryCount } from '../../../hooks/useInventoryCounts';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 
@@ -73,25 +73,22 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Location selector — only active locations are available */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Storage Location *
-            </label>
-            <select
-              value={storageLocationId}
-              onChange={(e) => setStorageLocationId(e.target.value)}
-              required
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-            >
-              <option value="">Select location...</option>
-              {locationsLoading && <option disabled>Loading locations...</option>}
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name} ({loc.code}) — {loc.type.replace('_', ' ')}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Storage Location"
+            required
+            placeholder="Select location..."
+            value={storageLocationId}
+            onChange={(e) => setStorageLocationId(e.target.value)}
+            options={[
+              ...(locationsLoading
+                ? [{ value: '__loading__', label: 'Loading locations...', disabled: true }]
+                : []),
+              ...locations.map((loc) => ({
+                value: loc.id,
+                label: `${loc.name} (${loc.code}) — ${loc.type.replace('_', ' ')}`,
+              })),
+            ]}
+          />
 
           {/* Notes — optional context for the counting session */}
           <div>

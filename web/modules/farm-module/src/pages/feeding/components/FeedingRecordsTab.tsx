@@ -485,48 +485,34 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Batch */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Batch *
-              </label>
-              <select
-                name="batchId"
-                value={formData.batchId}
-                onChange={handleChange}
-                required
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">Select batch...</option>
-                {batches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batchNumber} - {b.name || 'Unnamed'}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Batch"
+              required
+              placeholder="Select batch..."
+              name="batchId"
+              value={formData.batchId}
+              onChange={handleChange}
+              options={batches.map((b) => ({
+                value: b.id,
+                label: `${b.batchNumber} - ${b.name || 'Unnamed'}`,
+              }))}
+            />
           )}
 
           {/* Feed */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Feed *
-              </label>
-              <select
-                name="feedId"
-                value={formData.feedId}
-                onChange={handleChange}
-                required
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">Select feed...</option>
-                {feeds.map((f: any) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name || f.code}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Feed"
+              required
+              placeholder="Select feed..."
+              name="feedId"
+              value={formData.feedId}
+              onChange={handleChange}
+              options={feeds.map((f: { id: string; name?: string; code?: string }) => ({
+                value: f.id,
+                label: f.name || f.code || '',
+              }))}
+            />
           )}
 
           {/* Date */}

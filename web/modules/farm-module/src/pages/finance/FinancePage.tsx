@@ -12,7 +12,7 @@
  * - Charts: cost trends (day/week/month/year), per-category, per-batch
  * - Settings: tenant default currency (SSoT) + fiscal year start
  */
-import { useAuth, PageHeader } from '@aquaculture/shared-ui';
+import { useAuth, PageHeader, Select } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -127,18 +127,14 @@ const FinancePage: React.FC = () => {
                 >
                   Period:
                 </label>
-                <select
+                <Select
                   id="finance-period"
+                  fullWidth={false}
+                  size="sm"
                   value={presetId}
                   onChange={(e) => setPresetId(e.target.value)}
-                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-                >
-                  {PERIOD_PRESETS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                  options={PERIOD_PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+                />
               </div>
             }
           />

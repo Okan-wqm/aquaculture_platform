@@ -9,6 +9,7 @@ import {
   type DataTableColumn,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   useReceiveDelivery,
@@ -164,24 +165,19 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Storage Location */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Storage Location *
-            </label>
-            <select
-              value={storageLocationId}
-              onChange={(e) => setStorageLocationId(e.target.value)}
-              required
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-info-500 focus:border-info-500"
-            >
-              <option value="">Select location...</option>
-              {(locations?.items || []).map((loc: any) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name} ({loc.code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Storage Location"
+            required
+            placeholder="Select location..."
+            value={storageLocationId}
+            onChange={(e) => setStorageLocationId(e.target.value)}
+            options={(locations?.items ?? []).map(
+              (loc: { id: string; name: string; code: string }) => ({
+                value: loc.id,
+                label: `${loc.name} (${loc.code})`,
+              }),
+            )}
+          />
 
           {/* Items */}
           <DataTable<ItemRow>

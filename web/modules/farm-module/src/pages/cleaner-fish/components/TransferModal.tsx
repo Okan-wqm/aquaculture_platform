@@ -4,7 +4,7 @@
  * Modal for transferring cleaner fish between tanks.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useTransferCleanerFish,
   useTankCleanerFish,
@@ -155,27 +155,18 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         )}
 
         {/* Destination Tank */}
-        <div>
-          <label
-            htmlFor="destinationTank"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Destination Tank <span className="text-error-500">*</span>
-          </label>
-          <select
-            id="destinationTank"
-            value={destinationTankId}
-            onChange={(e) => setDestinationTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">Select destination tank...</option>
-            {destinationTanks.map((tank) => (
-              <option key={tank.id} value={tank.id}>
-                {tank.name} ({tank.code})
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          id="destinationTank"
+          label="Destination Tank"
+          required
+          placeholder="Select destination tank..."
+          value={destinationTankId}
+          onChange={(e) => setDestinationTankId(e.target.value)}
+          options={destinationTanks.map((tank) => ({
+            value: tank.id,
+            label: `${tank.name} (${tank.code})`,
+          }))}
+        />
 
         {/* Quantity */}
         <div>

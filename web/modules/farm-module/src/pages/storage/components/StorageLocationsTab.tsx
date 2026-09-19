@@ -316,50 +316,26 @@ export const StorageLocationsTab: React.FC = () => {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Type
-                </label>
-                <select
-                  value={formData.type}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      type: e.target.value as StorageLocationType,
-                    }))
-                  }
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                >
-                  {LOCATION_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {typeLabels[t]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Site *
-                </label>
-                <FormField
-                  error={formData.siteId ? undefined : fieldErrors.siteId}
-                  className="mb-0"
-                >
-                  <select
-                    required
-                    value={formData.siteId}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select Site</option>
-                    {sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
+              <Select
+                label="Type"
+                value={formData.type}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    type: e.target.value as StorageLocationType,
+                  }))
+                }
+                options={LOCATION_TYPES.map((t) => ({ value: t, label: typeLabels[t] }))}
+              />
+              <Select
+                label="Site"
+                required
+                placeholder="Select Site"
+                value={formData.siteId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
+                error={formData.siteId ? undefined : fieldErrors.siteId}
+                options={sites.map((s) => ({ value: s.id, label: s.name }))}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>

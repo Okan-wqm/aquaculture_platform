@@ -36862,6 +36862,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-19-adm-zip-uncontrolled-allocation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/supply-chain/2026-06-13-esbuild-high-advisory-override.md",
       "prettier_managed": true
     },
@@ -44133,7 +44139,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9472f31e4e6cdad48b5f558a5c498d5df4ab8c26088003b0a98442e71f8fb714",
+      "content_sha256": "e7a9cbeb1036dc45782cd8fbd9d2476f7ba419d597f0cf82e3edd1b0ecb265f0",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

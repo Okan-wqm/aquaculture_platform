@@ -27,7 +27,7 @@ depend on adm-zip, `@nx/module-federation` depends on them, `@nx/react` on it.
 
 adm-zip reaches the tree once:
 
-```
+```text
 @aquaculture/admin-panel -> @module-federation/vite@1.20.8
   -> @module-federation/dts-plugin@2.8.2 -> adm-zip@0.6.0
 ```
@@ -44,7 +44,7 @@ reaches an exact transitive pin. The lockfile regenerated with
 `npm install --package-lock-only --ignore-scripts` moves exactly one package
 (`adm-zip` 0.6.0 → 0.6.1, three lines). After it:
 
-```
+```text
 [npm-audit-gate] root-full: clean at --audit-level=high (15 reviewed exception(s))
 [npm-audit-gate] root-production: clean at --audit-level=moderate
 ```

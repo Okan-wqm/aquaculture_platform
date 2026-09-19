@@ -48,10 +48,7 @@ const FILTER_LABELS: Record<SvgFilterType, string> = {
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
-  filter,
-  onChange,
-}) => {
+export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({ filter, onChange }) => {
   const [open, setOpen] = useState(filter.type !== 'none');
 
   const handleTypeChange = useCallback(

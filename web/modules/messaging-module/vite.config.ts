@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
+      // Zero-dependency cross-stack constants (AI persona catalogue) — path-
+      // aliased, not npm-installed, exactly as aquamobil does (MSG-MEDIUM-057).
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
   },
   base: '/remotes/messaging-module/',
@@ -48,6 +51,10 @@ export default defineConfig(({ mode }) => ({
   test: {
     environment: 'jsdom',
     globals: true,
+    // jest-dom matchers + RTL cleanup (same wiring as farm-module). The file
+    // existed since MSGFIX FAZ 1 but was never registered, so every page spec
+    // failed on `toBeVisible` / `toBeInTheDocument`.
+    setupFiles: ['./src/test-setup.ts'],
     ...createVitestTestPolicy(),
   },
   server: {

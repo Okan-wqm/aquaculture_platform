@@ -184,11 +184,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'running'}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
         >
-          {cmdLoading ? (
-            <Spinner size="sm" color="inherit" />
-          ) : (
-            <Play className="w-3.5 h-3.5" />
-          )}
+          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Play className="w-3.5 h-3.5" />}
           Başlat
         </button>
         <button
@@ -196,11 +192,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'stopped'}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
-          {cmdLoading ? (
-            <Spinner size="sm" color="inherit" />
-          ) : (
-            <Square className="w-3.5 h-3.5" />
-          )}
+          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Square className="w-3.5 h-3.5" />}
           Durdur
         </button>
         {vfdStatus.status === 'fault' && (

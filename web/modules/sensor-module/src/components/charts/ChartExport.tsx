@@ -63,12 +63,12 @@ function sanitiseFilename(s: string): string {
 function resolveRangeDates(range: TrendTimeRange): { from: Date; to: Date } {
   if (typeof range === 'object' && 'from' in range) return range;
   const MS: Record<string, number> = {
-    last1h:  3_600_000,
-    last8h:  28_800_000,
-    last1d:  86_400_000,
-    last3d:  259_200_000,
-    last1w:  604_800_000,
-    last1m:  2_592_000_000,
+    last1h: 3_600_000,
+    last8h: 28_800_000,
+    last1d: 86_400_000,
+    last3d: 259_200_000,
+    last1w: 604_800_000,
+    last1m: 2_592_000_000,
   };
   const to = new Date();
   const fromMs = MS[range as string] ?? 3_600_000;

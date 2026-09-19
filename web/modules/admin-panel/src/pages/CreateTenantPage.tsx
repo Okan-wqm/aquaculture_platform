@@ -9,7 +9,17 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Alert, RadioGroup, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Select,
+  Alert,
+  RadioGroup,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,

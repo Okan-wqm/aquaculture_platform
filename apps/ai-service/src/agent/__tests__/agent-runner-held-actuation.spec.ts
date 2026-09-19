@@ -105,8 +105,14 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           provide: AgentProfileService,
           useValue: {
             resolveProfile: jest.fn().mockResolvedValue({
-              persona: { name: 'operator-v1', systemPrompt: 'sys' },
-              effectiveSystemPrompt: 'sys',
+              persona: {
+                id: 'operator-v1',
+                tier: 'operator',
+                name: 'Operator',
+                systemPrompt: 'sys',
+              },
+              baseSystemPrompt: 'sys',
+              tenantCustomPrompt: null,
               effectiveToolNames: ['create_task'],
               actuationPolicy: 'confirm_required',
             }),
@@ -151,7 +157,7 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
           provide: AiSafetyMiddleware,
           useValue: {
             scanUntrustedContext: jest.fn().mockReturnValue(true),
-            preProcess: jest.fn().mockReturnValue({ allowed: true }),
+            preProcess: jest.fn().mockReturnValue({ allowed: true, systemPrompt: 'sys' }),
             postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),
           },

@@ -60,14 +60,17 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
  * across re-renders. Uses column index as seed offset to produce
  * varied but repeatable values.
  */
-function generateDemoRows(columns: ColumnDef[], pageSize: number): Record<string, string | number>[] {
+function generateDemoRows(
+  columns: ColumnDef[],
+  pageSize: number,
+): Record<string, string | number>[] {
   const rows: Record<string, string | number>[] = [];
   for (let r = 0; r < pageSize; r++) {
     const row: Record<string, string | number> = {};
     columns.forEach((col, ci) => {
       // Produce numeric-looking demo values with slight variance
       const base = 20 + ci * 10;
-      const value = base + (r * 3.7 + ci * 2.3) % 30;
+      const value = base + ((r * 3.7 + ci * 2.3) % 30);
       row[col.tagName || `col_${ci}`] = Number(value.toFixed(2));
     });
     rows.push(row);
@@ -128,12 +131,7 @@ function evaluateRowColor(
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const DataTableRenderer: React.FC<WidgetRendererProps> = ({
-  config,
-  width,
-  height,
-  isEditing,
-}) => {
+const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
   const columns = (config.columns ?? []) as ColumnDef[];
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
@@ -150,13 +148,20 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
 
   // In edit mode, generate demo rows. In runtime, rows would come from TagValueBus.
   const allRows = useMemo(
-    () => (isEditing ? generateDemoRows(columns, Math.min(pageSize * 3, 100)) : generateDemoRows(columns, pageSize)),
+    () =>
+      isEditing
+        ? generateDemoRows(columns, Math.min(pageSize * 3, 100))
+        : generateDemoRows(columns, pageSize),
     [columns, pageSize, isEditing],
   );
 
   // Sort rows if a sort column is active
   const sortedRows = useMemo(() => {
-    if (sortState.direction === null || sortState.columnIndex < 0 || sortState.columnIndex >= columns.length) {
+    if (
+      sortState.direction === null ||
+      sortState.columnIndex < 0 ||
+      sortState.columnIndex >= columns.length
+    ) {
       return allRows;
     }
     const col = columns[sortState.columnIndex];
@@ -164,7 +169,10 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
     return [...allRows].sort((a, b) => {
       const va = a[key] ?? 0;
       const vb = b[key] ?? 0;
-      const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      const cmp =
+        typeof va === 'number' && typeof vb === 'number'
+          ? va - vb
+          : String(va).localeCompare(String(vb));
       return sortState.direction === 'desc' ? -cmp : cmp;
     });
   }, [allRows, sortState, columns]);
@@ -174,17 +182,21 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
   const safeCurrentPage = Math.min(currentPage, totalPages - 1);
   const pageRows = sortedRows.slice(safeCurrentPage * pageSize, (safeCurrentPage + 1) * pageSize);
 
-  const handleSort = useCallback((colIndex: number) => {
-    const col = columns[colIndex];
-    if (!col?.sortable) return;
-    setSortState((prev) => {
-      if (prev.columnIndex === colIndex) {
-        const nextDir: SortDirection = prev.direction === 'asc' ? 'desc' : prev.direction === 'desc' ? null : 'asc';
-        return { columnIndex: colIndex, direction: nextDir };
-      }
-      return { columnIndex: colIndex, direction: 'asc' };
-    });
-  }, [columns]);
+  const handleSort = useCallback(
+    (colIndex: number) => {
+      const col = columns[colIndex];
+      if (!col?.sortable) return;
+      setSortState((prev) => {
+        if (prev.columnIndex === colIndex) {
+          const nextDir: SortDirection =
+            prev.direction === 'asc' ? 'desc' : prev.direction === 'desc' ? null : 'asc';
+          return { columnIndex: colIndex, direction: nextDir };
+        }
+        return { columnIndex: colIndex, direction: 'asc' };
+      });
+    },
+    [columns],
+  );
 
   // Empty state
   if (columns.length === 0) {
@@ -361,9 +373,13 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
                 padding: '2px 8px',
                 border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
-                background: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[100] : themeColors.white,
+                background:
+                  safeCurrentPage >= totalPages - 1 ? themeColors.neutral[100] : themeColors.white,
                 cursor: safeCurrentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
-                color: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[400] : themeColors.neutral[700],
+                color:
+                  safeCurrentPage >= totalPages - 1
+                    ? themeColors.neutral[400]
+                    : themeColors.neutral[700],
                 fontSize: fontSize - 2,
               }}
               data-testid="page-next"

@@ -263,15 +263,12 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
       align: 'right',
       render: (_value, record) => (
         <>
-          <button
-            onClick={() => handleEdit(record)}
-            className="text-blue-600 hover:text-blue-900"
-          >
+          <button onClick={() => handleEdit(record)} className="text-blue-600 hover:text-blue-900">
             Edit
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (

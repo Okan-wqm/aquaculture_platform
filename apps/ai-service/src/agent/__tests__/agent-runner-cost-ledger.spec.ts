@@ -97,12 +97,15 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
           useValue: {
             resolveProfile: jest.fn().mockResolvedValue({
               persona: {
-                name: 'operator',
+                id: 'operator-v1',
+                tier: 'operator',
+                name: 'Operations Assistant (General)',
                 model: 'claude-haiku-4-5',
                 maxTokensPerTurn: 4096,
                 systemPrompt: 'You are the operator assistant.',
               },
-              effectiveSystemPrompt: 'You are the operator assistant.',
+              baseSystemPrompt: 'You are the operator assistant.',
+              tenantCustomPrompt: null,
               effectiveToolNames: ['test_tool'],
               actuationPolicy: 'confirm_required',
             }),
@@ -157,6 +160,7 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
             scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({
               allowed: true,
+              systemPrompt: 'You are the operator assistant.',
               inputFilter: {
                 safe: true,
                 flaggedPatterns: options.flaggedPatterns ?? [],
@@ -246,7 +250,12 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     expect(harness.recordTurn).toHaveBeenCalledWith({
       tenantId,
       conversationId,
-      personaId: 'operator',
+      // Conversation-backed turns key on the conversation — the ephemeral-run
+      // correlation keys stay null (FARM-AI Sprint 1.2).
+      correlationId: null,
+      servicePrincipal: null,
+      // The RESOLVED catalogue id, never the raw request string.
+      personaId: 'operator-v1',
       model: 'claude-haiku-4-5',
       usage: { input: 300, output: 60, cacheRead: 30, cacheCreation: 40 },
       flaggedCategories: [],

@@ -16,6 +16,7 @@ interface AiAssistantSettingsProps {
 const PROVIDER_LABEL: Record<LlmProviderId, string> = {
   anthropic: 'Anthropic (Claude)',
   openai: 'OpenAI (GPT)',
+  zai: 'Z.ai (GLM)',
 };
 
 /**
@@ -38,6 +39,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
   // Key fields start empty — a blank field leaves the stored key untouched.
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [zaiApiKey, setZaiApiKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -68,11 +70,13 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     };
     if (anthropicApiKey.trim()) input.anthropicApiKey = anthropicApiKey.trim();
     if (openaiApiKey.trim()) input.openaiApiKey = openaiApiKey.trim();
+    if (zaiApiKey.trim()) input.zaiApiKey = zaiApiKey.trim();
     try {
       await updateMutation.mutateAsync(input);
       // Clear the key inputs so a masked hint is never re-submitted.
       setAnthropicApiKey('');
       setOpenaiApiKey('');
+      setZaiApiKey('');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -87,6 +91,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     hourlyRequestLimit,
     anthropicApiKey,
     openaiApiKey,
+    zaiApiKey,
     updateMutation,
   ]);
 
@@ -193,6 +198,26 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
           onChange={(e) => setOpenaiApiKey(e.target.value)}
           disabled={!canEdit}
           placeholder={settings?.openaiKeyHint ? 'Enter a new key to replace' : 'sk-…'}
+          className={inputClass}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Z.ai API Key (GLM)
+          {settings?.zaiKeyHint && (
+            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
+              current: {settings.zaiKeyHint}
+            </span>
+          )}
+        </label>
+        <input
+          type="password"
+          autoComplete="off"
+          value={zaiApiKey}
+          onChange={(e) => setZaiApiKey(e.target.value)}
+          disabled={!canEdit}
+          placeholder={settings?.zaiKeyHint ? 'Enter a new key to replace' : '•••… (api.z.ai key)'}
           className={inputClass}
         />
       </div>

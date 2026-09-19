@@ -18,6 +18,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { AI_TIER_PRESENTATION, parseAiPersonaId } from '@aquaculture/shared-contracts';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
@@ -103,6 +104,23 @@ const ACTUATION_POLICY_INFO: Record<string, { label: string; color: string; desc
   },
 };
 
+// ============================================================================
+// Tier × specialty (AISAFETY-MEDIUM-024)
+// ============================================================================
+
+/**
+ * Personas are composed as `<tier>[-<specialty>]-v<N>` from the shared
+ * catalogue. The tier is the authority level (model, actuation ceiling,
+ * `ai_personas:<tier>` capability); the specialty is the tool bundle and, for
+ * module-gated ones, the extra `ai_specialties:<module>` capability. The
+ * inventory reads both from the id grammar so the shape is visible at a glance.
+ */
+function tierAndSpecialty(personaId: string | null): { tier: string; specialty: string } {
+  const parsed = personaId ? parseAiPersonaId(personaId) : null;
+  if (!parsed) return { tier: 'Tenant default', specialty: 'general' };
+  return { tier: AI_TIER_PRESENTATION[parsed.tier].label, specialty: parsed.specialty };
+}
+
 /** Columns of the persona configuration table (FE-HIGH-069). The persona
  *  colour drives both the icon tile and the capability chips. */
 const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
@@ -138,6 +156,23 @@ const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
     ),
   },
   {
+    key: 'tier',
+    header: 'Tier / Specialty',
+    render: (_value, persona) => {
+      const shape = tierAndSpecialty(persona.id);
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            {shape.tier}
+          </span>
+          <code className="text-[10px] font-mono text-gray-500 dark:text-gray-400">
+            {shape.specialty}
+          </code>
+        </div>
+      );
+    },
+  },
+  {
     key: 'capabilities',
     header: 'Capabilities',
     render: (_value, persona) => {
@@ -170,7 +205,9 @@ const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
 /** Admin page for viewing AI persona configuration from the real backend. */
 function MessagingAiPersonasPage(): React.ReactElement {
   const [personas, setPersonas] = useState<AiPersonaDefinition[]>([]);
-  const [loadState, setLoadState] = useState<LoadState>({ loading: true, error: null });
+  // FE-HIGH-067: idle until the operator names a tenant — nothing is fetched
+  // on mount, so an initial `loading: true` left "Load Personas" disabled forever.
+  const [loadState, setLoadState] = useState<LoadState>({ loading: false, error: null });
   const [tenantId, setTenantId] = useState<string>('');
 
   // ── Load personas from backend ──────────────────────────────────────
@@ -224,7 +261,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               LIFE-SAFETY: Autonomous PLC Actuation
             </h3>
             <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed mt-1">
-              Some AI personas (especially SCADA AI / Supervisor) can control physical
+              Some AI personas (especially the SCADA Supervisor) can control physical
               equipment through PLC actuation. The actuation policy and autonomous safety
               limits shown below are loaded from the real backend TenantAgentConfig entity.
               These are not display-only values -- they directly control what the AI can

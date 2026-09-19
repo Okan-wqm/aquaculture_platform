@@ -7,20 +7,8 @@
 
 import React, { useState } from 'react';
 import { Drawer, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
-import {
-  X,
-  Check,
-  Clock,
-  RotateCcw,
-  Play,
-  AlertTriangle,
-  Ban,
-} from 'lucide-react';
-import {
-  VfdChangeSet,
-  VfdChangeSetStatus,
-  VfdChangeSetItem,
-} from '../../types/vfd.types';
+import { X, Check, Clock, RotateCcw, Play, AlertTriangle, Ban } from 'lucide-react';
+import { VfdChangeSet, VfdChangeSetStatus, VfdChangeSetItem } from '../../types/vfd.types';
 
 // ============================================================================
 // Props
@@ -85,13 +73,15 @@ export function VfdChangeSetDetail({
       render: (_value, item) => (
         <>
           {item.errorMessage ? (
-            <span className="text-red-600" title={item.errorMessage}>Error</span>
+            <span className="text-red-600" title={item.errorMessage}>
+              Error
+            </span>
           ) : (
             item.status || '-'
           )}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -341,8 +331,11 @@ function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString('en-GB', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return iso;

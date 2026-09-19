@@ -31,6 +31,12 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = ResizeObserverMock;
 }
 
+// jsdom does not implement Element.scrollTo (used by the AI drawer's
+// scroll-to-latest effect). A no-op keeps the layout effect harmless.
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = (): void => {};
+}
+
 beforeEach(() => {
   localStorage.clear();
 });

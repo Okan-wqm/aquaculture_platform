@@ -33,7 +33,10 @@ interface SimulateDosingOutput {
     'Simulate the effect of adding a specific chemical reagent to the water system. Predicts the resulting pH, alkalinity, and CO2 after dosing. Use this when operators want to preview what will happen if they add a certain amount of a chemical.',
   category: 'water_chemistry',
   runtime: 'both',
-  requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
+  // Dosing prescriptions are a manager+ capability: the operator tier reads
+  // and calculates but never receives a reagent dose to act on (matches the
+  // pre-composition operator persona bundle).
+  requiredPermissions: ['manager', 'expert', 'supervisor'],
   inputSchema: {
     type: 'object',
     properties: {
@@ -89,10 +92,7 @@ interface SimulateDosingOutput {
   requiresModule: null,
   requiresConfirmation: false,
 })
-export class SimulateDosingEffectTool extends BaseTool<
-  SimulateDosingInput,
-  SimulateDosingOutput
-> {
+export class SimulateDosingEffectTool extends BaseTool<SimulateDosingInput, SimulateDosingOutput> {
   protected async run(
     input: SimulateDosingInput,
     _ctx: ToolExecutionContext,
@@ -111,17 +111,13 @@ export class SimulateDosingEffectTool extends BaseTool<
     const dic = calcDicOfAlk(alkMeq, currentPH, T, S);
     const volumeM3 = volumeLiters / 1000;
 
-    const steps = calcForwardDosing(
-      { dic, alk: alkMeq, tempC: T, salinity: S },
-      volumeM3,
-      [{ reagentKey: reagentName, amountGrams: doseGrams }],
-    );
+    const steps = calcForwardDosing({ dic, alk: alkMeq, tempC: T, salinity: S }, volumeM3, [
+      { reagentKey: reagentName, amountGrams: doseGrams },
+    ]);
 
     const finalStep = steps[steps.length - 1];
     if (!finalStep) {
-      throw new Error(
-        'Dosing simulation produced no steps; check reagent and dose inputs',
-      );
+      throw new Error('Dosing simulation produced no steps; check reagent and dose inputs');
     }
 
     return {
@@ -132,14 +128,10 @@ export class SimulateDosingEffectTool extends BaseTool<
     };
   }
 
-  async validate(
-    input: SimulateDosingInput,
-  ): Promise<{ valid: boolean; errors?: string[] }> {
+  async validate(input: SimulateDosingInput): Promise<{ valid: boolean; errors?: string[] }> {
     const errors: string[] = [];
-    if (input.currentAlkalinity < 0)
-      errors.push('Alkalinity must be non-negative');
-    if (input.currentPH < 0 || input.currentPH > 14)
-      errors.push('pH must be between 0 and 14');
+    if (input.currentAlkalinity < 0) errors.push('Alkalinity must be non-negative');
+    if (input.currentPH < 0 || input.currentPH > 14) errors.push('pH must be between 0 and 14');
     if (input.temperature < 0 || input.temperature > 45)
       errors.push('Temperature must be between 0 and 45°C');
     if (input.salinity < 0 || input.salinity > 45)

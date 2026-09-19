@@ -8,7 +8,9 @@
     "playwright.config.ts",
     "playwright.water-chemistry.config.ts",
     "playwright.aquamobil.config.ts",
+    "playwright.messaging.config.ts",
     "fixtures/**/*.ts",
+    "messaging/**/*.ts",
     "helpers/**/*.ts",
     "tests/**/*.ts"
   ],

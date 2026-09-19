@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => ({
         '../../../platform/libs/pagination-contracts/src/index.ts',
       ),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
+      // Zero-dependency cross-stack constants (AI persona id grammar) — path-
+      // aliased, not npm-installed, exactly as aquamobil does (MSG-MEDIUM-057).
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
   },
   server: { port: 3004, strictPort: true, cors: true },

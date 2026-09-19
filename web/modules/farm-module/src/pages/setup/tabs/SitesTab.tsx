@@ -4,7 +4,14 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useCanMutate, useToast, Spinner } from '@aquaculture/shared-ui';
+import {
+  DeleteConfirmationDialog,
+  DeletePreviewData,
+  AffectedItemGroup,
+  useCanMutate,
+  useToast,
+  Spinner,
+} from '@aquaculture/shared-ui';
 import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
   useSiteList,

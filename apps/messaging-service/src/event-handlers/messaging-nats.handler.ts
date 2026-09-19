@@ -16,7 +16,7 @@ import { MediaService } from '../message/services/media.service';
 import { PartitionManagerService } from '../partition/partition-manager.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 import { toWireEnumName } from '../shared/enum-wire.util';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { bindTenantRlsContext, getTenantSchemaName } from '@aquaculture/backend-common/database';
 import {
   GET_MESSAGE_FOR_BROADCAST_SUBJECT,
   type GetMessageForBroadcastRequest,
@@ -44,8 +44,7 @@ const TENANT_SCHEMA_REGEX = /^tenant_[0-9a-f]{16}$/;
  * SEC-M17: Validate a tenant ID for use in SQL search_path.
  * Accepts only lowercase UUID v4 format to prevent injection.
  */
-const TENANT_ID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const TENANT_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NOTIFICATION_REF_REGEX = TENANT_ID_REGEX;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,13 +58,9 @@ function booleanColumn(rows: unknown, column: string): boolean {
   return rows[0][column] === true;
 }
 
-function isMessageChannelRow(
-  value: unknown,
-): value is { id: string; channelId: string } {
+function isMessageChannelRow(value: unknown): value is { id: string; channelId: string } {
   return (
-    isRecord(value) &&
-    typeof value['id'] === 'string' &&
-    typeof value['channelId'] === 'string'
+    isRecord(value) && typeof value['id'] === 'string' && typeof value['channelId'] === 'string'
   );
 }
 
@@ -180,20 +175,14 @@ export class MessagingNatsHandler {
    *
    * @throws Error if tenantId does not match UUID v4 format
    */
-  private async setTenantSchema(
-    queryRunner: QueryRunner,
-    tenantId: string,
-  ): Promise<void> {
+  private async setTenantSchema(queryRunner: QueryRunner, tenantId: string): Promise<void> {
     if (!TENANT_ID_REGEX.test(tenantId)) {
-      throw new Error(
-        `SEC-M17: Invalid tenant ID format rejected: ${tenantId.substring(0, 50)}`,
-      );
+      throw new Error(`SEC-M17: Invalid tenant ID format rejected: ${tenantId.substring(0, 50)}`);
     }
     const schemaName = getTenantSchemaName(tenantId);
-    await queryRunner.query(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      [`"${schemaName}", "messaging", public`],
-    );
+    await queryRunner.query(`SELECT pg_catalog.set_config('search_path', $1, true)`, [
+      `"${schemaName}", "messaging", public`,
+    ]);
   }
 
   private async withTenantQueryRunner<T>(
@@ -206,6 +195,18 @@ export class MessagingNatsHandler {
 
     try {
       await this.setTenantSchema(queryRunner, tenantId);
+      // MSGFIX-FAZ1 (live-diagnosis root cause): search_path ALONE is not
+      // enough — the tenant/messaging schema tables sit under FORCE RLS
+      // with tenant_isolation_policy: a row is visible only when
+      // app.bypass_rls='on' OR "tenantId" = app.current_tenant. This path
+      // (unlike the HTTP TenantGuard) never set the GUC, so every NATS
+      // request-reply handler (verifyMembership, getChannelMembers,
+      // getMessageForBroadcast, resolveNotificationRef) silently read 0
+      // rows — WS joins were denied with "not a member" and hydration
+      // returned null (evidence: DEPLOY-FAZ1.md §3). bindTenantRlsContext
+      // sets the GUC transaction-locally AND reads it back (also forcing a
+      // stale bypass 'off') — the canonical backend-common pattern.
+      await bindTenantRlsContext(queryRunner, tenantId, 'messaging');
       const result = await work(queryRunner);
       await queryRunner.commitTransaction();
       return result;
@@ -230,12 +231,18 @@ export class MessagingNatsHandler {
    * Used by the WebSocket gateway for join-room authorisation.
    */
   @MessagePattern('request.messaging.verifyMembership')
-  async verifyMembership(
-    @Payload() data: VerifyMembershipPayload,
-  ): Promise<boolean> {
+  async verifyMembership(@Payload() data: VerifyMembershipPayload): Promise<boolean> {
     return this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
+      // MSGFIX-FAZ1: explicit tenantId predicate (the GraphQL-side pattern —
+      // message.resolver.ts validateChannelMembership). The search_path is
+      // tenant,messaging,public, so an unqualified table can resolve into
+      // the messaging schema; if the same channel id ever lives in another
+      // tenant, the predicate keeps the lookup scoped. RLS
+      // (bindTenantRlsContext) already fences the rows; the predicate is
+      // the second defense layer.
       const member = await queryRunner.manager.findOne(ChannelMember, {
         where: {
+          tenantId: data.tenantId,
           channelId: data.channelId,
           userId: data.userId,
           leftAt: IsNull(),
@@ -250,9 +257,7 @@ export class MessagingNatsHandler {
    * Used by notification-service to determine push-notification recipients.
    */
   @MessagePattern('request.messaging.getChannelMembers')
-  async getChannelMembers(
-    @Payload() data: GetChannelMembersPayload,
-  ): Promise<ChannelMemberDto[]> {
+  async getChannelMembers(@Payload() data: GetChannelMembersPayload): Promise<ChannelMemberDto[]> {
     return this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
       const members = await queryRunner.manager.find(ChannelMember, {
         where: {
@@ -273,9 +278,7 @@ export class MessagingNatsHandler {
    * Returns messages by IDs — used by ai-service for embedding generation.
    */
   @MessagePattern('request.messaging.getMessageBatch')
-  async getMessageBatch(
-    @Payload() data: GetMessageBatchPayload,
-  ): Promise<MessageBatchDto[]> {
+  async getMessageBatch(@Payload() data: GetMessageBatchPayload): Promise<MessageBatchDto[]> {
     if (!data.messageIds || data.messageIds.length === 0) return [];
 
     return this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
@@ -400,10 +403,7 @@ export class MessagingNatsHandler {
   }
 
   /** Presign a storage key, returning null on absence or a cross-tenant/transient failure. */
-  private async safePresign(
-    tenantId: string,
-    storageKey: string | null,
-  ): Promise<string | null> {
+  private async safePresign(tenantId: string, storageKey: string | null): Promise<string | null> {
     if (!storageKey) {
       return null;
     }
@@ -456,7 +456,9 @@ export class MessagingNatsHandler {
       !TENANT_ID_REGEX.test(record.channelId) ||
       !TENANT_ID_REGEX.test(record.messageId)
     ) {
-      this.logger.warn('Rejected notificationRef with mismatched tenant/user or invalid target IDs');
+      this.logger.warn(
+        'Rejected notificationRef with mismatched tenant/user or invalid target IDs',
+      );
       return null;
     }
 
@@ -525,154 +527,154 @@ export class MessagingNatsHandler {
       // the erased (non-held) messages; purged AFTER commit so the DB row is already
       // gone before we drop the binary (a failed purge leaves an orphan, not a live
       // PII reference). Held channels are excluded — legal hold preserves their media.
-      const objectKeysToPurge = await this.withTenantQueryRunner(data.tenantId, async (queryRunner) => {
-        // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
-        const userMessages: unknown = await queryRunner.query(
-          `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
-          [deletedUserId],
-        );
-        const userMemberships: unknown = await queryRunner.query(
-          `SELECT EXISTS(SELECT 1 FROM channel_members WHERE "userId" = $1 LIMIT 1) AS has_memberships`,
-          [deletedUserId],
-        );
-
-        if (
-          !booleanColumn(userMessages, 'has_messages') &&
-          !booleanColumn(userMemberships, 'has_memberships')
-        ) {
-          this.logger.log(
-            `UserDeleted: deletedUserId=${deletedUserId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
+      const objectKeysToPurge = await this.withTenantQueryRunner(
+        data.tenantId,
+        async (queryRunner) => {
+          // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
+          const userMessages: unknown = await queryRunner.query(
+            `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
+            [deletedUserId],
           );
-          return [];
-        }
-
-        // Collect ALL message IDs for this user BEFORE any anonymization.
-        // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify
-        // which messages belonged to this specific user — ANONYMOUS_USER_ID is shared
-        // across all deleted users. We need the IDs up front to clean AI-derived tables.
-        const userMsgRowsResult: unknown = await queryRunner.query(
-          `SELECT id, "channelId" FROM messages WHERE "senderId" = $1`,
-          [deletedUserId],
-        );
-        const userMsgRows = Array.isArray(userMsgRowsResult)
-          ? userMsgRowsResult.filter(isMessageChannelRow)
-          : [];
-        const userMessageIds = userMsgRows.map((r) => r.id);
-
-        // Determine which channels the user has messages in
-        const channelRows = userMsgRows.reduce<Array<{ channelId: string }>>((acc, r) => {
-          if (!acc.some((x) => x.channelId === r.channelId)) {
-            acc.push({ channelId: r.channelId });
-          }
-          return acc;
-        }, []);
-
-        // For each channel, check legal hold status and anonymize accordingly.
-        // BEFORE: all messages wiped unconditionally — messages in litigation-held
-        // channels had content destroyed, creating spoliation liability.
-        // WHY: Legal hold requires content preservation. We still anonymize the senderId
-        // (to protect the user's identity under GDPR) but preserve content in held channels.
-        const heldChannelIds = new Set<string>();
-        for (const { channelId } of channelRows) {
-          const isHeld = await this.legalHoldService.isUnderLegalHold(
-            data.tenantId,
-            channelId,
+          const userMemberships: unknown = await queryRunner.query(
+            `SELECT EXISTS(SELECT 1 FROM channel_members WHERE "userId" = $1 LIMIT 1) AS has_memberships`,
+            [deletedUserId],
           );
-          if (isHeld) {
-            heldChannelIds.add(channelId);
-            // Held channel: anonymize sender identity only, preserve content
-            await queryRunner.query(
-              `UPDATE messages SET "senderId" = $1 WHERE "senderId" = $2 AND "channelId" = $3`,
-              [ANONYMOUS_USER_ID, deletedUserId, channelId],
+
+          if (
+            !booleanColumn(userMessages, 'has_messages') &&
+            !booleanColumn(userMemberships, 'has_memberships')
+          ) {
+            this.logger.log(
+              `UserDeleted: deletedUserId=${deletedUserId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
             );
+            return [];
           }
-        }
 
-        // MSG-CRITICAL-058: for messages in NON-HELD channels (whose content we are
-        // about to wipe), delete the attachment rows and collect their MinIO object
-        // keys so the binaries are purged after commit. Held-channel attachments are
-        // preserved — legal hold outranks erasure. Mirrors GdprService.anonymizeMyData.
-        const erasableMessageIds = userMsgRows
-          .filter((r) => !heldChannelIds.has(r.channelId))
-          .map((r) => r.id);
-        const objectKeys: string[] = [];
-        if (erasableMessageIds.length > 0) {
-          const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
-            await queryRunner.query(
-              `SELECT "storageKey", "thumbnailKey" FROM message_attachments
+          // Collect ALL message IDs for this user BEFORE any anonymization.
+          // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify
+          // which messages belonged to this specific user — ANONYMOUS_USER_ID is shared
+          // across all deleted users. We need the IDs up front to clean AI-derived tables.
+          const userMsgRowsResult: unknown = await queryRunner.query(
+            `SELECT id, "channelId" FROM messages WHERE "senderId" = $1`,
+            [deletedUserId],
+          );
+          const userMsgRows = Array.isArray(userMsgRowsResult)
+            ? userMsgRowsResult.filter(isMessageChannelRow)
+            : [];
+          const userMessageIds = userMsgRows.map((r) => r.id);
+
+          // Determine which channels the user has messages in
+          const channelRows = userMsgRows.reduce<Array<{ channelId: string }>>((acc, r) => {
+            if (!acc.some((x) => x.channelId === r.channelId)) {
+              acc.push({ channelId: r.channelId });
+            }
+            return acc;
+          }, []);
+
+          // For each channel, check legal hold status and anonymize accordingly.
+          // BEFORE: all messages wiped unconditionally — messages in litigation-held
+          // channels had content destroyed, creating spoliation liability.
+          // WHY: Legal hold requires content preservation. We still anonymize the senderId
+          // (to protect the user's identity under GDPR) but preserve content in held channels.
+          const heldChannelIds = new Set<string>();
+          for (const { channelId } of channelRows) {
+            const isHeld = await this.legalHoldService.isUnderLegalHold(data.tenantId, channelId);
+            if (isHeld) {
+              heldChannelIds.add(channelId);
+              // Held channel: anonymize sender identity only, preserve content
+              await queryRunner.query(
+                `UPDATE messages SET "senderId" = $1 WHERE "senderId" = $2 AND "channelId" = $3`,
+                [ANONYMOUS_USER_ID, deletedUserId, channelId],
+              );
+            }
+          }
+
+          // MSG-CRITICAL-058: for messages in NON-HELD channels (whose content we are
+          // about to wipe), delete the attachment rows and collect their MinIO object
+          // keys so the binaries are purged after commit. Held-channel attachments are
+          // preserved — legal hold outranks erasure. Mirrors GdprService.anonymizeMyData.
+          const erasableMessageIds = userMsgRows
+            .filter((r) => !heldChannelIds.has(r.channelId))
+            .map((r) => r.id);
+          const objectKeys: string[] = [];
+          if (erasableMessageIds.length > 0) {
+            const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+              await queryRunner.query(
+                `SELECT "storageKey", "thumbnailKey" FROM message_attachments
                WHERE "messageId" = ANY($1::uuid[])`,
+                [erasableMessageIds],
+              );
+            for (const row of attachmentRows) {
+              if (row.storageKey) objectKeys.push(row.storageKey);
+              if (row.thumbnailKey) objectKeys.push(row.thumbnailKey);
+            }
+            await queryRunner.query(
+              `DELETE FROM message_attachments WHERE "messageId" = ANY($1::uuid[])`,
               [erasableMessageIds],
             );
-          for (const row of attachmentRows) {
-            if (row.storageKey) objectKeys.push(row.storageKey);
-            if (row.thumbnailKey) objectKeys.push(row.thumbnailKey);
           }
-          await queryRunner.query(
-            `DELETE FROM message_attachments WHERE "messageId" = ANY($1::uuid[])`,
-            [erasableMessageIds],
-          );
-        }
 
-        // Non-held channels: anonymize sender + wipe content + clear embedding.
-        // BEFORE: embedding column was NOT cleared — vector index retained the user's
-        // original message content even after anonymization, enabling re-identification
-        // via semantic similarity search. GdprService.anonymizeMyData() correctly
-        // sets embedding=NULL; this handler now aligns with that behavior.
-        if (heldChannelIds.size < channelRows.length) {
-          const heldIds = Array.from(heldChannelIds);
-          const whereClause = heldIds.length > 0
-            ? `"senderId" = $2 AND "channelId" != ALL($3::uuid[])`
-            : `"senderId" = $2`;
-          const params = heldIds.length > 0
-            ? [ANONYMOUS_USER_ID, deletedUserId, heldIds]
-            : [ANONYMOUS_USER_ID, deletedUserId];
+          // Non-held channels: anonymize sender + wipe content + clear embedding.
+          // BEFORE: embedding column was NOT cleared — vector index retained the user's
+          // original message content even after anonymization, enabling re-identification
+          // via semantic similarity search. GdprService.anonymizeMyData() correctly
+          // sets embedding=NULL; this handler now aligns with that behavior.
+          if (heldChannelIds.size < channelRows.length) {
+            const heldIds = Array.from(heldChannelIds);
+            const whereClause =
+              heldIds.length > 0
+                ? `"senderId" = $2 AND "channelId" != ALL($3::uuid[])`
+                : `"senderId" = $2`;
+            const params =
+              heldIds.length > 0
+                ? [ANONYMOUS_USER_ID, deletedUserId, heldIds]
+                : [ANONYMOUS_USER_ID, deletedUserId];
 
-          await queryRunner.query(
-            `UPDATE messages
+            await queryRunner.query(
+              `UPDATE messages
              SET "senderId" = $1,
                  content = '[message deleted by user]',
                  embedding = NULL
              WHERE ${whereClause}`,
-            params,
-          );
-        }
+              params,
+            );
+          }
 
-        // Clean AI-derived PII using the message IDs collected before anonymization.
-        // BEFORE: message_entity_references and message_analysis rows were never cleaned.
-        // Also: there was a bug where IDs were collected AFTER anonymization by querying
-        // senderId=ANONYMOUS_USER_ID — which would return ALL anonymized users' messages.
-        // Using pre-collected userMessageIds is the correct approach.
-        if (userMessageIds.length > 0) {
+          // Clean AI-derived PII using the message IDs collected before anonymization.
+          // BEFORE: message_entity_references and message_analysis rows were never cleaned.
+          // Also: there was a bug where IDs were collected AFTER anonymization by querying
+          // senderId=ANONYMOUS_USER_ID — which would return ALL anonymized users' messages.
+          // Using pre-collected userMessageIds is the correct approach.
+          if (userMessageIds.length > 0) {
+            await queryRunner.query(
+              `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
+              [userMessageIds],
+            );
+            await queryRunner.query(
+              `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
+              [userMessageIds],
+            );
+          }
+
+          // Remove reactions
+          await queryRunner.query(`DELETE FROM message_reactions WHERE "userId" = $1`, [
+            deletedUserId,
+          ]);
+
+          // Remove receipts
+          await queryRunner.query(`DELETE FROM message_receipts WHERE "userId" = $1`, [
+            deletedUserId,
+          ]);
+
+          // Mark channel memberships as left
           await queryRunner.query(
-            `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
-            [userMessageIds],
+            `UPDATE channel_members SET "leftAt" = NOW() WHERE "userId" = $1 AND "leftAt" IS NULL`,
+            [deletedUserId],
           );
-          await queryRunner.query(
-            `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
-            [userMessageIds],
-          );
-        }
 
-        // Remove reactions
-        await queryRunner.query(
-          `DELETE FROM message_reactions WHERE "userId" = $1`,
-          [deletedUserId],
-        );
-
-        // Remove receipts
-        await queryRunner.query(
-          `DELETE FROM message_receipts WHERE "userId" = $1`,
-          [deletedUserId],
-        );
-
-        // Mark channel memberships as left
-        await queryRunner.query(
-          `UPDATE channel_members SET "leftAt" = NOW() WHERE "userId" = $1 AND "leftAt" IS NULL`,
-          [deletedUserId],
-        );
-
-        return objectKeys;
-      });
+          return objectKeys;
+        },
+      );
 
       // MSG-CRITICAL-058: the attachment ROWS are committed-deleted; purge the MinIO
       // binaries (best-effort, post-commit). Tenant-prefix isolation is enforced
@@ -692,9 +694,7 @@ export class MessagingNatsHandler {
       }
       this.logger.log(`UserDeleted cascade completed for deletedUserId ${deletedUserId}`);
     } catch (err: unknown) {
-      this.logger.error(
-        `UserDeleted cascade failed for ${deletedUserId}: ${errorMessage(err)}`,
-      );
+      this.logger.error(`UserDeleted cascade failed for ${deletedUserId}: ${errorMessage(err)}`);
     }
   }
 
@@ -713,9 +713,7 @@ export class MessagingNatsHandler {
    * had NEVER received a TenantProvisioned event.
    */
   @EventPattern('events.*.TenantProvisioned')
-  async handleTenantProvisioned(
-    @Payload() data: TenantProvisionedPayload,
-  ): Promise<void> {
+  async handleTenantProvisioned(@Payload() data: TenantProvisionedPayload): Promise<void> {
     // SEC-M17: Validate tenantId format
     if (!TENANT_ID_REGEX.test(data.tenantId)) {
       this.logger.error(
@@ -739,21 +737,15 @@ export class MessagingNatsHandler {
       return;
     }
 
-    this.logger.log(
-      `TenantProvisioned received — ensuring partitions for ${data.schemaName}`,
-    );
+    this.logger.log(`TenantProvisioned received — ensuring partitions for ${data.schemaName}`);
 
     try {
       // Trigger partition creation via the partition manager's startup logic
       // which checks current + next 2 months
       await this.partitionManager.onApplicationBootstrap();
-      this.logger.log(
-        `Partitions ensured for tenant ${data.tenantId} (${data.schemaName})`,
-      );
+      this.logger.log(`Partitions ensured for tenant ${data.tenantId} (${data.schemaName})`);
     } catch (err) {
-      this.logger.error(
-        `Partition creation failed for ${data.schemaName}: ${errorMessage(err)}`,
-      );
+      this.logger.error(`Partition creation failed for ${data.schemaName}: ${errorMessage(err)}`);
     }
   }
 

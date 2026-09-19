@@ -40,18 +40,12 @@ interface VfdAutomationRuleFormProps {
 // Component
 // ============================================================================
 
-export function VfdAutomationRuleForm({
-  rule,
-  onSubmit,
-  onCancel,
-}: VfdAutomationRuleFormProps) {
+export function VfdAutomationRuleForm({ rule, onSubmit, onCancel }: VfdAutomationRuleFormProps) {
   const [name, setName] = useState(rule?.name ?? '');
   const [description, setDescription] = useState(rule?.description ?? '');
   const [requiresApproval, setRequiresApproval] = useState(rule?.requiresApproval ?? true);
   const [priority, setPriority] = useState(String(rule?.priority ?? 10));
-  const [targetDevices, setTargetDevices] = useState(
-    rule?.targetVfdDeviceIds.join(', ') ?? '',
-  );
+  const [targetDevices, setTargetDevices] = useState(rule?.targetVfdDeviceIds.join(', ') ?? '');
   const [submitting, setSubmitting] = useState(false);
 
   // Trigger conditions
@@ -106,7 +100,10 @@ export function VfdAutomationRuleForm({
           description: description.trim(),
           requiresApproval,
           priority: parseInt(priority, 10) || 10,
-          targetVfdDeviceIds: targetDevices.split(',').map((s) => s.trim()).filter(Boolean),
+          targetVfdDeviceIds: targetDevices
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
           triggerCondition: {
             operator: 'AND',
             conditions: conditions.map((c) => ({
@@ -125,7 +122,17 @@ export function VfdAutomationRuleForm({
         setSubmitting(false);
       }
     },
-    [name, description, requiresApproval, priority, targetDevices, conditions, paramChanges, validate, onSubmit],
+    [
+      name,
+      description,
+      requiresApproval,
+      priority,
+      targetDevices,
+      conditions,
+      paramChanges,
+      validate,
+      onSubmit,
+    ],
   );
 
   const addCondition = useCallback(() => {
@@ -136,9 +143,12 @@ export function VfdAutomationRuleForm({
     setConditions((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const updateCondition = useCallback((idx: number, field: keyof TriggerConditionRow, val: string) => {
-    setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
-  }, []);
+  const updateCondition = useCallback(
+    (idx: number, field: keyof TriggerConditionRow, val: string) => {
+      setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+    },
+    [],
+  );
 
   const addParamChange = useCallback(() => {
     setParamChanges((prev) => [...prev, { parameterName: '', newValue: '' }]);
@@ -148,9 +158,12 @@ export function VfdAutomationRuleForm({
     setParamChanges((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const updateParamChange = useCallback((idx: number, field: keyof ParameterChangeRow, val: string) => {
-    setParamChanges((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: val } : p)));
-  }, []);
+  const updateParamChange = useCallback(
+    (idx: number, field: keyof ParameterChangeRow, val: string) => {
+      setParamChanges((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: val } : p)));
+    },
+    [],
+  );
 
   return (
     <Modal

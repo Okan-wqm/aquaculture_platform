@@ -80,6 +80,7 @@ import { InventoryModule } from '../storage/storage.module';
 // of a hardcoded literal. FinanceModule does not import FeedingModule,
 // so there is no DI cycle.
 import { FinanceModule } from '../finance/finance.module';
+import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder';
 
 @Module({
   imports: [
@@ -106,7 +107,7 @@ import { FinanceModule } from '../finance/finance.module';
     InventoryModule,
     FinanceModule,
   ],
-  controllers: [GetFeedingOverviewResponder],
+  controllers: [FeedingAiQueryResponder, GetFeedingOverviewResponder],
   providers: [
     FeedSelectorService,
     WaterTemperatureService,

@@ -21,7 +21,9 @@ export const RoleBadge = memo<RoleBadgeProps>(({ role }) => {
   const config = roleConfig[role] ?? defaultConfig;
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
+    >
       <Shield className="w-3 h-3 mr-1" />
       {config.label}
     </span>

@@ -11,7 +11,14 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -94,7 +101,14 @@ export const WorkersTab: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this worker?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this worker?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteWorkerMutation.mutateAsync(id);
       } catch (err) {
@@ -107,7 +121,10 @@ export const WorkersTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.position) {
-      toast({ title: 'First name, last name, email, and position are required.', variant: 'warning' });
+      toast({
+        title: 'First name, last name, email, and position are required.',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -194,21 +211,15 @@ export const WorkersTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <button
-            onClick={() => openEdit(item)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-          >
+          <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
             Edit
           </button>
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-          >
+          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
             Delete
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (

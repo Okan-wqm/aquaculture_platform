@@ -99,9 +99,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
 
   const updateRange = useCallback(
     (index: number, field: keyof ColorRange, value: string | number) => {
-      const updated = ranges.map((r, i) =>
-        i === index ? { ...r, [field]: value } : r,
-      );
+      const updated = ranges.map((r, i) => (i === index ? { ...r, [field]: value } : r));
       // Re-sort by min value whenever min changes to maintain visual order
       if (field === 'min') {
         updated.sort((a, b) => a.min - b.min);

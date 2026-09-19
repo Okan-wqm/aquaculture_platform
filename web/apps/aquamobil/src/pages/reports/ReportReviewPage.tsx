@@ -20,10 +20,7 @@ import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
 } from '@/generated/graphql';
-import {
-  MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
-  MOBILE_REPORT_DRAFTS,
-} from '@/graphql/operations';
+import { MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, MOBILE_REPORT_DRAFTS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -107,10 +104,7 @@ export function ReportReviewPage(): JSX.Element {
   const approveMutation = useMutation({
     mutationFn: async () => {
       if (!draftId) throw new Error('Missing draft id');
-      const result = await graphqlRequest(
-        MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
-        { draftId },
-      );
+      const result = await graphqlRequest(MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, { draftId });
       return result.approveAndSubmitReportDraft;
     },
     onSuccess: async (result) => {

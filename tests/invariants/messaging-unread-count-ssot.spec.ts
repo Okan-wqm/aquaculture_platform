@@ -32,7 +32,13 @@ describe('INVARIANT (ORPHAN-100): messaging unread count has one SQL source of t
     expect(helper).toMatch(/export function unreadMessagePredicateSql/);
     // The three load-bearing clauses of "unread".
     expect(helper).toContain('"isDeleted" = false');
-    expect(helper).toContain('"senderId" != :');
+    // MSGFIX-FAZ3 3.4: the member-identity is interpolated (`!= ${memberUser}`)
+    // in exactly two sanctioned shapes — a bound param (`:userId`) for
+    // single-user queries and a joined column expression (`cm."userId"`) for
+    // batched counting. The invariant pins that BOTH (and only those) shapes
+    // exist, so the sender-exclusion clause can never be dropped or hand-rolled.
+    expect(helper).toContain('"senderId" != ${memberUser}');
+    expect(helper).toMatch(/const memberUser = .*userIdParam[^;]*:.*userIdSql/s);
     expect(helper).toMatch(/IS NULL OR .*"createdAt" >/);
   });
 

@@ -9,7 +9,7 @@ import type { BatchDocumentInput, BatchDocumentType } from '../../../hooks/useBa
 import type { UploadedDocument } from '../../../hooks/useFileUpload';
 
 interface LocalDocument {
-  id: string; // temporary ID for local management
+  id: string; // client-side key for the row until the upload returns the stored document id
   file?: File;
   documentName: string;
   documentNumber?: string;

@@ -31,6 +31,10 @@ describe('MessagingPushService', () => {
 
   const mockMessageService = {
     getUnreadCount: jest.fn().mockResolvedValue(3),
+    // MSGFIX-FAZ3 3.4: the fan-out now resolves badges per CHUNK via the
+    // batched query (one query per ≤10 recipients instead of a global COUNT
+    // per member).
+    getUnreadCountsForUsers: jest.fn().mockResolvedValue(new Map([['user-a', 3]])),
   };
 
   const mockNatsClient = {
@@ -110,6 +114,7 @@ describe('MessagingPushService', () => {
     mockRedis.setex.mockResolvedValue('OK');
     mockRedis.del.mockResolvedValue(1);
     mockMessageService.getUnreadCount.mockResolvedValue(3);
+    mockMessageService.getUnreadCountsForUsers.mockResolvedValue(new Map([['user-a', 3]]));
     mockNatsClient.send.mockReturnValue(of({ success: true }));
 
     const module: TestingModule = await Test.createTestingModule({
@@ -252,6 +257,56 @@ describe('MessagingPushService', () => {
     expect(emittedPayload.templateVariables).not.toHaveProperty('messageId');
   });
 
+  // -------------------------------------------------------------------------
+  // MSGFIX-FAZ2 2.3: AI messages never push — contract flag first, AI sender
+  // identity second (legacy publishers omitting isAiResponse are covered).
+  // -------------------------------------------------------------------------
+  it('MSGFIX-FAZ2: skips push for AI replies (isAiResponse contract flag)', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+
+    await service.handleMessageSent({
+      ...basePayload,
+      isAiResponse: true,
+    });
+
+    expect(mockMemberRepo.find).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
+  });
+
+  it('MSGFIX-FAZ2: skips push for the virtual AI sender even without the flag', async () => {
+    await service.handleMessageSent({
+      ...basePayload,
+      senderId: '00000000-0000-0000-0000-000000000001',
+    });
+
+    expect(mockMemberRepo.find).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // MSGFIX-FAZ2 V1 MAJOR-2: AI ERROR notices are EXEMPT from the AI push
+  // filter — a backgrounded user must learn the AI turn failed.
+  // -------------------------------------------------------------------------
+  it('MSGFIX-FAZ2: pushes for AI ERROR notices despite isAiResponse', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+
+    await service.handleMessageSent({
+      ...basePayload,
+      senderId: '00000000-0000-0000-0000-000000000001',
+      isAiResponse: true,
+      isAiErrorNotice: true,
+    });
+
+    expect(mockMemberRepo.find).toHaveBeenCalled();
+    expect(mockNatsClient.send).toHaveBeenCalled();
+  });
+
   it('rolls back failed recipient refs without stopping other recipients', async () => {
     mockMemberRepo.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
@@ -275,5 +330,60 @@ describe('MessagingPushService', () => {
     const [setexKey] = mockRedis.setex.mock.calls[0] as readonly unknown[];
     expect(mockRedis.del).toHaveBeenCalledWith(setexKey);
     expect(mockRedis.del).not.toHaveBeenCalledWith('msg:push:dedup:tenant-1:channel-1:user-b');
+  });
+
+  // -------------------------------------------------------------------------
+  // MSGFIX-FAZ3 3.4: bounded-concurrency fan-out + batched badge lookup.
+  // -------------------------------------------------------------------------
+  it('MSGFIX-FAZ3: resolves badge values via the BATCHED query, not per-member getUnreadCount', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+
+    await service.handleMessageSent(basePayload);
+
+    expect(mockMessageService.getUnreadCountsForUsers).toHaveBeenCalledWith('tenant-1', ['user-a']);
+    expect(mockMessageService.getUnreadCount).not.toHaveBeenCalled();
+    const emitted = getEmittedPushPayload(0);
+    expect(emitted.templateVariables.badge).toBe(3);
+  });
+
+  it('MSGFIX-FAZ3: chunks recipients at 10 — one batched badge query per chunk, all recipients dispatched', async () => {
+    // 14 offline recipients ⇒ 2 chunks (10 + 4) ⇒ 2 batched badge queries,
+    // 14 NATS sends, all still delivered despite exceeding one chunk.
+    const offlineMembers = Array.from({ length: 14 }, (_, i) => ({
+      userId: `user-${i}`,
+      notificationPreference: NotificationPreference.ALL,
+    }));
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
+      ...offlineMembers,
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(
+      new Map(offlineMembers.map((m) => [m.userId, false])),
+    );
+    mockMessageService.getUnreadCountsForUsers.mockResolvedValue(
+      new Map(offlineMembers.map((m) => [m.userId, 5])),
+    );
+
+    await service.handleMessageSent(basePayload);
+
+    expect(mockMessageService.getUnreadCountsForUsers).toHaveBeenCalledTimes(2);
+    expect(mockMessageService.getUnreadCountsForUsers).toHaveBeenNthCalledWith(
+      1,
+      'tenant-1',
+      offlineMembers.slice(0, 10).map((m) => m.userId),
+    );
+    expect(mockMessageService.getUnreadCountsForUsers).toHaveBeenNthCalledWith(
+      2,
+      'tenant-1',
+      offlineMembers.slice(10).map((m) => m.userId),
+    );
+    expect(mockNatsClient.send).toHaveBeenCalledTimes(14);
+    for (let i = 0; i < 14; i += 1) {
+      expect(getEmittedPushPayload(i).templateVariables.badge).toBe(5);
+    }
   });
 });

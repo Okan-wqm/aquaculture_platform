@@ -10,7 +10,11 @@ interface WidgetConfigProps {
   deviceId?: string | null;
 }
 
-export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({
+  config,
+  onChange,
+  deviceId,
+}) => {
   return (
     <div className="space-y-3">
       <div>
@@ -49,7 +53,12 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
                 title={c.label}
                 onClick={() => onChange({ activeColor: c.value })}
                 style={{
-                  width: 24, height: 24, borderRadius: '50%', background: c.value, border: config.activeColor === c.value ? '2px solid #111' : '2px solid transparent',
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  background: c.value,
+                  border:
+                    config.activeColor === c.value ? '2px solid #111' : '2px solid transparent',
                   cursor: 'pointer',
                 }}
               />
@@ -70,7 +79,12 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
                 title={c.label}
                 onClick={() => onChange({ inactiveColor: c.value })}
                 style={{
-                  width: 24, height: 24, borderRadius: '50%', background: c.value, border: config.inactiveColor === c.value ? '2px solid #111' : '2px solid transparent',
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  background: c.value,
+                  border:
+                    config.inactiveColor === c.value ? '2px solid #111' : '2px solid transparent',
                   cursor: 'pointer',
                 }}
               />

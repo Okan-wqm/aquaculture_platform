@@ -147,10 +147,7 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
   const [isVisible, setIsVisible] = useState(false);
 
   // Parse export variables once from SVG content
-  const exportVariables = useMemo(
-    () => parseFuxaExportVariables(svgContent),
-    [svgContent],
-  );
+  const exportVariables = useMemo(() => parseFuxaExportVariables(svgContent), [svgContent]);
 
   // Build srcdoc only when SVG content changes (not on every variable update)
   const srcdoc = useMemo(() => {
@@ -194,8 +191,9 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
     // Dispose previous bridge if any (defensive)
     bridgeRef.current?.dispose();
 
-    // Create new bridge (tagBus is null for now -- will be connected
-    // when ScadaRuntimeContext provides it via a future hook)
+    // Create new bridge. The tag bus is null until ScadaRuntimeContext
+    // provides one through its hook; the bridge runs in variable-only mode
+    // without it.
     const bridge = new FuxaMessageBridge(iframe, null);
     bridgeRef.current = bridge;
 

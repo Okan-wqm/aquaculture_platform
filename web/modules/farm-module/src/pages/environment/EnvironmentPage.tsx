@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  useCanMutate,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -325,16 +331,12 @@ function ValueTable({
     {
       key: 'sourceAndProvenance',
       header: 'Source and provenance',
-      render: (_value, value) => (
-        <ValueProvenance value={value} />
-      ),
+      render: (_value, value) => <ValueProvenance value={value} />,
     },
     {
       key: 'quality',
       header: 'Quality',
-      render: (_value, value) => (
-        <QualityPill status={value.qualityStatus} />
-      ),
+      render: (_value, value) => <QualityPill status={value.qualityStatus} />,
     },
     {
       key: 'depth',
@@ -346,7 +348,7 @@ function ValueTable({
             : `${formatValue(value.depthM)} m`}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -354,7 +356,9 @@ function ValueTable({
       <DataTable<ValueRow>
         data={values}
         columns={valueRowColumns}
-        keyExtractor={(value) => `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`}
+        keyExtractor={(value) =>
+          `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`
+        }
         emptyMessage="No records found"
         searchable={false}
         sortable={false}

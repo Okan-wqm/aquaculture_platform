@@ -271,7 +271,12 @@ export function RecordEntityPage<
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3 className={clsx('text-sm font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
+              <h3
+                className={clsx(
+                  'text-sm font-bold uppercase tracking-wider',
+                  theme.summaryHeaderText,
+                )}
+              >
                 {summaryHeading}
               </h3>
             </div>
@@ -283,7 +288,9 @@ export function RecordEntityPage<
 
         <div className="px-4 mt-6 space-y-3 pb-28">
           <button
-            onClick={() => { void handleSubmit(); }}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isSubmitting}
             className={clsx(
               'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
@@ -361,16 +368,20 @@ export function RecordEntityPage<
               error={errors.tank}
             >
               <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
+              {tanks
+                ?.filter((t) => t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                  </option>
+                ))}
+              {tanks
+                ?.filter((t) => !t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id} disabled>
+                    {t.name} (No active batch)
+                  </option>
+                ))}
             </ListInput>
           </List>
           {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
@@ -522,7 +533,12 @@ export function ReasonGrid<TValue extends string>(props: {
               className={clsx(
                 'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
                 selected
-                  ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
+                  ? clsx(
+                      theme.selectionBorder,
+                      theme.surfaceSoftBg,
+                      theme.selectionGlow,
+                      'scale-[1.02]',
+                    )
                   : 'border-gray-100 dark:border-gray-800',
               )}
             >

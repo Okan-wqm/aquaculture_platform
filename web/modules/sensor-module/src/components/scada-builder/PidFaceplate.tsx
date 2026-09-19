@@ -7,7 +7,12 @@
 
 import React, { useMemo } from 'react';
 import { Activity, Zap, CircleDot } from 'lucide-react';
-import { Drawer, colors as themeColors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  Drawer,
+  colors as themeColors,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
 import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -34,18 +39,18 @@ interface PidFaceplateProps {
 
 const STATE_COLORS: Record<string, string> = {
   running: themeColors.success[500],
-  open:    themeColors.success[500],
+  open: themeColors.success[500],
   stopped: themeColors.neutral[400],
-  closed:  themeColors.neutral[400],
-  fault:   themeColors.error[500],
+  closed: themeColors.neutral[400],
+  fault: themeColors.error[500],
 };
 
 const STATE_LABELS: Record<string, string> = {
   running: 'Running',
-  open:    'Open',
+  open: 'Open',
   stopped: 'Stopped',
-  closed:  'Closed',
-  fault:   'Fault',
+  closed: 'Closed',
+  fault: 'Fault',
 };
 
 function getStatusColor(state: unknown): string {
@@ -64,8 +69,8 @@ function getStatusLabel(state: unknown): string {
 /* ------------------------------------------------------------------ */
 
 const DIRECTION_LABELS: Record<string, string> = {
-  in:    'Inlet',
-  out:   'Outlet',
+  in: 'Inlet',
+  out: 'Outlet',
   inout: 'Bidirectional',
 };
 
@@ -82,16 +87,12 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
       widget.widgetType === 'equipment'
         ? (config.equipmentSubType as string) || ''
         : widget.widgetType;
-    return lookupKey in CONNECTION_POINTS
-      ? CONNECTION_POINTS[lookupKey as ConnectionPointKey]
-      : [];
+    return lookupKey in CONNECTION_POINTS ? CONNECTION_POINTS[lookupKey as ConnectionPointKey] : [];
   }, [widget.widgetType, config.equipmentSubType]);
 
   // Derive labels
   const equipmentLabel =
-    (config.label as string) ||
-    (config.equipmentSubType as string) ||
-    widget.widgetType;
+    (config.label as string) || (config.equipmentSubType as string) || widget.widgetType;
 
   const state = config.state as string | undefined;
   const isEquipmentLike =
@@ -158,7 +159,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
           title={pt.direction}
         />
       ),
-    }
+    },
   ];
 
   return (

@@ -138,9 +138,7 @@ export class MessagingAdminNatsHandler {
    * Return compliance statistics for a tenant.
    */
   @MessagePattern('request.messaging.admin.complianceStats')
-  async getComplianceStats(
-    @Payload() data: ComplianceStatsPayload,
-  ): Promise<{
+  async getComplianceStats(@Payload() data: ComplianceStatsPayload): Promise<{
     activeHoldsCount: number;
     retentionPoliciesCount: number;
     auditLogEntriesCount: number;
@@ -152,11 +150,7 @@ export class MessagingAdminNatsHandler {
       this.queryBus.execute<GetRetentionPoliciesQuery, RetentionPolicy[]>(
         new GetRetentionPoliciesQuery(data.tenantId),
       ),
-      this.auditService.getAuditLog(
-        { tenantId: data.tenantId },
-        1,
-        null,
-      ),
+      this.auditService.getAuditLog({ tenantId: data.tenantId }, 1, null),
     ]);
 
     return {
@@ -172,9 +166,7 @@ export class MessagingAdminNatsHandler {
    * Return all legal holds for a tenant.
    */
   @MessagePattern('request.messaging.admin.getLegalHolds')
-  async getLegalHolds(
-    @Payload() data: GetLegalHoldsPayload,
-  ): Promise<LegalHold[]> {
+  async getLegalHolds(@Payload() data: GetLegalHoldsPayload): Promise<LegalHold[]> {
     this.logger.debug(`Admin request: getLegalHolds for tenant=${data.tenantId}`);
     return this.legalHoldService.getHolds(data.tenantId);
   }
@@ -183,9 +175,7 @@ export class MessagingAdminNatsHandler {
    * Create (activate) a new legal hold.
    */
   @MessagePattern('request.messaging.admin.createLegalHold')
-  async createLegalHold(
-    @Payload() data: CreateLegalHoldPayload,
-  ): Promise<LegalHold> {
+  async createLegalHold(@Payload() data: CreateLegalHoldPayload): Promise<LegalHold> {
     this.logger.debug(`Admin request: createLegalHold for tenant=${data.tenantId}`);
 
     return this.commandBus.execute(
@@ -208,9 +198,7 @@ export class MessagingAdminNatsHandler {
    * Release (deactivate) an existing legal hold.
    */
   @MessagePattern('request.messaging.admin.releaseLegalHold')
-  async releaseLegalHold(
-    @Payload() data: ReleaseLegalHoldPayload,
-  ): Promise<LegalHold> {
+  async releaseLegalHold(@Payload() data: ReleaseLegalHoldPayload): Promise<LegalHold> {
     this.logger.debug(`Admin request: releaseLegalHold holdId=${data.holdId}`);
 
     return this.commandBus.execute(
@@ -241,9 +229,7 @@ export class MessagingAdminNatsHandler {
     @Payload() data: GetRetentionPoliciesPayload,
   ): Promise<RetentionPolicy[]> {
     this.logger.debug(`Admin request: getRetentionPolicies for tenant=${data.tenantId}`);
-    return this.queryBus.execute(
-      new GetRetentionPoliciesQuery(data.tenantId),
-    );
+    return this.queryBus.execute(new GetRetentionPoliciesQuery(data.tenantId));
   }
 
   /**
@@ -258,12 +244,7 @@ export class MessagingAdminNatsHandler {
     );
 
     return this.commandBus.execute(
-      new SetRetentionPolicyCommand(
-        data.tenantId,
-        data.userId,
-        data.channelId,
-        data.retentionDays,
-      ),
+      new SetRetentionPolicyCommand(data.tenantId, data.userId, data.channelId, data.retentionDays),
     );
   }
 
@@ -273,9 +254,7 @@ export class MessagingAdminNatsHandler {
    * Return paginated compliance audit log entries.
    */
   @MessagePattern('request.messaging.admin.getAuditLog')
-  async getAuditLog(
-    @Payload() data: GetAuditLogPayload,
-  ): Promise<{
+  async getAuditLog(@Payload() data: GetAuditLogPayload): Promise<{
     items: unknown[];
     hasMore: boolean;
     cursor: string | null;
@@ -303,9 +282,7 @@ export class MessagingAdminNatsHandler {
    * Trigger a tenant-wide data export.
    */
   @MessagePattern('request.messaging.admin.triggerExport')
-  async triggerExport(
-    @Payload() data: TriggerExportPayload,
-  ): Promise<{
+  async triggerExport(@Payload() data: TriggerExportPayload): Promise<{
     jobId: string;
     status: string;
     format: string;
@@ -317,11 +294,7 @@ export class MessagingAdminNatsHandler {
       `Admin request: triggerExport tenant=${data.tenantId}, format=${data.format}`,
     );
 
-    const result = await this.exportService.exportTenant(
-      data.tenantId,
-      data.format,
-      data.userId,
-    );
+    const result = await this.exportService.exportTenant(data.tenantId, data.format, data.userId);
 
     // IMPORTANT: Do not send the full data payload over NATS — it can be huge.
     // Return metadata only; the actual export data should be retrieved via a
@@ -342,17 +315,18 @@ export class MessagingAdminNatsHandler {
    * Return available AI personas for a tenant.
    */
   @MessagePattern('request.messaging.admin.getPersonas')
-  async getPersonas(
-    @Payload() data: GetPersonasPayload,
-  ): Promise<Array<{
-    id: string | null;
-    name: string;
-    description: string;
-    icon: string;
-    color: string;
-    capabilities: string[];
-  }>> {
+  async getPersonas(@Payload() data: GetPersonasPayload): Promise<
+    Array<{
+      id: string | null;
+      name: string;
+      description: string;
+      icon: string;
+      color: string;
+      capabilities: string[];
+    }>
+  > {
     this.logger.debug(`Admin request: getPersonas for tenant=${data.tenantId}`);
-    return this.personasService.getAvailablePersonas(data.tenantId);
+    // Platform-admin inventory: every published persona, unfiltered.
+    return this.personasService.listAll();
   }
 }

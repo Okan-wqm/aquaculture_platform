@@ -79,11 +79,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, []);
 
   /* ---- helpers ---- */
-  function formatValueForInput(
-    val: unknown,
-    type: InputType,
-    dec: number,
-  ): string {
+  function formatValueForInput(val: unknown, type: InputType, dec: number): string {
     if (val === null || val === undefined) return '';
     if (type === 'number') {
       const n = Number(val);
@@ -126,7 +122,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         // lastError from useTagWrite is displayed
       }
     },
-     
+
     [tagId, inputType, minVal, maxVal, writeTag, onCommand],
   );
 
@@ -157,15 +153,12 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     setPinInput('');
   }, []);
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setInputVal(e.target.value);
-      setIsDirty(true);
-      setWriteSuccess(false);
-      setValidationError(null);
-    },
-    [],
-  );
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputVal(e.target.value);
+    setIsDirty(true);
+    setWriteSuccess(false);
+    setValidationError(null);
+  }, []);
 
   // SENSOR-CRITICAL-006: the PIN is verified SERVER-SIDE against the
   // package's salted hash — the client never sees or compares the secret
@@ -205,8 +198,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, [packageId, pinVerifying, pinInput, doWrite, inputVal]);
 
   /* ---- HTML input type ---- */
-  const htmlInputType =
-    inputType === 'datetime' ? 'datetime-local' : inputType;
+  const htmlInputType = inputType === 'datetime' ? 'datetime-local' : inputType;
 
   /* ---- quality indicator color ---- */
   const quality = tagChange?.quality ?? 'good';
@@ -250,11 +242,12 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         />
 
         {/* Status icons */}
-        {isWriting && (
-          <Spinner size="sm" label="Writing..." className="flex-shrink-0" />
-        )}
+        {isWriting && <Spinner size="sm" label="Writing..." className="flex-shrink-0" />}
         {writeSuccess && !isWriting && (
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" aria-label="Write successful" />
+          <CheckCircle
+            className="w-4 h-4 text-green-500 flex-shrink-0"
+            aria-label="Write successful"
+          />
         )}
         {(lastError || validationError) && !isWriting && (
           <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" aria-label="Write error" />
@@ -339,7 +332,9 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
           />
           {pinError && (
-            <p className="text-xs text-red-600" role="alert">{pinError}</p>
+            <p className="text-xs text-red-600" role="alert">
+              {pinError}
+            </p>
           )}
         </div>
       </Modal>

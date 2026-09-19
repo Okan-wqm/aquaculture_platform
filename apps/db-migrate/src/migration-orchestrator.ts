@@ -192,7 +192,7 @@ interface MigrationSession {
 }
 
 interface PostConditionAwareMigration {
-  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
+  postCondition?(queryRunner: QueryRunner, schema?: string): Promise<unknown>;
 }
 
 function assertSafeSchema(schema: string): void {
@@ -288,7 +288,7 @@ async function runPostConditionProbe(
 
   let result: unknown;
   try {
-    result = await candidate.postCondition(queryRunner);
+    result = await candidate.postCondition(queryRunner, schema);
   } catch (probeErr) {
     const wrapped = new Error(
       `Migration "${migration.name}" postCondition() threw on "${schema}" — ` +

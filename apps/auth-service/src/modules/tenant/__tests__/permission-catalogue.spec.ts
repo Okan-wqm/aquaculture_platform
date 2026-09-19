@@ -1,8 +1,11 @@
 import 'reflect-metadata';
+import { AI_PERSONA_CATALOGUE } from '@aquaculture/shared-contracts';
 import {
   CATALOGUE_CAPABILITIES,
   entitledCapabilities,
   entitledPermissionCategories,
+  isKnownCapability,
+  requiredModulesFor,
 } from '../services/permission-catalogue';
 import { PERMISSION_CATEGORIES } from '../services/tenant-role.service';
 
@@ -30,9 +33,7 @@ describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
     const ai = PERMISSION_CATEGORIES.ai;
     expect(ai).toBeDefined();
     expect(ai.resources.ai_assistant.actions).toContain('use');
-    expect(ai.resources.ai_settings.actions).toEqual(
-      expect.arrayContaining(['view', 'manage']),
-    );
+    expect(ai.resources.ai_settings.actions).toEqual(expect.arrayContaining(['view', 'manage']));
     expect(ai.resources.ai_personas.actions).toEqual(
       expect.arrayContaining(['operator', 'manager', 'expert', 'supervisor']),
     );
@@ -79,12 +80,13 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
     }
   });
 
-  it('with core-only entitlement, drops hr/ai wholesale and keeps every core category intact', () => {
+  it('with core-only entitlement, drops hr/ai/ai_specialists wholesale and keeps every core category intact', () => {
     const view = entitledPermissionCategories(entitledCapabilities(new Set()));
 
     // Module-gated categories are ABSENT — not rendered as empty groups.
     expect(view).not.toHaveProperty('hr');
     expect(view).not.toHaveProperty('ai');
+    expect(view).not.toHaveProperty('ai_specialists');
     // Core categories keep their full action sets.
     for (const categoryKey of ['farm', 'batch', 'operations', 'reports', 'admin', 'messaging']) {
       expect(view[categoryKey]).toBeDefined();
@@ -103,6 +105,8 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
       expect.arrayContaining(['view', 'manage']),
     );
     expect(view).not.toHaveProperty('hr');
+    // ai alone is not enough for the specialists — they also need farm.
+    expect(view).not.toHaveProperty('ai_specialists');
   });
 
   it('offers no capability outside the entitled set (UI ⊆ write-boundary invariant)', () => {
@@ -114,6 +118,43 @@ describe('entitledPermissionCategories — UI catalogue entitlement filter', () 
         for (const action of resource.actions) {
           expect(entitled.has(`${resourceKey}:${action}`)).toBe(true);
         }
+      }
+    }
+  });
+});
+
+/**
+ * RBAC-MEDIUM-016 — module-scoped AI specialists. The capability that gates a
+ * farm specialist persona is entitled only when BOTH the ai and farm modules are
+ * enabled (all-of), and the persona catalogue (shared-contracts SSoT) can only
+ * require capabilities this catalogue declares.
+ */
+describe('ai_specialists — all-of module entitlement (RBAC-MEDIUM-016)', () => {
+  it('declares ai_specialties:farm in the ai_specialists category', () => {
+    expect(PERMISSION_CATEGORIES.ai_specialists.resources.ai_specialties.actions).toEqual(['farm']);
+    expect(isKnownCapability('ai_specialties:farm')).toBe(true);
+  });
+
+  it('requires the ai AND farm modules — either missing strips the capability', () => {
+    expect(requiredModulesFor('ai_specialties:farm')).toEqual(['ai', 'farm']);
+    expect(entitledCapabilities(new Set(['ai'])).has('ai_specialties:farm')).toBe(false);
+    expect(entitledCapabilities(new Set(['farm'])).has('ai_specialties:farm')).toBe(false);
+    expect(entitledCapabilities(new Set(['ai', 'farm'])).has('ai_specialties:farm')).toBe(true);
+    // Single-module gates are unchanged.
+    expect(requiredModulesFor('ai_personas:expert')).toEqual(['ai']);
+    expect(requiredModulesFor('employees:view')).toEqual(['hr']);
+    expect(requiredModulesFor('tanks:view')).toBeUndefined();
+  });
+
+  it('the role editor offers the category only with both modules', () => {
+    const view = entitledPermissionCategories(entitledCapabilities(new Set(['ai', 'farm'])));
+    expect(view.ai_specialists!.resources['ai_specialties']!.actions).toEqual(['farm']);
+  });
+
+  it('every capability the persona catalogue requires is a catalogue capability (SSoT cross-check)', () => {
+    for (const entry of AI_PERSONA_CATALOGUE) {
+      for (const capability of entry.requiredCapabilities) {
+        expect(isKnownCapability(capability)).toBe(true);
       }
     }
   });

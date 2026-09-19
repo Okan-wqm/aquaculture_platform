@@ -57,6 +57,7 @@ import { ListLiceCountsHandler } from './handlers/list-lice-counts.handler';
 import { ListTreatmentApplicationsHandler } from './handlers/list-treatment-applications.handler';
 import { ListWelfareAssessmentsHandler } from './handlers/list-welfare-assessments.handler';
 import { ListEscapeIncidentsHandler } from './handlers/list-escape-incidents.handler';
+import { FishHealthAiQueryResponder } from './responders/fish-health-ai-query.responder';
 
 const HealthEventQueryHandlers = [
   GetHealthEventHandler,
@@ -112,6 +113,8 @@ const FieldCaptureQueryHandlers = [
     ...HealthEventQueryHandlers,
     ...FieldCaptureQueryHandlers,
   ],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [FishHealthAiQueryResponder],
   exports: [
     TypeOrmModule,
     HealthEventService,

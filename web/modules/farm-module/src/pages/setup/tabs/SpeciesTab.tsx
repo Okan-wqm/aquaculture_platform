@@ -341,7 +341,14 @@ export const SpeciesTab: React.FC = () => {
 
   const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this species?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this species?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       setDeleteError(null);
       try {
         await deleteSpeciesMutation.mutateAsync(id);

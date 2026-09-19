@@ -135,10 +135,12 @@ const PaymentsPage: React.FC = () => {
         limit: 50,
       });
 
+      // The API serialises decimals as strings; Number() takes either shape
+      // without a cast through the declared numeric type.
       const mapped = (data.payments || []).map((p: PaymentOverview) => ({
         ...p,
-        amount: typeof p.amount === 'string' ? parseFloat(p.amount as unknown as string) : p.amount,
-        refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount as unknown as string) : (p.refundedAmount || 0),
+        amount: Number(p.amount),
+        refundedAmount: Number(p.refundedAmount ?? 0),
       }));
 
       setPayments(mapped);

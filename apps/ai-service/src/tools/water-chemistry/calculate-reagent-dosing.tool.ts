@@ -34,7 +34,10 @@ interface ReagentDosingOutput {
     'Calculate dosing recipes to move from current to target water chemistry (alkalinity and pH). Returns multiple reagent combination options with amounts in grams and kg. Use this when operators need to adjust water chemistry.',
   category: 'water_chemistry',
   runtime: 'both',
-  requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
+  // Dosing prescriptions are a manager+ capability: the operator tier reads
+  // and calculates but never receives a reagent dose to act on (matches the
+  // pre-composition operator persona bundle).
+  requiredPermissions: ['manager', 'expert', 'supervisor'],
   inputSchema: {
     type: 'object',
     properties: {
@@ -97,10 +100,7 @@ interface ReagentDosingOutput {
   requiresModule: null,
   requiresConfirmation: false,
 })
-export class CalculateReagentDosingTool extends BaseTool<
-  ReagentDosingInput,
-  ReagentDosingOutput
-> {
+export class CalculateReagentDosingTool extends BaseTool<ReagentDosingInput, ReagentDosingOutput> {
   protected async run(
     input: ReagentDosingInput,
     _ctx: ToolExecutionContext,
@@ -122,8 +122,7 @@ export class CalculateReagentDosingTool extends BaseTool<
     const targetDIC = calcDicOfAlk(targetAlkMeq, targetPH, T, S);
 
     const volumeM3 = volumeLiters / 1000;
-    const selectedReagents =
-      input.selectedReagents ?? REAGENTS.map((r) => r.name);
+    const selectedReagents = input.selectedReagents ?? REAGENTS.map((r) => r.name);
 
     const recipes = calculateDosingRecipes(
       currentDIC,
@@ -141,14 +140,10 @@ export class CalculateReagentDosingTool extends BaseTool<
     };
   }
 
-  async validate(
-    input: ReagentDosingInput,
-  ): Promise<{ valid: boolean; errors?: string[] }> {
+  async validate(input: ReagentDosingInput): Promise<{ valid: boolean; errors?: string[] }> {
     const errors: string[] = [];
-    if (input.currentAlkalinity < 0)
-      errors.push('Current alkalinity must be non-negative');
-    if (input.targetAlkalinity < 0)
-      errors.push('Target alkalinity must be non-negative');
+    if (input.currentAlkalinity < 0) errors.push('Current alkalinity must be non-negative');
+    if (input.targetAlkalinity < 0) errors.push('Target alkalinity must be non-negative');
     if (input.currentPH < 0 || input.currentPH > 14)
       errors.push('Current pH must be between 0 and 14');
     if (input.targetPH < 0 || input.targetPH > 14)

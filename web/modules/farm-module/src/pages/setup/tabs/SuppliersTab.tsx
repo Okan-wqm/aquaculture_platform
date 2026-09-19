@@ -307,7 +307,14 @@ export const SuppliersTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this supplier?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this supplier?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteSupplierMutation.mutateAsync(id);
       } catch (err) {

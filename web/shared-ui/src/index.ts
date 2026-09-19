@@ -73,6 +73,37 @@ export type {
 } from './types';
 
 // ============================================================================
+// Messaging WebSocket contract (FAZ 3.0/3.2) — web-side mirror of the
+// gateway /messaging Socket.IO envelopes. Consumers (panel modules) MUST
+// import their WS envelope types from here instead of redeclaring them —
+// one definition kills copy-paste type drift across web modules.
+// ============================================================================
+export type {
+  WsMessageContentType,
+  WsReceiptStatus,
+  WsMessageUser,
+  WsMessageAttachment,
+  WsMessageReceipt,
+  WsReactionSummary,
+  WsMessage,
+  MessageEnvelope,
+  MessageUpdatedEnvelope,
+  MessageDeletedEnvelope,
+  ReadReceiptEnvelope,
+  TypingEnvelope,
+  PresenceEnvelope,
+  MessageSyncHintEnvelope,
+  ChannelEventEnvelope,
+  ChannelMemberRemovedEnvelope,
+  ReAuthEnvelope,
+  ConnectedEnvelope,
+  SocketIoErrorEnvelope,
+  MessagingWsEventName,
+  MessagingWsDirectEventName,
+} from './types/messaging-ws';
+export { MESSAGING_WS_EVENT_NAMES, MESSAGING_WS_DIRECT_EVENT_NAMES } from './types/messaging-ws';
+
+// ============================================================================
 // Brand SSoT
 // ============================================================================
 

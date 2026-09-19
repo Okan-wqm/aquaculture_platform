@@ -20,7 +20,14 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { Modal, useToast, useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -606,7 +613,14 @@ export const ChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this chemical?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this chemical?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteChemicalMutation.mutateAsync(id);
       } catch (err) {
@@ -634,7 +648,14 @@ export const ChemicalsTab: React.FC = () => {
 
   const handleDocumentDelete = async (doc: ChemicalDocument) => {
     if (!editingId) return;
-    if (await confirm({ title: `Delete document "${doc.name}"?`, confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: `Delete document "${doc.name}"?`,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         const filename = doc.url.split('/').pop() || doc.name;
         await removeDocument.mutateAsync({
@@ -707,11 +728,7 @@ export const ChemicalsTab: React.FC = () => {
     {
       key: 'documents',
       header: 'Documents',
-      render: (_value, chemical) => (
-        <>
-          {chemical.documents?.length || 0} docs
-        </>
-      ),
+      render: (_value, chemical) => <>{chemical.documents?.length || 0} docs</>,
     },
     {
       key: 'actions',
@@ -733,7 +750,7 @@ export const ChemicalsTab: React.FC = () => {
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (

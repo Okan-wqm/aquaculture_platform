@@ -63,9 +63,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
 
   /* ---- Resolve current selection ---- */
   const currentValue = value ?? '';
-  const selectedOption = options.find(
-    (opt) => String(opt.value) === String(currentValue),
-  );
+  const selectedOption = options.find((opt) => String(opt.value) === String(currentValue));
   const displayText = selectedOption?.label ?? placeholder;
   const hasSelection = selectedOption !== undefined;
 
@@ -155,10 +153,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
         setHighlightIndex(-1);
       }
@@ -205,8 +200,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
         padding: PAD,
         boxSizing: 'border-box',
         position: 'relative',
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
       {/* Label */}
@@ -283,8 +277,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
             background: colors.white,
             border: `1px solid ${themeColors.neutral[200]}`,
             borderRadius: 6,
-            boxShadow:
-              '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
+            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
             zIndex: 50,
           }}
         >

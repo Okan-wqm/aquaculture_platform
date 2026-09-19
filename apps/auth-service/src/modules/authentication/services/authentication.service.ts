@@ -755,16 +755,11 @@ export class AuthenticationService {
 
       // No MFA — proceed with full login.
       //
-      // SECURITY (HIGH-006): lazy password-hash migration.
-      // If the stored hash was a legacy (unpeppered) bcrypt AND a pepper is
-      // now configured, re-hash the plaintext with the peppered format and
-      // persist. The @BeforeUpdate hook is skipped here because the entity
-      // already has a hashed password; instead we set the plaintext back
-      // onto the field before save() so the BeforeUpdate hook catches it.
-      if (shouldMigratePasswordHash) {
-        user.password = input.password;
-        this.logger.debug(`Migrating legacy password hash to peppered format: userId=${user.id}`);
-      }
+      // Login bookkeeping only (lastLoginAt/lastLoginIp/failedLoginAttempts):
+      // none of these are credential columns, so the database leaves
+      // `credentialVersion` untouched and the value loaded above remains the
+      // issuance-fence anchor. The legacy-hash migration is a credential write
+      // and therefore happens AFTER the mint (see migrateLegacyPasswordHash).
       user.lastLoginAt = new Date();
       await this.userRepository.save(user);
 
@@ -846,28 +841,50 @@ export class AuthenticationService {
       // nested frame that AsyncLocalStorage unwinds automatically on
       // callback return (success or throw). No manual cleanup, no leakage
       // between concurrent requests.
-      if (user.tenantId) {
-        const scopedContext = {
-          ...getRequestContext(),
-          tenantId: user.tenantId,
-          userId: user.id,
-        };
-        return await requestContextStorage.run(scopedContext, () =>
-          this.tokenService.generateTokens(user, ipAddress, userAgent, {
-            rememberMe: input.rememberMe ?? false,
-          }),
-        );
+      const payload = user.tenantId
+        ? await requestContextStorage.run(
+            { ...getRequestContext(), tenantId: user.tenantId, userId: user.id },
+            () =>
+              this.tokenService.generateTokens(user, ipAddress, userAgent, {
+                rememberMe: input.rememberMe ?? false,
+              }),
+          )
+        : // SUPER_ADMIN: audited bypass for platform-level session creation.
+          await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
+            this.tokenService.generateTokens(user, ipAddress, userAgent, {
+              rememberMe: input.rememberMe ?? false,
+            }),
+          );
+
+      if (shouldMigratePasswordHash) {
+        await this.migrateLegacyPasswordHash(user, input.password);
       }
-      // SUPER_ADMIN: audited bypass for platform-level session creation.
-      return await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
-        this.tokenService.generateTokens(user, ipAddress, userAgent, {
-          rememberMe: input.rememberMe ?? false,
-        }),
-      );
+      return payload;
     } catch (error) {
       await this.ensureMinDuration(startTime);
       throw error;
     }
+  }
+
+  /**
+   * SECURITY (HIGH-006): lazy password-hash migration.
+   *
+   * WHAT: if the stored hash was a legacy (unpeppered) bcrypt AND a pepper is
+   * now configured, re-hash the verified plaintext in the peppered format and
+   * persist it. The entity already holds a hash, so the plaintext is set back
+   * onto the field and the @BeforeUpdate hook produces the new hash on save().
+   *
+   * WHY after issuance (ORPHAN-CRITICAL-808): the re-hash is a credential
+   * write, so the database advances `credentialVersion` on it. Running it
+   * before `generateTokens` would move the row past the anchor the fence
+   * compares and refuse the very login that just verified the password. The
+   * token is minted against the hash that was actually verified; the storage
+   * format upgrade is independent of that proof and follows it.
+   */
+  private async migrateLegacyPasswordHash(user: User, plaintext: string): Promise<void> {
+    user.password = plaintext;
+    this.logger.debug(`Migrating legacy password hash to peppered format: userId=${user.id}`);
+    await this.userRepository.save(user);
   }
 
   /**

@@ -175,12 +175,6 @@ rawPalette:
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
-    - package: web/modules/messaging-module
-      ceiling: 10
-      owner: okan
-      expiry: 2026-12-31
-      findingId: FE-HIGH-078
-      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/sensor-module
       ceiling: 4283
       owner: okan

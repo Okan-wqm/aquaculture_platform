@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Select, NumberInput } from '@aquaculture/shared-ui';
+import { Select, NumberInput, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Modal } from '@aquaculture/shared-ui';
 // PERF-HYD-002: Consume the shared profiles context rather than instantiating a
 // separate useNutrientProfiles() hook, which would create a duplicate localStorage
@@ -103,6 +103,61 @@ const NutrientProfileManager: React.FC = () => {
   const getLabel = (options: { value: string | number; label: string }[], value: string) =>
     options.find((o) => String(o.value) === value)?.label ?? value;
 
+  type PRow = (typeof filteredProfiles)[number];
+  const pRowColumns: DataTableColumn<PRow>[] = [
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, p) => getLabel(SPECIES_OPTIONS, p.species),
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      render: (_value, p) => getLabel(STAGE_OPTIONS, p.cultivationStage),
+    },
+    {
+      key: 'season',
+      header: 'Season',
+      render: (_value, p) => getLabel(SEASON_OPTIONS, p.season),
+    },
+    {
+      key: 'ec',
+      header: 'EC',
+      render: (_value, p) => p.ec,
+    },
+    {
+      key: 'ph',
+      header: 'pH',
+      render: (_value, p) => p.ph,
+    },
+    {
+      key: 'kRatio',
+      header: 'K Ratio',
+      render: (_value, p) => p.kRatio,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, p) => (
+        <>
+          <button
+            onClick={() => openEdit(p)}
+            className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => deleteProfile(p.id)}
+            className="text-red-600 hover:text-red-800 text-xs font-medium"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       {/* Actions */}
@@ -151,55 +206,15 @@ const NutrientProfileManager: React.FC = () => {
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                <th className="px-4 py-2">Species</th>
-                <th className="px-4 py-2">Stage</th>
-                <th className="px-4 py-2">Season</th>
-                <th className="px-4 py-2">EC</th>
-                <th className="px-4 py-2">pH</th>
-                <th className="px-4 py-2">K Ratio</th>
-                <th className="px-4 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProfiles.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
-                    No profiles found. Click "Add Profile" or "Import Default Data" to get started.
-                  </td>
-                </tr>
-              ) : (
-                filteredProfiles.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
-                    <td className="px-4 py-2 font-medium text-gray-700">{getLabel(SPECIES_OPTIONS, p.species)}</td>
-                    <td className="px-4 py-2 text-gray-600">{getLabel(STAGE_OPTIONS, p.cultivationStage)}</td>
-                    <td className="px-4 py-2 text-gray-600">{getLabel(SEASON_OPTIONS, p.season)}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.ec}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.ph}</td>
-                    <td className="px-4 py-2 text-gray-600">{p.kRatio}</td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteProfile(p.id)}
-                        className="text-red-600 hover:text-red-800 text-xs font-medium"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<PRow>
+          data={filteredProfiles}
+          columns={pRowColumns}
+          keyExtractor={(p) => p.id}
+          emptyMessage={'No profiles found. Click "Add Profile" or "Import Default Data" to get started.'}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* Add/Edit Modal */}

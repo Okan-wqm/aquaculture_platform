@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn, Modal } from '@aquaculture/shared-ui';
+import { cn, Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -23,8 +23,8 @@ import {
   useRejectLeaveRequest,
   useCurrentEmployeeId,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
-import type { Column } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { LeaveRequest, LeaveRequestFilterInput, LeaveRequestStatus, PaginationInput } from '../../types';
 import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
 // SEC-006: sanitize API-sourced color codes before use in inline styles
@@ -60,12 +60,11 @@ export function LeavesPage() {
   const isLoading = activeTab === 'pending' ? loadingPending : loadingAll;
 
   // PERF-004: memoize columns — they only change when activeTab or mutation state changes
-  const columns: Column<LeaveRequest>[] = useMemo(() => [
+  const columns: DataTableColumn<LeaveRequest>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -88,7 +87,7 @@ export function LeavesPage() {
     {
       key: 'leaveType',
       header: 'Leave Type',
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = row.leaveType?.category
           ? LEAVE_CATEGORY_CONFIG[row.leaveType.category]
           : null;
@@ -107,8 +106,7 @@ export function LeavesPage() {
     {
       key: 'dates',
       header: 'Dates',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="text-sm">
           <p className="text-gray-900 dark:text-white">
             {new Date(row.startDate).toLocaleDateString()} - {new Date(row.endDate).toLocaleDateString()}
@@ -124,8 +122,7 @@ export function LeavesPage() {
     {
       key: 'status',
       header: 'Status',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = LEAVE_STATUS_CONFIG[row.status];
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
@@ -135,7 +132,7 @@ export function LeavesPage() {
       header: '',
       width: '150px',
       align: 'right',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center justify-end gap-2">
           {row.status === ('PENDING' as LeaveRequestStatus) && activeTab === 'pending' && (
             <>
@@ -430,16 +427,21 @@ export function LeavesPage() {
           BUG-007: the pending tab returns a flat array (no server-side pagination),
           so omit total/onPageChange for that tab to avoid a broken pagination UI. */}
       <div className="overflow-x-auto -mx-6 px-6">
-        <DataTable
+        <DataTable<LeaveRequest>
           data={requests || []}
           columns={columns}
           keyExtractor={leaveKeyExtractor}
-          isLoading={isLoading}
+          loading={isLoading}
           emptyMessage="No leave requests found"
-          total={activeTab === 'pending' ? undefined : allRequests?.total}
-          page={activeTab === 'pending' ? 1 : (pagination.page || 1)}
-          pageSize={pagination.limit || 20}
+          pagination={
+            activeTab !== 'pending' && allRequests
+              ? derivePaginationMetadataV1(allRequests.total, pagination.page || 1, pagination.limit || 20)
+              : undefined
+          }
           onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
         />
       </div>
     </div>

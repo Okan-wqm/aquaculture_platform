@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Select } from '@aquaculture/shared-ui';
+import { Select, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSolution } from '../../../context/SolutionContext';
 import { useLookupValues } from '../../../hooks/useLookupValues';
 import {
@@ -77,6 +77,45 @@ const UserOptionsTab: React.FC = () => {
     setField('userOptions', 'targets', updated);
   };
 
+  type TargetRow = NonNullable<NonNullable<typeof uo>['targets']>[number];
+  const targetRowColumns: DataTableColumn<TargetRow>[] = [
+    {
+      key: 'target',
+      header: 'Target',
+      render: (_value, target) => target.label,
+    },
+    {
+      key: 'preference',
+      header: 'Preference',
+      render: (_value, target, idx) => (
+        <Select
+          options={PREFERENCE_OPTIONS}
+          value={target.preference}
+          onChange={(e) => updateTarget(idx, { preference: e.target.value })}
+          size="sm"
+        />
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, target) => target.unit === 'mmol' ? 'mmol/L' : target.unit === 'ppm' ? 'mg/L' : target.unit === 'ms_cm' ? 'mS/cm' : target.unit || '—',
+    },
+    {
+      key: 'actualValue',
+      header: 'Actual Value',
+      align: 'right',
+      render: (_value, target, idx) => {
+        const displayValue = displayActualValues[idx];
+        return (
+          <span className={`text-xs ${displayValue !== null ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>
+            {displayValue !== null ? displayValue.toFixed(3) : '—'}
+          </span>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* No Profile Warning */}
@@ -117,44 +156,15 @@ const UserOptionsTab: React.FC = () => {
         <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
           <h3 className="text-sm font-semibold text-gray-800">Target Parameters</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                <th className="px-4 py-2">Target</th>
-                <th className="px-4 py-2">Preference</th>
-                <th className="px-4 py-2">Unit</th>
-                <th className="px-4 py-2 text-right">Actual Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {uo.targets.map((target, idx) => {
-                const displayValue = displayActualValues[idx];
-                return (
-                  <tr key={target.id} className="border-b border-gray-100 last:border-b-0">
-                    <td className="px-4 py-2 text-gray-700 font-medium">{target.label}</td>
-                    <td className="px-4 py-2 w-40">
-                      <Select
-                        options={PREFERENCE_OPTIONS}
-                        value={target.preference}
-                        onChange={(e) => updateTarget(idx, { preference: e.target.value })}
-                        size="sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2 text-gray-500 text-xs">
-                      {target.unit === 'mmol' ? 'mmol/L' : target.unit === 'ppm' ? 'mg/L' : target.unit === 'ms_cm' ? 'mS/cm' : target.unit || '—'}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <span className={`text-xs ${displayValue !== null ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>
-                        {displayValue !== null ? displayValue.toFixed(3) : '—'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<TargetRow>
+          data={uo.targets}
+          columns={targetRowColumns}
+          keyExtractor={(target) => target.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import React from 'react';
 import { Circle } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface TableWidgetContentProps {
   config: WidgetConfig;
@@ -50,69 +51,88 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
     offline: { color: 'bg-gray-400', label: 'Offline' },
   };
 
+  type TableReading = (typeof data)[number];
+  const tableReadingColumns: DataTableColumn<TableReading>[] = [
+    {
+      key: 'sensor',
+      header: 'Sensor',
+      render: (_value, reading) => {
+        const status = statusConfig[reading.status] || statusConfig.normal;
+        return (
+          <div className="flex items-center">
+            <Circle
+              size={8}
+              className={`${status.color} rounded-full mr-2`}
+              fill="currentColor"
+            />
+            <span className="text-sm font-medium text-gray-900">
+              {reading.sensorName}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      align: 'right',
+      render: (_value, reading) => (
+        <>
+          <span className="text-sm font-bold text-gray-900">
+            {reading.value.toFixed(config.settings?.decimalPlaces ?? 1)}
+          </span>
+          <span className="text-xs text-gray-500 ml-1">
+            {reading.unit}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      render: (_value, reading) => {
+        const status = statusConfig[reading.status] || statusConfig.normal;
+        return (
+          <>
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBgClass(
+                reading.status
+              )}`}
+            >
+              {status.label}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      key: 'updated',
+      header: 'Updated',
+      align: 'right',
+      render: (_value, reading) => {
+        const timeSince = formatTimeSince(reading.timestamp);
+        return (
+          <>
+            {timeSince}
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50 sticky top-0">
-          <tr>
-            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Sensor
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Value
-            </th>
-            <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Status
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Updated
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {data.map((reading) => {
-            const status = statusConfig[reading.status] || statusConfig.normal;
-            const timeSince = formatTimeSince(reading.timestamp);
-
-            return (
-              <tr key={reading.sensorId} className="hover:bg-gray-50">
-                <td className="px-3 py-2 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <Circle
-                      size={8}
-                      className={`${status.color} rounded-full mr-2`}
-                      fill="currentColor"
-                    />
-                    <span className="text-sm font-medium text-gray-900">
-                      {reading.sensorName}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap text-right">
-                  <span className="text-sm font-bold text-gray-900">
-                    {reading.value.toFixed(config.settings?.decimalPlaces ?? 1)}
-                  </span>
-                  <span className="text-xs text-gray-500 ml-1">
-                    {reading.unit}
-                  </span>
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap text-center">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBgClass(
-                      reading.status
-                    )}`}
-                  >
-                    {status.label}
-                  </span>
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap text-right text-xs text-gray-500">
-                  {timeSince}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <DataTable<TableReading>
+        data={data}
+        columns={tableReadingColumns}
+        keyExtractor={(reading) => reading.sensorId}
+        emptyMessage="No data"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        compact
+      />
     </div>
   );
 };

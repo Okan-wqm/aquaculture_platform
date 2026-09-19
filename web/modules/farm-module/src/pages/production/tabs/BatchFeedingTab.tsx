@@ -23,6 +23,7 @@ import {
   useDeleteBatchFeedAssignment,
 } from '../../../hooks/useBatchFeedAssignments';
 import AssignFeedsToBatchModal from '../components/AssignFeedsToBatchModal';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface BatchFeedingTabProps {
   batch: Batch;
@@ -68,6 +69,37 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       });
     }
   };
+
+  type EntryRow = NonNullable<NonNullable<typeof assignment>['feedAssignments']>[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'yem',
+      header: 'Yem',
+      render: (_value, entry) => (
+        <>
+          <div className="font-medium">{entry.feedName}</div>
+          <div className="text-xs text-gray-500">
+            {entry.feedCode}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'minARlKG',
+      header: 'Min Ağırlık (g)',
+      render: (_value, entry) => entry.minWeightG.toLocaleString('tr-TR'),
+    },
+    {
+      key: 'maxARlKG',
+      header: 'Max Ağırlık (g)',
+      render: (_value, entry) => entry.maxWeightG.toLocaleString('tr-TR'),
+    },
+    {
+      key: 'ncelik',
+      header: 'Öncelik',
+      render: (_value, entry) => entry.priority ?? '—',
+    }
+  ];
 
   return (
     <div className="space-y-4">
@@ -136,57 +168,15 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
 
       {assignment && (
         <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th
-                  scope="col"
-                  className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
-                >
-                  Yem
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
-                >
-                  Min Ağırlık (g)
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
-                >
-                  Max Ağırlık (g)
-                </th>
-                <th
-                  scope="col"
-                  className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase"
-                >
-                  Öncelik
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {assignment.feedAssignments.map((entry, idx) => (
-                <tr key={`${entry.feedId}-${idx}`}>
-                  <td className="px-4 py-2 text-sm text-gray-900">
-                    <div className="font-medium">{entry.feedName}</div>
-                    <div className="text-xs text-gray-500">
-                      {entry.feedCode}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-900">
-                    {entry.minWeightG.toLocaleString('tr-TR')}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-900">
-                    {entry.maxWeightG.toLocaleString('tr-TR')}
-                  </td>
-                  <td className="px-4 py-2 text-sm text-gray-900">
-                    {entry.priority ?? '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<EntryRow>
+            data={assignment.feedAssignments}
+            columns={entryRowColumns}
+            keyExtractor={(entry, idx) => String(`${entry.feedId}-${idx}`)}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {assignment.notes && (
             <div className="border-t border-gray-200 p-3 text-sm text-gray-600">
               <span className="font-semibold">Notlar:</span>{' '}

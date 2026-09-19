@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   billingApi,
   PaymentOverview,
@@ -270,6 +270,91 @@ const PaymentsPage: React.FC = () => {
   // Render
   // ============================================================================
 
+  const paymentColumns: DataTableColumn<PaymentOverview>[] = [
+    {
+      key: 'transactionId',
+      header: 'Transaction',
+      render: (_value, payment) => (
+        <div className="text-sm font-medium text-gray-900 font-mono">{payment.transactionId}</div>
+      ),
+    },
+    {
+      key: 'invoiceId',
+      header: 'Invoice',
+      render: (_value, payment) => (
+        <div className="text-sm text-blue-600">
+          {(payment as PaymentOverview & { invoiceNumber?: string }).invoiceNumber || payment.invoiceId.substring(0, 8) + '...'}
+        </div>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (_value, payment) => (
+        <>
+          <div className="text-sm font-semibold text-gray-900">
+            {formatCurrency(payment.amount, payment.currency)}
+          </div>
+          {payment.refundedAmount > 0 && (
+            <div className="text-xs text-purple-600">
+              Refunded: {formatCurrency(payment.refundedAmount, payment.currency)}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'paymentMethod',
+      header: 'Method',
+      render: (_value, payment) => (
+        <span className="text-sm text-gray-700">
+          {methodLabels[payment.paymentMethod] || payment.paymentMethod}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, payment) => (
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 text-gray-700'}`}>
+          {statusLabels[payment.status] || payment.status}
+        </span>
+      ),
+    },
+    {
+      key: 'paymentDate',
+      header: 'Date',
+      render: (_value, payment) => (
+        <div className="text-sm text-gray-900">{formatDate(payment.paymentDate)}</div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, payment) => (
+        <>
+          <button
+            type="button"
+            onClick={() => setSelectedPayment(payment)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            View
+          </button>
+          {canRefund(payment) && (
+            <button
+              type="button"
+              onClick={() => openRefundModal(payment)}
+              className="text-purple-600 hover:text-purple-900"
+            >
+              Refund
+            </button>
+          )}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Toast */}
@@ -373,117 +458,17 @@ const PaymentsPage: React.FC = () => {
       </div>
 
       {/* Payment Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 animate-pulse">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4 py-4 border-b border-gray-100">
-                <div className="h-4 bg-gray-200 rounded w-24" />
-                <div className="h-4 bg-gray-200 rounded w-32" />
-                <div className="flex-1" />
-                <div className="h-4 bg-gray-200 rounded w-20" />
-                <div className="h-4 bg-gray-200 rounded w-24" />
-              </div>
-            ))}
-          </div>
-        ) : payments.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <svg className="mx-auto h-12 w-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-            </svg>
-            <p className="mt-2">No payments found</p>
-            <button
-              onClick={() => setShowRecordModal(true)}
-              className="mt-3 text-blue-600 hover:text-blue-800 text-sm font-medium"
-            >
-              Record your first payment
-            </button>
-          </div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Transaction
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Method
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {payments.map((payment) => (
-                <tr key={payment.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900 font-mono">
-                      {payment.transactionId}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-blue-600">
-                      {(payment as PaymentOverview & { invoiceNumber?: string }).invoiceNumber || payment.invoiceId.substring(0, 8) + '...'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-gray-900">
-                      {formatCurrency(payment.amount, payment.currency)}
-                    </div>
-                    {payment.refundedAmount > 0 && (
-                      <div className="text-xs text-purple-600">
-                        Refunded: {formatCurrency(payment.refundedAmount, payment.currency)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-gray-700">
-                      {methodLabels[payment.paymentMethod] || payment.paymentMethod}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 text-gray-700'}`}>
-                      {statusLabels[payment.status] || payment.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDate(payment.paymentDate)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => setSelectedPayment(payment)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      View
-                    </button>
-                    {canRefund(payment) && (
-                      <button
-                        onClick={() => openRefundModal(payment)}
-                        className="text-purple-600 hover:text-purple-900"
-                      >
-                        Refund
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <DataTable<PaymentOverview>
+        data={payments}
+        columns={paymentColumns}
+        keyExtractor={(payment) => payment.id}
+        loading={loading}
+        loadingMessage="Loading payments..."
+        emptyMessage="No payments found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Payment Detail Modal */}
       {selectedPayment && !showRefundModal && (

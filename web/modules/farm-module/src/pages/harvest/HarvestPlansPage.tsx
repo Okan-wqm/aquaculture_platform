@@ -62,6 +62,7 @@ import {
   ArrowRight,
   XCircle,
 } from 'lucide-react';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -2562,6 +2563,117 @@ export const HarvestPlansPage: React.FC = () => {
     return grouped;
   }, [filteredPlans]);
 
+  type PlanRow = (typeof filteredPlans)[number];
+  const planRowColumns: DataTableColumn<PlanRow>[] = [
+    {
+      key: 'plan',
+      header: 'Plan',
+      render: (_value, plan) => (
+        <div className="flex items-center">
+          <div>
+            <div className="text-sm font-medium text-gray-900">{plan.planCode}</div>
+            <div className="text-sm text-gray-500">{plan.name}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, plan) => <span className="text-sm text-gray-900">{plan.batchNumber}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, plan) => (
+        <>
+          <StatusBadge status={plan.status} />
+          {plan.isOverdue && (
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+              Overdue
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, plan) => (
+        <span className={`text-sm ${HARVEST_TYPE_CONFIG[plan.harvestType].color}`}>
+          {HARVEST_TYPE_CONFIG[plan.harvestType].label}
+        </span>
+      ),
+    },
+    {
+      key: 'plannedDate',
+      header: 'Planned Date',
+      render: (_value, plan) => (
+        <>
+          <div className="text-sm text-gray-900">{formatDate(plan.plannedDate)}</div>
+          {plan.daysUntilHarvest !== undefined && plan.daysUntilHarvest >= 0 && (
+            <div className="text-xs text-gray-500">{plan.daysUntilHarvest} days</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'estBiomass',
+      header: 'Est. Biomass',
+      align: 'right',
+      render: (_value, plan) => (
+        <span className="text-sm font-medium text-gray-900">
+          {formatNumber(plan.estimates.estimatedBiomass)} kg
+        </span>
+      ),
+    },
+    {
+      key: 'estRevenue',
+      header: 'Est. Revenue',
+      align: 'right',
+      render: (_value, plan) => (
+        <>
+          {plan.financialProjection ? (
+            <span className="text-sm font-medium text-green-600">
+              {formatCurrency(
+                plan.financialProjection.estimatedRevenue,
+                plan.financialProjection.currency,
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'spanClassnameSrOnlyActionsSpan',
+      header: '<span className="sr-only">Actions</span>',
+      render: (_value, plan) => (
+        <div className="flex items-center justify-end gap-2">
+          {plan.canEdit && (
+            <button
+              onClick={() => setEditingPlan(plan)}
+              className="text-blue-600 hover:text-blue-900"
+              title="Edit"
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+          )}
+          {plan.canDelete && (
+            <button
+              onClick={() => setDeletingPlan(plan)}
+              className="text-red-600 hover:text-red-900"
+              title="Delete"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Page Header */}
@@ -2777,132 +2889,15 @@ export const HarvestPlansPage: React.FC = () => {
 
         {viewMode === 'table' && (
           <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Plan
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Batch
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Status
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Type
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Planned Date
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Est. Biomass
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  >
-                    Est. Revenue
-                  </th>
-                  <th scope="col" className="relative px-6 py-3">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredPlans.map((plan) => (
-                  <tr key={plan.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{plan.planCode}</div>
-                          <div className="text-sm text-gray-500">{plan.name}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">{plan.batchNumber}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={plan.status} />
-                      {plan.isOverdue && (
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                          Overdue
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`text-sm ${HARVEST_TYPE_CONFIG[plan.harvestType].color}`}>
-                        {HARVEST_TYPE_CONFIG[plan.harvestType].label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{formatDate(plan.plannedDate)}</div>
-                      {plan.daysUntilHarvest !== undefined && plan.daysUntilHarvest >= 0 && (
-                        <div className="text-xs text-gray-500">{plan.daysUntilHarvest} days</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className="text-sm font-medium text-gray-900">
-                        {formatNumber(plan.estimates.estimatedBiomass)} kg
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      {plan.financialProjection ? (
-                        <span className="text-sm font-medium text-green-600">
-                          {formatCurrency(
-                            plan.financialProjection.estimatedRevenue,
-                            plan.financialProjection.currency,
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-2">
-                        {plan.canEdit && (
-                          <button
-                            onClick={() => setEditingPlan(plan)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        )}
-                        {plan.canDelete && (
-                          <button
-                            onClick={() => setDeletingPlan(plan)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<PlanRow>
+              data={filteredPlans}
+              columns={planRowColumns}
+              keyExtractor={(plan) => plan.id}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {filteredPlans.length === 0 && (
               <div className="text-center py-12">

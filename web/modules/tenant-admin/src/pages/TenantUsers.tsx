@@ -269,18 +269,6 @@ const TenantUsers: React.FC = () => {
   const handleRefresh = () =>
     queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
 
-  const toggleUserSelection = useCallback((userId: string) => {
-    setSelectedUsers((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
-    );
-  }, []);
-
-  const toggleAllSelection = useCallback(() => {
-    setSelectedUsers((prev) =>
-      prev.length === filteredUsers.length ? [] : filteredUsers.map((u) => u.id),
-    );
-  }, [filteredUsers]);
-
   const handleRoleChange = (value: string) => {
     setRoleFilter(value);
     setPage(0);
@@ -390,9 +378,8 @@ const TenantUsers: React.FC = () => {
         isLoading={loading}
         pagination={{ page, pageSize, rawPageCount: users.length }}
         onPageChange={setPage}
-        onSelectUser={toggleUserSelection}
         selectedUsers={selectedUsers}
-        onToggleAll={toggleAllSelection}
+        onSelectionChange={setSelectedUsers}
         onEditUser={(user) => {
           setEditingUser(user);
           setSaveError(null);

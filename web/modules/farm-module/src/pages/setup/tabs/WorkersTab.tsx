@@ -11,7 +11,13 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -156,6 +162,65 @@ export const WorkersTab: React.FC = () => {
     }
   };
 
+  type ItemRow = (typeof filtered)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">
+            {item.firstName} {item.lastName}
+          </div>
+          <div className="text-sm text-gray-500">{item.employeeNumber}</div>
+        </>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      render: (_value, item) => item.email,
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      render: (_value, item) => item.phone || '-',
+    },
+    {
+      key: 'position',
+      header: 'Position',
+      render: (_value, item) => item.position,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {statusLabels[item.status] || item.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
+            Edit
+          </button>
+          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+            Delete
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -220,72 +285,15 @@ export const WorkersTab: React.FC = () => {
       {/* Table */}
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Phone
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Position
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {item.firstName} {item.lastName}
-                    </div>
-                    <div className="text-sm text-gray-500">{item.employeeNumber}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.email}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.phone || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.position}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[item.status] || item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => openEdit(item)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<ItemRow>
+            data={filtered}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {filtered.length === 0 && (
             <div className="text-center py-12">
               <svg

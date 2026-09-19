@@ -21,6 +21,7 @@ import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
 import { PrefilledField, ProvenanceBadge } from '../components/common';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -1161,6 +1162,43 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
     return NON_MEDICATED_TYPES.find((t) => t.value === value)?.label || value;
   };
 
+  type CageRow = NonNullable<NonNullable<typeof formData>['cageCounts']>[number];
+  const cageRowColumns: DataTableColumn<CageRow>[] = [
+    {
+      key: 'cage',
+      header: 'Cage',
+      render: (_value, cage, i) => (
+        <>
+          {cage.cageName || `Cage ${i + 1}`}
+        </>
+      ),
+    },
+    {
+      key: 'adultFemale',
+      header: 'Adult Female',
+      align: 'right',
+      render: (_value, cage) => cage.adultFemale.toFixed(2),
+    },
+    {
+      key: 'mobile',
+      header: 'Mobile',
+      align: 'right',
+      render: (_value, cage) => cage.mobile.toFixed(2),
+    },
+    {
+      key: 'attached',
+      header: 'Attached',
+      align: 'right',
+      render: (_value, cage) => cage.attached.toFixed(2),
+    },
+    {
+      key: 'fishSampled',
+      header: 'Fish Sampled',
+      align: 'right',
+      render: (_value, cage) => cage.fishSampled,
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Summary Header */}
@@ -1253,32 +1291,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
             Per-Cage Breakdown ({formData.cageCounts.length} cages)
           </h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-500 border-b border-gray-100">
-                  <th className="text-left pb-2 pr-3">Cage</th>
-                  <th className="text-right pb-2 px-2">Adult Female</th>
-                  <th className="text-right pb-2 px-2">Mobile</th>
-                  <th className="text-right pb-2 px-2">Attached</th>
-                  <th className="text-right pb-2 pl-2">Fish Sampled</th>
-                </tr>
-              </thead>
-              <tbody>
-                {formData.cageCounts.map((cage, i) => (
-                  <tr key={i} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-3 font-medium text-gray-700">
-                      {cage.cageName || `Cage ${i + 1}`}
-                    </td>
-                    <td className="py-1.5 px-2 text-right">{cage.adultFemale.toFixed(2)}</td>
-                    <td className="py-1.5 px-2 text-right">{cage.mobile.toFixed(2)}</td>
-                    <td className="py-1.5 px-2 text-right">{cage.attached.toFixed(2)}</td>
-                    <td className="py-1.5 pl-2 text-right">{cage.fishSampled}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<CageRow>
+            data={formData.cageCounts}
+            columns={cageRowColumns}
+            keyExtractor={(_cage, i) => String(i)}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 

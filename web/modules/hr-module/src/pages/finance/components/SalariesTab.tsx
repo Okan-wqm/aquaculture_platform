@@ -2,15 +2,50 @@
  * Personnel Salary tab — annual salary per person per workforce category
  * plus the category totals. Read from the shared labour-cost snapshot.
  */
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import React from 'react';
 
-import type { HrLabourCost } from '../../../hooks/useHrFinance';
+import type { HrLabourCost, HrLabourCostRow } from '../../../hooks/useHrFinance';
 import { formatMoney, laborCategoryLabel } from './financeFormat';
 
 interface SalariesTabProps {
   data: HrLabourCost | undefined;
   isLoading: boolean;
 }
+
+const SUPPRESSED_TITLE =
+  'Withheld — too few people in this category to show salary without identifying an individual';
+
+const salaryColumns = (currency: string): DataTableColumn<HrLabourCostRow>[] => [
+  {
+    key: 'category',
+    header: 'Category',
+    render: (_value, row) => <span className="text-gray-900">{laborCategoryLabel(row.category)}</span>,
+  },
+  { key: 'headcount', header: 'Headcount' },
+  {
+    key: 'avgAnnualSalaryDecimal',
+    header: 'Annual salary / person',
+    render: (_value, row) => (
+      <span title={row.salarySuppressed ? SUPPRESSED_TITLE : undefined}>
+        {formatMoney(row.avgAnnualSalaryDecimal, currency)}
+      </span>
+    ),
+  },
+  {
+    key: 'annualSalaryTotalDecimal',
+    header: 'Annual salary total',
+    align: 'right',
+    render: (_value, row) => (
+      <span
+        className="font-medium text-gray-900"
+        title={row.salarySuppressed ? SUPPRESSED_TITLE : undefined}
+      >
+        {formatMoney(row.annualSalaryTotalDecimal, currency)}
+      </span>
+    ),
+  },
+];
 
 export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => {
   if (isLoading) {
@@ -23,59 +58,18 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
   const rows = data.rows.filter((r) => r.headcount > 0);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead className="bg-gray-50 dark:bg-gray-900/40">
-          <tr>
-            {['Category', 'Headcount', 'Annual salary / person', 'Annual salary total'].map((h) => (
-              <th
-                key={h}
-                className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 last:text-right"
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-700 dark:bg-gray-800">
-          {rows.map((row) => (
-            <tr key={row.category ?? 'unclassified'}>
-              <td className="px-5 py-3 text-sm text-gray-900 dark:text-gray-100">
-                {laborCategoryLabel(row.category)}
-              </td>
-              <td className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300">{row.headcount}</td>
-              <td
-                className="px-5 py-3 text-sm text-gray-700 dark:text-gray-300"
-                title={
-                  row.salarySuppressed
-                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
-                    : undefined
-                }
-              >
-                {formatMoney(row.avgAnnualSalaryDecimal, data.currency)}
-              </td>
-              <td
-                className="px-5 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100"
-                title={
-                  row.salarySuppressed
-                    ? 'Withheld — too few people in this category to show salary without identifying an individual'
-                    : undefined
-                }
-              >
-                {formatMoney(row.annualSalaryTotalDecimal, data.currency)}
-              </td>
-            </tr>
-          ))}
-          <tr className="bg-gray-50 dark:bg-gray-900/40">
-            <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100" colSpan={3}>
-              Total annual salaries
-            </td>
-            <td className="px-5 py-3 text-right text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {formatMoney(data.annualSalaryTotalDecimal, data.currency)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <DataTable<HrLabourCostRow>
+      data={rows}
+      columns={salaryColumns(data.currency)}
+      keyExtractor={(row) => row.category ?? 'unclassified'}
+      summaryRow={{
+        category: 'Total annual salaries',
+        annualSalaryTotalDecimal: formatMoney(data.annualSalaryTotalDecimal, data.currency),
+      }}
+      searchable={false}
+      sortable={false}
+      stickyHeader={false}
+      className="rounded-xl border border-gray-100 shadow-sm"
+    />
   );
 };

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select, Modal, useConfirm } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -267,6 +267,104 @@ export const FeatureTogglesPage: React.FC = () => {
     );
   }
 
+  const toggleColumns: DataTableColumn<FeatureToggle>[] = [
+    {
+      key: 'name',
+      header: 'Toggle',
+      render: (_value, toggle) => (
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-gray-900">{toggle.name}</span>
+            {toggle.isExperimental && (
+              <Badge variant="warning" size="sm">Experimental</Badge>
+            )}
+          </div>
+          <span className="text-sm font-mono text-gray-500">{toggle.key}</span>
+          {toggle.description && (
+            <span className="text-sm text-gray-500 mt-1 line-clamp-1">
+              {toggle.description}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      render: (_value, toggle) => (
+        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
+          {toggle.scope}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, toggle) => (
+        <Badge variant={getStatusBadge(toggle.status)}>
+          {toggle.status.replace('_', ' ')}
+        </Badge>
+      ),
+    },
+    {
+      key: 'rolloutPercentage',
+      header: 'Rollout',
+      render: (_value, toggle) =>
+        toggle.status === 'percentage_rollout' ? (
+          <div className="flex items-center gap-2">
+            <div className="w-20 bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all"
+                style={{ width: `${toggle.rolloutPercentage}%` }}
+              />
+            </div>
+            <span className="text-sm text-gray-600">{toggle.rolloutPercentage}%</span>
+          </div>
+        ) : (
+          <span className="text-sm text-gray-500">-</span>
+        ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, toggle) => <span className="text-sm text-gray-600">{toggle.category || '-'}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, toggle) => (
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => handleToggleStatus(toggle)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              toggle.status === 'enabled'
+                ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                : 'bg-green-100 text-green-700 hover:bg-green-200'
+            }`}
+          >
+            {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
+          </button>
+          <button
+            type="button"
+            onClick={() => openEditModal(toggle)}
+            className="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDelete(toggle)}
+            className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -361,118 +459,17 @@ export const FeatureTogglesPage: React.FC = () => {
       </Card>
 
       {/* Toggles List */}
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Toggle
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Scope
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rollout
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {safeToggles.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                    No feature toggles found
-                  </td>
-                </tr>
-              ) : (
-                safeToggles.map((toggle) => (
-                  <tr key={toggle.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">{toggle.name}</span>
-                          {toggle.isExperimental && (
-                            <Badge variant="warning" size="sm">Experimental</Badge>
-                          )}
-                        </div>
-                        <span className="text-sm font-mono text-gray-500">{toggle.key}</span>
-                        {toggle.description && (
-                          <span className="text-sm text-gray-500 mt-1 line-clamp-1">
-                            {toggle.description}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
-                        {toggle.scope}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant={getStatusBadge(toggle.status)}>
-                        {toggle.status.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4">
-                      {toggle.status === 'percentage_rollout' ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full transition-all"
-                              style={{ width: `${toggle.rolloutPercentage}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-gray-600">{toggle.rolloutPercentage}%</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-500">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600">{toggle.category || '-'}</span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleToggleStatus(toggle)}
-                          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                            toggle.status === 'enabled'
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                              : 'bg-green-100 text-green-700 hover:bg-green-200'
-                          }`}
-                        >
-                          {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          onClick={() => openEditModal(toggle)}
-                          className="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(toggle)}
-                          className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable<FeatureToggle>
+        data={safeToggles}
+        columns={toggleColumns}
+        keyExtractor={(toggle) => toggle.id}
+        loading={loading}
+        loadingMessage="Loading feature toggles..."
+        emptyMessage="No feature toggles found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Create/Edit Modal */}
       {(showCreateModal || showEditModal) && (

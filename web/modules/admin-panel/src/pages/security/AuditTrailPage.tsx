@@ -21,7 +21,7 @@ import {
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -551,6 +551,131 @@ export const AuditTrailPage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
+  const retentionPolicyColumns: DataTableColumn<RetentionPolicy>[] = [
+    {
+      key: 'policy',
+      header: 'Policy',
+      render: (_value, policy) => policy.id,
+    },
+    {
+      key: 'table',
+      header: 'Table',
+      render: (_value, policy) => policy.table,
+    },
+    {
+      key: 'ageColumn',
+      header: 'Age column',
+      render: (_value, policy) => policy.timestampColumn,
+    },
+    {
+      key: 'window',
+      header: 'Window',
+      render: (_value, policy) => <>{policy.retentionDays} days</>,
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      render: (_value, policy) => policy.ownerTag,
+    },
+    {
+      key: 'legalHold',
+      header: 'Legal hold',
+      render: (_value, policy) => (
+        <>
+          {policy.legalHoldAware ? (
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              held rows preserved
+            </span>
+          ) : (
+            <span className="text-gray-400">n/a</span>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  const auditEntryColumns: DataTableColumn<AuditEntry>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900">{formatTimeAgo(entry.createdAt)}</div>
+          <div className="text-xs text-gray-500">{formatDate(entry.createdAt)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
+          >
+            {entry.action}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'entity',
+      header: 'Entity',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900">{entry.entityType}</div>
+          <div className="text-xs text-gray-500 font-mono">{entry.entityId}</div>
+        </>
+      ),
+    },
+    {
+      key: 'user',
+      header: 'User',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900">{entry.userName || 'System'}</div>
+          <div className="text-xs text-gray-500">{entry.tenantName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+          >
+            {getSeverityIcon(entry.severity)}
+            {entry.severity}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'ipAddress',
+      header: 'IP Address',
+      render: (_value, entry) => (
+        <span className="text-sm font-mono text-gray-600">{entry.ipAddress || '-'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, entry) => (
+        <>
+          <button
+            onClick={() => setSelectedEntry(entry)}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* The partial case: entries loaded but the summary, the retention
@@ -709,89 +834,15 @@ export const AuditTrailPage: React.FC = () => {
 
           {/* Entries Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Timestamp
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Action
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Entity
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    User
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Severity
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    IP Address
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {entries.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No audit entries found
-                    </td>
-                  </tr>
-                ) : (
-                  entries.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {formatTimeAgo(entry.createdAt)}
-                        </div>
-                        <div className="text-xs text-gray-500">{formatDate(entry.createdAt)}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
-                        >
-                          {entry.action}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">{entry.entityType}</div>
-                        <div className="text-xs text-gray-500 font-mono">{entry.entityId}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{entry.userName || 'System'}</div>
-                        <div className="text-xs text-gray-500">{entry.tenantName}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
-                        >
-                          {getSeverityIcon(entry.severity)}
-                          {entry.severity}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-mono text-gray-600">
-                          {entry.ipAddress || '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => setSelectedEntry(entry)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <DataTable<AuditEntry>
+              data={entries}
+              columns={auditEntryColumns}
+              keyExtractor={(entry) => entry.id}
+              emptyMessage="No audit entries found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {/* Pagination */}
             <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
@@ -831,54 +882,15 @@ export const AuditTrailPage: React.FC = () => {
             {retentionPolicies.length === 0 ? (
               <div className="p-8 text-center text-gray-500">No retention policies registered</div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Policy
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Table
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Age column
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Window
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Owner
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Legal hold
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {retentionPolicies.map((policy) => (
-                    <tr key={policy.id}>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{policy.id}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">{policy.table}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">
-                        {policy.timestampColumn}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-900">
-                        {policy.retentionDays} days
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-700">{policy.ownerTag}</td>
-                      <td className="px-6 py-3 text-sm">
-                        {policy.legalHoldAware ? (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            held rows preserved
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">n/a</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable<RetentionPolicy>
+                data={retentionPolicies}
+                columns={retentionPolicyColumns}
+                keyExtractor={(policy) => policy.id}
+                emptyMessage="No retention policies"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             )}
           </div>
         </div>

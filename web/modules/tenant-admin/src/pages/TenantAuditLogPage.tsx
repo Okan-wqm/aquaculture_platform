@@ -26,7 +26,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-Components
@@ -252,6 +252,77 @@ const TenantAuditLogPage: React.FC = () => {
   const hasActiveFilters =
     filters.startDate || filters.endDate || filters.action || filters.severity || filters.performedBy;
 
+  const auditLogEntryColumns: DataTableColumn<AuditLogEntry>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, entry) => (
+        <div className="flex items-center gap-2">
+          <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
+          <div>
+            <p className="text-sm text-gray-900">
+              {new Date(entry.createdAt).toLocaleDateString()}
+            </p>
+            <p className="text-xs text-gray-500">
+              {new Date(entry.createdAt).toLocaleTimeString()}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, entry) => (
+        <ActionBadge action={entry.action} />
+      ),
+    },
+    {
+      key: 'user',
+      header: 'User',
+      render: (_value, entry) => (
+        <p className="text-sm text-gray-900 truncate max-w-[200px]">
+          {entry.performedByEmail || entry.performedBy}
+        </p>
+      ),
+    },
+    {
+      key: 'ipAddress',
+      header: 'IP Address',
+      render: (_value, entry) => (
+        <span className="text-sm text-gray-500 font-mono">
+          {entry.ipAddress || '--'}
+        </span>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, entry) => (
+        <SeverityBadge severity={entry.severity} />
+      ),
+    },
+    {
+      key: 'details',
+      header: 'Details',
+      align: 'right',
+      render: (_value, entry) => (
+        <>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedEntry(entry);
+            }}
+            className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+            title="View details"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -404,83 +475,16 @@ const TenantAuditLogPage: React.FC = () => {
           <TableSkeleton />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Timestamp
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      User
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
-                      IP Address
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Severity
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Details
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {visibleEntries.map((entry) => (
-                    <tr
-                      key={entry.id}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => setSelectedEntry(entry)}
-                    >
-                      <td className="px-6 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
-                          <div>
-                            <p className="text-sm text-gray-900">
-                              {new Date(entry.createdAt).toLocaleDateString()}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(entry.createdAt).toLocaleTimeString()}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <ActionBadge action={entry.action} />
-                      </td>
-                      <td className="px-6 py-3">
-                        <p className="text-sm text-gray-900 truncate max-w-[200px]">
-                          {entry.performedByEmail || entry.performedBy}
-                        </p>
-                      </td>
-                      <td className="px-6 py-3 hidden md:table-cell">
-                        <span className="text-sm text-gray-500 font-mono">
-                          {entry.ipAddress || '--'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3">
-                        <SeverityBadge severity={entry.severity} />
-                      </td>
-                      <td className="px-6 py-3 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedEntry(entry);
-                          }}
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<AuditLogEntry>
+              data={visibleEntries}
+              columns={auditLogEntryColumns}
+              keyExtractor={(entry) => entry.id}
+              emptyMessage="No audit entries"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
 
             {/* Empty State */}
             {visibleEntries.length === 0 && !isLoading && (

@@ -12,7 +12,7 @@
  */
 
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
@@ -257,6 +257,58 @@ const SchemasTab: React.FC = () => {
     );
   }
 
+  const schemaItemColumns: DataTableColumn<SchemaItem>[] = [
+    {
+      key: 'schemaName',
+      header: 'Schema Name',
+      render: (_value, schema) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{schema.schemaName}</div>
+          <div className="text-xs text-gray-500">Tenant: {schema.tenantId}</div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, schema) => <StatusBadge status={schema.status} />,
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (_value, schema) => schema.currentVersion,
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      render: (_value, schema) => formatBytes(schema.sizeBytes || 0),
+    },
+    {
+      key: 'tables',
+      header: 'Tables',
+      render: (_value, schema) => schema.tableCount || 0,
+    },
+    {
+      key: 'lastBackup',
+      header: 'Last Backup',
+      render: (_value, schema) => formatDate(schema.lastBackupAt),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (_value, schema) => (
+        <div className="flex space-x-2">
+          <button
+            onClick={() => openSchema(schema)}
+            className="text-blue-600 hover:text-blue-800 text-sm"
+          >
+            View
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <QueryFailureNotice
@@ -322,66 +374,16 @@ const SchemasTab: React.FC = () => {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Schema Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Version
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Size
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Tables
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Last Backup
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {schemas.map((schema) => (
-                <tr key={schema.tenantId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">{schema.schemaName}</div>
-                    <div className="text-xs text-gray-500">Tenant: {schema.tenantId}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={schema.status} />
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{schema.currentVersion}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatBytes(schema.sizeBytes || 0)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{schema.tableCount || 0}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(schema.lastBackupAt)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => openSchema(schema)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        View
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<SchemaItem>
+          data={schemas}
+          columns={schemaItemColumns}
+          keyExtractor={(schema) => schema.schemaName}
+          emptyMessage="No schemas"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          className="shadow-none rounded-none"
+        />
       </div>
 
       {/* Schema Detail Modal */}
@@ -517,6 +519,51 @@ const MigrationsTab: React.FC = () => {
     );
   }
 
+  const schemaMigrationColumns: DataTableColumn<SchemaMigration>[] = [
+    {
+      key: 'migration',
+      header: 'Migration',
+      render: (_value, migration) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{migration.version}</div>
+          <div className="text-xs text-gray-500">{migration.migrationName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, migration) => <StatusBadge status={migration.status} />,
+    },
+    {
+      key: 'schemas',
+      header: 'Schemas',
+      render: (_value, migration) => (
+        <>
+          {/* A row IS one schema's run (ADMIN-MEDIUM-111); the
+              `appliedToSchemas` / `failedSchemas` counts this cell
+              used to show have no counterpart on it and always
+              rendered '-'. The affected tables are what the row
+              actually carries. */}
+          {migration.schemaName}
+          {migration.affectedTables.length > 0 && (
+            <span className="ml-1 text-gray-400">({migration.affectedTables.length} tables)</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'createdBy',
+      header: 'Created By',
+      render: (_value, migration) => migration.executedBy || '-',
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, migration) => formatDate(migration.createdAt),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <QueryFailureNotice
@@ -589,61 +636,16 @@ const MigrationsTab: React.FC = () => {
         {history.length === 0 ? (
           <EmptyState message="No migration history found." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Migration
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Schemas
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Created By
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Date
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {history.map((migration) => (
-                  <tr key={migration.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-                      <div className="text-xs text-gray-500">{migration.migrationName}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <StatusBadge status={migration.status} />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {/* A row IS one schema's run (ADMIN-MEDIUM-111); the
-                          `appliedToSchemas` / `failedSchemas` counts this cell
-                          used to show have no counterpart on it and always
-                          rendered '-'. The affected tables are what the row
-                          actually carries. */}
-                      {migration.schemaName}
-                      {migration.affectedTables.length > 0 && (
-                        <span className="ml-1 text-gray-400">
-                          ({migration.affectedTables.length} tables)
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.executedBy || '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatDate(migration.createdAt)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<SchemaMigration>
+            data={history}
+            columns={schemaMigrationColumns}
+            keyExtractor={(migration) => migration.id}
+            emptyMessage="No migrations"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            className="shadow-none rounded-none"
+          />
         )}
       </div>
     </div>
@@ -705,6 +707,85 @@ const MonitoringTab: React.FC = () => {
     void slowQueriesQuery.refetch();
     void indexQuery.refetch();
   };
+
+  const slowQueryItemColumns: DataTableColumn<SlowQueryItem>[] = [
+    {
+      key: 'queryPattern',
+      header: 'Query Pattern',
+      render: (_value, query) => (
+        <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
+          {query.query.length > 80 ? query.query.substring(0, 80) + '...' : query.query}
+        </code>
+      ),
+    },
+    {
+      key: 'count',
+      header: 'Count',
+      render: (_value, query) => query.count,
+    },
+    {
+      key: 'avgTime',
+      header: 'Avg Time',
+      render: (_value, query) => (
+        <>
+          <span
+            className={`text-sm font-medium ${
+              query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
+            }`}
+          >
+            {formatDuration(query.avgTime)}
+          </span>
+        </>
+      ),
+    },
+  ];
+
+  const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
+  const storageInfoColumns: DataTableColumn<StorageInfo>[] = [
+    {
+      key: 'schema',
+      header: 'Schema',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{item.schemaName}</div>
+          <div className="text-xs text-gray-500">{item.tenantId}</div>
+        </>
+      ),
+    },
+    {
+      key: 'totalSize',
+      header: 'Total Size',
+      render: (_value, item) => formatBytes(item.totalSizeBytes),
+    },
+    {
+      key: 'data',
+      header: 'Data',
+      render: (_value, item) => formatBytes(item.dataSizeBytes),
+    },
+    {
+      key: 'indexes',
+      header: 'Indexes',
+      render: (_value, item) => formatBytes(item.indexSizeBytes),
+    },
+    {
+      key: 'tables',
+      header: 'Tables',
+      render: (_value, item) => item.tableCount,
+    },
+    {
+      key: 'distribution',
+      header: 'Distribution',
+      render: (_value, item) => {
+        const percentage = totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
+        return (
+          <div className="flex items-center space-x-2">
+            <ProgressBar value={percentage} max={100} />
+            <span className="text-sm text-gray-500">{percentage.toFixed(1)}%</span>
+          </div>
+        );
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -835,65 +916,16 @@ const MonitoringTab: React.FC = () => {
               Refresh
             </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Schema
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Total Size
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Data
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Indexes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Tables
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Distribution
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {(() => {
-                  const totalStorage = storage.reduce((sum, s) => sum + s.totalSizeBytes, 0);
-                  return storage.map((item) => {
-                    const percentage =
-                      totalStorage > 0 ? (item.totalSizeBytes / totalStorage) * 100 : 0;
-                    return (
-                      <tr key={item.tenantId} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-gray-900">{item.schemaName}</div>
-                          <div className="text-xs text-gray-500">{item.tenantId}</div>
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {formatBytes(item.totalSizeBytes)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {formatBytes(item.dataSizeBytes)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {formatBytes(item.indexSizeBytes)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">{item.tableCount}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <ProgressBar value={percentage} max={100} />
-                            <span className="text-sm text-gray-500">{percentage.toFixed(1)}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<StorageInfo>
+            data={storage}
+            columns={storageInfoColumns}
+            keyExtractor={(item) => item.schemaName}
+            emptyMessage="No storage data"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            className="shadow-none rounded-none"
+          />
         </div>
       ) : !storageQuery.isPending && !storageQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
@@ -914,46 +946,16 @@ const MonitoringTab: React.FC = () => {
               Refresh
             </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Query Pattern
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Count
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Avg Time
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {slowQueries.map((query, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
-                        {query.query.length > 80
-                          ? query.query.substring(0, 80) + '...'
-                          : query.query}
-                      </code>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{query.count}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`text-sm font-medium ${
-                          query.avgTime > 2000 ? 'text-red-600' : 'text-yellow-600'
-                        }`}
-                      >
-                        {formatDuration(query.avgTime)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<SlowQueryItem>
+            data={slowQueries}
+            columns={slowQueryItemColumns}
+            keyExtractor={(query) => query.query}
+            emptyMessage="No slow queries"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            className="shadow-none rounded-none"
+          />
         </div>
       ) : !slowQueriesQuery.isPending && !slowQueriesQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">

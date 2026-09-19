@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBatchList, type BatchStatus, type Batch } from '../../../hooks/useBatches';
 import { useSpeciesList } from '../../../hooks/useSpecies';
 import { BatchFormModal } from '../components/BatchFormModal';
-import { ApiError } from '@aquaculture/shared-ui';
+import { ApiError, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Status badge colors
 const statusColors: Record<BatchStatus, string> = {
@@ -107,6 +107,99 @@ export const BatchInputTab: React.FC = () => {
     };
   }, [filteredBatches, getCurrentBiomass]);
 
+  type BatchRow = (typeof filteredBatches)[number];
+  const batchRowColumns: DataTableColumn<BatchRow>[] = [
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, batch) => (
+        <div className="flex items-center">
+          <div>
+            <div className="text-sm font-medium text-gray-900">{batch.batchNumber}</div>
+            {batch.name && (
+              <div className="text-sm text-gray-500">{batch.name}</div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, batch) => (
+        <>
+          {/* BUG-009: display resolved species name, fall back to truncated ID */}
+          <div className="text-sm text-gray-900">
+            {speciesById.get(batch.speciesId) ?? batch.speciesId.substring(0, 8) + '…'}
+          </div>
+          <div className="text-sm text-gray-500 capitalize">{batch.inputType.replace('_', ' ')}</div>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, batch) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[batch.status]}`}>
+          {statusLabels[batch.status]}
+        </span>
+      ),
+    },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      align: 'right',
+      render: (_value, batch) => (
+        <>
+          <div className="text-sm text-gray-900">{batch.currentQuantity.toLocaleString()}</div>
+          <div className="text-sm text-gray-500">/ {batch.initialQuantity.toLocaleString()}</div>
+        </>
+      ),
+    },
+    {
+      key: 'biomassKg',
+      header: 'Biomass (kg)',
+      align: 'right',
+      render: (_value, batch) => (
+        <div className="text-sm text-gray-900">{getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+      ),
+    },
+    {
+      key: 'survival',
+      header: 'Survival',
+      align: 'right',
+      render: (_value, batch) => (
+        <div className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-green-600' : getSurvivalRate(batch) >= 90 ? 'text-yellow-600' : 'text-red-600'}`}>
+          {getSurvivalRate(batch).toFixed(1)}%
+        </div>
+      ),
+    },
+    {
+      key: 'fcr',
+      header: 'FCR',
+      align: 'right',
+      render: (_value, batch) => (
+        <div className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-green-600' : 'text-red-600'}`}>
+          {batch.fcr?.actual?.toFixed(2) || '-'}
+        </div>
+      ),
+    },
+    {
+      key: 'stocked',
+      header: 'Stocked',
+      render: (_value, batch) => formatDate(batch.stockedAt),
+    },
+    {
+      key: 'spanClassnameSrOnlyActionsSpan',
+      header: '<span className="sr-only">Actions</span>',
+      render: (_value, batch) => (
+        <>
+          View
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header with filters and add button */}
@@ -179,94 +272,15 @@ export const BatchInputTab: React.FC = () => {
       {/* Batch Table */}
       {!isLoading && !error && (
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Batch
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Species
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quantity
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Biomass (kg)
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Survival
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  FCR
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stocked
-                </th>
-                <th scope="col" className="relative px-6 py-3">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredBatches.map((batch) => (
-                <tr
-                  key={batch.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => navigate(`/sites/batch/${batch.id}`)}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{batch.batchNumber}</div>
-                        {batch.name && (
-                          <div className="text-sm text-gray-500">{batch.name}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {/* BUG-009: display resolved species name, fall back to truncated ID */}
-                    <div className="text-sm text-gray-900">
-                      {speciesById.get(batch.speciesId) ?? batch.speciesId.substring(0, 8) + '…'}
-                    </div>
-                    <div className="text-sm text-gray-500 capitalize">{batch.inputType.replace('_', ' ')}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[batch.status]}`}>
-                      {statusLabels[batch.status]}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="text-sm text-gray-900">{batch.currentQuantity.toLocaleString()}</div>
-                    <div className="text-sm text-gray-500">/ {batch.initialQuantity.toLocaleString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="text-sm text-gray-900">{getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-green-600' : getSurvivalRate(batch) >= 90 ? 'text-yellow-600' : 'text-red-600'}`}>
-                      {getSurvivalRate(batch).toFixed(1)}%
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-green-600' : 'text-red-600'}`}>
-                      {batch.fcr?.actual?.toFixed(2) || '-'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(batch.stockedAt)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-400">
-                    View
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<BatchRow>
+            data={filteredBatches}
+            columns={batchRowColumns}
+            keyExtractor={(batch) => batch.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {filteredBatches.length === 0 && (
             <div className="text-center py-12">

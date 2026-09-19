@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Modal, chartChrome, colors } from '@aquaculture/shared-ui';
+import { DataTable, Modal, chartChrome, colors, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -676,6 +676,80 @@ export const SecurityDashboardPage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
+  const threatIndicatorColumns: DataTableColumn<ThreatIndicator>[] = [
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, threat) => (
+        <span className="text-sm font-medium text-gray-900 capitalize">
+          {(threat.type ?? 'unknown').replace('_', ' ')}
+        </span>
+      ),
+    },
+    {
+      key: 'indicator',
+      header: 'Indicator',
+      render: (_value, threat) => (
+        <span className="text-sm font-mono text-gray-600">{threat.indicator ?? '-'}</span>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, threat) => threat.source ?? 'Unknown',
+    },
+    {
+      key: 'confidence',
+      header: 'Confidence',
+      render: (_value, threat) => (
+        <div className="flex items-center gap-2">
+          <div className="w-16 h-2 bg-gray-200 rounded-full">
+            <div
+              className={`h-2 rounded-full ${
+                (threat.confidence ?? 0) >= 80 ? 'bg-green-500' :
+                (threat.confidence ?? 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+              }`}
+              style={{ width: `${threat.confidence ?? 0}%` }}
+            />
+          </div>
+          <span className="text-sm text-gray-600">{threat.confidence ?? 0}%</span>
+        </div>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, threat) => (
+        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}>
+          {threat.severity ?? 'Unknown'}
+        </span>
+      ),
+    },
+    {
+      key: 'hits',
+      header: 'Hits',
+      render: (_value, threat) => threat.hitCount ?? 0,
+    },
+    {
+      key: 'lastSeen',
+      header: 'Last Seen',
+      render: (_value, threat) => threat.lastSeen ? formatTimeAgo(threat.lastSeen) : 'Never',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, threat) => (
+        <>
+          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+            (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+          }`}>
+            {(threat.isActive ?? false) ? 'Active' : 'Inactive'}
+          </span>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* The partial case, which on THIS page is the dangerous one: the
@@ -947,79 +1021,16 @@ export const SecurityDashboardPage: React.FC = () => {
         <div className="p-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">Threat Intelligence</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indicator</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Confidence</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Severity</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hits</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Seen</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {threatIndicators.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                    No threat indicators found
-                  </td>
-                </tr>
-              ) : (
-                threatIndicators.slice(0, 10).map((threat) => (
-                  <tr key={threat.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900 capitalize">
-                        {(threat.type ?? 'unknown').replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-mono text-gray-600">{threat.indicator ?? '-'}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                      {threat.source ?? 'Unknown'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-2 bg-gray-200 rounded-full">
-                          <div
-                            className={`h-2 rounded-full ${
-                              (threat.confidence ?? 0) >= 80 ? 'bg-green-500' :
-                              (threat.confidence ?? 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-                            }`}
-                            style={{ width: `${threat.confidence ?? 0}%` }}
-                          />
-                        </div>
-                        <span className="text-sm text-gray-600">{threat.confidence ?? 0}%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}>
-                        {threat.severity ?? 'Unknown'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-medium">
-                      {threat.hitCount ?? 0}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                      {threat.lastSeen ? formatTimeAgo(threat.lastSeen) : 'Never'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-                        (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {(threat.isActive ?? false) ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ThreatIndicator>
+          data={threatIndicators.slice(0, 10)}
+          columns={threatIndicatorColumns}
+          keyExtractor={(threat) => threat.id}
+          emptyMessage="No threat indicators found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          className="shadow-none rounded-none"
+        />
       </div>
 
       {/* Event Detail Modal */}

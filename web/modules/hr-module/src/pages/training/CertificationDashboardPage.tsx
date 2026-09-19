@@ -27,16 +27,16 @@ import {
   Calendar,
   FileText,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useCertificationTypes,
   useExpiringCertifications,
   useAllCertifications,
   useEmployees,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { CertificationExpiryAlert } from '../../components/certification';
-import type { Column } from '../../components/common';
 import { CertificationRequirement } from '../../types';
 import type {
   CertificationType,
@@ -273,12 +273,11 @@ export function CertificationDashboardPage() {
     : 0;
 
   // Certification columns
-  const certificationColumns: Column<EmployeeCertification>[] = [
+  const certificationColumns: DataTableColumn<EmployeeCertification>[] = [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -301,7 +300,7 @@ export function CertificationDashboardPage() {
     {
       key: 'certification',
       header: 'Certification',
-      accessor: (row) => {
+      render: (_value, row) => {
         const category = row.certificationType?.category;
         const config = category
           ? CERTIFICATION_CATEGORY_CONFIG[category]
@@ -322,15 +321,14 @@ export function CertificationDashboardPage() {
     {
       key: 'issuedBy',
       header: 'Issued By',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-600 dark:text-gray-300">{row.issuingAuthority || '-'}</span>
       ),
     },
     {
       key: 'dates',
       header: 'Validity',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const expiryDate = row.expiryDate ? new Date(row.expiryDate) : new Date();
         const daysUntilExpiry = Math.ceil(
           (expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -365,7 +363,7 @@ export function CertificationDashboardPage() {
     {
       key: 'status',
       header: 'Status',
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = STATUS_CONFIG[row.status] || { label: row.status, variant: 'neutral' as const };
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
@@ -375,7 +373,7 @@ export function CertificationDashboardPage() {
       header: '',
       width: '100px',
       align: 'right',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
           <button
             className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
@@ -584,12 +582,15 @@ export function CertificationDashboardPage() {
                 View All
               </button>
             </div>
-            <DataTable
+            <DataTable<EmployeeCertification>
               data={activeCertifications.slice(0, 5)}
               columns={certificationColumns}
               keyExtractor={(row) => row.id}
-              isLoading={loadingCerts}
+              loading={loadingCerts}
               emptyMessage="No certifications found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
             />
           </div>
         </div>
@@ -645,16 +646,17 @@ export function CertificationDashboardPage() {
           </div>
 
           {/* Certifications Table */}
-          <DataTable
+          <DataTable<EmployeeCertification>
             data={filteredCertifications}
             columns={certificationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingCerts}
+            loading={loadingCerts}
             emptyMessage="No certifications found"
-            total={certTotal}
-            page={pagination.page || 1}
-            pageSize={pagination.limit || 20}
+            pagination={derivePaginationMetadataV1(certTotal, pagination.page || 1, pagination.limit || 20)}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { usePrompt, type PromptFn } from '@aquaculture/shared-ui';
+import { usePrompt, type PromptFn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -26,6 +26,7 @@ import {
   VfdChangeSet,
   VfdChangeSetStatus,
   VfdRiskLevel,
+  VfdChangeSetItem,
 } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 import { VfdChangeSetDetail } from './VfdChangeSetDetail';
@@ -161,6 +162,34 @@ export function VfdChangeSetList({
     );
   }
 
+  const vfdChangeSetItemColumns: DataTableColumn<VfdChangeSetItem>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, item) => item.parameterName,
+    },
+    {
+      key: 'previous',
+      header: 'Previous',
+      render: (_value, item) => item.previousValue ?? '-',
+    },
+    {
+      key: 'requested',
+      header: 'Requested',
+      render: (_value, item) => item.requestedValue,
+    },
+    {
+      key: 'applied',
+      header: 'Applied',
+      render: (_value, item) => item.appliedValue ?? '-',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => item.status || '-',
+    }
+  ];
+
   return (
     <div data-testid="vfd-changeset-list">
       {/* Detail slide-over */}
@@ -284,28 +313,16 @@ export function VfdChangeSetList({
                 {/* Expanded items table */}
                 {isExpanded && (
                   <div className="border-t bg-gray-50 px-4 py-3">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-gray-500">
-                          <th className="pb-1 pr-3">Parameter</th>
-                          <th className="pb-1 pr-3">Previous</th>
-                          <th className="pb-1 pr-3">Requested</th>
-                          <th className="pb-1 pr-3">Applied</th>
-                          <th className="pb-1">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cs.items.map((item) => (
-                          <tr key={item.id} className="border-t border-gray-200">
-                            <td className="py-1 pr-3 font-mono">{item.parameterName}</td>
-                            <td className="py-1 pr-3">{item.previousValue ?? '-'}</td>
-                            <td className="py-1 pr-3 font-medium text-indigo-700">{item.requestedValue}</td>
-                            <td className="py-1 pr-3">{item.appliedValue ?? '-'}</td>
-                            <td className="py-1">{item.status || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <DataTable<VfdChangeSetItem>
+                      data={cs.items}
+                      columns={vfdChangeSetItemColumns}
+                      keyExtractor={(item) => item.id}
+                      emptyMessage="No items"
+                      searchable={false}
+                      sortable={false}
+                      stickyHeader={false}
+                      compact
+                    />
                   </div>
                 )}
               </div>

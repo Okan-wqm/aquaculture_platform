@@ -22,16 +22,16 @@ import {
   Anchor,
   Clock,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useEmployees,
   useWorkAreas,
   useCrewAssignments,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { SeaLandSplitView } from '../../components/crew';
-import type { Column } from '../../components/common';
 import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, WorkAreaType, PaginationInput } from '../../types';
 
 // ============================================================================
@@ -168,12 +168,11 @@ export function CrewAssignmentsPage() {
   }, [crewAssignments, workAreas]);
 
   // PERF-004: memoize so the column array reference is stable across renders
-  const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
+  const assignmentColumns: DataTableColumn<CrewAssignment>[] = useMemo(() => [
     {
       key: 'workArea',
       header: 'Work Area',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.workArea?.workAreaType === ('SEA_CAGE' as WorkAreaType) || row.workArea?.workAreaType === ('VESSEL' as WorkAreaType) ? (
             <Ship className="h-4 w-4 text-blue-500" />
@@ -191,7 +190,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'assigned',
       header: 'Assigned Crew',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-gray-400" />
           <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
@@ -202,7 +201,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'occupancy',
       header: 'Occupancy',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-2">
           <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
             <div
@@ -217,7 +216,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'location',
       header: 'Location',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-600 dark:text-gray-300">
           {row.workArea?.isOffshore ? 'Offshore' : 'Onshore'}
         </span>
@@ -226,7 +225,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'status',
       header: 'Status',
-      accessor: (row) => (
+      render: (_value, row) => (
         <StatusBadge
           label={row.workArea?.isActive ? 'Active' : 'Inactive'}
           variant={row.workArea?.isActive ? 'success' : 'neutral'}
@@ -460,16 +459,17 @@ export function CrewAssignmentsPage() {
           </div>
 
           {/* Assignments Table */}
-          <DataTable
+          <DataTable<CrewAssignment>
             data={pagedAssignments}
             columns={assignmentColumns}
             keyExtractor={assignmentKeyExtractor}
-            isLoading={loadingAssignments}
+            loading={loadingAssignments}
             emptyMessage="No crew assignments found"
-            total={enrichedAssignments.length}
-            page={Math.floor(currentOffset / pageSize) + 1}
-            pageSize={pageSize}
+            pagination={derivePaginationMetadataV1(enrichedAssignments.length, currentPage, pageSize)}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, LineChart } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, LineChart, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -20,6 +20,14 @@ import type {
 // ============================================================================
 // Types
 // ============================================================================
+
+/** One row of the service breakdown table (derived from the metrics payload). */
+interface ServiceBreakdownRow {
+  service: string;
+  avgResponseTime: number;
+  errorRate: number;
+  requestCount: number;
+}
 
 interface ServiceHealth {
   name: string;
@@ -246,6 +254,84 @@ export const PerformanceDashboardPage: React.FC = () => {
   // ============================================================================
   // Render - Main UI
   // ============================================================================
+
+  const serviceHealthColumns: DataTableColumn<ServiceBreakdownRow>[] = [
+    {
+      key: 'serviceName',
+      header: 'Service Name',
+      render: (_value, service) => {
+        const status = getServiceStatus(service);
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                status === 'healthy'
+                  ? 'bg-green-500'
+                  : status === 'warning'
+                  ? 'bg-yellow-500'
+                  : 'bg-red-500'
+              }`}
+            />
+            <span className="font-medium text-gray-900">{service.service}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, service) => {
+        const status = getServiceStatus(service);
+        return (
+          <Badge variant={getStatusBadgeVariant(status)} size="sm">
+            {status}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: 'avgResponse',
+      header: 'Avg Response',
+      align: 'right',
+      render: (_value, service) => (
+        <>
+          <span
+            className={`font-medium ${getHealthColor(service.avgResponseTime ?? 0, {
+              warning: 300,
+              critical: 500,
+            })}`}
+          >
+            {Math.round(service.avgResponseTime ?? 0)} ms
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'errorRate',
+      header: 'Error Rate',
+      align: 'right',
+      render: (_value, service) => (
+        <>
+          <span
+            className={`font-medium ${getHealthColor(service.errorRate ?? 0, {
+              warning: 0.5,
+              critical: 1,
+            })}`}
+          >
+            {(service.errorRate ?? 0).toFixed(2)}%
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'requests',
+      header: 'Requests',
+      align: 'right',
+      render: (_value, service) => (
+        <span className="text-gray-900">{service.requestCount.toLocaleString()}</span>
+      ),
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -660,88 +746,16 @@ export const PerformanceDashboardPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900">Service Health Status</h2>
           <p className="text-sm text-gray-500 mt-1">Real-time servis saglik durumlari ve performans metrikleri</p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Service Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Avg Response
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Error Rate
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Requests
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {serviceBreakdown.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                    No service data available
-                  </td>
-                </tr>
-              ) : (
-                serviceBreakdown.map((service, idx) => {
-                  const status = getServiceStatus(service);
-                  return (
-                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-2 h-2 rounded-full ${
-                              status === 'healthy'
-                                ? 'bg-green-500'
-                                : status === 'warning'
-                                ? 'bg-yellow-500'
-                                : 'bg-red-500'
-                            }`}
-                          />
-                          <span className="font-medium text-gray-900">{service.service}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant={getStatusBadgeVariant(status)} size="sm">
-                          {status}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span
-                          className={`font-medium ${getHealthColor(service.avgResponseTime ?? 0, {
-                            warning: 300,
-                            critical: 500,
-                          })}`}
-                        >
-                          {Math.round(service.avgResponseTime ?? 0)} ms
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span
-                          className={`font-medium ${getHealthColor(service.errorRate ?? 0, {
-                            warning: 0.5,
-                            critical: 1,
-                          })}`}
-                        >
-                          {(service.errorRate ?? 0).toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-gray-900">{service.requestCount.toLocaleString()}</span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ServiceBreakdownRow>
+          data={serviceBreakdown}
+          columns={serviceHealthColumns}
+          keyExtractor={(service) => service.service}
+          emptyMessage="No service data available"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          className="shadow-none rounded-none"
+        />
       </Card>
 
     </div>

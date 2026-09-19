@@ -290,7 +290,12 @@ row) — plus the tag watch (its mixed-type comparator stays behind
 `DataTable` per source group under a collapsible header) and the
 automation editor's variable list, and the batch traceability ledgers
 (their header-cell component spelled out). sensor 13 → 7, farm 12 → 7.
-**Owner:** okan · **Expiry:** 2027-06-30.
+Batch 21: `DataTable` expansion can be controlled (`expandedRowIds`,
+`onExpandedChange`, and `expandToggle={false}` when a cell of the page is
+the toggle), so the protocol bands — a row plus its meal-schedule editor
+under it — and the meal board (one list per day plan, its columns a
+factory over the plan) render through it. farm 7 → 5. **Owner:** okan ·
+**Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -303,10 +308,11 @@ automation editor's variable list, and the batch traceability ledgers
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 17 remain after batch 20 (hr 3, sensor 7,
-  farm 7): SCADA runtime grids and dark operator panels, matrix editors,
-  fragment rows, report-export HTML strings, calendar grids and a print
-  document.
+- Raw `<table>` → `DataTable`: 15 remain after batch 21 (hr 3, sensor 7,
+  farm 5): SCADA runtime grids and dark operator panels (they wait on the
+  dark `DataTable` theme), the two feeding matrix editors (editable
+  header cells, add/remove rows and columns — a spreadsheet, not a list),
+  three report-export HTML strings, two calendar grids and a print document.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

@@ -91,7 +91,7 @@ rawHex:
 rawTable:
   entries:
     - package: web/modules/farm-module
-      ceiling: 7
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069

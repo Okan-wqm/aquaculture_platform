@@ -11,7 +11,7 @@
  * komut olduğundan zarf ZORUNLUDUR (C-17) — hook zarfı üretir.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
@@ -218,6 +218,164 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  type PlanMeal = NonNullable<FeedingDayPlanView['meals']>[number];
+  const planMealColumns = (plan: FeedingDayPlanView): DataTableColumn<PlanMeal>[] => [
+    {
+      key: 'tFeedingv2MealboardMeal',
+      header: '{t(\'feedingV2.mealBoard.meal\')}',
+      render: (_value, meal) => (
+        <>
+          #{meal.mealIndex + 1}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardTime',
+      header: '{t(\'feedingV2.mealBoard.time\')}',
+      render: (_value, meal) => timeOf(meal.scheduledAt),
+    },
+    {
+      key: 'tFeedingv2MealboardPlanned',
+      header: '{t(\'feedingV2.mealBoard.planned\')}',
+      render: (_value, meal) => (
+        <>
+          {Number(meal.plannedKg).toFixed(2)} kg
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardActual',
+      header: '{t(\'feedingV2.mealBoard.actual\')}',
+      render: (_value, meal) => (
+        <>
+          {Number(meal.actualKg || 0).toFixed(2)} kg
+          {meal.variancePercent != null && (
+            <span
+              className={`ml-2 text-xs ${
+                meal.variancePercent < 0 ? 'text-red-600' : 'text-green-600'
+              }`}
+            >
+              {meal.variancePercent > 0 ? '+' : ''}
+              {Number(meal.variancePercent).toFixed(1)}%
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2Statuslabel',
+      header: '{t(\'feedingV2.statusLabel\')}',
+      render: (_value, meal) => (
+        <>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}
+          >
+            {t(MEAL_STATUS_KEY[meal.status])}
+          </span>
+          {/*
+            W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti.
+            Damganın YOKLUĞU bir onay değildir (ünitenin DO
+            sensörü olmayabilir), bu yüzden olumlu rozet YOK.
+          */}
+          {meal.readiness && (
+            <span
+              className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+              title={
+                meal.readiness.status === 'low_oxygen'
+                  ? t('feedingV2.mealBoard.lowOxygenTitle', {
+                      observed: (meal.readiness.observedDissolvedOxygen ?? 0).toFixed(
+                        1,
+                      ),
+                      min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                    })
+                  : t('feedingV2.mealBoard.noOxygenReadingTitle', {
+                      min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                    })
+              }
+            >
+              {meal.readiness.status === 'low_oxygen'
+                ? t('feedingV2.mealBoard.lowOxygen')
+                : t('feedingV2.mealBoard.noOxygenReading')}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardPours',
+      header: '{t(\'feedingV2.mealBoard.pours\')}',
+      render: (_value, meal) => (
+        <>
+          {(meal.pours ?? []).map((pour) => (
+            <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
+              {pour.kg} kg
+              {canCorrect && meal.status !== 'CANCELLED' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCorrectModal({ meal, pourIndex: pour.pourIndex });
+                    setCorrectedKg(String(pour.kg));
+                  }}
+                  className="text-blue-600 underline"
+                >
+                  {t('feedingV2.mealBoard.correctPour')}
+                </button>
+              )}
+            </span>
+          ))}
+        </>
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, meal) => {
+        const open = meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
+        return (
+          <>
+            {open && canRecord && (
+              <button
+                type="button"
+                onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}
+                className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+              >
+                {t('feedingV2.mealBoard.addPour')}
+              </button>
+            )}
+            {/*
+              W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
+              EKLEMEDEN kapat. Öncesinde tek çıkış uydurma bir
+              0.001 kg dökümdü (sahte yem kaydı + sahte stok
+              düşümü). Yalnız PARTIALLY_FED'de görünür: hiç dökümü
+              olmayan öğünün doğru fiili "atla"dır.
+            */}
+            {meal.status === 'PARTIALLY_FED' && canFinalize && (
+              <button
+                type="button"
+                disabled={finalizeMeal.isPending}
+                onClick={() => {
+                  void finalizeMeal.mutateAsync({ mealId: meal.id });
+                }}
+                className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+              >
+                {t('feedingV2.mealBoard.finalizeMeal')}
+              </button>
+            )}
+            {meal.status === 'SCHEDULED' && canSkip && (
+              <button
+                type="button"
+                onClick={() => setSkipModalMeal(meal)}
+                className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              >
+                {t('feedingV2.mealBoard.skip')}
+              </button>
+            )}
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -402,135 +560,16 @@ export function MealBoardTab(): React.ReactElement {
               )}
             </div>
 
-            <table className="min-w-full divide-y divide-gray-100 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-gray-500">
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.meal')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.time')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.planned')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.actual')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.statusLabel')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.pours')}</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {(plan.meals ?? []).map((meal) => {
-                  const open = meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
-                  return (
-                    <tr key={meal.id}>
-                      <td className="px-4 py-2">#{meal.mealIndex + 1}</td>
-                      <td className="px-4 py-2">{timeOf(meal.scheduledAt)}</td>
-                      <td className="px-4 py-2">{Number(meal.plannedKg).toFixed(2)} kg</td>
-                      <td className="px-4 py-2">
-                        {Number(meal.actualKg || 0).toFixed(2)} kg
-                        {meal.variancePercent != null && (
-                          <span
-                            className={`ml-2 text-xs ${
-                              meal.variancePercent < 0 ? 'text-red-600' : 'text-green-600'
-                            }`}
-                          >
-                            {meal.variancePercent > 0 ? '+' : ''}
-                            {Number(meal.variancePercent).toFixed(1)}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}
-                        >
-                          {t(MEAL_STATUS_KEY[meal.status])}
-                        </span>
-                        {/*
-                          W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti.
-                          Damganın YOKLUĞU bir onay değildir (ünitenin DO
-                          sensörü olmayabilir), bu yüzden olumlu rozet YOK.
-                        */}
-                        {meal.readiness && (
-                          <span
-                            className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
-                            title={
-                              meal.readiness.status === 'low_oxygen'
-                                ? t('feedingV2.mealBoard.lowOxygenTitle', {
-                                    observed: (meal.readiness.observedDissolvedOxygen ?? 0).toFixed(
-                                      1,
-                                    ),
-                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
-                                  })
-                                : t('feedingV2.mealBoard.noOxygenReadingTitle', {
-                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
-                                  })
-                            }
-                          >
-                            {meal.readiness.status === 'low_oxygen'
-                              ? t('feedingV2.mealBoard.lowOxygen')
-                              : t('feedingV2.mealBoard.noOxygenReading')}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-gray-600">
-                        {(meal.pours ?? []).map((pour) => (
-                          <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
-                            {pour.kg} kg
-                            {canCorrect && meal.status !== 'CANCELLED' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCorrectModal({ meal, pourIndex: pour.pourIndex });
-                                  setCorrectedKg(String(pour.kg));
-                                }}
-                                className="text-blue-600 underline"
-                              >
-                                {t('feedingV2.mealBoard.correctPour')}
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {open && canRecord && (
-                          <button
-                            type="button"
-                            onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}
-                            className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
-                          >
-                            {t('feedingV2.mealBoard.addPour')}
-                          </button>
-                        )}
-                        {/*
-                          W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
-                          EKLEMEDEN kapat. Öncesinde tek çıkış uydurma bir
-                          0.001 kg dökümdü (sahte yem kaydı + sahte stok
-                          düşümü). Yalnız PARTIALLY_FED'de görünür: hiç dökümü
-                          olmayan öğünün doğru fiili "atla"dır.
-                        */}
-                        {meal.status === 'PARTIALLY_FED' && canFinalize && (
-                          <button
-                            type="button"
-                            disabled={finalizeMeal.isPending}
-                            onClick={() => {
-                              void finalizeMeal.mutateAsync({ mealId: meal.id });
-                            }}
-                            className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
-                          >
-                            {t('feedingV2.mealBoard.finalizeMeal')}
-                          </button>
-                        )}
-                        {meal.status === 'SCHEDULED' && canSkip && (
-                          <button
-                            type="button"
-                            onClick={() => setSkipModalMeal(meal)}
-                            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                          >
-                            {t('feedingV2.mealBoard.skip')}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <DataTable<PlanMeal>
+              data={plan.meals ?? []}
+              columns={planMealColumns(plan)}
+              keyExtractor={(meal) => meal.id}
+              emptyMessage={t('feedingV2.mealBoard.meal')}
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+            />
           </div>
         );
       })}

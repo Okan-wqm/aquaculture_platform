@@ -27,7 +27,7 @@ const Toggle: React.FC<{
     className={`flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors ${
       enabled
         ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
-        : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-150'
+        : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-200'
     }`}
     aria-label={label}
     aria-pressed={enabled}
@@ -170,7 +170,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
       <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
       <button
         onClick={handleThemeToggle}
-        className="flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-150"
+        className="flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-200"
         aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
@@ -195,7 +195,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
             className={`flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors ${
               backgroundImage
                 ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-150'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-200'
             }`}
             aria-label="Background Image"
             title="Background Image"

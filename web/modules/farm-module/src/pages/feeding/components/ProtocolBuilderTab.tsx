@@ -968,7 +968,7 @@ export const ProtocolBuilderTab: React.FC = () => {
   const protocolRowColumns: DataTableColumn<ProtocolRow>[] = [
     {
       key: 'tFeedingv2Name',
-      header: '{t(\'feedingV2.name\')}',
+      header: t('feedingV2.name'),
       render: (_value, protocol) => (
         <>
           <div className="font-medium text-gray-900 dark:text-gray-100">{protocol.name}</div>
@@ -982,12 +982,12 @@ export const ProtocolBuilderTab: React.FC = () => {
     },
     {
       key: 'tFeedingv2Species',
-      header: '{t(\'feedingV2.species\')}',
+      header: t('feedingV2.species'),
       render: (_value, protocol) => protocol.speciesName ?? t('feedingV2.speciesAny'),
     },
     {
       key: 'tFeedingv2Statuslabel',
-      header: '{t(\'feedingV2.statusLabel\')}',
+      header: t('feedingV2.statusLabel'),
       render: (_value, protocol) => (
         <>
           <span
@@ -1005,12 +1005,12 @@ export const ProtocolBuilderTab: React.FC = () => {
     },
     {
       key: 'tFeedingv2Bands',
-      header: '{t(\'feedingV2.bands\')}',
+      header: t('feedingV2.bands'),
       render: (_value, protocol) => protocol.bands.length,
     },
     {
       key: 'tFeedingv2MealscheduleMealsperday',
-      header: '{t(\'feedingV2.mealSchedule.mealsPerDay\')}',
+      header: t('feedingV2.mealSchedule.mealsPerDay'),
       render: (_value, protocol) => protocol.defaultMealSchedule.mealsPerDay,
     },
     {

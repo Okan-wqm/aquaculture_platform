@@ -427,7 +427,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
-        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-200 hover:bg-gray-750 transition-colors"
+        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
       >
         <ChevronUp className="w-3.5 h-3.5" />
         ST Editor (Ctrl+J)
@@ -598,7 +598,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Three-column area */}
         <div className="flex flex-1 min-h-0">
           {/* Left: Program list + Outline */}
-          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-850">
+          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-900">
             {/* Programs section */}
             <div className="flex flex-col flex-shrink-0">
               <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
@@ -698,7 +698,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           </div>
 
           {/* Right: Compile output */}
-          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
+          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-900">
             <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold flex items-center justify-between">
               <span>Output</span>
               {diagnostics.length > 0 && (

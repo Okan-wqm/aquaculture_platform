@@ -222,7 +222,7 @@ export function MealBoardTab(): React.ReactElement {
   const planMealColumns = (plan: FeedingDayPlanView): DataTableColumn<PlanMeal>[] => [
     {
       key: 'tFeedingv2MealboardMeal',
-      header: '{t(\'feedingV2.mealBoard.meal\')}',
+      header: t('feedingV2.mealBoard.meal'),
       render: (_value, meal) => (
         <>
           #{meal.mealIndex + 1}
@@ -231,12 +231,12 @@ export function MealBoardTab(): React.ReactElement {
     },
     {
       key: 'tFeedingv2MealboardTime',
-      header: '{t(\'feedingV2.mealBoard.time\')}',
+      header: t('feedingV2.mealBoard.time'),
       render: (_value, meal) => timeOf(meal.scheduledAt),
     },
     {
       key: 'tFeedingv2MealboardPlanned',
-      header: '{t(\'feedingV2.mealBoard.planned\')}',
+      header: t('feedingV2.mealBoard.planned'),
       render: (_value, meal) => (
         <>
           {Number(meal.plannedKg).toFixed(2)} kg
@@ -245,7 +245,7 @@ export function MealBoardTab(): React.ReactElement {
     },
     {
       key: 'tFeedingv2MealboardActual',
-      header: '{t(\'feedingV2.mealBoard.actual\')}',
+      header: t('feedingV2.mealBoard.actual'),
       render: (_value, meal) => (
         <>
           {Number(meal.actualKg || 0).toFixed(2)} kg
@@ -264,7 +264,7 @@ export function MealBoardTab(): React.ReactElement {
     },
     {
       key: 'tFeedingv2Statuslabel',
-      header: '{t(\'feedingV2.statusLabel\')}',
+      header: t('feedingV2.statusLabel'),
       render: (_value, meal) => (
         <>
           <span
@@ -303,7 +303,7 @@ export function MealBoardTab(): React.ReactElement {
     },
     {
       key: 'tFeedingv2MealboardPours',
-      header: '{t(\'feedingV2.mealBoard.pours\')}',
+      header: t('feedingV2.mealBoard.pours'),
       render: (_value, meal) => (
         <>
           {(meal.pours ?? []).map((pour) => (

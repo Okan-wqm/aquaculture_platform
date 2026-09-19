@@ -345,7 +345,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         aria-label={label ? `Keyboard: ${label}` : 'Virtual keyboard'}
         aria-modal="false"
       >
-        <div className="bg-gray-850 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
+        <div className="bg-gray-900 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
           style={{ backgroundColor: themeColors.neutral[900] }}
         >
           {/* Header */}

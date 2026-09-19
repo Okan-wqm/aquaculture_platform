@@ -270,7 +270,7 @@ export function LoginPage(): JSX.Element | null {
                   void handleBiometricLogin();
                 }}
                 disabled={isLoading || isBiometricLoading}
-                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
               >
                 {isBiometricLoading ? (
                   <>

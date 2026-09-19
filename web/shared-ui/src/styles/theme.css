@@ -57,6 +57,16 @@
   }
 }
 
+/* FE-MEDIUM-024 darkens `--color-gray-400` below for light surfaces (4.6:1 on
+   white). Utilities resolve the variable at paint time, so on dark surfaces the
+   same value would fall to 3.7:1 on gray-900 and 3.0:1 on gray-800 — the dark
+   theme restores Tailwind's default (6.9:1 / 5.5:1). One token, one contrast
+   answer per theme; `tests/invariants/web-theme-token-parity.spec.ts` asserts
+   both ratios. */
+[data-theme='dark'] {
+  --color-gray-400: #9ca3af;
+}
+
 @theme {
   /* ============================ Colors ============================ */
   /* WCAG 2.1 AA (FE-MEDIUM-024): darken default gray-400 (#9ca3af, 2.9:1) to

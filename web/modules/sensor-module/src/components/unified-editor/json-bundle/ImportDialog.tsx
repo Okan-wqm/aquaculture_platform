@@ -272,7 +272,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
           <button
             onClick={handlePaste}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400"
           >
             <Clipboard className="w-4 h-4" />
             Paste from Clipboard

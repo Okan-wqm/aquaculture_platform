@@ -7,7 +7,7 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
-import { ConfirmModal, useCanMutate } from '@aquaculture/shared-ui';
+import { ConfirmModal, useCanMutate, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -68,6 +68,99 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
     (item) => originFilter === 'ALL' || item.origin === originFilter,
   );
 
+  type ItemRow = (typeof items)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, item) => item.entryDate.slice(0, 10),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, item) => (
+        <>
+          {item.categoryName}
+          {item.kind === 'REVENUE' && (
+            <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
+              revenue
+            </span>
+          )}
+          {item.estimated && (
+            <span className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs text-yellow-700">
+              estimate
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, item) => item.description ?? '—',
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (_value, item) => formatMoney(item.amountDecimal, item.currency),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, item) => (
+        <>
+          {item.origin === 'MANUAL' ? (
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+              manual
+            </span>
+          ) : (
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+              auto · {item.sourceDomain}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, item) => (
+        <>
+          {item.editable ? (
+            <span className="space-x-3">
+              {canUpdate && (
+                <button
+                  onClick={() => setModalState({ open: true, entry: item })}
+                  className="font-medium text-blue-600 hover:text-blue-800"
+                >
+                  Edit
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => setPendingDelete(item.id)}
+                  className="font-medium text-red-600 hover:text-red-800"
+                >
+                  Delete
+                </button>
+              )}
+              {!canUpdate && !canDelete && (
+                <span className="text-xs text-gray-400">—</span>
+              )}
+            </span>
+          ) : (
+            <Link
+              to={sourceEditPath(item)}
+              className="font-medium text-blue-600 hover:text-blue-800"
+            >
+              Edit at source →
+            </Link>
+          )}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -110,101 +203,15 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
 
       {!ledgerQuery.isLoading && !ledgerQuery.error && (
         <div className="overflow-hidden rounded-lg bg-white shadow">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {['Date', 'Category', 'Description', 'Amount', 'Source', ''].map((h) => (
-                    <th
-                      key={h}
-                      scope="col"
-                      className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
-                {items.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      No ledger entries in this period
-                    </td>
-                  </tr>
-                )}
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
-                      {item.entryDate.slice(0, 10)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {item.categoryName}
-                      {item.kind === 'REVENUE' && (
-                        <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">
-                          revenue
-                        </span>
-                      )}
-                      {item.estimated && (
-                        <span className="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 text-xs text-yellow-700">
-                          estimate
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-sm text-gray-500">
-                      {item.description ?? '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {formatMoney(item.amountDecimal, item.currency)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm">
-                      {item.origin === 'MANUAL' ? (
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                          manual
-                        </span>
-                      ) : (
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
-                          auto · {item.sourceDomain}
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
-                      {item.editable ? (
-                        <span className="space-x-3">
-                          {canUpdate && (
-                            <button
-                              onClick={() => setModalState({ open: true, entry: item })}
-                              className="font-medium text-blue-600 hover:text-blue-800"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button
-                              onClick={() => setPendingDelete(item.id)}
-                              className="font-medium text-red-600 hover:text-red-800"
-                            >
-                              Delete
-                            </button>
-                          )}
-                          {!canUpdate && !canDelete && (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                        </span>
-                      ) : (
-                        <Link
-                          to={sourceEditPath(item)}
-                          className="font-medium text-blue-600 hover:text-blue-800"
-                        >
-                          Edit at source →
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={items}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No ledger entries in this period"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Pagination */}
           <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">

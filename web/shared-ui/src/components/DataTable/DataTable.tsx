@@ -122,6 +122,11 @@ export interface DataTableProps<T> {
   // Expansion
   expandable?: boolean;
   renderExpandedRow?: (row: T) => React.ReactNode;
+  /** Controlled expansion: the ids that are open. Omit to let the table keep its own set. */
+  expandedRowIds?: string[];
+  onExpandedChange?: (ids: string[]) => void;
+  /** Whether the table renders its own chevron column; false when a cell of the page toggles expansion instead. */
+  expandToggle?: boolean;
 
   /**
    * A totals row under the body, keyed by column key and aligned with the
@@ -214,6 +219,7 @@ interface TableBodyProps<T> {
   activeColumns: TableColumn<T>[];
   selectable: boolean;
   expandable: boolean;
+  expandToggle: boolean;
   selectedRows: string[];
   expandedRows: Set<string>;
   keyExtractor: (row: T, index: number) => string;
@@ -234,6 +240,7 @@ const TableBodyInner = <T,>({
   activeColumns,
   selectable,
   expandable,
+  expandToggle,
   selectedRows,
   expandedRows,
   keyExtractor,
@@ -244,7 +251,7 @@ const TableBodyInner = <T,>({
   handleToggleExpand,
   renderExpandedRow,
 }: TableBodyProps<T>) => {
-  const colSpan = (selectable ? 1 : 0) + (expandable ? 1 : 0) + activeColumns.length;
+  const colSpan = (selectable ? 1 : 0) + (expandable && expandToggle ? 1 : 0) + activeColumns.length;
 
   return (
     <tbody className="bg-white divide-y divide-gray-200">
@@ -292,7 +299,7 @@ const TableBodyInner = <T,>({
                     <Checkbox checked={isSelected} onChange={(checked) => handleSelectRow(rowId, checked)} />
                   </td>
                 )}
-                {expandable && (
+                {expandable && expandToggle && (
                   <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => handleToggleExpand(rowId)}
@@ -326,7 +333,7 @@ const TableBodyInner = <T,>({
               </tr>
               {expandable && isExpanded && renderExpandedRow && (
                 <tr className="bg-gray-50">
-                  <td colSpan={(selectable ? 1 : 0) + 1 + activeColumns.length} className="px-4 py-4">
+                  <td colSpan={colSpan} className="px-4 py-4">
                     {renderExpandedRow(row)}
                   </td>
                 </tr>
@@ -389,6 +396,9 @@ export function DataTable<T>({
   rowClassName,
   expandable = false,
   renderExpandedRow,
+  expandedRowIds,
+  onExpandedChange,
+  expandToggle = true,
   summaryRow,
   headerActions,
   onRefresh,
@@ -402,7 +412,12 @@ export function DataTable<T>({
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     () => new Set(columns.filter((c) => c.hidden !== true).map((c) => String(c.key)))
   );
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [ownExpandedRows, setOwnExpandedRows] = useState<Set<string>>(new Set());
+  // Controlled when the page hands in the open ids; otherwise the table keeps its own set.
+  const expandedRows = useMemo(
+    () => (expandedRowIds ? new Set(expandedRowIds) : ownExpandedRows),
+    [expandedRowIds, ownExpandedRows]
+  );
   // PERF-010: These three menu state vars cause the full DataTable (including all rows)
   // to re-render when a menu opens/closes. To fix: extract ColumnMenu, ExportMenu, and
   // FilterPanel into separate child components with their own local state.
@@ -464,17 +479,25 @@ export function DataTable<T>({
   );
 
   // Handle expansion
-  const handleToggleExpand = useCallback((id: string) => {
-    setExpandedRows((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+  const handleToggleExpand = useCallback(
+    (id: string) => {
+      const toggled = (prev: Set<string>): Set<string> => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) {
+          newSet.delete(id);
+        } else {
+          newSet.add(id);
+        }
+        return newSet;
+      };
+      if (expandedRowIds) {
+        onExpandedChange?.([...toggled(new Set(expandedRowIds))]);
       } else {
-        newSet.add(id);
+        setOwnExpandedRows(toggled);
       }
-      return newSet;
-    });
-  }, []);
+    },
+    [expandedRowIds, onExpandedChange]
+  );
 
   // Process data (client-side operations)
   // PERF-002: processedData recomputes whenever the `data` reference changes.
@@ -834,7 +857,7 @@ export function DataTable<T>({
               )}
 
               {/* Expand Toggle */}
-              {expandable && <th className="px-4 py-3 w-12" />}
+              {expandable && expandToggle && <th className="px-4 py-3 w-12" />}
 
               {/* Data Columns */}
               {activeColumns.map((col) => (
@@ -875,6 +898,7 @@ export function DataTable<T>({
             activeColumns={activeColumns}
             selectable={selectable}
             expandable={expandable}
+            expandToggle={expandToggle}
             selectedRows={selectedRows}
             expandedRows={expandedRows}
             keyExtractor={keyExtractor}
@@ -891,7 +915,7 @@ export function DataTable<T>({
             <tfoot className="bg-gray-50 border-t border-gray-200">
               <tr>
                 {selectable && <td className={cellClasses} />}
-                {expandable && <td className={cellClasses} />}
+                {expandable && expandToggle && <td className={cellClasses} />}
                 {activeColumns.map((col) => (
                   <td
                     key={String(col.key)}

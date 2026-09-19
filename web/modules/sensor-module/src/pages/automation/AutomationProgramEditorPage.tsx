@@ -256,34 +256,6 @@ const StepCard: React.FC<{
   </div>
 );
 
-const VariableRow: React.FC<{
-  variable: ProgramVariable;
-  onRemove: () => void;
-}> = ({ variable, onRemove }) => (
-  <tr className="hover:bg-gray-50">
-    <td className="px-4 py-3 font-mono text-sm">{variable.varName}</td>
-    <td className="px-4 py-3 text-sm">{variable.dataType}</td>
-    <td className="px-4 py-3 text-sm font-mono">{variable.initialValue || '-'}</td>
-    <td className="px-4 py-3 text-sm">{variable.scope}</td>
-    {/* Show bound I/O tag name -- helps operators verify correct physical wiring */}
-    <td className="px-4 py-3 text-sm">
-      {variable.ioTagName ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
-          {variable.ioTagName}
-        </span>
-      ) : (
-        <span className="text-gray-500">-</span>
-      )}
-    </td>
-    <td className="px-4 py-3 text-sm text-gray-500">{variable.description || '-'}</td>
-    <td className="px-4 py-3">
-      <button onClick={onRemove} className="p-1.5 rounded hover:bg-red-100 text-red-500">
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </td>
-  </tr>
-);
-
 // ============================================================================
 // I/O Tag Analysis Panel
 // ============================================================================
@@ -1209,6 +1181,55 @@ const AutomationProgramEditorPage: React.FC = () => {
     },
   ];
 
+  const variableColumns: DataTableColumn<ProgramVariable>[] = [
+    {
+      key: 'varName',
+      header: 'Name',
+      render: (_value, variable) => <span className="font-mono">{variable.varName}</span>,
+    },
+    { key: 'dataType', header: 'Type' },
+    {
+      key: 'initialValue',
+      header: 'Value',
+      render: (_value, variable) => (
+        <span className="font-mono">{variable.initialValue || '-'}</span>
+      ),
+    },
+    { key: 'scope', header: 'Scope' },
+    {
+      key: 'ioTagName',
+      header: 'I/O Tag',
+      // Show bound I/O tag name -- helps operators verify correct physical wiring
+      render: (_value, variable) =>
+        variable.ioTagName ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
+            {variable.ioTagName}
+          </span>
+        ) : (
+          <span className="text-gray-500">-</span>
+        ),
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, variable) => (
+        <span className="text-gray-500">{variable.description || '-'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (_value, variable) => (
+        <button
+          onClick={() => removeVariableMutation.mutate(variable.id)}
+          className="p-1.5 rounded hover:bg-red-100 text-red-500"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {/* Error Toast */}
@@ -1717,50 +1738,15 @@ const AutomationProgramEditorPage: React.FC = () => {
             </div>
           )}
 
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Type
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Value
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Scope
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    I/O Tag
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Description
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {variables.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No variables added yet
-                    </td>
-                  </tr>
-                ) : (
-                  variables.map((variable) => (
-                    <VariableRow
-                      key={variable.id}
-                      variable={variable}
-                      onRemove={() => removeVariableMutation.mutate(variable.id)}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ProgramVariable>
+            data={variables}
+            columns={variableColumns}
+            keyExtractor={(variable) => variable.id}
+            emptyMessage="No variables added yet"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 

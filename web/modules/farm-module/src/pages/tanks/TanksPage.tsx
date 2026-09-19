@@ -50,6 +50,7 @@ import {
   useCleanerFishBatches,
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // STATUS COLORS
@@ -941,6 +942,42 @@ export const TanksPage: React.FC = () => {
     );
   }
 
+  // Both tabs pick their columns from a config; the cleaner-fish tab spreads a
+  // tank over one row per batch (DataTable has no rowSpan), so tank-level cells
+  // render on the first row only.
+  type TankRow = (typeof filteredData)[number];
+  const productionTableColumns: DataTableColumn<TankRow>[] = activeColumns.map((col) => ({
+    key: col.key,
+    header: col.header,
+    align: col.align,
+    render: (_value, tank) => <span className="whitespace-nowrap">{renderCell(tank, col.key)}</span>,
+  }));
+  type CleanerFishRow = { tank: TankRow; batchIdx: number; isFirstRow: boolean; batchCount: number };
+  const cleanerFishRows: CleanerFishRow[] = filteredData.flatMap((tank) => {
+    const batchCount = tank.cleanerFishDetails?.length || 0;
+    return Array.from({ length: Math.max(1, batchCount) }, (_, batchIdx) => ({
+      tank,
+      batchIdx,
+      isFirstRow: batchIdx === 0,
+      batchCount,
+    }));
+  });
+  const cleanerFishTableColumns: DataTableColumn<CleanerFishRow>[] = activeCleanerFishColumns.map((col) => ({
+    key: col.key,
+    header: col.header,
+    align: col.align,
+    render: (_value, row) =>
+      isTankLevelColumn(col.key) ? (
+        row.isFirstRow ? (
+          <span className="whitespace-nowrap">{renderCleanerFishTankCell(row.tank, col.key)}</span>
+        ) : null
+      ) : (
+        <span className="whitespace-nowrap">
+          {row.batchCount === 0 ? '-' : renderCleanerFishBatchCell(row.tank, col.key, row.batchIdx)}
+        </span>
+      ),
+  }));
+
   return (
     <div className="p-6">
       {/* Non-blocking refresh error — shown while keeping the last-loaded data
@@ -1226,59 +1263,16 @@ export const TanksPage: React.FC = () => {
       {/* Data Table - Production Tab */}
       {activeTab === 'production' && (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  {activeColumns.map((col) => (
-                    <th
-                      key={col.key}
-                      className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                        col.align === 'right'
-                          ? 'text-right'
-                          : col.align === 'center'
-                            ? 'text-center'
-                            : 'text-left'
-                      }`}
-                    >
-                      {col.header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredData.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={activeColumns.length}
-                      className="px-4 py-12 text-center text-gray-500"
-                    >
-                      No tanks or ponds found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredData.map((tank) => (
-                    <tr key={tank.id} className="hover:bg-gray-50">
-                      {activeColumns.map((col) => (
-                        <td
-                          key={col.key}
-                          className={`px-4 py-3 whitespace-nowrap text-sm ${
-                            col.align === 'right'
-                              ? 'text-right'
-                              : col.align === 'center'
-                                ? 'text-center'
-                                : 'text-left'
-                          }`}
-                        >
-                          {renderCell(tank, col.key)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<TankRow>
+            data={filteredData}
+            columns={productionTableColumns}
+            keyExtractor={(tank) => tank.id}
+            emptyMessage="No tanks or ponds found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            className="border-0 rounded-none shadow-none"
+          />
         </div>
       )}
 
@@ -1327,104 +1321,17 @@ export const TanksPage: React.FC = () => {
             </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {activeCleanerFishColumns.map((col) => (
-                      <th
-                        key={col.key}
-                        className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                          col.align === 'right'
-                            ? 'text-right'
-                            : col.align === 'center'
-                              ? 'text-center'
-                              : 'text-left'
-                        }`}
-                      >
-                        {col.header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredData.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={activeCleanerFishColumns.length}
-                        className="px-4 py-12 text-center text-gray-500"
-                      >
-                        No tanks or ponds found
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredData.flatMap((tank) => {
-                      // Determine number of rows for this tank
-                      const batchCount = tank.cleanerFishDetails?.length || 0;
-                      const rowCount = Math.max(1, batchCount);
-
-                      // Generate rows for each cleaner fish batch (or 1 row if none)
-                      return Array.from({ length: rowCount }, (_, batchIdx) => {
-                        const isFirstRow = batchIdx === 0;
-                        const rowKey = `${tank.id}-${batchIdx}`;
-
-                        return (
-                          <tr
-                            key={rowKey}
-                            className={`hover:bg-gray-50 ${
-                              !isFirstRow ? 'border-t border-gray-100' : ''
-                            } ${batchIdx === rowCount - 1 ? 'border-b border-gray-200' : ''}`}
-                          >
-                            {activeCleanerFishColumns.map((col) => {
-                              // Tank-level columns: only render on first row with rowSpan
-                              if (isTankLevelColumn(col.key)) {
-                                if (!isFirstRow) {
-                                  // Skip - already rendered with rowSpan
-                                  return null;
-                                }
-                                return (
-                                  <td
-                                    key={col.key}
-                                    rowSpan={rowCount > 1 ? rowCount : undefined}
-                                    className={`px-4 py-3 whitespace-nowrap text-sm align-top ${
-                                      col.align === 'right'
-                                        ? 'text-right'
-                                        : col.align === 'center'
-                                          ? 'text-center'
-                                          : 'text-left'
-                                    } ${rowCount > 1 ? 'bg-gray-50/50 border-r border-gray-100' : ''}`}
-                                  >
-                                    {renderCleanerFishTankCell(tank, col.key)}
-                                  </td>
-                                );
-                              }
-
-                              // Batch-level columns: render for each batch
-                              return (
-                                <td
-                                  key={col.key}
-                                  className={`px-4 py-2 whitespace-nowrap text-sm ${
-                                    col.align === 'right'
-                                      ? 'text-right'
-                                      : col.align === 'center'
-                                        ? 'text-center'
-                                        : 'text-left'
-                                  }`}
-                                >
-                                  {batchCount === 0
-                                    ? '-'
-                                    : renderCleanerFishBatchCell(tank, col.key, batchIdx)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      });
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<CleanerFishRow>
+              data={cleanerFishRows}
+              columns={cleanerFishTableColumns}
+              keyExtractor={(row) => `${row.tank.id}-${row.batchIdx}`}
+              rowClassName={(row) => (row.isFirstRow ? '' : 'border-t border-gray-100')}
+              emptyMessage="No tanks or ponds found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="border-0 rounded-none shadow-none"
+            />
           </div>
         </>
       )}

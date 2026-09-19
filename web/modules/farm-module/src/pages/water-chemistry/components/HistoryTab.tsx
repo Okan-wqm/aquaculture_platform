@@ -35,7 +35,7 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -425,6 +425,60 @@ export const HistoryTab: React.FC = () => {
   // Statistics data
   const stats = statisticsQuery.data;
 
+  // The parameter columns come from the visible configs; the rest are fixed.
+  type MeasurementRow = NonNullable<NonNullable<typeof listQuery.data>['items']>[number];
+  const historyColumns: DataTableColumn<MeasurementRow>[] = [
+    {
+      key: 'measuredAt',
+      header: 'Date',
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-900">{formatDate(m.measuredAt)}</span>
+      ),
+    },
+    {
+      key: 'tankId',
+      header: 'Tank',
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-900">
+          {m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}
+        </span>
+      ),
+    },
+    ...visibleConfigs.map(
+      (config: ParameterConfig): DataTableColumn<MeasurementRow> => ({
+        key: config.code,
+        header: `${config.name} ${config.unit ? `(${config.unit})` : ''}`.trim(),
+        align: 'right',
+        render: (_value, m) => {
+          const val = resolveParameterValue(m, config.code);
+          return (
+            <span className="whitespace-nowrap text-gray-900">
+              {val != null ? Number(val).toFixed(config.precision) : '-'}
+            </span>
+          );
+        },
+      }),
+    ),
+    {
+      key: 'overallStatus',
+      header: 'Status',
+      render: (_value, m) => (
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}
+        >
+          {getStatusLabel(m.overallStatus)}
+        </span>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-500">{getSourceLabel(m.source)}</span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
@@ -696,77 +750,15 @@ export const HistoryTab: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tank
-                    </th>
-                    {visibleConfigs.map((config: ParameterConfig) => (
-                      <th
-                        key={config.code}
-                        className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase"
-                      >
-                        {config.name} {config.unit ? `(${config.unit})` : ''}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Source
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {listQuery.data?.items?.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={visibleConfigs.length + 4}
-                        className="px-4 py-12 text-center text-gray-500"
-                      >
-                        No water quality measurements found for the selected filters.
-                      </td>
-                    </tr>
-                  )}
-                  {listQuery.data?.items?.map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(m.measuredAt)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}
-                      </td>
-                      {visibleConfigs.map((config: ParameterConfig) => {
-                        const val = resolveParameterValue(m, config.code);
-                        return (
-                          <td
-                            key={config.code}
-                            className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900"
-                          >
-                            {val != null ? Number(val).toFixed(config.precision) : '-'}
-                          </td>
-                        );
-                      })}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}
-                        >
-                          {getStatusLabel(m.overallStatus)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                        {getSourceLabel(m.source)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<MeasurementRow>
+              data={listQuery.data?.items ?? []}
+              columns={historyColumns}
+              keyExtractor={(m) => m.id}
+              emptyMessage="No water quality measurements found for the selected filters."
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {/* Pagination */}
             {totalItems > PAGE_SIZE && (

@@ -464,6 +464,119 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
       ],
     };
 
+  // A band's custom meal schedule opens under its row; the page owns which band is open.
+  type BandRow = { band: (typeof form.bands)[number]; index: number };
+  const bandRows: BandRow[] = form.bands.map((band, index) => ({ band, index }));
+  const bandColumns: DataTableColumn<BandRow>[] = [
+    {
+      key: 'minWeightG',
+      header: t('feedingV2.band.minWeight'),
+      render: (_value, { band, index }) => (
+        <input
+          type="number"
+          min={0}
+          max={100000}
+          value={band.minWeightG}
+          onChange={(e) => setBand(index, { minWeightG: Number(e.target.value) })}
+          className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
+        />
+      ),
+    },
+    {
+      key: 'maxWeightG',
+      header: t('feedingV2.band.maxWeight'),
+      render: (_value, { band, index }) => (
+        <input
+          type="number"
+          min={0}
+          max={100000}
+          value={band.maxWeightG}
+          onChange={(e) => setBand(index, { maxWeightG: Number(e.target.value) })}
+          className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
+        />
+      ),
+    },
+    {
+      key: 'feedId',
+      header: t('feedingV2.band.feed'),
+      render: (_value, { band, index }) => (
+        <select
+          required
+          value={band.feedId}
+          onChange={(e) => setBand(index, { feedId: e.target.value })}
+          className="w-44 rounded-md border-gray-300 shadow-sm text-sm"
+        >
+          <option value="">{t('feedingV2.band.selectFeed')}</option>
+          {feeds.map((feed) => (
+            <option key={feed.id} value={feed.id}>
+              {feed.name} ({feed.code})
+            </option>
+          ))}
+        </select>
+      ),
+    },
+    {
+      key: 'feedingRatePercent',
+      header: t('feedingV2.band.rate'),
+      render: (_value, { band, index }) => (
+        <input
+          type="number"
+          min={0}
+          max={15}
+          step={0.01}
+          value={band.feedingRatePercent}
+          onChange={(e) => setBand(index, { feedingRatePercent: Number(e.target.value) })}
+          className="w-20 rounded-md border-gray-300 shadow-sm text-sm"
+        />
+      ),
+    },
+    {
+      key: 'expectedFcr',
+      header: t('feedingV2.band.fcr'),
+      render: (_value, { band, index }) => (
+        <input
+          type="number"
+          min={0.5}
+          max={5}
+          step={0.01}
+          value={band.expectedFcr}
+          onChange={(e) => setBand(index, { expectedFcr: Number(e.target.value) })}
+          className="w-20 rounded-md border-gray-300 shadow-sm text-sm"
+        />
+      ),
+    },
+    {
+      key: 'mealSchedule',
+      header: t('feedingV2.band.meals'),
+      render: (_value, { band, index }) => (
+        <button
+          type="button"
+          onClick={() => setBandScheduleOpen(bandScheduleOpen === index ? null : index)}
+          className="text-sm text-blue-600 hover:text-blue-800"
+        >
+          {band.mealSchedule
+            ? t('feedingV2.band.mealsCustom', { count: band.mealSchedule.mealsPerDay })
+            : t('feedingV2.band.mealsDefault')}
+        </button>
+      ),
+    },
+    {
+      key: 'remove',
+      header: '',
+      render: (_value, { index }) =>
+        form.bands.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => removeBand(index)}
+            className="text-gray-400 hover:text-red-600"
+            aria-label={t('feedingV2.band.remove')}
+          >
+            ×
+          </button>
+        ) : null,
+    },
+  ];
+
   return (
     <Modal
       isOpen
@@ -555,139 +668,43 @@ const ProtocolFormModal: React.FC<ProtocolFormModalProps> = ({ protocol, onClose
           <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
             {t('feedingV2.bands')}
           </h4>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-gray-500">
-                  <th className="p-1">{t('feedingV2.band.minWeight')}</th>
-                  <th className="p-1">{t('feedingV2.band.maxWeight')}</th>
-                  <th className="p-1">{t('feedingV2.band.feed')}</th>
-                  <th className="p-1">{t('feedingV2.band.rate')}</th>
-                  <th className="p-1">{t('feedingV2.band.fcr')}</th>
-                  <th className="p-1">{t('feedingV2.band.meals')}</th>
-                  <th className="p-1" />
-                </tr>
-              </thead>
-              <tbody>
-                {form.bands.map((band, i) => (
-                  <React.Fragment key={i}>
-                    <tr>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={100000}
-                          value={band.minWeightG}
-                          onChange={(e) => setBand(i, { minWeightG: Number(e.target.value) })}
-                          className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
-                        />
-                      </td>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={100000}
-                          value={band.maxWeightG}
-                          onChange={(e) => setBand(i, { maxWeightG: Number(e.target.value) })}
-                          className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
-                        />
-                      </td>
-                      <td className="p-1">
-                        <select
-                          required
-                          value={band.feedId}
-                          onChange={(e) => setBand(i, { feedId: e.target.value })}
-                          className="w-44 rounded-md border-gray-300 shadow-sm text-sm"
-                        >
-                          <option value="">{t('feedingV2.band.selectFeed')}</option>
-                          {feeds.map((feed) => (
-                            <option key={feed.id} value={feed.id}>
-                              {feed.name} ({feed.code})
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={15}
-                          step={0.01}
-                          value={band.feedingRatePercent}
-                          onChange={(e) =>
-                            setBand(i, { feedingRatePercent: Number(e.target.value) })
-                          }
-                          className="w-20 rounded-md border-gray-300 shadow-sm text-sm"
-                        />
-                      </td>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          min={0.5}
-                          max={5}
-                          step={0.01}
-                          value={band.expectedFcr}
-                          onChange={(e) => setBand(i, { expectedFcr: Number(e.target.value) })}
-                          className="w-20 rounded-md border-gray-300 shadow-sm text-sm"
-                        />
-                      </td>
-                      <td className="p-1">
-                        <button
-                          type="button"
-                          onClick={() => setBandScheduleOpen(bandScheduleOpen === i ? null : i)}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          {band.mealSchedule
-                            ? t('feedingV2.band.mealsCustom', {
-                                count: band.mealSchedule.mealsPerDay,
-                              })
-                            : t('feedingV2.band.mealsDefault')}
-                        </button>
-                      </td>
-                      <td className="p-1">
-                        {form.bands.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeBand(i)}
-                            className="text-gray-400 hover:text-red-600"
-                            aria-label={t('feedingV2.band.remove')}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {bandScheduleOpen === i && (
-                      <tr>
-                        <td colSpan={7} className="p-2 bg-gray-50 rounded">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <p className="text-xs text-gray-500 mb-2">
-                                {t('feedingV2.band.customSchedule')}
-                              </p>
-                              <MealScheduleEditor
-                                schedule={band.mealSchedule ?? form.defaultMealSchedule}
-                                onChange={(schedule) => setBand(i, { mealSchedule: schedule })}
-                              />
-                            </div>
-                            {band.mealSchedule && (
-                              <button
-                                type="button"
-                                onClick={() => setBand(i, { mealSchedule: undefined })}
-                                className="text-sm text-blue-600 hover:text-blue-800 whitespace-nowrap"
-                              >
-                                {t('feedingV2.band.mealsDefault')}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<BandRow>
+            data={bandRows}
+            columns={bandColumns}
+            keyExtractor={(row) => String(row.index)}
+            expandable
+            expandToggle={false}
+            expandedRowIds={bandScheduleOpen === null ? [] : [String(bandScheduleOpen)]}
+            onExpandedChange={(ids) =>
+              setBandScheduleOpen(ids.length > 0 ? Number(ids[ids.length - 1]) : null)
+            }
+            renderExpandedRow={(row) => (
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 mb-2">{t('feedingV2.band.customSchedule')}</p>
+                  <MealScheduleEditor
+                    schedule={row.band.mealSchedule ?? form.defaultMealSchedule}
+                    onChange={(schedule) => setBand(row.index, { mealSchedule: schedule })}
+                  />
+                </div>
+                {row.band.mealSchedule && (
+                  <button
+                    type="button"
+                    onClick={() => setBand(row.index, { mealSchedule: undefined })}
+                    className="text-sm text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                  >
+                    {t('feedingV2.band.mealsDefault')}
+                  </button>
+                )}
+              </div>
+            )}
+            emptyMessage={t('feedingV2.bands')}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            compact
+            className="border-0 rounded-none shadow-none"
+          />
           <button
             type="button"
             onClick={addBand}

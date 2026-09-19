@@ -58,7 +58,7 @@ function getGrowthStatus(variancePercent: number): string {
 const LoadingSpinner: React.FC = () => (
   <div className="flex items-center justify-center py-12">
     <Spinner size="lg" />
-    <span className="ml-3 text-gray-500">Yukleniyor...</span>
+    <span className="ml-3 text-gray-500 dark:text-gray-400">Yukleniyor...</span>
   </div>
 );
 
@@ -69,11 +69,11 @@ const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
 );
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="bg-white rounded-lg shadow p-12 text-center">
-    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+    <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
     </svg>
-    <p className="mt-2 text-sm text-gray-500">{message}</p>
+    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -87,15 +87,15 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
   const statusInfo = growthStatusLabels[growthStatus];
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
       {/* Header */}
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+      <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-medium text-gray-900">{analysis.batchCode}</h3>
-            <p className="text-sm text-gray-500">{analysis.speciesName}</p>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{analysis.batchCode}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{analysis.speciesName}</p>
           </div>
-          <span className={`text-sm font-medium ${statusInfo?.color ?? 'text-gray-600'}`}>
+          <span className={`text-sm font-medium ${statusInfo?.color ?? 'text-gray-600 dark:text-gray-400'}`}>
             {statusInfo?.label ?? 'Bilinmiyor'}
           </span>
         </div>
@@ -106,26 +106,26 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
-            <p className="text-xs text-gray-500">Mevcut Agirlik</p>
-            <p className="text-lg font-semibold text-gray-900">{metrics.currentAvgWeightG.toFixed(1)} g</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Mevcut Agirlik</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.currentAvgWeightG.toFixed(1)} g</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Teorik Agirlik</p>
-            <p className="text-lg font-semibold text-gray-900">{metrics.theoreticalWeightG.toFixed(1)} g</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Teorik Agirlik</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.theoreticalWeightG.toFixed(1)} g</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">SGR</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">SGR</p>
             <p className="text-lg font-semibold text-blue-600">{metrics.specificGrowthRate.toFixed(2)} %/gun</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">FCR</p>
-            <p className="text-lg font-semibold text-gray-900">{metrics.currentFCR.toFixed(2)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">FCR</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.currentFCR.toFixed(2)}</p>
           </div>
         </div>
 
         {/* Progress Bar */}
         <div className="mb-4">
-          <div className="flex justify-between text-xs text-gray-500 mb-1">
+          <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
             <span>Buyume Ilerlemesi</span>
             <span>
               {analysis.projection.daysToHarvest > 0
@@ -133,7 +133,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
                 : 'Hasat hazir'}
             </span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <div
               className="h-2 rounded-full bg-blue-500"
               style={{
@@ -153,15 +153,15 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         {/* Additional Stats */}
         <div className="grid grid-cols-3 gap-2 text-sm">
           <div className="text-center">
-            <p className="text-xs text-gray-500">Biomass</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Biomass</p>
             <p className="font-medium">{metrics.currentBiomassKg.toFixed(0)} kg</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">Yasama Orani</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Yasama Orani</p>
             <p className="font-medium text-green-600">{metrics.survivalRate.toFixed(1)}%</p>
           </div>
           <div className="text-center">
-            <p className="text-xs text-gray-500">Uretimde</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Uretimde</p>
             <p className="font-medium">{analysis.daysInProduction} gun</p>
           </div>
         </div>
@@ -169,12 +169,12 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         {/* Recommendations */}
         {analysis.recommendations.length > 0 && (
           <div className="mt-4 border-t pt-3">
-            <p className="text-xs text-gray-500 mb-2">Oneriler</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Oneriler</p>
             {analysis.recommendations.slice(0, 2).map((rec, idx) => (
               <div key={idx} className={`text-xs mb-1 px-2 py-1 rounded ${
                 rec.priority === 'high' ? 'bg-red-50 text-red-700' :
                 rec.priority === 'medium' ? 'bg-yellow-50 text-yellow-700' :
-                'bg-gray-50 text-gray-700'
+                'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
               }`}>
                 {rec.description}
               </div>
@@ -195,8 +195,8 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Buyume Gecmisi</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
         <LoadingSpinner />
       </div>
     );
@@ -204,8 +204,8 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
 
   if (!history || history.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Buyume Gecmisi</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
         <EmptyState message="Henuz olcum verisi yok" />
       </div>
     );
@@ -219,8 +219,8 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
   const maxWeight = Math.max(...sortedHistory.map(m => m.averageWeight));
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">Buyume Gecmisi</h3>
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+      <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
 
       {/* Simple bar chart visualization */}
       <div className="h-48 flex items-end space-x-1">
@@ -251,7 +251,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
       </div>
 
       {/* X-axis labels */}
-      <div className="flex justify-between text-xs text-gray-400 mt-2">
+      <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-2">
         <span>{sortedHistory.length > 0 ? formatDate(sortedHistory[0]!.measurementDate) : ''}</span>
         <span>{sortedHistory.length > 0 ? formatDate(sortedHistory[sortedHistory.length - 1]!.measurementDate) : ''}</span>
       </div>
@@ -259,19 +259,19 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
       {/* Summary row */}
       <div className="mt-4 grid grid-cols-4 gap-4 text-center text-sm border-t pt-3">
         <div>
-          <p className="text-xs text-gray-500">Toplam Olcum</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Toplam Olcum</p>
           <p className="font-medium">{sortedHistory.length}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Ilk Agirlik</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Ilk Agirlik</p>
           <p className="font-medium">{sortedHistory[0]?.averageWeight.toFixed(1)} g</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Son Agirlik</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Son Agirlik</p>
           <p className="font-medium">{sortedHistory[sortedHistory.length - 1]?.averageWeight.toFixed(1)} g</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Artis</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Artis</p>
           <p className="font-medium text-green-600">
             +{(
               (sortedHistory[sortedHistory.length - 1]?.averageWeight ?? 0) -
@@ -334,8 +334,8 @@ export const GrowthTab: React.FC = () => {
       header: 'Batch / Tank',
       render: (_value, sample) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{sample.batchId.substring(0, 8)}...</div>
-          <div className="text-sm text-gray-500">{sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{sample.batchId.substring(0, 8)}...</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}</div>
         </>
       ),
     },
@@ -387,11 +387,11 @@ export const GrowthTab: React.FC = () => {
       render: (_value, sample) => (
         <>
           {sample.performance ? (
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 text-gray-800'}`}>
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
               {performanceLabels[sample.performance]?.label ?? sample.performance}
             </span>
           ) : (
-            <span className="text-sm text-gray-400">-</span>
+            <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
           )}
         </>
       ),
@@ -426,7 +426,7 @@ export const GrowthTab: React.FC = () => {
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'overview'
                 ? 'bg-blue-100 text-blue-700'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             Buyume Ozeti
@@ -436,7 +436,7 @@ export const GrowthTab: React.FC = () => {
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'samples'
                 ? 'bg-blue-100 text-blue-700'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             Orneklemeler
@@ -448,7 +448,7 @@ export const GrowthTab: React.FC = () => {
           <select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           >
             <option value="">Tum Batch'ler</option>
             {activeBatches.map((batch) => (
@@ -484,11 +484,11 @@ export const GrowthTab: React.FC = () => {
                   <BatchAnalysisCard analysis={analysisData} />
 
                   {/* Trend Card */}
-                  <div className="bg-white rounded-lg shadow-md p-4">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Trend Analizi</h3>
+                  <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Trend Analizi</h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Yonelim</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Yonelim</span>
                         <span className={`text-sm font-medium ${
                           analysisData.trend.direction === 'improving' ? 'text-green-600' :
                           analysisData.trend.direction === 'stable' ? 'text-blue-600' :
@@ -499,15 +499,15 @@ export const GrowthTab: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Son 7 Gun ADG</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Son 7 Gun ADG</span>
                         <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast7Days.toFixed(2)} g/gun</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Son 30 Gun ADG</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Son 30 Gun ADG</span>
                         <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast30Days.toFixed(2)} g/gun</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">FCR Trendi</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">FCR Trendi</span>
                         <span className={`text-sm font-medium ${
                           analysisData.trend.fcrTrend === 'improving' ? 'text-green-600' :
                           analysisData.trend.fcrTrend === 'stable' ? 'text-blue-600' :
@@ -520,18 +520,18 @@ export const GrowthTab: React.FC = () => {
 
                       {/* Projection */}
                       <div className="border-t pt-3 mt-3">
-                        <h4 className="text-sm font-medium text-gray-700 mb-2">Projeksiyon</h4>
+                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Projeksiyon</h4>
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">30 Gun Sonra Agirlik</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">30 Gun Sonra Agirlik</span>
                             <span className="text-xs font-medium">{analysisData.projection.projectedWeightIn30Days.toFixed(1)} g</span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">Tahmini Hasat Tarihi</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Tahmini Hasat Tarihi</span>
                             <span className="text-xs font-medium">{formatDate(analysisData.projection.estimatedHarvestDate)}</span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">Hasata Kalan Gun</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Hasata Kalan Gun</span>
                             <span className="text-xs font-medium">{analysisData.projection.daysToHarvest} gun</span>
                           </div>
                         </div>
@@ -560,7 +560,7 @@ export const GrowthTab: React.FC = () => {
                   ))}
                 </div>
                 {activeBatches.length > 6 && (
-                  <p className="text-center text-sm text-gray-500">
+                  <p className="text-center text-sm text-gray-500 dark:text-gray-400">
                     +{activeBatches.length - 6} daha fazla batch. Filtrelemek icin batch secin.
                   </p>
                 )}
@@ -577,7 +577,7 @@ export const GrowthTab: React.FC = () => {
         ) : measurements.length === 0 ? (
           <EmptyState message="Henuz buyume olcumu bulunmuyor" />
         ) : (
-          <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
             <DataTable<SampleRow>
               data={measurements}
               columns={sampleRowColumns}
@@ -590,12 +590,12 @@ export const GrowthTab: React.FC = () => {
 
             {/* Pagination info */}
             {measurementsData && (
-              <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between bg-gray-50">
-                <p className="text-sm text-gray-500">
+              <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Toplam {measurementsData.total} olcum
                 </p>
                 {measurementsData.hasNextPage && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Daha fazla olcum mevcut
                   </p>
                 )}
@@ -617,13 +617,13 @@ const BatchAnalysisCardWrapper: React.FC<{ batchId: string }> = ({ batchId }) =>
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6">
         <div className="animate-pulse space-y-3">
-          <div className="h-4 bg-gray-200 rounded w-1/3" />
-          <div className="h-3 bg-gray-200 rounded w-1/4" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
           <div className="grid grid-cols-2 gap-4 mt-4">
-            <div className="h-12 bg-gray-200 rounded" />
-            <div className="h-12 bg-gray-200 rounded" />
+            <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
+            <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
           </div>
         </div>
       </div>
@@ -632,7 +632,7 @@ const BatchAnalysisCardWrapper: React.FC<{ batchId: string }> = ({ batchId }) =>
 
   if (error || !analysis) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6 text-center text-sm text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-6 text-center text-sm text-gray-400 dark:text-gray-500">
         Analiz verisi yuklenemedi
       </div>
     );

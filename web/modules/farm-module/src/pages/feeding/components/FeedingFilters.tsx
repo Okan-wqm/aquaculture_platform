@@ -40,11 +40,11 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
   batchesLoading,
 }) => {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Site Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Site
           </label>
           <select
@@ -53,7 +53,7 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
               onSiteChange(e.target.value);
               onBatchChange('');
             }}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             disabled={sitesLoading}
           >
             <option value="">All Sites</option>
@@ -67,13 +67,13 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
 
         {/* Batch Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Batch
           </label>
           <select
             value={selectedBatchId}
             onChange={(e) => onBatchChange(e.target.value)}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             disabled={batchesLoading}
           >
             <option value="">All Batches</option>

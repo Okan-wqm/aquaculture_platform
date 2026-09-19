@@ -65,7 +65,7 @@ interface TanksAnalyticsTabProps {
  * "No data available" placeholder for charts without real data
  */
 const NoDataPlaceholder: React.FC<{ label: string }> = ({ label }) => (
-  <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
+  <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
     <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 12H4M12 4v16" />
     </svg>
@@ -243,9 +243,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biomass by Tank */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Biomass by Tank</h2>
-            <p className="text-sm text-gray-500">Top 10 tanks by current biomass (kg)</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass by Tank</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Top 10 tanks by current biomass (kg)</p>
           </div>
           <div className="p-4">
             {biomassByTank.length > 0 ? (
@@ -266,9 +266,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
         {/* Tank Status Distribution */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Tank Status Distribution</h2>
-            <p className="text-sm text-gray-500">Current operational status of all tanks</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tank Status Distribution</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Current operational status of all tanks</p>
           </div>
           <div className="p-4">
             {tankStatusData.length > 0 ? (
@@ -302,9 +302,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Water Temperature Trend */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Water Temperature Trend</h2>
-            <p className="text-sm text-gray-500">Daily average temperature over 30 days</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Water Temperature Trend</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Daily average temperature over 30 days</p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No water temperature data available yet" />
@@ -313,9 +313,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
         {/* Mortality Trend */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Mortality Trend</h2>
-            <p className="text-sm text-gray-500">Daily mortality count and cumulative total</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Mortality Trend</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Daily mortality count and cumulative total</p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No mortality trend data available yet" />
@@ -324,7 +324,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       </div>
 
       {/* Divider — Live Tank Analytics */}
-      <hr className="border-gray-300" />
+      <hr className="border-gray-300 dark:border-gray-600" />
 
       {/* Compact Summary Stats from real data */}
       <CompactSummaryStats data={tankData} />

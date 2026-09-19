@@ -52,7 +52,7 @@ const statusColors: Record<HealthEventStatus, string> = {
   monitoring: 'bg-yellow-100 text-yellow-800',
   resolved: 'bg-green-100 text-green-800',
   chronic: 'bg-purple-100 text-purple-800',
-  cancelled: 'bg-gray-100 text-gray-800',
+  cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<HealthEventStatus, string> = {
@@ -526,12 +526,12 @@ export const HealthEventsPage: React.FC = () => {
       header: 'Event',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{item.title}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</div>
           {item.diseaseName && (
-            <div className="text-sm text-gray-500">{item.diseaseName}</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">{item.diseaseName}</div>
           )}
           {item.description && (
-            <div className="text-xs text-gray-400 truncate max-w-xs">
+            <div className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-xs">
               {item.description}
             </div>
           )}
@@ -720,8 +720,8 @@ export const HealthEventsPage: React.FC = () => {
                 <Activity className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Total Events</div>
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Total Events</div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
               </div>
             </div>
           </Card>
@@ -731,7 +731,7 @@ export const HealthEventsPage: React.FC = () => {
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Active</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
                 <div className="text-2xl font-bold text-red-600">{stats.active}</div>
               </div>
             </div>
@@ -742,7 +742,7 @@ export const HealthEventsPage: React.FC = () => {
                 <AlertTriangle className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Critical</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
                 <div className="text-2xl font-bold text-orange-600">{stats.critical}</div>
               </div>
             </div>
@@ -753,7 +753,7 @@ export const HealthEventsPage: React.FC = () => {
                 <Pill className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Under Treatment</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Under Treatment</div>
                 <div className="text-2xl font-bold text-purple-600">{stats.underTreatment}</div>
               </div>
             </div>
@@ -764,7 +764,7 @@ export const HealthEventsPage: React.FC = () => {
                 <Shield className="w-5 h-5 text-yellow-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Quarantined</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Quarantined</div>
                 <div className="text-2xl font-bold text-yellow-600">{stats.quarantined}</div>
               </div>
             </div>
@@ -778,7 +778,7 @@ export const HealthEventsPage: React.FC = () => {
           {/* Search and toggle */}
           <div className="flex items-center gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
               <Input
                 placeholder="Search events..."
                 value={searchTerm}
@@ -804,7 +804,7 @@ export const HealthEventsPage: React.FC = () => {
 
           {/* Extended filters */}
           {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <Select
                 value={filter.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -839,7 +839,7 @@ export const HealthEventsPage: React.FC = () => {
                 ]}
               />
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="From Date"
@@ -848,7 +848,7 @@ export const HealthEventsPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="To Date"
@@ -881,8 +881,8 @@ export const HealthEventsPage: React.FC = () => {
 
         {/* Pagination info */}
         {data && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Showing {filteredItems.length} of {data.total} events
             </div>
             {data.hasNextPage && (
@@ -1023,9 +1023,9 @@ export const HealthEventsPage: React.FC = () => {
                 onChange={(e) =>
                   setFormData({ ...formData, followUpRequired: e.target.checked })
                 }
-                className="rounded border-gray-300"
+                className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="followUpRequired" className="text-sm text-gray-700">
+              <label htmlFor="followUpRequired" className="text-sm text-gray-700 dark:text-gray-300">
                 Follow-up Required
               </label>
             </div>

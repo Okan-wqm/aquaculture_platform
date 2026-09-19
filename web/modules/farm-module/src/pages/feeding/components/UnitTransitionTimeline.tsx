@@ -30,15 +30,15 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
 
   if (forecast.perUnit.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-8 text-center">
+      <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
         {t('feedingV2.forecast.noUnits')}
       </p>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <h3 className="font-semibold text-gray-900 mb-3">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">
         {t('feedingV2.forecast.timelineTitle', { days: horizon })}
       </h3>
       <div className="space-y-3">
@@ -54,10 +54,10 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
           return (
             <div key={unit.unitId}>
               <div className="flex items-center justify-between text-sm mb-1">
-                <span className="font-medium text-gray-800">
+                <span className="font-medium text-gray-800 dark:text-gray-200">
                   {unit.unitName} ({unit.unitCode})
                 </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {unit.transitions.length === 0
                     ? t('feedingV2.forecast.noTransition')
                     : unit.transitions
@@ -70,7 +70,7 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
                         .join(' · ')}
                 </span>
               </div>
-              <div className="relative flex h-6 rounded overflow-hidden border border-gray-200">
+              <div className="relative flex h-6 rounded overflow-hidden border border-gray-200 dark:border-gray-700">
                 {boundaries.slice(0, -1).map((start, index) => {
                   const end = boundaries[index + 1] ?? horizon;
                   const widthPercent = Math.max(((end - start) / horizon) * 100, 1);

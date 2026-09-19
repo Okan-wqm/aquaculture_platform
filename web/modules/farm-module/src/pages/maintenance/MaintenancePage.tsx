@@ -46,7 +46,7 @@ const MaintenancePage: React.FC = () => {
 
   return (
     <div>
-      <div className="border-b border-gray-200 bg-white px-4">
+      <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4">
         <nav className="-mb-px flex gap-1 overflow-x-auto" aria-label="Maintenance tabs">
           {TABS.map((tab) => (
             <button
@@ -58,7 +58,7 @@ const MaintenancePage: React.FC = () => {
                 ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                 }
               `}
             >

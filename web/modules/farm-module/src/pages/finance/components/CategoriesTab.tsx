@@ -95,13 +95,13 @@ export const CategoriesTab: React.FC = () => {
               <input
                 value={renaming.name}
                 onChange={(e) => setRenaming({ id: category.id, name: e.target.value })}
-                className="rounded-md border-gray-300 text-sm shadow-sm"
+                className="rounded-md border-gray-300 dark:border-gray-600 text-sm shadow-sm"
                 autoFocus
               />
               <button onClick={handleRename} className="text-sm font-medium text-blue-600">
                 Save
               </button>
-              <button onClick={() => setRenaming(null)} className="text-sm text-gray-500">
+              <button onClick={() => setRenaming(null)} className="text-sm text-gray-500 dark:text-gray-400">
                 Cancel
               </button>
             </span>
@@ -109,7 +109,7 @@ export const CategoriesTab: React.FC = () => {
             <>
               {category.name}
               {category.isSystem && (
-                <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                <span className="ml-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-400">
                   system
                 </span>
               )}
@@ -181,28 +181,28 @@ export const CategoriesTab: React.FC = () => {
     <div className="space-y-6">
       {/* Create form — only for roles allowed to create categories */}
       {canCreate && (
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3 rounded-lg bg-white dark:bg-gray-900 p-4 shadow">
         <div className="flex-1 min-w-[200px]">
-          <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             New category name
           </label>
           <input
             id="new-category-name"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="e.g. Diesel fuel"
           />
         </div>
         <div>
-          <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Ledger
           </label>
           <select
             id="new-category-scope"
             value={newScope}
             onChange={(e) => setNewScope(e.target.value as typeof newScope)}
-            className="mt-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="FARM_OPEX">Operational cost</option>
             <option value="FARM_REVENUE">Revenue</option>
@@ -215,12 +215,12 @@ export const CategoriesTab: React.FC = () => {
         >
           Add category
         </button>
-        <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600">
+        <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
           <input
             type="checkbox"
             checked={includeArchived}
             onChange={(e) => setIncludeArchived(e.target.checked)}
-            className="rounded border-gray-300"
+            className="rounded border-gray-300 dark:border-gray-600"
           />
           <span>Show archived</span>
         </label>

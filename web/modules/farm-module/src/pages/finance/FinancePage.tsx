@@ -85,10 +85,10 @@ const FinancePage: React.FC = () => {
 
   if (!canView) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div role="alert" className="max-w-md rounded-md bg-white p-8 text-center shadow">
-          <h2 className="text-lg font-semibold text-gray-900">Finance is restricted</h2>
-          <p className="mt-2 text-sm text-gray-600">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-800">
+        <div role="alert" className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Finance is restricted</h2>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
             You need a manager or admin role to view the finance tab.
           </p>
         </div>
@@ -97,9 +97,9 @@ const FinancePage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white shadow">
+      <div className="bg-white dark:bg-gray-900 shadow">
         <div className="px-4 sm:px-6 py-6">
           <PageHeader
             title="Farm Finance"
@@ -111,14 +111,14 @@ const FinancePage: React.FC = () => {
             }
             actions={
               <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-3">
-                <label htmlFor="finance-period" className="text-sm text-gray-600">
+                <label htmlFor="finance-period" className="text-sm text-gray-600 dark:text-gray-400">
                   Period:
                 </label>
                 <select
                   id="finance-period"
                   value={presetId}
                   onChange={(e) => setPresetId(e.target.value)}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 >
                   {PERIOD_PRESETS.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -141,7 +141,7 @@ const FinancePage: React.FC = () => {
                 className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
                 }`}
                 aria-current={activeTab === tab.id ? 'page' : undefined}
               >

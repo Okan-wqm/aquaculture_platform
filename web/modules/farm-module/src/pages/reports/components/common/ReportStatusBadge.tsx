@@ -23,8 +23,8 @@ const statusConfig: Record<
 > = {
   draft: {
     label: 'Draft',
-    bgColor: 'bg-gray-100',
-    textColor: 'text-gray-700',
+    bgColor: 'bg-gray-100 dark:bg-gray-800',
+    textColor: 'text-gray-700 dark:text-gray-300',
     dotColor: 'bg-gray-400',
     icon: (
       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

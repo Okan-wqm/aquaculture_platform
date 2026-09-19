@@ -93,14 +93,14 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
       <div className="space-y-6">
         {/* Species Selection */}
         <div>
-          <label htmlFor="species" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="species" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Species <span className="text-red-500">*</span>
           </label>
           <select
             id="species"
             value={speciesId}
             onChange={(e) => setSpeciesId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">Select a species...</option>
             {species.map((s) => (
@@ -119,7 +119,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         {/* Quantity */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Initial Quantity <span className="text-red-500">*</span>
             </label>
             <input
@@ -128,12 +128,12 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               min="1"
               value={initialQuantity || ''}
               onChange={(e) => setInitialQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter quantity"
             />
           </div>
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Avg Weight (g) <span className="text-red-500">*</span>
             </label>
             <input
@@ -143,7 +143,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               step="0.1"
               value={initialAvgWeightG || ''}
               onChange={(e) => setInitialAvgWeightG(parseFloat(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter weight"
             />
           </div>
@@ -164,14 +164,14 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         {/* Source Type */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sourceType" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sourceType" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Source Type
             </label>
             <select
               id="sourceType"
               value={sourceType}
               onChange={(e) => setSourceType(e.target.value as CleanerFishSourceType)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               {Object.entries(SourceTypeLabels).map(([key, label]) => (
                 <option key={key} value={key}>
@@ -181,7 +181,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
             </select>
           </div>
           <div>
-            <label htmlFor="sourceLocation" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sourceLocation" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Source Location
             </label>
             <input
@@ -189,7 +189,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               id="sourceLocation"
               value={sourceLocation}
               onChange={(e) => setSourceLocation(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="e.g., Supplier name or location"
             />
           </div>
@@ -197,7 +197,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
 
         {/* Stocked Date */}
         <div>
-          <label htmlFor="stockedAt" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="stockedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Stocked Date <span className="text-red-500">*</span>
           </label>
           <input
@@ -206,14 +206,14 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
             value={stockedAt}
             max={new Date().toISOString().split('T')[0]}
             onChange={(e) => setStockedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
         </div>
 
         {/* Purchase Cost */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="purchaseCost" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="purchaseCost" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Purchase Cost
             </label>
             <input
@@ -223,19 +223,19 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
               step="0.01"
               value={purchaseCost || ''}
               onChange={(e) => setPurchaseCost(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Optional"
             />
           </div>
           <div>
-            <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Currency
             </label>
             <select
               id="currency"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               <option value="NOK">NOK</option>
               <option value="EUR">EUR</option>
@@ -248,7 +248,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
           <textarea
@@ -257,7 +257,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes about this batch..."
           />
         </div>

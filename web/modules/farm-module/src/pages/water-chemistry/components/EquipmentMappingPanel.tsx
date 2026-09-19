@@ -154,21 +154,21 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       key: 'name',
       header: 'Equipment Name',
       render: (_value, mapping) => (
-        <span className="whitespace-nowrap font-medium text-gray-900">{mapping.equipment?.name ?? '-'}</span>
+        <span className="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">{mapping.equipment?.name ?? '-'}</span>
       ),
     },
     {
       key: 'code',
       header: 'Code',
       render: (_value, mapping) => (
-        <span className="whitespace-nowrap font-mono text-gray-500">{mapping.equipment?.code ?? '-'}</span>
+        <span className="whitespace-nowrap font-mono text-gray-500 dark:text-gray-400">{mapping.equipment?.code ?? '-'}</span>
       ),
     },
     {
       key: 'monitoringFrequency',
       header: 'Frequency',
       render: (_value, mapping) => (
-        <span className="whitespace-nowrap text-gray-500">{getFrequencyLabel(mapping.monitoringFrequency)}</span>
+        <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">{getFrequencyLabel(mapping.monitoringFrequency)}</span>
       ),
     },
     {
@@ -182,7 +182,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
             mapping.alertEnabled
               ? 'bg-green-100 text-green-800 hover:bg-green-200'
-              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
           }`}
         >
           {mapping.alertEnabled ? 'On' : 'Off'}
@@ -198,13 +198,13 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           onClick={() => void handleToggleActive(mapping)}
           disabled={updateMutation.isPending}
           className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-            mapping.isActive ? 'bg-blue-600' : 'bg-gray-200'
+            mapping.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
           }`}
           role="switch"
           aria-checked={mapping.isActive}
         >
           <span
-            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
               mapping.isActive ? 'translate-x-4' : 'translate-x-0'
             }`}
           />
@@ -229,7 +229,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
   return (
     <Modal isOpen onClose={onClose} title="Equipment Monitoring Points" size="xl">
-      <p className="-mt-2 mb-4 text-sm text-gray-500">
+      <p className="-mt-2 mb-4 text-sm text-gray-500 dark:text-gray-400">
         Parameter: <span className="font-medium">{parameterName}</span>
       </p>
 
@@ -274,12 +274,12 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
         {/* Add Equipment Form */}
         {showAddForm && (
-          <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Add Equipment Mapping</h4>
+          <div className="mt-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Add Equipment Mapping</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Category filter */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Category Filter
                 </label>
                 <select
@@ -291,7 +291,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       equipmentId: '',
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                 >
                   <option value="">All Categories</option>
                   {EQUIPMENT_CATEGORY_OPTIONS.map((opt) => (
@@ -304,7 +304,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
               {/* Equipment selector */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Equipment</label>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Equipment</label>
                 <select
                   value={addForm.equipmentId}
                   onChange={(e) =>
@@ -314,7 +314,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                     }))
                   }
                   disabled={equipmentLoading}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                 >
                   <option value="">{equipmentLoading ? 'Loading...' : 'Select equipment'}</option>
                   {filteredEquipment.map((eq) => (
@@ -327,7 +327,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
               {/* Frequency */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Monitoring Frequency
                 </label>
                 <select
@@ -338,7 +338,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       monitoringFrequency: e.target.value as MonitoringFrequency,
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                 >
                   {MONITORING_FREQUENCY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -360,9 +360,9 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                         alertEnabled: e.target.checked,
                       }))
                     }
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-700">Enable Alerts</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Enable Alerts</span>
                 </label>
               </div>
             </div>
@@ -375,7 +375,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                   setAddForm(INITIAL_ADD_FORM);
                   createMutation.reset();
                 }}
-                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Cancel
               </button>
@@ -392,8 +392,8 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
-        <div className="text-sm text-gray-500">
+      <div className="mt-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="text-sm text-gray-500 dark:text-gray-400">
           {mappings ? `${mappings.length} equipment mapped` : ''}
         </div>
         <div className="flex space-x-3">
@@ -415,7 +415,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
           )}
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Close
           </button>

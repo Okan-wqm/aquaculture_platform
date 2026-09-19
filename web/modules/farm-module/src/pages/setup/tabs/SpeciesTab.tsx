@@ -116,15 +116,15 @@ const CollapsibleSection: React.FC<{
   onToggle: () => void;
   children: React.ReactNode;
 }> = ({ title, isOpen, onToggle, children }) => (
-  <div className="border border-gray-200 rounded-lg mb-4">
+  <div className="border border-gray-200 dark:border-gray-700 rounded-lg mb-4">
     <button
       type="button"
       onClick={onToggle}
-      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-t-lg"
+      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
     >
-      <span className="font-medium text-gray-700">{title}</span>
+      <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
       <svg
-        className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
+        className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -132,7 +132,7 @@ const CollapsibleSection: React.FC<{
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
       </svg>
     </button>
-    {isOpen && <div className="p-4 border-t border-gray-200">{children}</div>}
+    {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
 );
 
@@ -415,10 +415,10 @@ export const SpeciesTab: React.FC = () => {
               placeholder="Search species..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -434,7 +434,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {Object.entries(speciesCategoryLabels).map(([value, label]) => (
@@ -446,7 +446,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedWaterType}
             onChange={(e) => setSelectedWaterType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Water Types</option>
             {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
@@ -458,7 +458,7 @@ export const SpeciesTab: React.FC = () => {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Statuses</option>
             {Object.entries(speciesStatusLabels).map(([value, label]) => (
@@ -517,34 +517,34 @@ export const SpeciesTab: React.FC = () => {
           {filteredSpecies.map((species) => (
             <div
               key={species.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{species.commonName}</h3>
-                    <p className="text-sm text-gray-500 italic">{species.scientificName}</p>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{species.commonName}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">{species.scientificName}</p>
                     {species.localName && (
-                      <p className="text-sm text-gray-400">({species.localName})</p>
+                      <p className="text-sm text-gray-400 dark:text-gray-500">({species.localName})</p>
                     )}
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                       Code: {species.code}
                       {species.officialCode ? ` · Artskode: ${species.officialCode}` : ''}
                     </p>
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesCategoryColors[species.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesCategoryLabels[species.category] || species.category}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waterTypeColors[species.waterType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesWaterTypeLabels[species.waterType] || species.waterType}
                     </span>
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 text-gray-800'}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${speciesStatusColors[species.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                     >
                       {speciesStatusLabels[species.status] || species.status}
                     </span>
@@ -571,8 +571,8 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Optimal Conditions Summary */}
                 {species.optimalConditions && (
-                  <div className="space-y-2 text-sm text-gray-600 border-t border-gray-100 pt-3 mt-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-3 mt-3">
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                       Optimal Conditions
                     </p>
 
@@ -686,12 +686,12 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Description */}
                 {species.description && (
-                  <p className="text-sm text-gray-500 mt-3 line-clamp-2">{species.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">{species.description}</p>
                 )}
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-between items-center">
-                <span className="text-xs text-gray-500">
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg flex justify-between items-center">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {species.family && species.genus
                     ? `${species.family} / ${species.genus}`
                     : species.family || species.genus || ''}
@@ -753,9 +753,9 @@ export const SpeciesTab: React.FC = () => {
 
       {/* Empty State */}
       {!isLoading && !error && filteredSpecies.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -767,8 +767,8 @@ export const SpeciesTab: React.FC = () => {
               d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No species found</h3>
-          <p className="mt-1 text-sm text-gray-500">Add your first species to get started.</p>
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No species found</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Add your first species to get started.</p>
         </div>
       )}
 
@@ -808,7 +808,7 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Common Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Common Name *</label>
                   <input
                     type="text"
                     required
@@ -817,11 +817,11 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, commonName: e.target.value }))
                     }
                     placeholder="e.g., European Seabass"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Scientific Name *
                   </label>
                   <input
@@ -832,13 +832,13 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
                     }
                     placeholder="e.g., Dicentrarchus labrax"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 italic"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 italic"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Code *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
                   <input
                     type="text"
                     required
@@ -847,11 +847,11 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                     }
                     placeholder="e.g., SEABASS"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
                   </label>
                   <input
@@ -865,14 +865,14 @@ export const SpeciesTab: React.FC = () => {
                     }
                     placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)"
                     maxLength={16}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Required for Norwegian regulatory reports — submissions fail closed without it.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Local Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Local Name</label>
                   <input
                     type="text"
                     value={formData.localName}
@@ -880,12 +880,12 @@ export const SpeciesTab: React.FC = () => {
                       setFormData((prev) => ({ ...prev, localName: e.target.value }))
                     }
                     placeholder="e.g., Levrek"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) =>
@@ -893,7 +893,7 @@ export const SpeciesTab: React.FC = () => {
                   }
                   rows={2}
                   placeholder="Brief description of the species..."
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </CollapsibleSection>
@@ -905,7 +905,7 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('tags')}
             >
               <div>
-                <p className="text-sm text-gray-500 mb-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                   Select tags to categorize this species for filtering and reporting
                 </p>
 
@@ -919,7 +919,7 @@ export const SpeciesTab: React.FC = () => {
                       className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                         formData.tags.includes(tag)
                           ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                       }`}
                     >
                       {tag}
@@ -937,13 +937,13 @@ export const SpeciesTab: React.FC = () => {
                     }
                     onKeyDown={handleCustomTagKeyDown}
                     placeholder="Add custom tag..."
-                    className="flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                   <button
                     type="button"
                     onClick={handleAddCustomTag}
                     disabled={!formData.customTag.trim()}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Add
                   </button>
@@ -952,7 +952,7 @@ export const SpeciesTab: React.FC = () => {
                 {/* Selected Custom Tags (non-predefined) */}
                 {formData.tags.filter((t) => !PREDEFINED_TAGS.includes(t)).length > 0 && (
                   <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">Custom tags:</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Custom tags:</p>
                     <div className="flex flex-wrap gap-2">
                       {formData.tags
                         .filter((t) => !PREDEFINED_TAGS.includes(t))
@@ -976,7 +976,7 @@ export const SpeciesTab: React.FC = () => {
                 )}
 
                 {formData.tags.length > 0 && (
-                  <p className="mt-3 text-xs text-gray-500">
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                     {formData.tags.length} tag(s) selected
                   </p>
                 )}
@@ -991,7 +991,7 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Category *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                   <select
                     required
                     value={formData.category}
@@ -1001,7 +1001,7 @@ export const SpeciesTab: React.FC = () => {
                         category: e.target.value as SpeciesCategory,
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select Category</option>
                     {Object.entries(speciesCategoryLabels).map(([value, label]) => (
@@ -1012,7 +1012,7 @@ export const SpeciesTab: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Water Type *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Water Type *</label>
                   <select
                     required
                     value={formData.waterType}
@@ -1022,7 +1022,7 @@ export const SpeciesTab: React.FC = () => {
                         waterType: e.target.value as SpeciesWaterType,
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select Water Type</option>
                     {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
@@ -1035,23 +1035,23 @@ export const SpeciesTab: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Family</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Family</label>
                   <input
                     type="text"
                     value={formData.family}
                     onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
                     placeholder="e.g., Moronidae"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Genus</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Genus</label>
                   <input
                     type="text"
                     value={formData.genus}
                     onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
                     placeholder="e.g., Dicentrarchus"
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1064,11 +1064,11 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('supplier')}
             >
               <div>
-                <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
                 <select
                   value={formData.supplierId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Select Supplier (Optional)</option>
                   {suppliers.map((supplier) => (
@@ -1077,7 +1077,7 @@ export const SpeciesTab: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Optional: Select the primary supplier for fry/eggs of this species
                 </p>
               </div>
@@ -1091,12 +1091,12 @@ export const SpeciesTab: React.FC = () => {
             >
               {/* Temperature */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Temperature (°C)
                 </label>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1108,11 +1108,11 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="18"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1124,11 +1124,11 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="28"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Optimal</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1140,7 +1140,7 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="24"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1148,10 +1148,10 @@ export const SpeciesTab: React.FC = () => {
 
               {/* pH */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">pH</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">pH</label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1165,11 +1165,11 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1183,7 +1183,7 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="8.5"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1191,12 +1191,12 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Dissolved Oxygen */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Dissolved Oxygen (mg/L)
                 </label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1209,11 +1209,11 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="5.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Optimal</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1226,7 +1226,7 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1234,12 +1234,12 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Ammonia */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Ammonia (mg/L)
                 </label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Max Tolerable</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max Tolerable</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1252,7 +1252,7 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="0.02"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1260,10 +1260,10 @@ export const SpeciesTab: React.FC = () => {
 
               {/* CO2 */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">CO2 (mg/L)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">CO2 (mg/L)</label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Min</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1276,11 +1276,11 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="0"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Max</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1293,7 +1293,7 @@ export const SpeciesTab: React.FC = () => {
                         }))
                       }
                       placeholder="20"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1301,12 +1301,12 @@ export const SpeciesTab: React.FC = () => {
 
               {/* Light Regime */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Light Regime (hours/day)
                 </label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500">Light Hours</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Light Hours</label>
                     <input
                       type="number"
                       step="0.5"
@@ -1319,11 +1319,11 @@ export const SpeciesTab: React.FC = () => {
                         setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
                       }}
                       placeholder="14"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500">Dark Hours</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">Dark Hours</label>
                     <input
                       type="number"
                       step="0.5"
@@ -1336,11 +1336,11 @@ export const SpeciesTab: React.FC = () => {
                         setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
                       }}
                       placeholder="10"
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">Light + Dark hours should equal 24</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Light + Dark hours should equal 24</p>
               </div>
             </CollapsibleSection>
 
@@ -1351,12 +1351,12 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('feeds')}
             >
               <div>
-                <p className="text-sm text-gray-500 mb-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                   Select feeds that are suitable for this species
                 </p>
-                <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md p-2">
+                <div className="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
                   {feeds.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-4">
+                    <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
                       No feeds available. Add feeds in the Feeds tab first.
                     </p>
                   ) : (
@@ -1364,23 +1364,23 @@ export const SpeciesTab: React.FC = () => {
                       {feeds.map((feed) => (
                         <label
                           key={feed.id}
-                          className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer"
+                          className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer"
                         >
                           <input
                             type="checkbox"
                             checked={formData.feedIds.includes(feed.id)}
                             onChange={() => handleFeedToggle(feed.id)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
                           />
-                          <span className="ml-3 text-sm text-gray-700">{feed.name}</span>
-                          <span className="ml-2 text-xs text-gray-400">({feed.code})</span>
+                          <span className="ml-3 text-sm text-gray-700 dark:text-gray-300">{feed.name}</span>
+                          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">({feed.code})</span>
                         </label>
                       ))}
                     </div>
                   )}
                 </div>
                 {formData.feedIds.length > 0 && (
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {formData.feedIds.length} feed(s) selected
                   </p>
                 )}
@@ -1395,13 +1395,13 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                   <select
                     value={formData.status}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     {Object.entries(speciesStatusLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -1412,19 +1412,19 @@ export const SpeciesTab: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                   rows={3}
                   placeholder="Additional notes about this species..."
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </CollapsibleSection>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
             <button
               type="submit"
               disabled={createSpecies.isPending || updateSpecies.isPending}
@@ -1438,7 +1438,7 @@ export const SpeciesTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>

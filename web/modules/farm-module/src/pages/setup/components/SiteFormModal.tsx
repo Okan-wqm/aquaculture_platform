@@ -303,7 +303,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
             type="button"
             onClick={() => setActiveTab(tab)}
             className={`px-3 py-1.5 text-sm font-medium rounded-md ${
-              activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:text-gray-700'
+              activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)} Info
@@ -321,7 +321,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-name"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Site Name <span className="text-red-500">*</span>
                   </label>
@@ -331,7 +331,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     value={formData.name}
                     onChange={(e) => handleInputChange('name', e.target.value)}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.name ? 'border-red-500' : 'border-gray-300'
+                      errors.name ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Main Production Site"
                   />
@@ -340,7 +340,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-code"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Site Code <span className="text-red-500">*</span>
                   </label>
@@ -350,7 +350,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     value={formData.code}
                     onChange={(e) => handleInputChange('code', e.target.value.toUpperCase())}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.code ? 'border-red-500' : 'border-gray-300'
+                      errors.code ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., MPS-001"
                   />
@@ -359,7 +359,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-locality"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Lokalitetsnummer
                   </label>
@@ -376,14 +376,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       )
                     }
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.lokalitetsnummer ? 'border-red-500' : 'border-gray-300'
+                      errors.lokalitetsnummer ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 12345"
                   />
                   {errors.lokalitetsnummer ? (
                     <p className="mt-1 text-sm text-red-500">{errors.lokalitetsnummer}</p>
                   ) : (
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Akvakulturregisteret locality number (5 digits) — Norwegian regulatory reports
                       fail closed without it.
                     </p>
@@ -392,7 +392,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-organisation-override"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Organisation Number Override
                   </label>
@@ -403,7 +403,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     onChange={(e) =>
                       handleInputChange('organisationNumberOverride', e.target.value)
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="9-digit Norwegian organisation number"
                   />
                 </div>
@@ -412,7 +412,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-description"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Description
                 </label>
@@ -421,7 +421,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   value={formData.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Brief description of the site..."
                 />
               </div>
@@ -430,7 +430,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-type"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Site Type
                   </label>
@@ -442,7 +442,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         handleInputChange('type', e.target.value);
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     {siteTypeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -454,7 +454,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-status"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Status
                   </label>
@@ -462,7 +462,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     id="site-status"
                     value={formData.status}
                     onChange={(e) => handleInputChange('status', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     {statusOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -476,7 +476,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-total-area"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Total Area (m²)
                   </label>
@@ -490,7 +490,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         e.target.value ? parseFloat(e.target.value) : '',
                       )
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., 50000"
                   />
                 </div>
@@ -499,7 +499,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-timezone"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Timezone
                 </label>
@@ -507,7 +507,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   id="site-timezone"
                   value={formData.timezone}
                   onChange={(e) => handleInputChange('timezone', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   {timezoneOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -515,7 +515,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Feeding jobs (day-plan generation, morning sweep, daily summary) run on this
                   site&apos;s local day. Leave it inherited unless the site is in a different
                   timezone than the tenant.
@@ -531,7 +531,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-country"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Country
                   </label>
@@ -540,14 +540,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     type="text"
                     value={formData.country}
                     onChange={(e) => handleInputChange('country', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., Norway"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="site-region"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Region
                   </label>
@@ -556,7 +556,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     type="text"
                     value={formData.region}
                     onChange={(e) => handleInputChange('region', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., Hordaland"
                   />
                 </div>
@@ -565,7 +565,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-street"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Street Address
                 </label>
@@ -579,7 +579,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       address: { ...prev.address, street: e.target.value },
                     }))
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Street address..."
                 />
               </div>
@@ -588,7 +588,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-city"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     City
                   </label>
@@ -602,13 +602,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         address: { ...prev.address, city: e.target.value },
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="site-state"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     State
                   </label>
@@ -622,13 +622,13 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         address: { ...prev.address, state: e.target.value },
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="site-postal-code"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Postal Code
                   </label>
@@ -642,7 +642,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                         address: { ...prev.address, postalCode: e.target.value },
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -651,7 +651,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-latitude"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Latitude
                   </label>
@@ -670,7 +670,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       }))
                     }
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.latitude ? 'border-red-500' : 'border-gray-300'
+                      errors.latitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 60.3913"
                   />
@@ -681,7 +681,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-longitude"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Longitude
                   </label>
@@ -700,7 +700,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       }))
                     }
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.longitude ? 'border-red-500' : 'border-gray-300'
+                      errors.longitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., 5.3221"
                   />
@@ -711,7 +711,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-altitude"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Altitude (m)
                   </label>
@@ -730,7 +730,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                       }))
                     }
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.altitude ? 'border-red-500' : 'border-gray-300'
+                      errors.altitude ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="Optional"
                   />
@@ -744,7 +744,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-monitoring-radius"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Monitoring Radius (m)
                 </label>
@@ -761,7 +761,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     )
                   }
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    errors.monitoringRadiusM ? 'border-red-500' : 'border-gray-300'
+                    errors.monitoringRadiusM ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                   }`}
                 />
                 {errors.monitoringRadiusM && (
@@ -772,7 +772,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-monitoring-area"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Monitoring Area GeoJSON
                 </label>
@@ -787,14 +787,14 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     }
                   }}
                   className={`w-full px-3 py-2 border rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    errors.monitoringArea ? 'border-red-500' : 'border-gray-300'
+                    errors.monitoringArea ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                   }`}
                   placeholder='{"type":"Polygon","coordinates":[[[5.3,60.3],[5.4,60.3],[5.4,60.4],[5.3,60.3]]]}'
                 />
                 {errors.monitoringArea ? (
                   <p className="mt-1 text-sm text-red-500">{errors.monitoringArea}</p>
                 ) : (
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Optional Polygon or MultiPolygon using [longitude, latitude]. The server
                     performs the canonical validation before saving.
                   </p>
@@ -809,7 +809,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               <div>
                 <label
                   htmlFor="site-manager"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
                   Site Manager
                 </label>
@@ -818,7 +818,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   type="text"
                   value={formData.siteManager}
                   onChange={(e) => handleInputChange('siteManager', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Full name of site manager"
                 />
               </div>
@@ -827,7 +827,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-contact-email"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Contact Email
                   </label>
@@ -837,7 +837,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     value={formData.contactEmail}
                     onChange={(e) => handleInputChange('contactEmail', e.target.value)}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                      errors.contactEmail ? 'border-red-500' : 'border-gray-300'
+                      errors.contactEmail ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="email@example.com"
                   />
@@ -848,7 +848,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <div>
                   <label
                     htmlFor="site-contact-phone"
-                    className="block text-sm font-medium text-gray-700 mb-1"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
                     Contact Phone
                   </label>
@@ -857,7 +857,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                     type="tel"
                     value={formData.contactPhone}
                     onChange={(e) => handleInputChange('contactPhone', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="+47 XXX XX XXX"
                   />
                 </div>
@@ -884,11 +884,11 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
         </div>
 
         {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end space-x-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           >
             Cancel
           </button>

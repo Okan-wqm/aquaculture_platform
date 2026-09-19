@@ -19,22 +19,22 @@ const ReagentSelector: React.FC<ReagentSelectorProps> = ({ selected, onChange })
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <h4 className="text-sm font-semibold text-gray-800 mb-3 border-b pb-1">Chemical Reagents</h4>
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+      <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 border-b pb-1">Chemical Reagents</h4>
       <div className="space-y-1.5">
         {REAGENTS.map((reagent) => (
           <label
             key={reagent.name}
-            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded"
+            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 px-1 py-0.5 rounded"
           >
             <input
               type="checkbox"
               checked={selected.includes(reagent.name)}
               onChange={() => toggle(reagent.name)}
-              className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded"
+              className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
             />
-            <span className="text-xs text-gray-700">{reagent.formula}</span>
-            <span className="text-xs text-gray-400 ml-auto">{reagent.mw.toFixed(1)} g/mol</span>
+            <span className="text-xs text-gray-700 dark:text-gray-300">{reagent.formula}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{reagent.mw.toFixed(1)} g/mol</span>
           </label>
         ))}
       </div>

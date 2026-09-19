@@ -45,14 +45,14 @@ const categoryColors: Record<string, string> = {
   TOOL: 'bg-indigo-100 text-indigo-800',
   ELECTRICAL: 'bg-yellow-100 text-yellow-800',
   PIPE_FITTING: 'bg-rose-100 text-rose-800',
-  OTHER: 'bg-gray-100 text-gray-800',
+  OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
   AVAILABLE: 'bg-green-100 text-green-800',
   LOW_STOCK: 'bg-yellow-100 text-yellow-800',
   OUT_OF_STOCK: 'bg-red-100 text-red-800',
-  DISCONTINUED: 'bg-gray-100 text-gray-800',
+  DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -117,15 +117,15 @@ const CollapsibleSection: React.FC<{
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="border border-gray-200 rounded-lg mb-4">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg mb-4">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 rounded-t-lg"
+        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
       >
-        <span className="font-medium text-gray-700">{title}</span>
+        <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
         <svg
-          className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -290,8 +290,8 @@ export const ConsumablesTab: React.FC = () => {
       header: 'Name / Code',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{item.name}</div>
-          <div className="text-sm text-gray-500">{item.code}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.code}</div>
         </>
       ),
     },
@@ -301,7 +301,7 @@ export const ConsumablesTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {getCategoryLabel(item.category)}
           </span>
@@ -322,12 +322,12 @@ export const ConsumablesTab: React.FC = () => {
             className={
               item.quantity <= item.minStock
                 ? 'text-red-600 font-medium'
-                : 'text-gray-900'
+                : 'text-gray-900 dark:text-gray-100'
             }
           >
             {item.quantity}
           </span>
-          <span className="text-gray-400"> / {item.minStock}</span>
+          <span className="text-gray-400 dark:text-gray-500"> / {item.minStock}</span>
         </>
       ),
     },
@@ -342,7 +342,7 @@ export const ConsumablesTab: React.FC = () => {
       render: (_value, item) => (
         <>
           <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
           >
             {statusLabels[item.status] || item.status}
           </span>
@@ -383,10 +383,10 @@ export const ConsumablesTab: React.FC = () => {
               placeholder="Search consumables..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -402,7 +402,7 @@ export const ConsumablesTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {CATEGORIES.map((c) => (
@@ -447,7 +447,7 @@ export const ConsumablesTab: React.FC = () => {
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<ItemRow>
             data={filtered}
             columns={itemRowColumns}
@@ -460,7 +460,7 @@ export const ConsumablesTab: React.FC = () => {
           {filtered.length === 0 && (
             <div className="text-center py-12">
               <svg
-                className="mx-auto h-12 w-12 text-gray-400"
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -472,8 +472,8 @@ export const ConsumablesTab: React.FC = () => {
                   d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
                 />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No consumables found</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No consumables found</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Add consumable items to manage your stock.
               </p>
             </div>
@@ -495,36 +495,36 @@ export const ConsumablesTab: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                     <input
                       type="text"
                       required
                       value={formData.name}
                       onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
                     <input
                       type="text"
                       required
                       value={formData.code}
                       onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                     <select
                       required
                       value={formData.category}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, category: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select</option>
                       {CATEGORIES.map((c) => (
@@ -535,11 +535,11 @@ export const ConsumablesTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Unit</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
                     <select
                       value={formData.unit}
                       onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="pcs">Pieces</option>
                       <option value="m">Meters</option>
@@ -554,22 +554,22 @@ export const ConsumablesTab: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Brand</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Brand</label>
                     <input
                       type="text"
                       value={formData.brand}
                       onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
                     <select
                       value={formData.supplierId}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -581,14 +581,14 @@ export const ConsumablesTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, description: e.target.value }))
                     }
                     rows={2}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -598,7 +598,7 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Stock & Price">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Current Stock</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Current Stock</label>
                   <input
                     type="number"
                     min="0"
@@ -610,11 +610,11 @@ export const ConsumablesTab: React.FC = () => {
                         quantity: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Min Stock</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Min Stock</label>
                   <input
                     type="number"
                     min="0"
@@ -626,11 +626,11 @@ export const ConsumablesTab: React.FC = () => {
                         minStock: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Unit Price</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit Price</label>
                   <input
                     type="number"
                     min="0"
@@ -642,15 +642,15 @@ export const ConsumablesTab: React.FC = () => {
                         unitPrice: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Currency</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Currency</label>
                   <select
                     value={formData.currency}
                     onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="NOK">NOK</option>
                     <option value="EUR">EUR</option>
@@ -664,7 +664,7 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Storage Conditions">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Temperature (°C)
                   </label>
                   <input
@@ -677,11 +677,11 @@ export const ConsumablesTab: React.FC = () => {
                         storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Temperature (°C)
                   </label>
                   <input
@@ -694,11 +694,11 @@ export const ConsumablesTab: React.FC = () => {
                         storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Humidity (%)
                   </label>
                   <input
@@ -713,11 +713,11 @@ export const ConsumablesTab: React.FC = () => {
                         storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Humidity (%)
                   </label>
                   <input
@@ -732,11 +732,11 @@ export const ConsumablesTab: React.FC = () => {
                         storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Storage Requirements
                   </label>
                   <textarea
@@ -746,7 +746,7 @@ export const ConsumablesTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -756,20 +756,20 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Additional Information">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Notes</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
                   <textarea
                     value={formData.notes}
                     onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                     rows={3}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   >
                     {Object.entries(statusLabels).map(([v, l]) => (
                       <option key={v} value={v}>
@@ -782,11 +782,11 @@ export const ConsumablesTab: React.FC = () => {
             </CollapsibleSection>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

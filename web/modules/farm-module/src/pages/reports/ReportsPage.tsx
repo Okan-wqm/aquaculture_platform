@@ -353,12 +353,12 @@ export const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Warning Banner */}
       <WarningBanner failedCount={totals.failed} dueSoonCount={dueSoonCount} />
 
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-6">
           <PageHeader
             title="Regulatory Reports"
@@ -368,16 +368,16 @@ export const ReportsPage: React.FC = () => {
                 {/* Summary Stats */}
                 <div className="hidden sm:flex items-center space-x-4 mr-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-gray-900">{totals.pending}</div>
-                    <div className="text-xs text-gray-500">Pending</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totals.pending}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-red-600">{totals.failed}</div>
-                    <div className="text-xs text-gray-500">Failed</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-600">{totals.submitted}</div>
-                    <div className="text-xs text-gray-500">Submitted</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Submitted</div>
                   </div>
                 </div>
 
@@ -385,7 +385,7 @@ export const ReportsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowSettingsModal(true)}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   title="Report Settings"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -416,7 +416,7 @@ export const ReportsPage: React.FC = () => {
       <ReportsDueSection />
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Report tabs">
             {reportTabs.map((tab) => (
@@ -428,7 +428,7 @@ export const ReportsPage: React.FC = () => {
                   ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
                 title={tab.description}
@@ -437,7 +437,7 @@ export const ReportsPage: React.FC = () => {
                   className={`mr-2 ${
                     activeTab === tab.id
                       ? 'text-blue-500'
-                      : 'text-gray-400 group-hover:text-gray-500'
+                      : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'
                   }`}
                 >
                   {tab.icon}

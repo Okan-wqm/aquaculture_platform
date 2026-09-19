@@ -81,11 +81,11 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
         <>
           <button
             onClick={() => setSelectedTask(task)}
-            className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
+            className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 text-left"
           >
             {task.title}
           </button>
-          {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
+          {task.location && <p className="text-xs text-gray-500 dark:text-gray-400">{task.location}</p>}
         </>
       ),
     },
@@ -124,7 +124,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
       render: (_value, task) => (
         <>
           {task.dueDate}
-          {task.dueTime && <span className="text-gray-400 ml-1">{task.dueTime}</span>}
+          {task.dueTime && <span className="text-gray-400 dark:text-gray-500 ml-1">{task.dueTime}</span>}
         </>
       ),
     },
@@ -179,25 +179,25 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Görev ara..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
             />
-            <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
             <option value="all">Tüm Kategoriler</option>
             {Object.entries(CATEGORY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
             <option value="all">Tüm Durumlar</option>
             {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
             <option value="all">Tüm Öncelikler</option>
             {Object.entries(PRIORITY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
-          <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
             <option value="all">Tüm Kişiler</option>
             {assignees.map((a: { id: string; name: string }) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
@@ -220,14 +220,14 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
           <button onClick={handleBulkDelete} className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700">
             Sil
           </button>
-          <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
+          <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100">
             İptal
           </button>
         </div>
       )}
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TaskRow>
           data={filtered}
           columns={taskRowColumns}

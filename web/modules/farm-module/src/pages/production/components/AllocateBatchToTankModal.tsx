@@ -145,13 +145,13 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Allocate Batch to Tank" size="md">
       <div className="space-y-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-500">Batch</p>
-          <p className="font-medium text-gray-900">{batchNumber}</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
           {availableBatchQuantity > 0 && (
-            <p className="text-sm text-gray-500 mt-2">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
               Unassigned stock:{' '}
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {availableBatchQuantity.toLocaleString()}
               </span>
             </p>
@@ -160,14 +160,14 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
 
         <div className="space-y-4">
           <div>
-            <label htmlFor="target-tank" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="target-tank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Destination tank <span className="text-orange-500">*</span>
             </label>
             <select
               id="target-tank"
               value={tankId}
               onChange={(e) => setTankId(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             >
               <option value="">— Choose a tank —</option>
               {availableTanks.data?.map((tank) => (
@@ -177,13 +177,13 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
               ))}
             </select>
             {availableTanks.isLoading && (
-              <p className="mt-1 text-xs text-gray-500">Loading tanks…</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Loading tanks…</p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="alloc-quantity" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="alloc-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Quantity <span className="text-orange-500">*</span>
               </label>
               <input
@@ -192,11 +192,11 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
                 min={1}
                 value={quantity || ''}
                 onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               />
             </div>
             <div>
-              <label htmlFor="alloc-weight" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="alloc-weight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Avg weight (g) <span className="text-orange-500">*</span>
               </label>
               <input
@@ -206,20 +206,20 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
                 step="0.1"
                 value={avgWeightG || ''}
                 onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="alloc-type" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="alloc-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Allocation type
             </label>
             <select
               id="alloc-type"
               value={allocationType}
               onChange={(e) => setAllocationType(e.target.value as AllocationType)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             >
               {ALLOCATION_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -230,7 +230,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
           </div>
 
           <div>
-            <label htmlFor="alloc-notes" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="alloc-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes (optional)
             </label>
             <textarea
@@ -239,7 +239,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
               maxLength={500}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>

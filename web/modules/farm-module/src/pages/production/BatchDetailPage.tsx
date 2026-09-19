@@ -64,7 +64,7 @@ const BatchDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="p-6">
-        <div className="animate-pulse text-gray-500">
+        <div className="animate-pulse text-gray-500 dark:text-gray-400">
           Parti detayı yükleniyor…
         </div>
       </div>
@@ -102,7 +102,7 @@ const BatchDetailPage: React.FC = () => {
           <>
             {batch.batchNumber}
             {batch.name && (
-              <span className="ml-2 text-lg font-normal text-gray-500">
+              <span className="ml-2 text-lg font-normal text-gray-500 dark:text-gray-400">
                 — {batch.name}
               </span>
             )}
@@ -124,7 +124,7 @@ const BatchDetailPage: React.FC = () => {
 
       {/* Tab navigation */}
       <nav
-        className="flex space-x-1 border-b border-gray-200"
+        className="flex space-x-1 border-b border-gray-200 dark:border-gray-700"
         aria-label="Batch detail tabs"
       >
         {TABS.map((tab) => (
@@ -135,7 +135,7 @@ const BatchDetailPage: React.FC = () => {
               `px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 isActive
                   ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`
             }
           >
@@ -147,7 +147,7 @@ const BatchDetailPage: React.FC = () => {
       {/* Tab content — lazy so a heavy tab doesn't slow the initial paint */}
       <Suspense
         fallback={
-          <div className="animate-pulse text-gray-500">
+          <div className="animate-pulse text-gray-500 dark:text-gray-400">
             Sekme yükleniyor…
           </div>
         }
@@ -193,13 +193,13 @@ const STATUS_COLOURS: Record<string, string> = {
   GROWING: 'bg-blue-100 text-blue-800',
   PRE_HARVEST: 'bg-purple-100 text-purple-800',
   HARVESTING: 'bg-purple-200 text-purple-900',
-  HARVESTED: 'bg-gray-200 text-gray-700',
-  CLOSED: 'bg-gray-300 text-gray-800',
+  HARVESTED: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+  CLOSED: 'bg-gray-300 text-gray-800 dark:text-gray-200',
   CANCELLED: 'bg-red-100 text-red-800',
 };
 
 const BatchStatusPill: React.FC<{ status: string }> = ({ status }) => {
-  const colour = STATUS_COLOURS[status] ?? 'bg-gray-100 text-gray-700';
+  const colour = STATUS_COLOURS[status] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
   return (
     <span
       className={`px-3 py-1 text-xs font-semibold rounded-full ${colour}`}

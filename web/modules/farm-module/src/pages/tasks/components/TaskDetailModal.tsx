@@ -43,7 +43,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         <>
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             Kapat
           </button>
@@ -90,45 +90,45 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
         {/* Description */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-1">Açıklama</h4>
-          <p className="text-sm text-gray-600">{task.description}</p>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</h4>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{task.description}</p>
         </div>
 
         {/* Details Grid */}
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-gray-500">Atanan:</span>
-            <span className="ml-2 font-medium text-gray-900">{task.assignedToName}</span>
+            <span className="text-gray-500 dark:text-gray-400">Atanan:</span>
+            <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.assignedToName}</span>
           </div>
           <div>
-            <span className="text-gray-500">Bitiş:</span>
-            <span className="ml-2 font-medium text-gray-900">
+            <span className="text-gray-500 dark:text-gray-400">Bitiş:</span>
+            <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">
               {task.dueDate}
               {task.dueTime ? ` ${task.dueTime}` : ''}
             </span>
           </div>
           {task.location && (
             <div>
-              <span className="text-gray-500">Konum:</span>
-              <span className="ml-2 font-medium text-gray-900">{task.location}</span>
+              <span className="text-gray-500 dark:text-gray-400">Konum:</span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.location}</span>
             </div>
           )}
           {task.estimatedMinutes && (
             <div>
-              <span className="text-gray-500">Tahmini Süre:</span>
-              <span className="ml-2 font-medium text-gray-900">{task.estimatedMinutes} dk</span>
+              <span className="text-gray-500 dark:text-gray-400">Tahmini Süre:</span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.estimatedMinutes} dk</span>
             </div>
           )}
           {task.completedAt && (
             <div>
-              <span className="text-gray-500">Tamamlanma:</span>
-              <span className="ml-2 font-medium text-gray-900">{task.completedAt}</span>
+              <span className="text-gray-500 dark:text-gray-400">Tamamlanma:</span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.completedAt}</span>
             </div>
           )}
           {task.completedBy && (
             <div>
-              <span className="text-gray-500">Tamamlayan:</span>
-              <span className="ml-2 font-medium text-gray-900">{task.completedBy}</span>
+              <span className="text-gray-500 dark:text-gray-400">Tamamlayan:</span>
+              <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.completedBy}</span>
             </div>
           )}
         </div>
@@ -136,12 +136,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         {/* Tags */}
         {task.tags.length > 0 && (
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Etiketler</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Etiketler</h4>
             <div className="flex flex-wrap gap-1">
               {task.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700"
+                  className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
                   {tag}
                 </span>
@@ -154,10 +154,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         {totalChecklist > 0 && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-gray-700">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Kontrol Listesi ({completedChecklist}/{totalChecklist})
               </h4>
-              <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="w-32 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-green-500 rounded-full transition-all"
                   style={{
@@ -170,17 +170,17 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               {task.checklistItems.map((item) => (
                 <label
                   key={item.id}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                 >
                   <input
                     type="checkbox"
                     checked={item.isCompleted}
                     onChange={() => onToggleChecklist(task.id, item.id, !item.isCompleted)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                     disabled={task.status === 'COMPLETED' || task.status === 'CANCELLED'}
                   />
                   <span
-                    className={`text-sm ${item.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'}`}
+                    className={`text-sm ${item.isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}
                   >
                     {item.text}
                   </span>
@@ -192,16 +192,16 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
         {/* Notes */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Notlar ({task.notes.length})</h4>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Notlar ({task.notes.length})</h4>
           {task.notes.length > 0 && (
             <div className="space-y-3 mb-4">
               {task.notes.map((note) => (
-                <div key={note.id} className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-700">{note.text}</p>
+                <div key={note.id} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">{note.text}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-gray-500">{note.createdBy}</span>
-                    <span className="text-xs text-gray-400">-</span>
-                    <span className="text-xs text-gray-500">{note.createdAt}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{note.createdBy}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{note.createdAt}</span>
                   </div>
                 </div>
               ))}
@@ -217,7 +217,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 onChange={(e) => setNoteText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
                 placeholder="Not ekle..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               <button
                 onClick={handleAddNote}

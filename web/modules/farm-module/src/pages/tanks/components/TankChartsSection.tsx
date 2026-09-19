@@ -386,12 +386,12 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // ============================================================================
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 mb-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 mb-6">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
+          className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <svg
             className={`w-4 h-4 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
@@ -405,7 +405,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
         </button>
         <button
           onClick={onSettingsClick}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           title="Chart Settings"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -420,7 +420,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
         <div className="p-4">
           {/* Pie Charts - All 8 in single row */}
           <div className="mb-6">
-            <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
               Distribution Charts
             </h4>
             <div className="grid grid-cols-4 lg:grid-cols-8 gap-3">
@@ -528,7 +528,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
             chartVisibility.feedTrend || chartVisibility.densityTrend ||
             chartVisibility.fishCountTrend || chartVisibility.sgrTrend) && (
             <div>
-              <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
+              <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
                 Time Series (Last {timeRange === '7d' ? '7 days' : timeRange === '30d' ? '30 days' : '90 days'})
               </h4>
               {/* Row 1 - 4 charts */}
@@ -653,21 +653,21 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 // ============================================================================
 
 const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-gray-50 rounded-lg p-2">
-    <h5 className="text-[10px] font-medium text-gray-600 mb-1 text-center truncate">{title}</h5>
+  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+    <h5 className="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1 text-center truncate">{title}</h5>
     <div className="flex justify-center">{children}</div>
   </div>
 );
 
 const LineChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-gray-50 rounded-lg p-4">
-    <h5 className="text-sm font-medium text-gray-700 mb-3">{title}</h5>
+  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+    <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{title}</h5>
     {children}
   </div>
 );
 
 const EmptyChart: React.FC<{ message: string }> = ({ message }) => (
-  <div className="w-[120px] h-[120px] flex items-center justify-center text-gray-400 text-xs">
+  <div className="w-[120px] h-[120px] flex items-center justify-center text-gray-400 dark:text-gray-500 text-xs">
     {message}
   </div>
 );

@@ -100,7 +100,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
 
   if (isLoading) {
     return (
-      <div className="py-4 text-center text-sm text-gray-500">
+      <div className="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
         Loading calibrations...
       </div>
     );
@@ -120,7 +120,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
           onChange={(e) =>
             updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
           }
-          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     },
@@ -133,7 +133,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
           value={row.feedSizeLabel || ''}
           onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)}
           placeholder="e.g., Starter"
-          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     },
@@ -149,7 +149,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
           onChange={(e) =>
             updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
           }
-          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     },
@@ -165,7 +165,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
           onChange={(e) =>
             updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
           }
-          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     },
@@ -177,7 +177,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
           type="text"
           value={row.notes || ''}
           onChange={(e) => updateRow(row._key, 'notes', e.target.value)}
-          className="w-32 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-32 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     },
@@ -203,10 +203,10 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
 
   return (
     <div>
-      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+      <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
         Feed Calibration
       </h4>
-      <p className="text-xs text-gray-400 mb-3">
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
         Define dispensing grams and silo capacity for each feed size.
       </p>
 
@@ -223,7 +223,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       )}
 
       {rows.length === 0 && (
-        <p className="text-sm text-gray-400 italic mb-3">No calibration data yet.</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 italic mb-3">No calibration data yet.</p>
       )}
 
       <div className="flex items-center gap-3 mt-3">

@@ -298,9 +298,9 @@ const FeedingPage: React.FC = () => {
   const alertCount = kpiForecast?.alerts?.length ?? 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white shadow">
+      <div className="bg-white dark:bg-gray-900 shadow">
         <div className="px-4 sm:px-6 py-6">
           <PageHeader
             title="Feeding Management"
@@ -329,7 +329,7 @@ const FeedingPage: React.FC = () => {
       <div className="px-4 sm:px-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Total Biomass */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-blue-100 rounded-lg p-3">
                 <svg
@@ -347,17 +347,17 @@ const FeedingPage: React.FC = () => {
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Biomass</p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Biomass</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                   {(totalBiomass / 1000).toFixed(1)} t
                 </p>
-                <p className="text-xs text-gray-500">{totalFishCount.toLocaleString()} fish</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{totalFishCount.toLocaleString()} fish</p>
               </div>
             </div>
           </div>
 
           {/* Today's Feed */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-green-100 rounded-lg p-3">
                 <svg
@@ -375,12 +375,12 @@ const FeedingPage: React.FC = () => {
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Today's Feed</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Today's Feed</p>
                 {/* Hata durumunda 0 uydurulmaz — '—' + açık not (FARM-MEDIUM-233). */}
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                   {kpiForecastFailed ? '—' : `${todaysFeed.toFixed(0)} kg`}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
                     : `${totalBiomass > 0 ? ((todaysFeed / totalBiomass) * 100).toFixed(2) : 0}% of biomass`}
@@ -390,7 +390,7 @@ const FeedingPage: React.FC = () => {
           </div>
 
           {/* Total Stock */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 bg-purple-100 rounded-lg p-3">
                 <svg
@@ -408,13 +408,13 @@ const FeedingPage: React.FC = () => {
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Feed Stock</p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Feed Stock</p>
+                <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                   {kpiForecastFailed
                     ? '—'
                     : `${((kpiForecast?.perFeed?.reduce((sum, feed) => sum + feed.currentStockKg, 0) ?? 0) / 1000).toFixed(1)} t`}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
                     : `${kpiForecast?.perFeed?.length ?? 0} feed types`}
@@ -424,13 +424,13 @@ const FeedingPage: React.FC = () => {
           </div>
 
           {/* Alerts */}
-          <div className={`rounded-lg shadow p-4 ${alertCount > 0 ? 'bg-red-50' : 'bg-white'}`}>
+          <div className={`rounded-lg shadow p-4 ${alertCount > 0 ? 'bg-red-50' : 'bg-white dark:bg-gray-900'}`}>
             <div className="flex items-center">
               <div
-                className={`flex-shrink-0 rounded-lg p-3 ${alertCount > 0 ? 'bg-red-100' : 'bg-gray-100'}`}
+                className={`flex-shrink-0 rounded-lg p-3 ${alertCount > 0 ? 'bg-red-100' : 'bg-gray-100 dark:bg-gray-800'}`}
               >
                 <svg
-                  className={`w-6 h-6 ${alertCount > 0 ? 'text-red-600' : 'text-gray-600'}`}
+                  className={`w-6 h-6 ${alertCount > 0 ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -444,13 +444,13 @@ const FeedingPage: React.FC = () => {
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Alerts</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Alerts</p>
                 <p
-                  className={`text-2xl font-semibold ${alertCount > 0 ? 'text-red-600' : 'text-gray-900'}`}
+                  className={`text-2xl font-semibold ${alertCount > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}
                 >
                   {kpiForecastFailed ? '—' : alertCount}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {kpiForecastFailed
                     ? 'Forecast unavailable'
                     : alertCount === 0
@@ -465,7 +465,7 @@ const FeedingPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="px-4 sm:px-6">
-        <div className="border-b border-gray-200">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             {tabs.map((tab) => (
               <button
@@ -476,12 +476,12 @@ const FeedingPage: React.FC = () => {
                   ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >
                 <span
-                  className={`mr-2 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500'}`}
+                  className={`mr-2 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'}`}
                 >
                   {tab.icon}
                 </span>
@@ -530,9 +530,9 @@ const FeedingPage: React.FC = () => {
         {/* BUG-023: Sampling tab had no dedicated component — was incorrectly rendering GrowthTab.
             Replaced with a placeholder until a SamplingTab component is implemented. */}
         {activeTab === 'sampling' && (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-gray-400 mb-4"
+              className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -544,8 +544,8 @@ const FeedingPage: React.FC = () => {
                 d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
               />
             </svg>
-            <h3 className="text-lg font-medium text-gray-900 mb-1">Sampling</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Sampling</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Sampling data entry will be available in a future update.
             </p>
           </div>

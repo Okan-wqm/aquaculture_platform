@@ -30,7 +30,7 @@ const statusColors: Record<MaintenanceScheduleStatus, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   PAUSED: 'bg-yellow-100 text-yellow-800',
   COMPLETED: 'bg-blue-100 text-blue-800',
-  EXPIRED: 'bg-gray-100 text-gray-800',
+  EXPIRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 // Status labels
@@ -292,10 +292,10 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       header: 'Kod / İsim',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {item.scheduleCode}
           </div>
-          <div className="text-sm text-gray-500">{item.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.name}</div>
         </>
       ),
     },
@@ -325,7 +325,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
         <>
           <span
             className={`text-sm ${
-              isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500'
+              isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500 dark:text-gray-400'
             }`}
           >
             {formatDate(item.nextDueDate)}
@@ -470,8 +470,8 @@ export const MaintenanceSchedulesPage: React.FC = () => {
 
         {/* Pagination */}
         {data && data.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
             </div>
             <div className="flex gap-2">
@@ -593,7 +593,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                 }
                 className="mr-2"
               />
-              <label htmlFor="autoGenerate" className="text-sm text-gray-700">
+              <label htmlFor="autoGenerate" className="text-sm text-gray-700 dark:text-gray-300">
                 Otomatik İş Emri Oluştur
               </label>
             </div>

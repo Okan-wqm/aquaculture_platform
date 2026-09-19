@@ -101,10 +101,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         <div className="flex items-center gap-3">
           <button
             onClick={() => (viewMode === 'week' ? navigateWeek(-1) : navigateMonth(-1))}
-            className="p-2 hover:bg-gray-100 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
             <svg
-              className="w-5 h-5 text-gray-600"
+              className="w-5 h-5 text-gray-600 dark:text-gray-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -117,17 +117,17 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               />
             </svg>
           </button>
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {viewMode === 'week'
               ? `${weekDays[0].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}`
               : currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
           </h3>
           <button
             onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}
-            className="p-2 hover:bg-gray-100 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
             <svg
-              className="w-5 h-5 text-gray-600"
+              className="w-5 h-5 text-gray-600 dark:text-gray-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -144,16 +144,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
         </div>
 
         {/* View Toggle */}
-        <div className="flex bg-gray-100 rounded-lg p-0.5">
+        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           <button
             onClick={() => setViewMode('week')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
           >
             Hafta
           </button>
           <button
             onClick={() => setViewMode('month')}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'}`}
           >
             Ay
           </button>
@@ -162,26 +162,26 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
       {/* Weekly View */}
       {viewMode === 'week' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="grid grid-cols-7 border-b border-gray-200">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700">
             {weekDays.map((day, i) => {
               const isToday = formatDate(day) === todayStr;
               const dayTasks = getTasksForDate(day);
               return (
                 <div
                   key={i}
-                  className={`p-3 border-r last:border-r-0 border-gray-200 min-h-[200px] cursor-pointer hover:bg-gray-50 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-3 border-r last:border-r-0 border-gray-200 dark:border-gray-700 min-h-[200px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
                   <div className="text-center mb-2">
-                    <p className="text-xs text-gray-500">{dayNames[i]}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{dayNames[i]}</p>
                     <p
-                      className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900'}`}
+                      className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900 dark:text-gray-100'}`}
                     >
                       {day.getDate()}
                     </p>
                     {dayTasks.length > 0 && (
-                      <span className="text-xs text-gray-500">{dayTasks.length} görev</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{dayTasks.length} görev</span>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -197,7 +197,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                             ? 'bg-green-50 text-green-700 line-through'
                             : task.status === 'OVERDUE'
                               ? 'bg-red-50 text-red-700'
-                              : 'bg-gray-50 text-gray-700'
+                              : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                         }`}
                       >
                         <div className="flex items-center gap-1">
@@ -206,11 +206,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                           />
                           <span className="truncate">{task.title}</span>
                         </div>
-                        {task.dueTime && <span className="text-gray-400 ml-3">{task.dueTime}</span>}
+                        {task.dueTime && <span className="text-gray-400 dark:text-gray-500 ml-3">{task.dueTime}</span>}
                       </div>
                     ))}
                     {dayTasks.length > 4 && (
-                      <p className="text-xs text-gray-400 text-center">
+                      <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
                         +{dayTasks.length - 4} daha
                       </p>
                     )}
@@ -224,13 +224,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
       {/* Monthly View */}
       {viewMode === 'month' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
           {/* Day names header */}
-          <div className="grid grid-cols-7 border-b border-gray-200">
+          <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700">
             {dayNames.map((name) => (
               <div
                 key={name}
-                className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase"
+                className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase"
               >
                 {name}
               </div>
@@ -243,7 +243,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 return (
                   <div
                     key={`empty-${i}`}
-                    className="p-2 border-r border-b border-gray-100 min-h-[80px] bg-gray-50"
+                    className="p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] bg-gray-50 dark:bg-gray-800"
                   />
                 );
               }
@@ -252,10 +252,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               return (
                 <div
                   key={i}
-                  className={`p-2 border-r border-b border-gray-100 min-h-[80px] cursor-pointer hover:bg-gray-50 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
-                  <p className={`text-sm ${isToday ? 'font-bold text-blue-600' : 'text-gray-700'}`}>
+                  <p className={`text-sm ${isToday ? 'font-bold text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}>
                     {day.getDate()}
                   </p>
                   <div className="mt-1 space-y-0.5">
@@ -264,11 +264,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                         <span
                           className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getCategoryDot(task.category)}`}
                         />
-                        <span className="text-xs text-gray-600 truncate">{task.title}</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400 truncate">{task.title}</span>
                       </div>
                     ))}
                     {dayTasks.length > 2 && (
-                      <p className="text-xs text-gray-400">+{dayTasks.length - 2}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">+{dayTasks.length - 2}</p>
                     )}
                   </div>
                 </div>
@@ -297,11 +297,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     setSelectedDayTasks(null);
                     setSelectedTask(task);
                   }}
-                  className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`w-2 h-2 rounded-full ${getCategoryDot(task.category)}`} />
-                    <span className="text-sm font-medium text-gray-900">{task.title}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{task.title}</span>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
                     <span
@@ -314,8 +314,8 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     >
                       {pri.label}
                     </span>
-                    {task.dueTime && <span className="text-xs text-gray-500">{task.dueTime}</span>}
-                    <span className="text-xs text-gray-500">{task.assignedToName}</span>
+                    {task.dueTime && <span className="text-xs text-gray-500 dark:text-gray-400">{task.dueTime}</span>}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{task.assignedToName}</span>
                   </div>
                 </div>
               );

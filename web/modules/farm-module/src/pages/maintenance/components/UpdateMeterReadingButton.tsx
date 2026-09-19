@@ -136,12 +136,12 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
         size="sm"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-500">Plan</p>
-            <p className="font-medium text-gray-900">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Plan</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">
               {schedule.scheduleCode} — {schedule.name}
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {currentMeter != null ? (
                 <>Mevcut: {currentMeter}</>
               ) : (
@@ -159,7 +159,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
           <div>
             <label
               htmlFor="meter-reading-input"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
               Yeni Sayaç Okuması{' '}
               <span className="text-red-600">*</span>
@@ -171,7 +171,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               min={lastMeter ?? 0}
               value={meterRaw}
               onChange={(e) => setMeterRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               required
               autoFocus
             />

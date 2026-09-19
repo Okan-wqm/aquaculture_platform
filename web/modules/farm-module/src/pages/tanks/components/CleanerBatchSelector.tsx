@@ -54,7 +54,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
       title="Select Cleaner Fish Batch"
     >
       <div className="p-4">
-        <p className="text-gray-600 mb-4">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
           <span className="font-medium">{tank.name}</span> has {batches.length} cleaner fish batches.
           <br />
           Select which batch to record {operation} for:
@@ -70,10 +70,10 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm bg-gray-100 px-2 py-0.5 rounded">
+                  <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
                     {batch.batchNumber}
                   </span>
-                  <span className="font-medium text-gray-900 group-hover:text-green-600">
+                  <span className="font-medium text-gray-900 dark:text-gray-100 group-hover:text-green-600">
                     {batch.speciesName}
                   </span>
                 </div>
@@ -88,28 +88,28 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-sm text-gray-500">
+              <div className="grid grid-cols-4 gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <div>
-                  <div className="text-xs text-gray-400">Quantity</div>
-                  <div className="font-medium text-gray-700">
+                  <div className="text-xs text-gray-400 dark:text-gray-500">Quantity</div>
+                  <div className="font-medium text-gray-700 dark:text-gray-300">
                     {batch.quantity.toLocaleString()}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400">Avg Weight</div>
-                  <div className="font-medium text-gray-700">
+                  <div className="text-xs text-gray-400 dark:text-gray-500">Avg Weight</div>
+                  <div className="font-medium text-gray-700 dark:text-gray-300">
                     {batch.avgWeightG.toFixed(1)}g
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400">Biomass</div>
-                  <div className="font-medium text-gray-700">
+                  <div className="text-xs text-gray-400 dark:text-gray-500">Biomass</div>
+                  <div className="font-medium text-gray-700 dark:text-gray-300">
                     {batch.biomassKg.toFixed(2)} kg
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400">Deployed</div>
-                  <div className="font-medium text-gray-700">
+                  <div className="text-xs text-gray-400 dark:text-gray-500">Deployed</div>
+                  <div className="font-medium text-gray-700 dark:text-gray-300">
                     {formatDate(batch.deployedAt)}
                   </div>
                 </div>
@@ -119,7 +119,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
         </div>
 
         {batches.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             No cleaner fish batches in this tank.
           </div>
         )}
@@ -127,7 +127,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
           >
             Cancel
           </button>

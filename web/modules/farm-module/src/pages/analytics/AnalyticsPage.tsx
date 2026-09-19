@@ -50,9 +50,9 @@ const AnalyticsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-6">
           <PageHeader
             title="Analytics"
@@ -76,7 +76,7 @@ const AnalyticsPage: React.FC = () => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             {analyticsTabs.map((tab) => (
@@ -87,7 +87,7 @@ const AnalyticsPage: React.FC = () => {
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                   ${activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >

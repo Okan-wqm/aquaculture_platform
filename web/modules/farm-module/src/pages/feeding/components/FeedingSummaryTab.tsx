@@ -52,14 +52,14 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
     return (
       <div className="space-y-4">
         {/* Batch Selector */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Select a batch to view feeding summary
           </label>
           <select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full max-w-md rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">Choose batch...</option>
             {batches.map((b) => (
@@ -68,12 +68,12 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
           </select>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+          <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-1">No Batch Selected</h3>
-          <p className="text-sm text-gray-500">Select a batch above or from the page filters to view feeding summary and FCR analysis.</p>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">No Batch Selected</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Select a batch above or from the page filters to view feeding summary and FCR analysis.</p>
         </div>
       </div>
     );
@@ -137,7 +137,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
       key: 'distribution',
       header: 'Distribution',
       render: (_value, ft) => (
-        <div className="w-32 bg-gray-200 rounded-full h-2">
+        <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
           <div
             className="bg-blue-500 h-2 rounded-full"
             style={{ width: `${ft.percentage}%` }}
@@ -166,16 +166,16 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
       )}
 
       {/* Controls */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Batch Selector (if not from parent) */}
           {!batchId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Batch</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch</label>
               <select
                 value={selectedBatchId}
                 onChange={(e) => setSelectedBatchId(e.target.value)}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Choose batch...</option>
                 {batches.map((b) => (
@@ -185,21 +185,21 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
         </div>
@@ -209,31 +209,31 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm font-medium text-gray-500">Total Feed Given</p>
-              <p className="text-2xl font-semibold text-gray-900">{data.totalFeedGivenKg.toFixed(1)} kg</p>
-              <p className="text-xs text-gray-500">{data.totalFeedings} feedings</p>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Feed Given</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{data.totalFeedGivenKg.toFixed(1)} kg</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{data.totalFeedings} feedings</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm font-medium text-gray-500">Total Planned</p>
-              <p className="text-2xl font-semibold text-gray-900">{data.totalPlannedKg.toFixed(1)} kg</p>
-              <p className="text-xs text-gray-500">Avg: {data.avgFeedingKg.toFixed(1)} kg/feeding</p>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Planned</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{data.totalPlannedKg.toFixed(1)} kg</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Avg: {data.avgFeedingKg.toFixed(1)} kg/feeding</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm font-medium text-gray-500">Variance</p>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Variance</p>
               <p className={`text-2xl font-semibold ${
                 Math.abs(data.variancePercent) <= 10 ? 'text-green-600' : 'text-orange-600'
               }`}>
                 {data.variancePercent > 0 ? '+' : ''}{data.variancePercent.toFixed(1)}%
               </p>
-              <p className="text-xs text-gray-500">{data.varianceKg > 0 ? '+' : ''}{data.varianceKg.toFixed(1)} kg</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{data.varianceKg > 0 ? '+' : ''}{data.varianceKg.toFixed(1)} kg</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm font-medium text-gray-500">Total Cost</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Cost</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {parseMoney(data.totalCostDecimal).toFixed(0)} {data.currency || 'NOK'}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {data.totalFeedGivenKg > 0
                   ? `${(parseMoney(data.totalCostDecimal) / data.totalFeedGivenKg).toFixed(2)} per kg`
                   : '-'}
@@ -243,17 +243,17 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
 
           {/* FCR Display */}
           {currentBatch && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">FCR Analysis</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">FCR Analysis</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
-                  <p className="text-sm text-gray-500 mb-1">Target FCR</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Target FCR</p>
                   <p className="text-3xl font-bold text-blue-600">
                     {currentBatch.fcr?.target?.toFixed(2) || '-'}
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-gray-500 mb-1">Actual FCR</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Actual FCR</p>
                   <p className={`text-3xl font-bold ${
                     currentBatch.fcr?.actual && currentBatch.fcr?.target &&
                     currentBatch.fcr.actual <= currentBatch.fcr.target
@@ -263,15 +263,15 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-sm text-gray-500 mb-1">Theoretical FCR</p>
-                  <p className="text-3xl font-bold text-gray-600">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Theoretical FCR</p>
+                  <p className="text-3xl font-bold text-gray-600 dark:text-gray-400">
                     {currentBatch.fcr?.theoretical?.toFixed(2) || '-'}
                   </p>
                 </div>
               </div>
               {currentBatch.fcr?.actual && currentBatch.fcr?.target && (
-                <div className="mt-4 p-3 rounded-lg bg-gray-50">
-                  <p className="text-sm text-gray-600">
+                <div className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     {currentBatch.fcr.actual <= currentBatch.fcr.target
                       ? 'FCR is within target. Feed conversion is efficient.'
                       : `FCR is ${((currentBatch.fcr.actual - currentBatch.fcr.target) / currentBatch.fcr.target * 100).toFixed(1)}% above target. Consider reviewing feeding strategy.`
@@ -284,9 +284,9 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
 
           {/* Feed Type Breakdown */}
           {data.byFeedType && data.byFeedType.length > 0 && (
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Feed Type Breakdown</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Feed Type Breakdown</h3>
               </div>
               <DataTable<FeedTypeSummary>
                 data={data.byFeedType}

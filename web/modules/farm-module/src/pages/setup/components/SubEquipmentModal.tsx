@@ -199,14 +199,14 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
       <div className="space-y-6">
         {mode === 'create' && (
           <div>
-            <label htmlFor="sub-eq-type" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Type <span className="text-orange-500">*</span>
             </label>
             <select
               id="sub-eq-type"
               value={form.subEquipmentTypeId}
               onChange={(e) => set('subEquipmentTypeId', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             >
               <option value="">— Choose a type —</option>
               {subEquipmentTypes.data?.map((t) => (
@@ -220,7 +220,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-name" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Name <span className="text-orange-500">*</span>
             </label>
             <input
@@ -229,11 +229,11 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               maxLength={255}
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="sub-eq-code" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Code <span className="text-orange-500">*</span>
             </label>
             <input
@@ -242,14 +242,14 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               maxLength={50}
               value={form.code}
               onChange={(e) => set('code', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-manufacturer" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-manufacturer" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Manufacturer
             </label>
             <input
@@ -258,11 +258,11 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               maxLength={100}
               value={form.manufacturer}
               onChange={(e) => set('manufacturer', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="sub-eq-model" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-model" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Model
             </label>
             <input
@@ -271,14 +271,14 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               maxLength={100}
               value={form.model}
               onChange={(e) => set('model', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sub-eq-serial" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-serial" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Serial number
             </label>
             <input
@@ -287,18 +287,18 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               maxLength={100}
               value={form.serialNumber}
               onChange={(e) => set('serialNumber', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="sub-eq-status" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="sub-eq-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Status
             </label>
             <select
               id="sub-eq-status"
               value={form.status}
               onChange={(e) => set('status', e.target.value as EquipmentStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -310,7 +310,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
         </div>
 
         <div>
-          <label htmlFor="sub-eq-install" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="sub-eq-install" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Installation date
           </label>
           <input
@@ -318,12 +318,12 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             type="date"
             value={form.installationDate}
             onChange={(e) => set('installationDate', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 
         <div>
-          <label htmlFor="sub-eq-desc" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="sub-eq-desc" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
           <textarea
@@ -332,12 +332,12 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             maxLength={1000}
             value={form.description}
             onChange={(e) => set('description', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 
         <div>
-          <label htmlFor="sub-eq-notes" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="sub-eq-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
           <textarea
@@ -346,7 +346,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             maxLength={2000}
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 

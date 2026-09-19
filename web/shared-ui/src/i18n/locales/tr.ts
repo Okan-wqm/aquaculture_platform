@@ -361,6 +361,8 @@ export const tr: Record<MessageKey, string> = {
   'a11y.skipToContent': 'Ana içeriğe atla',
   'table.searchPlaceholder': 'Ara...',
   'table.noData': 'Gösterilecek veri yok',
+  'chart.noData': 'Veri yok',
+  'chart.value': 'Değer',
   'table.toggleFilters': 'Filtreleri aç/kapat',
   'table.toggleColumns': 'Sütunları aç/kapat',
   'table.columns': 'Sütunlar',

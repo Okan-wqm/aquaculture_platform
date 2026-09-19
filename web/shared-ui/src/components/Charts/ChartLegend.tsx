@@ -30,9 +30,8 @@ export const ChartLegend: React.FC<ChartLegendProps> = ({
   onItemClick,
   className = '',
 }) => {
-  const containerClass = orientation === 'horizontal'
-    ? 'flex flex-wrap items-center gap-4'
-    : 'flex flex-col gap-2';
+  const containerClass =
+    orientation === 'horizontal' ? 'flex flex-wrap items-center gap-4' : 'flex flex-col gap-2';
 
   return (
     <div className={`${containerClass} ${className}`}>

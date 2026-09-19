@@ -159,7 +159,6 @@ export {
   SparklineChart,
   ChartContainer,
   ChartLegend,
-  ChartTooltip,
   ChartTooltipContent,
 } from './Charts';
 export type {
@@ -173,14 +172,12 @@ export type {
   SparklineChartProps,
   ChartContainerProps,
   ChartLegendProps,
-  ChartTooltipProps,
   ChartTooltipContentProps,
   ChartTooltipPayloadItem,
   ChartTooltipFormatter,
   BarDataset,
   DataPoint,
   LegendItem,
-  TooltipItem,
 } from './Charts';
 
 // Router - Pre-configured router with v7 future flags

@@ -364,6 +364,8 @@ export const en = {
   'a11y.skipToContent': 'Skip to main content',
   'table.searchPlaceholder': 'Search...',
   'table.noData': 'No data available',
+  'chart.noData': 'No data available',
+  'chart.value': 'Value',
   'table.toggleFilters': 'Toggle filters',
   'table.toggleColumns': 'Toggle columns',
   'table.columns': 'Columns',

@@ -1,9 +1,22 @@
 /**
- * Bar Chart Component
- * SVG-based bar chart with grouped/stacked options
+ * Bar Chart — grouped or stacked series over shared labels, drawn by recharts
+ * and painted from the theme palette (FE-MEDIUM-084: one chart engine).
  */
+import React, { useMemo } from 'react';
+import {
+  Bar,
+  BarChart as RechartsBarChart,
+  CartesianGrid,
+  LabelList,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
-import React, { useMemo, useState } from 'react';
+import { chartChrome } from '../../styles/theme';
+import { AXIS_TICK, ChartFrame, NoData, seriesColor } from './chartSupport';
+import { ChartLegend } from './ChartLegend';
+import { ChartTooltipContent } from './ChartTooltip';
 
 export interface BarDataset {
   label: string;
@@ -14,6 +27,7 @@ export interface BarDataset {
 export interface BarChartProps {
   labels: string[];
   datasets: BarDataset[];
+  /** A number fixes the width; leave it out to fill the parent. */
   width?: number;
   height?: number;
   showGrid?: boolean;
@@ -28,22 +42,23 @@ export interface BarChartProps {
   formatValue?: (value: number) => string;
 }
 
-const defaultColors = [
-  '#3B82F6', // blue
-  '#10B981', // green
-  '#F59E0B', // yellow
-  '#EF4444', // red
-  '#8B5CF6', // purple
-  '#EC4899', // pink
-  '#06B6D4', // cyan
-  '#F97316', // orange
-];
+/** One row per label, one column per dataset: the shape recharts reads. */
+export function toRows(
+  labels: string[],
+  datasets: BarDataset[],
+): Array<Record<string, string | number>> {
+  return labels.map((label, index) => {
+    const row: Record<string, string | number> = { label };
+    for (const dataset of datasets) row[dataset.label] = dataset.data[index] ?? 0;
+    return row;
+  });
+}
 
 export const BarChart: React.FC<BarChartProps> = ({
   labels,
   datasets,
-  width = 400,
-  height = 250,
+  width,
+  height = 200,
   showGrid = true,
   showLabels = true,
   showTooltip = true,
@@ -53,256 +68,78 @@ export const BarChart: React.FC<BarChartProps> = ({
   barRadius = 4,
   animate = true,
   className = '',
-  formatValue = (v) => v.toLocaleString(),
+  formatValue = (value) => value.toLocaleString(),
 }) => {
-  const [tooltipData, setTooltipData] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    title: string;
-    items: { label: string; value: string; color: string }[];
-  }>({ visible: false, x: 0, y: 0, title: '', items: [] });
-
-  const padding = { top: 20, right: 20, bottom: showLabels ? 50 : 20, left: 60 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const { bars, yTicks } = useMemo(() => {
-    if (!datasets || datasets.length === 0 || labels.length === 0) {
-      return { bars: [], yTicks: [] };
-    }
-
-    let max: number;
-    if (stacked) {
-      max = Math.max(
-        ...labels.map((_, i) => datasets.reduce((sum, d) => sum + (d.data[i] || 0), 0))
-      );
-    } else {
-      max = Math.max(...datasets.flatMap((d) => d.data));
-    }
-    max = max || 1;
-    const paddedMax = max * 1.1;
-
-    const groupWidth = chartWidth / labels.length;
-    const barWidth = stacked
-      ? groupWidth * 0.6
-      : (groupWidth * 0.7) / datasets.length;
-    const groupPadding = (groupWidth - (stacked ? barWidth : barWidth * datasets.length)) / 2;
-
-    const allBars = labels.flatMap((label, labelIndex) => {
-      let stackOffset = 0;
-
-      return datasets.map((dataset, datasetIndex) => {
-        const value = dataset.data[labelIndex] || 0;
-        const barHeight = (value / paddedMax) * chartHeight;
-        const color = dataset.color || defaultColors[datasetIndex % defaultColors.length];
-
-        let x: number;
-        let y: number;
-
-        if (stacked) {
-          x = padding.left + labelIndex * groupWidth + groupPadding;
-          y = padding.top + chartHeight - stackOffset - barHeight;
-          stackOffset += barHeight;
-        } else {
-          x = padding.left + labelIndex * groupWidth + groupPadding + datasetIndex * barWidth;
-          y = padding.top + chartHeight - barHeight;
-        }
-
-        return {
-          x,
-          y,
-          width: barWidth,
-          height: barHeight,
-          value,
-          color,
-          label,
-          datasetLabel: dataset.label,
-        };
-      });
-    });
-
-    const tickCount = 5;
-    const ticks = Array.from({ length: tickCount }, (_, i) => {
-      const value = (paddedMax * (tickCount - 1 - i)) / (tickCount - 1);
-      const y = padding.top + (i / (tickCount - 1)) * chartHeight;
-      return { value: Math.round(value), y };
-    });
-
-    return { bars: allBars, yTicks: ticks, maxValue: max };
-  }, [datasets, labels, chartWidth, chartHeight, padding, stacked]);
-
-  const handleBarHover = (bar: (typeof bars)[0], event: React.MouseEvent) => {
-    if (!showTooltip) return;
-
-    const sameLabel = bars.filter((b) => b.label === bar.label);
-
-    setTooltipData({
-      visible: true,
-      x: event.clientX,
-      y: event.clientY,
-      title: bar.label,
-      items: sameLabel.map((b) => ({
-        label: b.datasetLabel,
-        value: formatValue(b.value),
-        color: b.color,
+  const rows = useMemo(() => toRows(labels, datasets), [labels, datasets]);
+  const legend = useMemo(
+    () =>
+      datasets.map((dataset, index) => ({
+        label: dataset.label,
+        color: seriesColor(dataset.color, index),
       })),
-    });
-  };
+    [datasets],
+  );
 
-  const handleMouseLeave = () => {
-    setTooltipData((prev) => ({ ...prev, visible: false }));
-  };
-
-  if (!datasets || datasets.length === 0) {
-    return (
-      <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-500 dark:text-gray-400 text-sm">No data available</span>
-      </div>
-    );
+  if (labels.length === 0 || datasets.length === 0) {
+    return <NoData width={width} height={height} className={className} />;
   }
 
+  const radius: [number, number, number, number] = [barRadius, barRadius, 0, 0];
   return (
-    <div className={`relative ${className}`} onMouseLeave={handleMouseLeave}>
-      {/* Legend */}
-      {showLegend && (
-        <div className="flex flex-wrap gap-4 mb-4">
-          {datasets.map((dataset, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
-              <span
-                className="w-3 h-3 rounded"
-                style={{ backgroundColor: dataset.color || defaultColors[i % defaultColors.length] }}
-              />
-              <span className="text-gray-600 dark:text-gray-400">{dataset.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <svg width={width} height={height}>
-        {/* Grid lines */}
-        {showGrid && (
-          <g className="text-gray-200">
-            {yTicks.map((tick, i) => (
-              <line
-                key={i}
-                x1={padding.left}
-                y1={tick.y}
-                x2={width - padding.right}
-                y2={tick.y}
-                stroke="currentColor"
-                strokeDasharray="4,4"
-              />
-            ))}
-          </g>
-        )}
-
-        {/* Y axis labels */}
-        <g className="text-gray-500 dark:text-gray-400 text-xs">
-          {yTicks.map((tick, i) => (
-            <text
-              key={i}
-              x={padding.left - 8}
-              y={tick.y}
-              textAnchor="end"
-              dominantBaseline="middle"
-              fill="currentColor"
-            >
-              {formatValue(tick.value)}
-            </text>
-          ))}
-        </g>
-
-        {/* X axis labels */}
-        {showLabels && (
-          <g className="text-gray-500 dark:text-gray-400 text-xs">
-            {labels.map((label, i) => {
-              const groupWidth = chartWidth / labels.length;
-              const x = padding.left + i * groupWidth + groupWidth / 2;
-              return (
-                <text
-                  key={i}
-                  x={x}
-                  y={height - padding.bottom + 20}
-                  textAnchor="middle"
-                  fill="currentColor"
-                >
-                  {label.length > 10 ? `${label.slice(0, 10)}...` : label}
-                </text>
-              );
-            })}
-          </g>
-        )}
-
-        {/* Bars */}
-        {bars.map((bar, i) => (
-          <g key={i}>
-            <rect
-              x={bar.x}
-              y={bar.y}
-              width={bar.width}
-              height={Math.max(0, bar.height)}
-              fill={bar.color}
-              rx={barRadius}
-              ry={barRadius}
-              className={`${animate ? 'transition-all duration-500' : ''} cursor-pointer hover:opacity-80`}
-              onMouseEnter={(e) => handleBarHover(bar, e)}
-            />
-            {showValues && bar.height > 20 && (
-              <text
-                x={bar.x + bar.width / 2}
-                y={bar.y + 14}
-                textAnchor="middle"
-                fill="white"
-                className="text-xs font-medium"
-              >
-                {formatValue(bar.value)}
-              </text>
-            )}
-          </g>
-        ))}
-
-        {/* X axis line */}
-        <line
-          x1={padding.left}
-          y1={padding.top + chartHeight}
-          x2={width - padding.right}
-          y2={padding.top + chartHeight}
-          stroke="#E5E7EB"
-          strokeWidth={1}
-        />
-      </svg>
-
-      {/* Tooltip */}
-      {tooltipData.visible && (
-        <div
-          className="fixed z-50 pointer-events-none"
-          style={{
-            left: tooltipData.x + 10,
-            top: tooltipData.y - 10,
-          }}
+    <div className={className}>
+      {showLegend && <ChartLegend items={legend} className="mb-2" />}
+      <ChartFrame width={width} height={height}>
+        <RechartsBarChart
+          data={rows}
+          margin={{ top: showValues ? 20 : 8, right: 16, bottom: 0, left: 0 }}
         >
-          <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2">
-            <div className="font-medium mb-1 border-b border-gray-700 pb-1">
-              {tooltipData.title}
-            </div>
-            <div className="space-y-1">
-              {tooltipData.items.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 rounded"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className="text-gray-500 dark:text-gray-400">{item.label}</span>
-                  </div>
-                  <span className="font-medium">{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+          {showGrid && (
+            <CartesianGrid strokeDasharray="4 4" stroke={chartChrome.grid} vertical={false} />
+          )}
+          <XAxis
+            dataKey="label"
+            hide={!showLabels}
+            tick={AXIS_TICK}
+            tickLine={false}
+            axisLine={{ stroke: chartChrome.axis }}
+            interval="preserveStartEnd"
+            minTickGap={16}
+          />
+          <YAxis
+            tick={AXIS_TICK}
+            tickLine={false}
+            axisLine={false}
+            width={56}
+            tickFormatter={formatValue}
+          />
+          {showTooltip && (
+            <Tooltip
+              cursor={{ fill: chartChrome.grid, fillOpacity: 0.4 }}
+              content={<ChartTooltipContent formatter={(value) => formatValue(Number(value))} />}
+            />
+          )}
+          {datasets.map((dataset, index) => (
+            <Bar
+              key={dataset.label}
+              dataKey={dataset.label}
+              name={dataset.label}
+              fill={seriesColor(dataset.color, index)}
+              stackId={stacked ? 'stack' : undefined}
+              radius={stacked && index < datasets.length - 1 ? 0 : radius}
+              isAnimationActive={animate}
+            >
+              {showValues && (
+                <LabelList
+                  dataKey={dataset.label}
+                  position="top"
+                  formatter={formatValue}
+                  style={AXIS_TICK}
+                />
+              )}
+            </Bar>
+          ))}
+        </RechartsBarChart>
+      </ChartFrame>
     </div>
   );
 };

@@ -44175,7 +44175,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3b7105b5ed5eccb276e128090bb8bc9ae89b8508a5c6e69d9b6f0c385053fc69",
+      "content_sha256": "dd772a5619bb10a6b6f01b1432ed1e9cc279d1c80fc9c118938bbc38877632a9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -60708,6 +60708,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/Charts.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Charts/__tests__/ChartTooltipContent.spec.tsx",
       "prettier_managed": true
     },
@@ -60733,6 +60739,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Charts/ChartLegend.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/chartSupport.tsx",
       "prettier_managed": true
     },
     {

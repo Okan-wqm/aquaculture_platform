@@ -276,7 +276,13 @@ thresholds — keep one draft per group instead (one row edits at a time, the
 draft lives beside the list), so their row components fold into columns;
 the task list's checkboxes become `DataTable` selection, the generic stock
 tab's column config becomes columns, the storage drill-down follows.
-sensor 15 → 13, farm 17 → 14. **Owner:** okan · **Expiry:** 2027-06-30.
+sensor 15 → 13, farm 17 → 14. Batch 19: the
+water-analysis parameter rows (their row component goes), the finance
+category and ledger tabs (header arrays), the actuation-policy reference
+(a `DataTable` over a const) and the stock-solution fertilizer list (its
+tank `rowSpan` becomes a badge on each group's first row). admin-panel
+1 → 0, hydroponics 2 → 0, farm 14 → 12. **Owner:** okan ·
+**Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -289,8 +295,8 @@ sensor 15 → 13, farm 17 → 14. **Owner:** okan · **Expiry:** 2027-06-30.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 33 remain after batch 18 (admin-panel 1,
-  hr 3, hydroponics 2, sensor 13, farm 14).
+- Raw `<table>` → `DataTable`: 28 remain after batch 19 (hr 3, sensor 13,
+  farm 12).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

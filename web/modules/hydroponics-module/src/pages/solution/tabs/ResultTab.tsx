@@ -96,6 +96,54 @@ const ResultTab: React.FC = () => {
     }
   ];
 
+  // The stock-solution list is grouped by tank; DataTable has no rowSpan, so the
+  // tank badge sits on each group's first row and the rest of the group leaves it blank.
+  type FertilizerRow = (typeof fertByTank)[string][number] & { tank: string; firstOfTank: boolean };
+  const fertilizerRows: FertilizerRow[] = ['A', 'B', 'Acid', 'Micro', 'Silicon'].flatMap((tank) =>
+    (fertByTank[tank] ?? []).map((f, i) => ({ ...f, tank, firstOfTank: i === 0 })),
+  );
+  const TANK_BADGE: Record<string, string> = {
+    A: 'bg-blue-100 text-blue-700',
+    B: 'bg-purple-100 text-purple-700',
+    Acid: 'bg-red-100 text-red-700',
+    Micro: 'bg-emerald-100 text-emerald-700',
+  };
+  const fertilizerColumns: DataTableColumn<FertilizerRow>[] = [
+    {
+      key: 'tank',
+      header: 'Tank',
+      render: (_value, row) =>
+        row.firstOfTank ? (
+          <span
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+              TANK_BADGE[row.tank] ?? 'bg-gray-100 text-gray-700'
+            }`}
+          >
+            {row.tank.charAt(0)}
+          </span>
+        ) : null,
+    },
+    { key: 'name', header: 'Fertilizer', render: (_value, row) => <span className="text-gray-700">{row.name}</span> },
+    {
+      key: 'formula',
+      header: 'Formula',
+      render: (_value, row) => <span className="text-gray-500 text-xs font-mono">{row.formula}</span>,
+    },
+    {
+      key: 'gramsPerLiter',
+      header: 'g/L stock',
+      align: 'right',
+      // Result guard (Pattern 1): render an error indicator for NaN/Infinity
+      // instead of displaying a plainly wrong dosage string.
+      render: (_value, row) =>
+        isFinite(row.gramsPerLiter) ? (
+          <span className="font-medium text-gray-900">{row.gramsPerLiter.toFixed(3)}</span>
+        ) : (
+          <span className="text-red-600 font-semibold">Error</span>
+        ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Action Bar */}
@@ -237,54 +285,17 @@ const ResultTab: React.FC = () => {
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-gray-800">Stock Solution - Fertilizer Amounts</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                    <th className="px-4 py-2">Tank</th>
-                    <th className="px-4 py-2">Fertilizer</th>
-                    <th className="px-4 py-2">Formula</th>
-                    <th className="px-4 py-2 text-right">g/L stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {['A', 'B', 'Acid', 'Micro', 'Silicon'].map((tank) => {
-                    const items = fertByTank[tank];
-                    if (!items || items.length === 0) return null;
-                    return items.map((f, i) => {
-                      // BUG-HYD-017: Use formula as key (unique within a tank) instead of
-                      // array index so React reconciles correctly if allocation order changes.
-                      const rowKey = `${tank}-${f.formula}`;
-                      // Result guard (Pattern 1): render an error indicator for NaN/Infinity
-                      // instead of displaying a plainly wrong dosage string.
-                      const dosageDisplay = isFinite(f.gramsPerLiter)
-                        ? f.gramsPerLiter.toFixed(3)
-                        : <span className="text-red-600 font-semibold">Error</span>;
-                      return (
-                        <tr key={rowKey} className="border-b border-gray-100 last:border-b-0">
-                          {i === 0 ? (
-                            <td className="px-4 py-2 font-semibold text-gray-800" rowSpan={items.length}>
-                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-                                tank === 'A' ? 'bg-blue-100 text-blue-700' :
-                                tank === 'B' ? 'bg-purple-100 text-purple-700' :
-                                tank === 'Acid' ? 'bg-red-100 text-red-700' :
-                                tank === 'Micro' ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-gray-100 text-gray-700'
-                              }`}>
-                                {tank.charAt(0)}
-                              </span>
-                            </td>
-                          ) : null}
-                          <td className="px-4 py-2 text-gray-700">{f.name}</td>
-                          <td className="px-4 py-2 text-gray-500 text-xs font-mono">{f.formula}</td>
-                          <td className="px-4 py-2 text-right font-medium text-gray-900">{dosageDisplay}</td>
-                        </tr>
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<FertilizerRow>
+              data={fertilizerRows}
+              columns={fertilizerColumns}
+              keyExtractor={(row) => `${row.tank}-${row.formula}`}
+              emptyMessage="No fertilizer allocation"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+              className="border-0 rounded-none shadow-none"
+            />
           </div>
 
           {/* Ion Balance */}

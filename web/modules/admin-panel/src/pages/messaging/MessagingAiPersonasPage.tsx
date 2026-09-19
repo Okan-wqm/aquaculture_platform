@@ -22,6 +22,43 @@ import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
 
+/** The hard limits the runtime enforces on an autonomous persona; the reference table lists them. */
+interface ActuationPolicyField {
+  field: string;
+  type: string;
+  description: string;
+  impact: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+}
+
+const ACTUATION_POLICY_FIELDS: ActuationPolicyField[] = [
+  { field: 'maxDosingKg', type: 'number (nullable)', description: 'Maximum reagent dosing per actuation in kilograms', impact: 'CRITICAL' },
+  { field: 'phRange', type: '{ min, max } (nullable)', description: 'Allowed pH range for autonomous adjustments', impact: 'CRITICAL' },
+  { field: 'temperatureRange', type: '{ min, max } (nullable)', description: 'Allowed temperature range for autonomous adjustments', impact: 'CRITICAL' },
+  { field: 'autonomousActionsEnabled', type: 'boolean', description: 'Master switch for autonomous AI actions', impact: 'HIGH' },
+  { field: 'proactiveMonitoringEnabled', type: 'boolean', description: 'Whether AI proactively monitors sensor data', impact: 'MEDIUM' },
+];
+
+const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' | 'info'> = {
+  CRITICAL: 'error',
+  HIGH: 'warning',
+  MEDIUM: 'info',
+};
+
+const actuationPolicyColumns: DataTableColumn<ActuationPolicyField>[] = [
+  { key: 'field', header: 'Field', render: (_value, row) => <span className="font-mono text-gray-700">{row.field}</span> },
+  { key: 'type', header: 'Type', render: (_value, row) => <span className="text-gray-500">{row.type}</span> },
+  { key: 'description', header: 'Description', render: (_value, row) => <span className="text-gray-600">{row.description}</span> },
+  {
+    key: 'impact',
+    header: 'Safety Impact',
+    render: (_value, row) => (
+      <Badge variant={IMPACT_BADGE[row.impact]} size="sm">
+        {row.impact}
+      </Badge>
+    ),
+  },
+];
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -331,60 +368,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
             the AI operates within these hard limits enforced by the platform runtime.
             Values exceeding these limits trigger automatic escalation to human operators.
           </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 dark:bg-gray-800/50">
-                <tr>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Field</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Description</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Safety Impact</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">maxDosingKg</td>
-                  <td className="px-3 py-2 text-gray-500">number (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Maximum reagent dosing per actuation in kilograms</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">phRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed pH range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">temperatureRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed temperature range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">autonomousActionsEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Master switch for autonomous AI actions</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="warning" size="sm">HIGH</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">proactiveMonitoringEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Whether AI proactively monitors sensor data</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="info" size="sm">MEDIUM</Badge>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ActuationPolicyField>
+            data={ACTUATION_POLICY_FIELDS}
+            columns={actuationPolicyColumns}
+            keyExtractor={(field) => field.field}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            compact
+          />
         </div>
       </Card>
 

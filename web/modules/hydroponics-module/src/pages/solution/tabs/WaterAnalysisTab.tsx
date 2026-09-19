@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
-import { Checkbox } from '@aquaculture/shared-ui';
+import { Checkbox, DataTable, NumberInput, Select, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSolution } from '../../../context/SolutionContext';
-import ParameterRow from '../../../components/solution/ParameterRow';
 import { UNIT_MMOL_PPM_OPTIONS, UNIT_EC_OPTIONS } from '../../../types/solution.types';
 import type { WaterParameter } from '../../../types/solution.types';
 
@@ -45,40 +44,93 @@ const WaterAnalysisTab: React.FC = () => {
     return UNIT_MMOL_PPM_OPTIONS;
   };
 
+  // Each parameter edits in place; the index into the full list is what the context updates by.
+  const parameterColumns: DataTableColumn<WaterParameter>[] = [
+    {
+      key: 'label',
+      header: 'Parameter',
+      render: (_value, param) => {
+        const globalIndex = wa.parameters.findIndex((p) => p.id === param.id);
+        return (
+          <>
+            <div className="flex items-center gap-2 whitespace-nowrap text-gray-700">
+              <span>{param.label}</span>
+              {param.symbol && <span className="text-xs text-gray-400">({param.symbol})</span>}
+            </div>
+            {param.hasSubParameter && param.subParameterOptions && (
+              <Select
+                options={param.subParameterOptions}
+                value={param.subParameter}
+                onChange={(e) => updateParameter(globalIndex, { subParameter: e.target.value })}
+                size="xs"
+                className="mt-1 max-w-[140px]"
+              />
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      width: '8rem',
+      render: (_value, param) => {
+        const globalIndex = wa.parameters.findIndex((p) => p.id === param.id);
+        return (
+          <NumberInput
+            value={param.value}
+            onChange={(e) => {
+              const parsed = parseFloat(e.target.value);
+              // WHY: Reject non-numeric input instead of silently coercing to 0.
+              // A zero-coercion masks data-entry mistakes and corrupts downstream
+              // nutrient calculations (0 mmol/L is valid and means "none present").
+              if (!Number.isFinite(parsed)) return;
+              updateParameter(globalIndex, { value: parsed });
+            }}
+            size="sm"
+            step={0.01}
+            min={0}
+          />
+        );
+      },
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      width: '7rem',
+      render: (_value, param) => {
+        const globalIndex = wa.parameters.findIndex((p) => p.id === param.id);
+        const unitOpts = getUnitOptions(param);
+        return unitOpts ? (
+          <Select
+            options={unitOpts}
+            value={param.unit}
+            onChange={(e) => updateParameter(globalIndex, { unit: e.target.value })}
+            size="xs"
+          />
+        ) : (
+          <span className="text-xs text-gray-500">
+            {param.unit === 'mmol' ? 'mmol/L' : param.unit === 'ppm' ? 'mg/L' : param.unit}
+          </span>
+        );
+      },
+    },
+  ];
+
   const renderGroup = (title: string, params: WaterParameter[]) => (
     <div>
       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{title}</h4>
-      <table className="w-full">
-        <thead>
-          <tr className="text-left text-xs font-medium text-gray-400 uppercase">
-            <th className="pb-1 pr-3">Parameter</th>
-            <th className="pb-1 px-2">Value</th>
-            <th className="pb-1 px-2">Unit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {params.map((param) => {
-            const globalIndex = wa.parameters.findIndex((p) => p.id === param.id);
-            const unitOpts = getUnitOptions(param);
-            return (
-              <ParameterRow
-                key={param.id}
-                label={param.label}
-                symbol={param.symbol}
-                value={param.value}
-                onChange={(val) => updateParameter(globalIndex, { value: val })}
-                unit={param.unit}
-                unitOptions={unitOpts}
-                onUnitChange={unitOpts ? (u) => updateParameter(globalIndex, { unit: u }) : undefined}
-                hasSubParameter={param.hasSubParameter}
-                subParameterOptions={param.subParameterOptions}
-                subParameter={param.subParameter}
-                onSubParameterChange={(val) => updateParameter(globalIndex, { subParameter: val })}
-              />
-            );
-          })}
-        </tbody>
-      </table>
+      <DataTable<WaterParameter>
+        data={params}
+        columns={parameterColumns}
+        keyExtractor={(param) => param.id}
+        emptyMessage="No parameters"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        compact
+        className="border-0 rounded-none shadow-none"
+      />
     </div>
   );
 

@@ -4,10 +4,9 @@
  * pull while it happens, and stays quiet when disabled or mid-scroll.
  */
 import { act, renderHook } from '@testing-library/react';
-import type { TouchEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_THRESHOLD_PX, MAX_PULL_PX, usePullToRefresh } from '../usePullToRefresh';
+import { DEFAULT_THRESHOLD_PX, MAX_PULL_PX, usePullToRefresh, type PullTouchEvent } from '../usePullToRefresh';
 
 function container(scrollTop = 0): HTMLElement {
   const el = document.createElement('div');
@@ -15,8 +14,8 @@ function container(scrollTop = 0): HTMLElement {
   return el;
 }
 
-function touch(target: HTMLElement, clientY: number): TouchEvent<HTMLElement> {
-  return { currentTarget: target, touches: [{ clientY }] } as unknown as TouchEvent<HTMLElement>;
+function touch(target: HTMLElement, clientY: number): PullTouchEvent {
+  return { currentTarget: target, touches: [{ clientY }] };
 }
 
 describe('usePullToRefresh', () => {

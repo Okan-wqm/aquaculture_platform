@@ -13,7 +13,7 @@
  * scroll-up never fires it. React registers touch listeners passively, so
  * nothing is prevented here; overscroll containment keeps the page still.
  */
-import { useCallback, useRef, useState, type TouchEvent } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 export interface PullToRefreshOptions {
   onRefresh: () => Promise<unknown>;
@@ -23,9 +23,20 @@ export interface PullToRefreshOptions {
   threshold?: number;
 }
 
+/**
+ * What the gesture reads from a touch event — the scroll container it is
+ * attached to and the first finger's vertical position. React's
+ * `TouchEvent<HTMLElement>` satisfies it, and so does a plain object in a
+ * test, so no event needs to be cast.
+ */
+export interface PullTouchEvent {
+  currentTarget: HTMLElement;
+  touches: ArrayLike<{ clientY: number }>;
+}
+
 export interface PullToRefreshHandlers {
-  onTouchStart: (event: TouchEvent<HTMLElement>) => void;
-  onTouchMove: (event: TouchEvent<HTMLElement>) => void;
+  onTouchStart: (event: PullTouchEvent) => void;
+  onTouchMove: (event: PullTouchEvent) => void;
   onTouchEnd: () => void;
   onTouchCancel: () => void;
 }
@@ -65,7 +76,7 @@ export function usePullToRefresh({
   }, []);
 
   const onTouchStart = useCallback(
-    (event: TouchEvent<HTMLElement>) => {
+    (event: PullTouchEvent) => {
       const touch = event.touches[0];
       if (!enabled || isRefreshing || !touch || !atTop(event.currentTarget)) {
         startY.current = null;
@@ -77,7 +88,7 @@ export function usePullToRefresh({
   );
 
   const onTouchMove = useCallback(
-    (event: TouchEvent<HTMLElement>) => {
+    (event: PullTouchEvent) => {
       const touch = event.touches[0];
       if (startY.current === null || !touch) return;
       if (!atTop(event.currentTarget)) {

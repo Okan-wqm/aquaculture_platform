@@ -17,15 +17,15 @@ Every event subject on the platform lands in ONE stream — `getStreamConfig()` 
 `subjects: ['events.>', 'commands.>', 'queries.>']`. There is no per-domain stream today, so the
 feeding subjects share the global budget:
 
-| Setting            | Value                                                       | Where                                                   |
-| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------- |
-| `max_age`          | 7 days                                                      | `getStreamConfig()`                                     |
-| `max_bytes`        | 1.5 GB                                                      | `getStreamConfig()` (must stay < `max_file_store` 2 GB) |
-| `max_msgs`         | 1,000,000                                                   | `getStreamConfig()`                                     |
-| `max_msg_size`     | 1 MB                                                        | `getStreamConfig()`                                     |
-| `discard`          | `old`                                                       | `getStreamConfig()`                                     |
-| `duplicate_window` | 2 min                                                       | `getStreamConfig()`                                     |
-| `num_replicas`     | `NATS_STREAM_REPLICAS`, clamped to what the server can host | `resolveEffectiveReplicas()`                            |
+| Setting            | Value                                                       | Where                                                                                           |
+| ------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `max_age`          | 7 days                                                      | `getStreamConfig()`                                                                             |
+| `max_bytes`        | 1.5 GB                                                      | `getStreamConfig()` (budgeted inside `max_file_store` 10 GB with the telemetry and DLQ streams) |
+| `max_msgs`         | 1,000,000                                                   | `getStreamConfig()`                                                                             |
+| `max_msg_size`     | 1 MB                                                        | `getStreamConfig()`                                                                             |
+| `discard`          | `old`                                                       | `getStreamConfig()`                                                                             |
+| `duplicate_window` | 2 min                                                       | `getStreamConfig()`                                                                             |
+| `num_replicas`     | `NATS_STREAM_REPLICAS`, clamped to what the server can host | `resolveEffectiveReplicas()`                                                                    |
 
 `discard: old` is the fact that matters for capacity: when the stream fills, the OLDEST messages are
 dropped, silently, regardless of whether a consumer has acked them. Durability against that is owned
@@ -100,7 +100,8 @@ invisible one against `max_bytes`. In order of preference:
 2. **Shorten global `max_age`** from 7 days if event-store coverage makes the longer window
    redundant.
 3. **Raise `max_bytes`** only after raising `max_file_store` in `nats.conf`, keeping the 25 %
-   headroom the current values encode (1.5 GB of 2 GB).
+   reserve over the sum of all declared streams (`tests/invariants/nats-jetstream-store-budget.spec.ts`
+   computes it).
 
 ## 2. Consumers
 

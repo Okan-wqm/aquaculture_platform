@@ -19,6 +19,21 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const NATS_CONF = 'infrastructure/docker/nats/nats.conf';
 const EVENT_BUS = 'platform/libs/event-bus/src/nats/nats-event-bus.ts';
+const CAPACITY_GATE = 'scripts/deploy/droplet-capacity.sh';
+const ALERT_RULES = 'infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml';
+
+/**
+ * INFRA-HIGH-177: two more numbers are copies of this budget and drifted with
+ * it. `droplet-capacity.sh` guards `max_file_store >= reserved × 1.25` on the
+ * droplet — the gate written to catch "the half-done version of exactly that
+ * change" — but its floor was a hand-typed second copy of the stream sizes
+ * (the events stream alone), so it stayed green while the telemetry stream
+ * tripled the reservation. And `JetStreamStorageHigh` fires at 75% of the
+ * store, a third copy. Both are held to the source here: the floor must equal
+ * the reserve exactly, the alert must equal 75% of the configured store.
+ */
+const CAPACITY_RESERVE_FACTOR = 1.25;
+const ALERT_FRACTION = 0.75;
 
 const UNIT: Record<string, number> = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
 
@@ -79,5 +94,35 @@ describe('INVARIANT: nats.conf max_file_store covers every JetStream stream rese
       maxFileStoreBytes: storeLimit,
       fits: reserved < storeLimit,
     }).toEqual({ reservedBytes: reserved, maxFileStoreBytes: storeLimit, fits: true });
+  });
+
+  it('every single stream fits the store on its own (a restart recreates them one at a time)', () => {
+    const storeLimit = parseNatsSize(/^\s*max_file_store:\s*(\S+)/m.exec(conf)?.[1] ?? '');
+    for (const [label, bytes] of streamReservations(source)) {
+      expect({ label, fits: bytes < storeLimit }).toEqual({ label, fits: true });
+    }
+  });
+
+  it("droplet-capacity.sh's default floor is exactly the reserved total × 1.25", () => {
+    const gate = readFileSync(resolve(REPO_ROOT, CAPACITY_GATE), 'utf8');
+    const floor =
+      /NATS_REQUIRED_FILE_STORE_BYTES="\$\{NATS_REQUIRED_FILE_STORE_BYTES:-(\d+)\}"/.exec(
+        gate,
+      )?.[1];
+    const reserved = [...streamReservations(source).values()].reduce((a, b) => a + b, 0);
+    expect(Number(floor)).toBe(Math.floor(reserved * CAPACITY_RESERVE_FACTOR));
+  });
+
+  it('max_file_store covers the capacity gate reserve, not just the bare sum', () => {
+    const storeLimit = parseNatsSize(/^\s*max_file_store:\s*(\S+)/m.exec(conf)?.[1] ?? '');
+    const reserved = [...streamReservations(source).values()].reduce((a, b) => a + b, 0);
+    expect(storeLimit).toBeGreaterThanOrEqual(Math.floor(reserved * CAPACITY_RESERVE_FACTOR));
+  });
+
+  it('the JetStreamStorageHigh threshold is exactly 75% of the configured store', () => {
+    const rules = readFileSync(resolve(REPO_ROOT, ALERT_RULES), 'utf8');
+    const threshold = /nats_server_jetstream_total_storage_bytes\s*>\s*(\d+)/.exec(rules)?.[1];
+    const storeLimit = parseNatsSize(/^\s*max_file_store:\s*(\S+)/m.exec(conf)?.[1] ?? '');
+    expect(Number(threshold)).toBe(Math.floor(storeLimit * ALERT_FRACTION));
   });
 });

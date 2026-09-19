@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Card,
-  useCanMutate,
   DataTable,
-  type DataTableColumn,
   PageHeader,
+  type DataTableColumn,
+  useCanMutate,
+  useI18n,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -252,11 +253,12 @@ function ErrorState({ message }: { message: string }): React.ReactElement {
  * panel says exactly that instead of three "could not be loaded" alerts.
  */
 function MonitoringDisabledState(): React.ReactElement {
+  const { t } = useI18n();
   return (
     <div role="status">
       <EmptyState
-        title="Environmental monitoring is not enabled for this deployment"
-        description="The platform operator has not switched on the environmental monitoring rollout yet. Your sea-cage sites and their locations are unaffected; weather, Copernicus Marine model values and Sentinel-2 scenes will appear here once it is enabled."
+        title={t('environment.monitoring.disabledTitle')}
+        description={t('environment.monitoring.disabledDescription')}
       />
     </div>
   );
@@ -514,6 +516,7 @@ function isRenderableLayerAvailability(status: EnvironmentAvailabilityStatus): b
 
 const EnvironmentPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const canCreateSite = useCanMutate('createSite');
   const { siteId: routeSiteId } = useParams<{ siteId: string }>();
   const [activeView, setActiveView] = useState<EnvironmentView>('current');
@@ -691,7 +694,7 @@ const EnvironmentPage: React.FC = () => {
   if (monitoringStatusQuery.isPending) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
-        <LoadingState label="Checking environmental monitoring availability…" />
+        <LoadingState label={t('environment.monitoring.checkingAvailability')} />
       </div>
     );
   }
@@ -701,7 +704,7 @@ const EnvironmentPage: React.FC = () => {
   if (monitoringStatusQuery.isError && monitoringStatusQuery.data === undefined) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
-        <ErrorState message="Environmental monitoring availability could not be determined." />
+        <ErrorState message={t('environment.monitoring.availabilityUnknown')} />
       </div>
     );
   }

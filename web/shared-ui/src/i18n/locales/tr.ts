@@ -98,7 +98,8 @@ export const tr: Record<MessageKey, string> = {
   'resetPassword.confirmPassword': 'Şifre Onayı',
   'resetPassword.submit': 'Şifreyi Sıfırla',
   'resetPassword.success.title': 'Şifre Sıfırlandı',
-  'resetPassword.success.message': 'Şifreniz başarıyla sıfırlandı. Giriş sayfasına yönlendiriliyorsunuz...',
+  'resetPassword.success.message':
+    'Şifreniz başarıyla sıfırlandı. Giriş sayfasına yönlendiriliyorsunuz...',
 
   // ── Accept Invitation ──
   'invitation.title': 'Daveti Kabul Et',
@@ -134,8 +135,7 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.newProtocol': 'Yeni Protokol',
   'feedingV2.editProtocol': 'Protokolü Düzenle',
   'feedingV2.archive': 'Arşivle',
-  'feedingV2.archiveConfirm':
-    '"{name}" protokolü arşivlensin mi? Aktif atamalar duraklatılacak.',
+  'feedingV2.archiveConfirm': '"{name}" protokolü arşivlensin mi? Aktif atamalar duraklatılacak.',
   'feedingV2.migrationNote': 'Taşıma notu',
   'feedingV2.statusLabel': 'Durum',
   'feedingV2.status.draft': 'Taslak',
@@ -187,8 +187,7 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.fcrMatrix.title': 'FCR matrisi (sıcaklık × ağırlık)',
   'feedingV2.fcrMatrix.addTemp': 'Sıcaklık ekle',
   'feedingV2.fcrMatrix.addWeight': 'Ağırlık ekle',
-  'feedingV2.fcrMatrix.required':
-    'FCR kaynağı matris seçili — aşağıda matrisi tanımlayın.',
+  'feedingV2.fcrMatrix.required': 'FCR kaynağı matris seçili — aşağıda matrisi tanımlayın.',
   'feedingV2.assignments.title': 'Protokol Atamaları',
   'feedingV2.assignments.subtitle':
     'Tank / pond / cage başına tek aktif protokol; operasyonel override’lar atamada yaşar',
@@ -227,8 +226,7 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.assignments.fcrOverride.protocolDefault': 'Protokol varsayılanı: {value}',
   'feedingV2.assignments.fcrOverride.overridden': 'Override edildi',
   'feedingV2.assignments.fcrOverride.reset': 'Varsayılana dön',
-  'feedingV2.assignments.speciesMismatch':
-    'Tür uyumsuzluğu — yine de atamak için gerekçe girin',
+  'feedingV2.assignments.speciesMismatch': 'Tür uyumsuzluğu — yine de atamak için gerekçe girin',
   'feedingV2.assignments.speciesMismatchReason': 'Uyumsuzluk gerekçesi',
   'feedingV2.assignments.empty': 'Henüz atama yok.',
   'feedingV2.assignments.manualTransition': 'Manuel yem geçişi',
@@ -242,11 +240,19 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.forecast.timelineTitle': 'Ünite yem geçişleri (önümüzdeki {days} gün)',
   'feedingV2.forecast.computedAt': '{at} itibarıyla',
   'feedingV2.forecast.mortalityApplied': 'Ölüm projeksiyonu: tür hayatta kalma oranı',
-  'feedingV2.forecast.poolScopeSite': 'Bilgilendirici site görünümü — kapsama kararı tenant havuzundan',
+  'feedingV2.forecast.poolScopeSite':
+    'Bilgilendirici site görünümü — kapsama kararı tenant havuzundan',
   'feedingV2.forecast.stale': 'Bayat: 26 saatten eski hesap',
   'feedingV2.forecast.mortalityNone': 'Ölüm projeksiyonu: yok (muhafazakâr)',
   'feedingV2.forecast.empty': 'Bu kapsamda öngörülen yem tüketimi yok.',
   'feedingV2.forecast.noUnits': 'Bu kapsamda aktif protokollü ünite yok.',
+
+  // ── Çevre izleme (farm-module) ──
+  'environment.monitoring.checkingAvailability': 'Çevre izleme kullanılabilirliği denetleniyor…',
+  'environment.monitoring.availabilityUnknown': 'Çevre izleme kullanılabilirliği belirlenemedi.',
+  'environment.monitoring.disabledTitle': 'Bu dağıtımda çevre izleme etkin değil',
+  'environment.monitoring.disabledDescription':
+    'Platform operatörü çevre izleme açılışını henüz devreye almadı. Kafes sahaleriniz ve konumları etkilenmez; hava durumu, Copernicus Marine model değerleri ve Sentinel-2 sahneleri etkinleştirildiğinde burada görünecek.',
   'feedingV2.forecast.noTransition': 'Ufuk içinde yem geçişi yok',
   'feedingV2.forecast.transitionLabel': '{days} gün sonra {code}',
   'feedingV2.forecast.stockoutBadge': '{code} {days} gün içinde tükeniyor',
@@ -254,7 +260,8 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.forecast.gapBadge': 'AÇIK',
   'feedingV2.forecast.siteLabel': 'Site',
   'feedingV2.forecast.horizonLabel': 'Ufuk (gün)',
-  'feedingV2.forecast.notComputed': 'Tahmin snapshot\'ı henüz üretilmedi — 07:00 süpürmesi üretir, stok/geçiş event\'leri tazeler.',
+  'feedingV2.forecast.notComputed':
+    "Tahmin snapshot'ı henüz üretilmedi — 07:00 süpürmesi üretir, stok/geçiş event'leri tazeler.",
   'feedingV2.tab.mealBoard': 'Öğün Panosu',
   'feedingV2.mealBoard.title': 'Öğün Panosu',
   'feedingV2.mealBoard.subtitle':
@@ -311,8 +318,7 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.finalize': 'Öğünü bitir',
   'feedingV2.mealBoard.skip': 'Atla',
   'feedingV2.mealBoard.pourKg': 'Döküm (kg)',
-  'feedingV2.mealBoard.finalizeHint':
-    'Bu dökümden sonra öğün biter — varyans ve büyüme uygulanır',
+  'feedingV2.mealBoard.finalizeHint': 'Bu dökümden sonra öğün biter — varyans ve büyüme uygulanır',
   'feedingV2.mealBoard.skipReason': 'Atlama gerekçesi',
   'feedingV2.mealBoard.pours': 'Dökümler',
   'feedingV2.mealBoard.correctPour': 'Düzelt',

@@ -1,4 +1,4 @@
-import { colors } from '@aquaculture/shared-contracts';
+import { colors, domainScale } from '@aquaculture/shared-contracts';
 /**
  * Chemical Reagent Database & Dosing Calculator
  * Ported from R CarbCalc calcAdjustment() function
@@ -416,17 +416,26 @@ export function reagentDirectionLine(
   return points;
 }
 
-// Reagent color palette for visualization
+/**
+ * One colour per reagent, off the categorical domain scale.
+ *
+ * Every reagent the operator has selected can be on the chart at once, so
+ * what matters is that no two lines read as the same colour — not that a
+ * reagent looks "good" or "dangerous". These are positions in a set, which
+ * is why they come off `domainScale.categorical` rather than the semantic
+ * scales: those carry four hues plus a coral, so a nine-member set aliased
+ * onto them collapses (two hydroxides both land on a near-black green).
+ */
 const REAGENT_COLORS: Record<string, string> = {
-  'Sodium Bicarbonate': colors.info[600],
-  'Sodium Carbonate': colors.accent[700],
-  'Sodium Hydroxide': colors.success[800],
-  'Calcium Carbonate': colors.info[700],
-  'Calcium Hydroxide': colors.success[900],
-  'Calcium Oxide': colors.warning[600],
-  'Add CO₂': colors.accent[600],
-  'De-gas CO₂': colors.error[600],
-  'Muriatic Acid': colors.accent[900],
+  'Sodium Bicarbonate': domainScale.categorical[0],
+  'Sodium Carbonate': domainScale.categorical[1],
+  'Sodium Hydroxide': domainScale.categorical[2],
+  'Calcium Carbonate': domainScale.categorical[3],
+  'Calcium Hydroxide': domainScale.categorical[4],
+  'Calcium Oxide': domainScale.categorical[5],
+  'Add CO₂': domainScale.categorical[6],
+  'De-gas CO₂': domainScale.categorical[7],
+  'Muriatic Acid': domainScale.categorical[8],
 };
 
 /**

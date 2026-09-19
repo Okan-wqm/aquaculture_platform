@@ -184,6 +184,82 @@ export const chartChrome: Readonly<{ grid: string; axis: string; border: string 
   border: colors.neutral[200],
 };
 
+/**
+ * Colours that encode a DOMAIN VALUE rather than an intent.
+ *
+ * WHY these are not the semantic scales: `error`, `warning`, `success` and
+ * `info` mean "bad", "caution", "good", "informational". A pH of 6.4 is not
+ * an error and a reagent is not a warning — they are positions in a domain,
+ * and what the reader needs from the colour is "which band" or "which one",
+ * not "how alarmed should I be".
+ *
+ * Aliasing a domain scale onto the semantic tokens by name similarity breaks
+ * it twice: the ramp stops being a ramp (the palette has four hues plus a
+ * coral accent, so the violet end folds back onto coral and brown), and its
+ * steps collide with the semantic tokens the same chart paints its data
+ * series with — a reference isoline drawn in the exact colour of the dosing
+ * line it is supposed to sit behind.
+ */
+export const domainScale = {
+  /**
+   * An ordered perceptual ramp for CONTINUOUS domain data — a pH scale, a
+   * temperature gradient, a risk ladder. Read by position: step 0 is the low
+   * end, step 9 the high end, and the hue turns monotonically from red
+   * through green and blue to violet. Adjacent steps are deliberately close;
+   * that is what makes it a gradient.
+   */
+  sequential: [
+    '#dc2626', // red
+    '#ef4444', // light red
+    '#f97316', // orange
+    '#eab308', // yellow
+    '#22c55e', // green
+    '#06b6d4', // cyan
+    '#3b82f6', // blue
+    '#6366f1', // indigo
+    '#a855f7', // purple
+    '#7c3aed', // deep purple
+  ],
+
+  /**
+   * Mutually distinguishable hues for a CATEGORICAL domain set — one colour
+   * per member, where every member may be drawn at once and the reader has
+   * to tell them apart at a glance. Unlike `chartPalette`, which leads with
+   * the brand and carries four blues, these are spread around the wheel.
+   * Order carries no meaning; separation does, and
+   * `libs/shared-contracts/src/__tests__/domain-scale.spec.ts` holds it.
+   */
+  categorical: [
+    '#2563eb', // blue
+    '#7c3aed', // violet
+    '#059669', // emerald
+    '#0891b2', // teal
+    '#65a30d', // olive
+    '#ca8a04', // dark amber
+    '#ea580c', // orange
+    '#dc2626', // red
+    '#be185d', // magenta
+    '#d946ef', // fuchsia
+  ],
+} as const satisfies Readonly<Record<string, readonly string[]>>;
+
+/**
+ * The ramp colour at `position`, clamped into the scale.
+ *
+ * Total by construction: the first step is read off the tuple by a literal
+ * index, so it is a definite value, and every later step only ever replaces
+ * it. A caller cannot land outside the ramp, so no callsite needs a fallback
+ * for an index the scale does not have.
+ */
+export function sequentialColor(position: number): string {
+  const [base, ...rest] = domainScale.sequential;
+  let value: string = base;
+  rest.forEach((candidate, index) => {
+    if (position >= index + 1) value = candidate;
+  });
+  return value;
+}
+
 /** The ten steps every semantic scale declares, in order. */
 const SCALE_STEPS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
 

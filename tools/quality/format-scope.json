@@ -44776,6 +44776,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/domain-scale.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared-contracts/src/__tests__/email-layout.spec.ts",
       "prettier_managed": true
     },

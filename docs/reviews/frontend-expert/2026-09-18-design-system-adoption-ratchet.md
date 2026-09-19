@@ -431,7 +431,10 @@ rules; the remaining class override rules take `:not([class*='dark:…'])`
 guards, so paired markup renders its own variants at once and the block
 is dead code the day the ratchet reaches zero; the shell's component
 classes (`.card`, `.data-table`, `.form-label`, …) are paired in their
-`@apply`. **Owner:** okan · **Expiry:** 2027-06-30.
+`@apply`. Batch 28: tenant-admin and admin-panel (3 236 classes in 90
+files; the converter learned to step over regex literals inside template
+expressions); darkSurface 2 400 → 1 800. **Owner:** okan ·
+**Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -448,9 +451,9 @@ classes (`.card`, `.data-table`, `.form-label`, …) are paired in their
   configuration drives columns and colours), the two feeding matrix editors (editable
   header cells, add/remove rows and columns — a spreadsheet, not a list),
   three report-export HTML strings, two calendar grids and a print document.
-- Light-only surfaces: 2.400 after batch 27 (`darkSurface` ratchet: admin-panel
-  376, farm 716, sensor 948, tenant-admin 224, shared-ui 75, aquamobil 61);
-  the shell's override block goes when the count reaches zero.
+- Light-only surfaces: 1.800 after batch 28 (`darkSurface` ratchet: farm 716,
+  sensor 948, shared-ui 75, aquamobil 61); the shell's override block goes
+  when the count reaches zero.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, i18n reach) — design
   work with product decisions attached; not gated here.

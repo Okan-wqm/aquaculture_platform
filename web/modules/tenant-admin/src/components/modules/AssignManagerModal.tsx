@@ -69,7 +69,7 @@ const AssignManagerModal: React.FC<{
         <>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             Cancel
           </button>
@@ -86,13 +86,13 @@ const AssignManagerModal: React.FC<{
     >
       <div className="px-6 py-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search users..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -104,7 +104,7 @@ const AssignManagerModal: React.FC<{
       <div className="px-6 pb-4 max-h-64 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
+            <RefreshCw className="w-6 h-6 animate-spin text-gray-500 dark:text-gray-400" />
           </div>
         ) : (
           <div className="space-y-2">
@@ -122,18 +122,18 @@ const AssignManagerModal: React.FC<{
                   {user.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{user.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
                 </div>
                 {selectedUserId === user.id ? (
                   <CheckCircle className="w-4 h-4 text-tenant-600" />
                 ) : (
-                  <Shield className="w-4 h-4 text-gray-500" />
+                  <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}
               </button>
             ))}
             {filteredUsers.length === 0 && !loading && (
-              <p className="text-center text-sm text-gray-500 py-4">No users found</p>
+              <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-4">No users found</p>
             )}
           </div>
         )}

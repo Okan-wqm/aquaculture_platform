@@ -106,8 +106,8 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
       icon: <CheckCircle className="w-3 h-3" />,
     },
     inactive: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
+      bg: 'bg-gray-100 dark:bg-gray-800',
+      text: 'text-gray-700 dark:text-gray-300',
       icon: <Clock className="w-3 h-3" />,
     },
     pending: {
@@ -278,10 +278,10 @@ const TenantDashboard: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Refresh"
             >
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
             <button
               onClick={() => navigate('/tenant/users')}
@@ -320,12 +320,12 @@ const TenantDashboard: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold text-gray-900">{subscription.planName}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{subscription.planName}</h3>
                   <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
                     subscription.status === 'active' ? 'bg-green-100 text-green-700' :
                     subscription.status === 'trial' ? 'bg-blue-100 text-blue-700' :
                     subscription.status === 'past_due' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-700'
+                    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   }`}>
                     {subscription.status === 'trial' ? 'Trial' :
                      subscription.status === 'active' ? 'Active' :
@@ -333,7 +333,7 @@ const TenantDashboard: React.FC = () => {
                      subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500 mt-0.5">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                   {subscription.billingCycle === 'monthly' ? 'Monthly' :
                    subscription.billingCycle === 'quarterly' ? 'Quarterly' :
                    subscription.billingCycle === 'annual' ? 'Annual' : subscription.billingCycle} billing
@@ -344,9 +344,9 @@ const TenantDashboard: React.FC = () => {
               <div className="text-right">
                 <p className="text-2xl font-bold text-tenant-600">
                   ${parseMoney(subscription.pricing.basePriceDecimal)}
-                  <span className="text-sm font-normal text-gray-500">/mo</span>
+                  <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Next billing: {formatDate(subscription.currentPeriodEnd)}
                 </p>
               </div>
@@ -370,7 +370,7 @@ const TenantDashboard: React.FC = () => {
           return (
             <div
               key={stat.id}
-              className="bg-white rounded-xl border border-gray-100 p-6 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start justify-between">
                 <div className={`p-3 rounded-xl ${colors.icon}`}>
@@ -384,14 +384,14 @@ const TenantDashboard: React.FC = () => {
                 )}
               </div>
               <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-500">
+                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   {stat.title}
                 </h3>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
                   {stat.value}
                 </p>
                 {stat.changeLabel && (
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {stat.changeLabel}
                   </p>
                 )}
@@ -404,10 +404,10 @@ const TenantDashboard: React.FC = () => {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Modules Status - Takes 2 columns */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
+        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Module Status
               </h2>
               <button
@@ -420,16 +420,16 @@ const TenantDashboard: React.FC = () => {
           </div>
           {modules.length === 0 ? (
             <div className="p-8 text-center">
-              <Package className="w-12 h-12 text-gray-500 mx-auto" />
-              <p className="text-sm text-gray-500 mt-3">No modules assigned yet</p>
-              <p className="text-xs text-gray-500 mt-1">Contact your administrator to get modules assigned</p>
+              <Package className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">No modules assigned yet</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Contact your administrator to get modules assigned</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {modules.map((module) => (
                 <div
                   key={module.id}
-                  className="p-4 hover:bg-gray-50 transition-colors"
+                  className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -437,18 +437,18 @@ const TenantDashboard: React.FC = () => {
                         {module.icon}
                       </div>
                       <div>
-                        <h3 className="text-sm font-medium text-gray-900">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
                           {module.name}
                         </h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           {module.users} users • Activated: {module.lastActivity}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <StatusBadge status={module.status} />
-                      <button className="p-1 rounded hover:bg-gray-100 transition-colors">
-                        <MoreVertical className="w-4 h-4 text-gray-500" />
+                      <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                       </button>
                     </div>
                   </div>
@@ -459,18 +459,18 @@ const TenantDashboard: React.FC = () => {
         </div>
 
         {/* Recent Activity - Takes 1 column */}
-        <div className="bg-white rounded-xl border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Recent Activity
               </h2>
             </div>
           </div>
           {activities.length === 0 ? (
             <div className="p-8 text-center">
-              <Activity className="w-12 h-12 text-gray-500 mx-auto" />
-              <p className="text-sm text-gray-500 mt-3">No recent activity</p>
+              <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">No recent activity</p>
             </div>
           ) : (
             <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
@@ -484,7 +484,7 @@ const TenantDashboard: React.FC = () => {
                         ? 'bg-blue-100 text-blue-600'
                         : activity.type === 'login'
                         ? 'bg-purple-100 text-purple-600'
-                        : 'bg-gray-100 text-gray-600'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                     }`}
                   >
                     {activity.type === 'user_added' ? (
@@ -496,10 +496,10 @@ const TenantDashboard: React.FC = () => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-900 line-clamp-2">
+                    <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-2">
                       {activity.description}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {activity.timestamp}
                     </p>
                   </div>
@@ -522,7 +522,7 @@ const TenantDashboard: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/tenant/modules')}
-              className="px-4 py-2 text-sm font-medium text-tenant-600 bg-white rounded-lg hover:bg-tenant-50 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-tenant-600 bg-white dark:bg-gray-900 rounded-lg hover:bg-tenant-50 transition-colors"
             >
               View Modules
             </button>

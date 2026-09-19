@@ -107,7 +107,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className="min-h-[400px] flex items-center justify-center p-8 bg-gray-50 rounded-xl">
+        <div className="min-h-[400px] flex items-center justify-center p-8 bg-gray-50 dark:bg-gray-800 rounded-xl">
           <div className="text-center max-w-lg w-full">
             {/* Error Icon */}
             <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
@@ -115,19 +115,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
 
             {/* Title */}
-            <h2 className="text-xl font-bold text-gray-900 mb-2">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
               {moduleName ? `${moduleName} Error` : 'Something went wrong'}
             </h2>
 
             {/* User Message */}
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
               {error?.userMessage || 'An unexpected error occurred. Please try again.'}
             </p>
 
             {/* Error Code Badge */}
             {error && (
               <div className="mb-6">
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                   Error Code: {error.code}
                 </span>
               </div>
@@ -146,14 +146,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               )}
               <button
                 onClick={this.handleRefresh}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh Page
               </button>
               <button
                 onClick={this.handleGoHome}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 <Home className="w-4 h-4" />
                 Go to Dashboard
@@ -165,7 +165,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <div className="text-left">
                 <button
                   onClick={this.toggleDetails}
-                  className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3"
+                  className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 mb-3"
                 >
                   <Bug className="w-4 h-4" />
                   Technical Details
@@ -193,7 +193,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     {errorInfo?.componentStack && (
                       <>
                         <hr className="border-gray-700 my-3" />
-                        <p className="text-xs text-gray-500 mb-2">Component Stack:</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Component Stack:</p>
                         <pre className="text-xs text-red-400 font-mono whitespace-pre-wrap">
                           {errorInfo.componentStack}
                         </pre>
@@ -233,10 +233,10 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
     <div className="min-h-[300px] flex items-center justify-center p-6 bg-red-50 rounded-xl border border-red-100">
       <div className="text-center max-w-md">
         <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {moduleName ? `${moduleName} Error` : 'Error'}
         </h3>
-        <p className="text-sm text-gray-600 mb-4">{processedError.userMessage}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{processedError.userMessage}</p>
         <div className="flex justify-center gap-3">
           {processedError.retryable && (
             <button
@@ -249,7 +249,7 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
           )}
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           >
             Refresh Page
           </button>

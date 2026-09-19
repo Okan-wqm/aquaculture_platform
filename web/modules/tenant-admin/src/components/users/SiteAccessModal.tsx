@@ -352,10 +352,10 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-tenant-100">
                 <ShieldCheck className="h-6 w-6 text-tenant-700" aria-hidden="true" />
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-gray-900">
+              <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {confirmationIsAssignment ? 'Assign site access?' : 'Remove site access?'}
               </h3>
-              <p className="mt-2 text-sm text-gray-600">
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                 {confirmationIsAssignment
                   ? `${user.name} will be able to view data for ${visiblePendingAction.site.name}.`
                   : `${user.name} will no longer be able to view data for ${visiblePendingAction.site.name}.`}
@@ -377,7 +377,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                 onClick={cancelConfirmation}
                 disabled={operationPending}
                 autoFocus
-                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -414,7 +414,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                 </div>
               ) : isInitialLoading ? (
                 <div
-                  className="flex items-center justify-center gap-3 py-12 text-sm text-gray-600"
+                  className="flex items-center justify-center gap-3 py-12 text-sm text-gray-600 dark:text-gray-400"
                   role="status"
                   aria-live="polite"
                 >
@@ -441,7 +441,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                         type="button"
                         onClick={handleRetryAll}
                         disabled={sitesQuery.isFetching || assignmentsQuery.isFetching}
-                        className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                        className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
                       >
                         {(sitesQuery.isFetching || assignmentsQuery.isFetching) && (
                           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -482,7 +482,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                               type="button"
                               onClick={handleRetryAssignments}
                               disabled={assignmentsQuery.isFetching}
-                              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
                             >
                               {assignmentsQuery.isFetching && (
                                 <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -508,14 +508,14 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
 
                   {displaySites.length === 0 ? (
                     <div className="py-10 text-center" role="status">
-                      <MapPin className="mx-auto h-10 w-10 text-gray-400" aria-hidden="true" />
-                      <h3 className="mt-3 text-sm font-medium text-gray-900">No active sites</h3>
-                      <p className="mt-1 text-sm text-gray-500">
+                      <MapPin className="mx-auto h-10 w-10 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+                      <h3 className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">No active sites</h3>
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         This tenant has no active farm sites available for assignment.
                       </p>
                     </div>
                   ) : (
-                    <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200">
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-700 rounded-xl border border-gray-200 dark:border-gray-700">
                       {displaySites.map((site) => {
                         const isAssigned = assignedSiteIds.has(site.id);
                         const accessibleSiteName = site.availableForAssignment
@@ -529,14 +529,14 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <MapPin
-                                  className="h-4 w-4 flex-none text-gray-400"
+                                  className="h-4 w-4 flex-none text-gray-400 dark:text-gray-500"
                                   aria-hidden="true"
                                 />
-                                <p className="truncate text-sm font-medium text-gray-900">
+                                <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                                   {site.name}
                                 </p>
                               </div>
-                              <p className="mt-1 pl-6 text-xs text-gray-500">
+                              <p className="mt-1 pl-6 text-xs text-gray-500 dark:text-gray-400">
                                 {site.availableForAssignment ? 'Site code' : 'Site ID'}: {site.code}
                               </p>
                             </div>
@@ -545,7 +545,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                                 className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
                                   isAssigned
                                     ? 'bg-green-100 text-green-700'
-                                    : 'bg-gray-100 text-gray-600'
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                                 }`}
                               >
                                 {isAssigned
@@ -583,11 +583,11 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
               )}
             </div>
 
-            <div className="flex justify-end border-t border-gray-100 px-6 py-4">
+            <div className="flex justify-end border-t border-gray-100 dark:border-gray-700 px-6 py-4">
               <button
                 type="button"
                 onClick={handleClose}
-                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Done
               </button>

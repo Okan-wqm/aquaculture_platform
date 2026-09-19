@@ -140,7 +140,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
       case 'success':
         return 'bg-green-100 text-green-700 border-green-200';
       default:
-        return 'bg-gray-100 text-gray-700 border-gray-200';
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
     }
   };
 
@@ -246,7 +246,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <PageHeader
           title="Announcements"
           description="Platform updates and important notices"
@@ -255,7 +255,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
               <button
                 onClick={handleRefresh}
                 disabled={loading}
-                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 title="Refresh"
               >
                 <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -275,12 +275,12 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mt-4">
-          <div className="bg-gray-50 rounded-lg p-3">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="flex items-center gap-2">
-              <Megaphone className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Total</span>
+              <Megaphone className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
             </div>
-            <div className="text-xl font-semibold text-gray-900 mt-1">{announcements.length}</div>
+            <div className="text-xl font-semibold text-gray-900 dark:text-gray-100 mt-1">{announcements.length}</div>
           </div>
           <div className="bg-blue-50 rounded-lg p-3">
             <div className="flex items-center gap-2">
@@ -309,22 +309,22 @@ export const TenantAnnouncementsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
             <input
               type="text"
               placeholder="Search announcements..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
             />
           </div>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Types</option>
             <option value="info">Info</option>
@@ -336,7 +336,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           <select
             value={readFilter}
             onChange={(e) => setReadFilter(e.target.value as 'all' | 'unread' | 'requires_ack')}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Announcements</option>
             <option value="unread">Unread Only</option>
@@ -349,7 +349,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Announcement List */}
         <div
-          className={`${selectedAnnouncement ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white overflow-y-auto`}
+          className={`${selectedAnnouncement ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto`}
         >
           {/* Error Message */}
           {error && (
@@ -372,20 +372,20 @@ export const TenantAnnouncementsPage: React.FC = () => {
               <Spinner size="lg" />
             </div>
           ) : filteredAnnouncements.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
               <div className="text-center">
-                <Megaphone size={48} className="mx-auto mb-3 text-gray-500" />
+                <Megaphone size={48} className="mx-auto mb-3 text-gray-500 dark:text-gray-400" />
                 <p className="font-medium">No announcements found</p>
                 <p className="text-sm mt-1">Try adjusting your filters</p>
               </div>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {filteredAnnouncements.map((announcement) => (
                 <div
                   key={announcement.id}
                   onClick={() => handleViewAnnouncement(announcement)}
-                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors border-l-4 ${getTypeBgColor(announcement.type)} ${
+                  className={`p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-l-4 ${getTypeBgColor(announcement.type)} ${
                     selectedAnnouncement?.id === announcement.id ? 'bg-tenant-50' : ''
                   } ${!announcement.isRead ? 'bg-blue-50/50' : ''}`}
                 >
@@ -394,7 +394,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3
-                          className={`font-medium ${!announcement.isRead ? 'text-gray-900' : 'text-gray-700'}`}
+                          className={`font-medium ${!announcement.isRead ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}`}
                         >
                           {announcement.title}
                         </h3>
@@ -409,8 +409,8 @@ export const TenantAnnouncementsPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">{announcement.content}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{announcement.content}</p>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
                           {formatDate(announcement.publishedAt || announcement.createdAt)}
@@ -433,17 +433,17 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
         {/* Announcement Detail */}
         {selectedAnnouncement && (
-          <div className="w-1/2 flex flex-col bg-gray-50">
+          <div className="w-1/2 flex flex-col bg-gray-50 dark:bg-gray-800">
             {/* Detail Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   <div className="mt-1">{getTypeIcon(selectedAnnouncement.type)}</div>
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                       {selectedAnnouncement.title}
                     </h2>
-                    <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                    <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
                         {formatDate(selectedAnnouncement.publishedAt || selectedAnnouncement.createdAt)}
@@ -454,7 +454,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedAnnouncement(null)}
-                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   <X size={20} />
                 </button>
@@ -473,12 +473,12 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 {/* SEC-008: Announcement content is plain text only. React JSX text
                     nodes prevent HTML/script injection. Do NOT switch to
                     dangerouslySetInnerHTML without running the value through
                     DOMPurify first — doing so would introduce a direct XSS path. */}
-                <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
                   {selectedAnnouncement.content}
                 </p>
               </div>
@@ -502,7 +502,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
             {/* Acknowledgment Section */}
             {selectedAnnouncement.requiresAcknowledgment && (
-              <div className="bg-white border-t border-gray-200 px-6 py-4">
+              <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
                 {selectedAnnouncement.isAcknowledged ? (
                   <div className="flex items-center justify-center gap-2 p-3 bg-green-50 rounded-lg text-green-700">
                     <CheckCircle size={18} />

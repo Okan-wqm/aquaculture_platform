@@ -217,7 +217,7 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
           const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
           return (
           <div key={col.columnName}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {col.columnName}
               {col.isPrimaryKey && (
                 <Badge variant="info" className="ml-2">
@@ -239,7 +239,7 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
               )}
             </label>
             {isSensitive ? (
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
+              <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400 italic">
                 [Sensitive field — not shown for security. Clear to unset.]
               </div>
             ) : (
@@ -261,10 +261,10 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
                 {col.dataType}
               </Badge>
               {col.isNullable && (
-                <span className="text-xs text-gray-500">nullable</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">nullable</span>
               )}
               {col.columnDefault && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   default: {col.columnDefault.substring(0, 30)}
                 </span>
               )}
@@ -554,7 +554,7 @@ const DatabaseExplorerPage: React.FC = () => {
                   title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(value)}
                 >
                   {value === null ? (
-                    <span className="text-gray-500 italic">NULL</span>
+                    <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
                   ) : valueIsMasked ? (
                     <span className="flex items-center gap-1 text-orange-600 font-mono">
                       <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
@@ -563,7 +563,7 @@ const DatabaseExplorerPage: React.FC = () => {
                       {MASKED_VALUE}
                     </span>
                   ) : col.dataType.includes('json') ? (
-                    <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{formatValue(value).substring(0, 50)}...</code>
+                    <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">{formatValue(value).substring(0, 50)}...</code>
                   ) : (
                     formatValue(value)
                   )}
@@ -592,7 +592,7 @@ const DatabaseExplorerPage: React.FC = () => {
                 </Button>
               </span>
             ) : (
-              <span className="text-xs italic text-gray-500">no primary key</span>
+              <span className="text-xs italic text-gray-500 dark:text-gray-400">no primary key</span>
             ),
         },
       ]
@@ -607,7 +607,7 @@ const DatabaseExplorerPage: React.FC = () => {
         actions={
           <div className="mt-4 sm:mt-0 flex gap-2">
             <select
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
               value={selectedSchema}
               onChange={(e) => handleSchemaSelect(e.target.value)}
             >
@@ -639,9 +639,9 @@ const DatabaseExplorerPage: React.FC = () => {
                     </svg>
                   </Button>
                   {showExportMenu && (
-                    <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border z-50">
+                    <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-gray-900 rounded-lg shadow-lg border z-50">
                       <button
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
                         onClick={() => handleExport('csv')}
                       >
                         <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -650,7 +650,7 @@ const DatabaseExplorerPage: React.FC = () => {
                         CSV
                       </button>
                       <button
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-b-lg"
                         onClick={() => handleExport('json')}
                       >
                         <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -691,11 +691,11 @@ const DatabaseExplorerPage: React.FC = () => {
                 className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
                   selectedTable === table.tableName
                     ? 'bg-blue-100 text-blue-700'
-                    : 'hover:bg-gray-100'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
                 <div className="font-medium text-sm">{table.tableName}</div>
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                   <span>{table.rowCount.toLocaleString()} rows</span>
                   <span>{formatBytes(table.sizeBytes)}</span>
                 </div>
@@ -707,7 +707,7 @@ const DatabaseExplorerPage: React.FC = () => {
         {/* Table Data */}
         <Card className="lg:col-span-3 overflow-hidden">
           {!selectedTable ? (
-            <div className="flex items-center justify-center h-64 text-gray-500">
+            <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
               Select a table
             </div>
           ) : loading && !tableData ? (
@@ -717,10 +717,10 @@ const DatabaseExplorerPage: React.FC = () => {
           ) : tableData ? (
             <>
               {/* Table Info Header */}
-              <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b flex items-center justify-between">
                 <div>
                   <span className="font-semibold">{selectedTable}</span>
-                  <span className="text-sm text-gray-500 ml-2">
+                  <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                     ({tableData.totalRows.toLocaleString()} rows)
                   </span>
                 </div>
@@ -759,7 +759,7 @@ const DatabaseExplorerPage: React.FC = () => {
               {/* Pagination */}
               {tableData.totalPages > 1 && (
                 <div className="px-4 py-3 border-t flex items-center justify-between">
-                  <div className="text-sm text-gray-500">
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
                     Page {tableData.page} / {tableData.totalPages} (
                     {((tableData.page - 1) * tableData.limit + 1).toLocaleString()} -{' '}
                     {Math.min(tableData.page * tableData.limit, tableData.totalRows).toLocaleString()}{' '}
@@ -808,7 +808,7 @@ const DatabaseExplorerPage: React.FC = () => {
         onClose={() => setDeleteConfirm({ show: false, id: '' })}
         title="Delete Row"
       >
-        <p className="text-gray-600 mb-4">
+        <p className="text-gray-600 dark:text-gray-400 mb-4">
           Are you sure you want to delete this row? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">

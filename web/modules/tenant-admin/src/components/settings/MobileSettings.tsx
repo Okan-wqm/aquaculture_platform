@@ -154,9 +154,9 @@ const MobileSettings: React.FC = () => {
   if (mobileUsers.length === 0) {
     return (
       <div className="py-12 text-center">
-        <Smartphone className="w-12 h-12 text-gray-500 mx-auto" />
-        <h3 className="mt-4 text-sm font-medium text-gray-900">No users found</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <Smartphone className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+        <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No users found</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Add users to your tenant first to configure mobile access.
         </p>
       </div>
@@ -194,8 +194,8 @@ const MobileSettings: React.FC = () => {
                 .slice(0, 2)}
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-900">{name}</p>
-              <p className="text-xs text-gray-500">{user.email}</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
             </div>
           </div>
         );
@@ -218,7 +218,7 @@ const MobileSettings: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Bulk actions */}
-      <div className="flex items-center gap-2 text-xs text-gray-500">
+      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span>Apply to all:</span>
         <button
           onClick={() => applyToAll('isMobileEnabled', true)}

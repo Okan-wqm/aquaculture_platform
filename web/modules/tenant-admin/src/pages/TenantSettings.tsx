@@ -133,8 +133,8 @@ const TenantSettings: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sidebar Navigation */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <nav className="divide-y divide-gray-100">
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <nav className="divide-y divide-gray-100 dark:divide-gray-700">
               {visibleSections.map((section) => (
                 <button
                   key={section.id}
@@ -142,25 +142,25 @@ const TenantSettings: React.FC = () => {
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
                     activeSection === section.id
                       ? 'bg-tenant-50 text-tenant-700'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 ${
-                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500'
+                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500 dark:text-gray-400'
                     }`}
                   >
                     {section.icon}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{section.title}</p>
-                    <p className="text-xs text-gray-500 truncate hidden sm:block">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block">
                       {section.description}
                     </p>
                   </div>
                   <ChevronRight
                     className={`w-4 h-4 flex-shrink-0 ${
-                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500'
+                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500 dark:text-gray-400'
                     }`}
                   />
                 </button>
@@ -171,12 +171,12 @@ const TenantSettings: React.FC = () => {
 
         {/* Settings Content */}
         <div className="lg:col-span-3">
-          <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
             <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {settingsSections.find((s) => s.id === activeSection)?.title}
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {settingsSections.find((s) => s.id === activeSection)?.description}
               </p>
             </div>

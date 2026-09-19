@@ -115,7 +115,7 @@ const ModulesPage: React.FC = () => {
     if (code.includes('ALERT') || code.includes('AUTO')) return 'bg-purple-100 text-purple-700';
     if (code.includes('ANALYTICS') || code.includes('REPORT')) return 'bg-orange-100 text-orange-700';
     if (code.includes('HR') || code.includes('EMPLOYEE')) return 'bg-pink-100 text-pink-700';
-    return 'bg-gray-100 text-gray-700';
+    return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
   };
 
   // Get category name from code
@@ -145,7 +145,7 @@ const ModulesPage: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -155,10 +155,10 @@ const ModulesPage: React.FC = () => {
                 value={searchTerm}
                 onChange={handleSearchChange}
                 onKeyDown={handleSearchKeyDown}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -177,7 +177,7 @@ const ModulesPage: React.FC = () => {
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === undefined && isCoreFilter === undefined
                   ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               All
@@ -191,7 +191,7 @@ const ModulesPage: React.FC = () => {
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === true
                   ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Active
@@ -205,7 +205,7 @@ const ModulesPage: React.FC = () => {
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isCoreFilter === true
                   ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Core
@@ -219,7 +219,7 @@ const ModulesPage: React.FC = () => {
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === false
                   ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               Inactive
@@ -248,27 +248,27 @@ const ModulesPage: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats?.totalModules ?? UNAVAILABLE}</div>
-          <div className="text-sm text-gray-500">Total Modules</div>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.totalModules ?? UNAVAILABLE}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Modules</div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-green-600">
             {stats?.activeModules ?? UNAVAILABLE}
           </div>
-          <div className="text-sm text-gray-500">Active Modules</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Active Modules</div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-purple-600">
             {stats?.coreModules ?? UNAVAILABLE}
           </div>
-          <div className="text-sm text-gray-500">Core Modules</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Core Modules</div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-blue-600">
             {stats?.totalAssignments ?? UNAVAILABLE}
           </div>
-          <div className="text-sm text-gray-500">Total Assignments</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Assignments</div>
         </div>
       </div>
 
@@ -285,21 +285,21 @@ const ModulesPage: React.FC = () => {
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-1/3 mb-4" />
-              <div className="h-6 bg-gray-200 rounded w-2/3 mb-2" />
-              <div className="h-3 bg-gray-200 rounded w-full mb-4" />
-              <div className="h-3 bg-gray-200 rounded w-1/2" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-pulse">
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-4" />
+              <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-2" />
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full mb-4" />
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
             </div>
           ))}
         </div>
       ) : modules.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-          <svg className="w-12 h-12 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
+          <svg className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
           </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No modules found</h3>
-          <p className="text-gray-500">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No modules found</h3>
+          <p className="text-gray-500 dark:text-gray-400">
             {searchTerm ? 'Try adjusting your search criteria.' : 'No modules have been created yet.'}
           </p>
         </div>
@@ -308,7 +308,7 @@ const ModulesPage: React.FC = () => {
           {modules.map((module) => (
             <div
               key={module.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -330,32 +330,32 @@ const ModulesPage: React.FC = () => {
                   onClick={() => handleToggleModule(module)}
                   disabled={togglingModuleId === module.id}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    module.isActive ? 'bg-blue-600' : 'bg-gray-200'
+                    module.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
                   } ${togglingModuleId === module.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                       module.isActive ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
                 </button>
               </div>
 
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">{module.name}</h3>
-              <p className="text-xs text-gray-500 mb-2">{module.code}</p>
-              <p className="text-sm text-gray-600 mb-4">{module.description || 'No description available'}</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{module.name}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{module.code}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{module.description || 'No description available'}</p>
 
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">
+                <span className="text-gray-500 dark:text-gray-400">
                   {module.price > 0 ? `$${module.price}/mo` : 'Free'}
                 </span>
                 <span className="text-blue-600 font-medium">{module.tenantsCount} tenants</span>
               </div>
 
               {module.defaultRoute && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs text-gray-500">
-                    Route: <code className="bg-gray-100 px-1 rounded">{module.defaultRoute}</code>
+                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Route: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{module.defaultRoute}</code>
                   </p>
                 </div>
               )}

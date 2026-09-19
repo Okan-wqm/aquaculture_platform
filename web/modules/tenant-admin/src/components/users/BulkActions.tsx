@@ -112,7 +112,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
                 value={selectedRoleId}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
                 disabled={isAssigningRole}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:opacity-50"
+                className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:opacity-50"
               >
                 <option value="">Select role...</option>
                 {roles.map((role) => (

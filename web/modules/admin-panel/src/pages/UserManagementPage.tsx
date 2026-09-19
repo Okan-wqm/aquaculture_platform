@@ -392,8 +392,8 @@ const UserManagementPage: React.FC = () => {
       sortable: true,
       render: (user) => (
         <div>
-          <p className="font-medium text-gray-900">{`${user.firstName} ${user.lastName}`}</p>
-          <p className="text-sm text-gray-500">{user.email}</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{`${user.firstName} ${user.lastName}`}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
         </div>
       ),
     },
@@ -410,7 +410,7 @@ const UserManagementPage: React.FC = () => {
       header: 'Tenant',
       sortable: true,
       render: (user) => (
-        <span className="text-sm text-gray-600">{user.tenantName || '-'}</span>
+        <span className="text-sm text-gray-600 dark:text-gray-400">{user.tenantName || '-'}</span>
       ),
     },
     {
@@ -428,7 +428,7 @@ const UserManagementPage: React.FC = () => {
       header: 'Last Login',
       sortable: true,
       render: (user) => (
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {user.lastLoginAt ? formatDate(new Date(user.lastLoginAt), 'short') : 'Never logged in'}
         </span>
       ),
@@ -502,25 +502,25 @@ const UserManagementPage: React.FC = () => {
           has not loaded, never a zero. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Total</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {stats ? stats.totalUsers.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Active</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
           <p className="text-2xl font-bold text-green-600">
             {stats ? stats.activeUsers.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Logins (Last 24h)</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Logins (Last 24h)</p>
           <p className="text-2xl font-bold text-blue-600">
             {stats ? stats.loginsLast24Hours.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">New (Last 30 Days)</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">New (Last 30 Days)</p>
           <p className="text-2xl font-bold text-purple-600">
             {stats ? stats.newUsersLast30Days.toLocaleString() : '—'}
           </p>
@@ -536,7 +536,7 @@ const UserManagementPage: React.FC = () => {
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               }
@@ -577,7 +577,7 @@ const UserManagementPage: React.FC = () => {
       {usersQuery.isPending ? (
         <div className="text-center py-8">
           <Spinner size="lg" block />
-          <p className="mt-2 text-gray-500">Loading...</p>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Loading...</p>
         </div>
       ) : (
         <Table
@@ -599,7 +599,7 @@ const UserManagementPage: React.FC = () => {
           >
             Previous
           </Button>
-          <span className="py-2 px-4 text-sm text-gray-600">
+          <span className="py-2 px-4 text-sm text-gray-600 dark:text-gray-400">
             Page {page} / {expectedTotalPages(matchingUsers, PAGE_SIZE)}
           </span>
           <Button
@@ -693,9 +693,9 @@ const UserManagementPage: React.FC = () => {
                 id="isActive"
                 checked={formData.isActive}
                 onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                className="rounded border-gray-300"
+                className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
+              <label htmlFor="isActive" className="text-sm text-gray-700 dark:text-gray-300">Active</label>
             </div>
           )}
 
@@ -721,29 +721,29 @@ const UserManagementPage: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Full Name</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Full Name</p>
                 <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">E-posta</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">E-posta</p>
                 <p className="font-medium">{selectedUser.email}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Role</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Role</p>
                 <Badge variant={getRoleVariant(selectedUser.role)}>{getRoleLabel(selectedUser.role)}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
                 <Badge variant={selectedUser.isActive ? 'success' : 'default'}>
                   {selectedUser.isActive ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Tenant</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Tenant</p>
                 <p className="font-medium">{selectedUser.tenantName || '-'}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Last Login</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Last Login</p>
                 <p className="font-medium">
                   {selectedUser.lastLoginAt
                     ? formatDate(new Date(selectedUser.lastLoginAt), 'long')
@@ -751,7 +751,7 @@ const UserManagementPage: React.FC = () => {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Created</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
                 <p className="font-medium">{formatDate(new Date(selectedUser.createdAt), 'long')}</p>
               </div>
             </div>
@@ -829,7 +829,7 @@ const UserManagementPage: React.FC = () => {
                 )}
               </div>
               {userLimitCheck.limit !== -1 && (
-                <div className="mt-2 bg-gray-200 rounded-full h-2">
+                <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
                     className={`h-2 rounded-full ${
                       userLimitCheck.canCreate ? 'bg-green-500' : 'bg-red-500'
@@ -901,11 +901,11 @@ const UserManagementPage: React.FC = () => {
           />
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Message (Optional)
             </label>
             <textarea
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               rows={3}
               value={inviteFormData.message}
               onChange={(e) =>

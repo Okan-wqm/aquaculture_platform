@@ -45,9 +45,9 @@ const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' |
 };
 
 const actuationPolicyColumns: DataTableColumn<ActuationPolicyField>[] = [
-  { key: 'field', header: 'Field', render: (_value, row) => <span className="font-mono text-gray-700">{row.field}</span> },
-  { key: 'type', header: 'Type', render: (_value, row) => <span className="text-gray-500">{row.type}</span> },
-  { key: 'description', header: 'Description', render: (_value, row) => <span className="text-gray-600">{row.description}</span> },
+  { key: 'field', header: 'Field', render: (_value, row) => <span className="font-mono text-gray-700 dark:text-gray-300">{row.field}</span> },
+  { key: 'type', header: 'Type', render: (_value, row) => <span className="text-gray-500 dark:text-gray-400">{row.type}</span> },
+  { key: 'description', header: 'Description', render: (_value, row) => <span className="text-gray-600 dark:text-gray-400">{row.description}</span> },
   {
     key: 'impact',
     header: 'Safety Impact',
@@ -153,7 +153,7 @@ const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
             </span>
           ))}
           {persona.capabilities.length > 3 && (
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
               +{persona.capabilities.length - 3} more
             </span>
           )}
@@ -291,7 +291,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
               <Spinner size="lg" block className="mb-3" />
-              <p className="text-sm text-gray-500">Loading personas from backend...</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading personas from backend...</p>
             </div>
           </div>
         </Card>
@@ -318,7 +318,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <p className="text-sm text-gray-500">Enter a Tenant ID and click "Load Personas" to view the AI persona configuration from the backend.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Enter a Tenant ID and click "Load Personas" to view the AI persona configuration from the backend.</p>
             </div>
           </div>
         </Card>
@@ -344,7 +344,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-bold">{info.label}</span>
-                  <code className="text-[10px] bg-white/50 px-1.5 py-0.5 rounded font-mono">
+                  <code className="text-[10px] bg-white/50 dark:bg-gray-900/50 px-1.5 py-0.5 rounded font-mono">
                     actuationPolicy: &apos;{key}&apos;
                   </code>
                 </div>

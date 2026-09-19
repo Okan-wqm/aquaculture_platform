@@ -74,7 +74,7 @@ const StatCard: React.FC<{
 const HoldStatusBadge: React.FC<{ active: boolean }> = ({ active }) => (
   <span
     className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-      active ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'
+      active ? 'bg-red-100 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
     }`}
   >
     {active ? 'ACTIVE' : 'RELEASED'}
@@ -88,7 +88,7 @@ const ExportStatusBadge: React.FC<{ status: string }> = ({ status }) => {
     failed: 'bg-red-100 text-red-800',
   };
   return (
-    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${map[status] ?? 'bg-gray-100 text-gray-800'}`}>
+    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${map[status] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -104,7 +104,7 @@ const AuditOperationsChart: React.FC<{ data: DailyAuditData[]; height?: number }
 }) => {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>
+      <div className="flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm" style={{ height }}>
         No audit data available
       </div>
     );
@@ -150,7 +150,7 @@ const RetentionChart: React.FC<{ buckets: RetentionBucket[] }> = ({ buckets }) =
 
   if (buckets.every((b) => b.tenantCount === 0)) {
     return (
-      <div className="flex items-center justify-center text-gray-400 text-sm py-8">
+      <div className="flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm py-8">
         No retention data available
       </div>
     );
@@ -160,14 +160,14 @@ const RetentionChart: React.FC<{ buckets: RetentionBucket[] }> = ({ buckets }) =
     <div className="space-y-3">
       {buckets.map((bucket) => (
         <div key={bucket.label} className="flex items-center gap-3">
-          <span className="text-xs text-gray-600 w-20 text-right">{bucket.label}</span>
-          <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+          <span className="text-xs text-gray-600 dark:text-gray-400 w-20 text-right">{bucket.label}</span>
+          <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-5 overflow-hidden">
             <div
               className={`h-full rounded-full ${bucket.color} transition-all duration-500`}
               style={{ width: `${(bucket.tenantCount / maxCount) * 100}%` }}
             />
           </div>
-          <span className="text-xs text-gray-500 w-8">{bucket.tenantCount}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 w-8">{bucket.tenantCount}</span>
         </div>
       ))}
     </div>
@@ -459,11 +459,11 @@ const MessagingCompliancePage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Audit Operations Per Day</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Audit Operations Per Day</h3>
             <AuditOperationsChart data={dailyAudit} />
             <div className="mt-3 flex justify-between items-center">
-              <span className="text-xs text-gray-400">Last 14 days</span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-400 dark:text-gray-500">Last 14 days</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 Total: {stats.auditEntriesCount.toLocaleString()} entries
               </span>
             </div>
@@ -472,17 +472,17 @@ const MessagingCompliancePage: React.FC = () => {
 
         <Card>
           <div className="p-5">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Retention Distribution</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Retention Distribution</h3>
             <RetentionChart buckets={retentionBuckets} />
             <div className="mt-4 space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Messages Under Hold</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Messages Under Hold</span>
                 <Badge variant={stats.messagesUnderLegalHold > 0 ? 'error' : 'success'}>
                   {stats.messagesUnderLegalHold.toLocaleString()}
                 </Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Pending Retention Cleanup</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Pending Retention Cleanup</span>
                 <Badge variant={stats.pendingRetentionCleanup > 1000 ? 'warning' : 'success'}>
                   {stats.pendingRetentionCleanup.toLocaleString()}
                 </Badge>
@@ -496,14 +496,14 @@ const MessagingCompliancePage: React.FC = () => {
       <Card>
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Legal Holds</h3>
-            <span className="text-xs text-gray-400">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Legal Holds</h3>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
               {legalHolds.filter((h) => h.isActive).length} active / {legalHolds.length} total
             </span>
           </div>
           {holdsQuery.loading && legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-gray-400">Loading legal holds...</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">Loading legal holds...</p>
             </div>
           ) : legalHolds.length === 0 ? (
             <div className="flex items-center justify-center py-12">
@@ -511,7 +511,7 @@ const MessagingCompliancePage: React.FC = () => {
                 <svg className="w-10 h-10 text-green-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-sm text-gray-500">No legal holds</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">No legal holds</p>
               </div>
             </div>
           ) : (
@@ -533,13 +533,13 @@ const MessagingCompliancePage: React.FC = () => {
       <Card>
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Export Jobs</h3>
-            <span className="text-xs text-gray-400">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Export Jobs</h3>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
               {exports.filter((e) => e.status === 'completed').length} completed
             </span>
           </div>
           {exports.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">
+            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
               No export jobs found.
             </p>
           ) : (

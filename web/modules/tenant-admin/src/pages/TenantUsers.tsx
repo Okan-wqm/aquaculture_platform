@@ -296,10 +296,10 @@ const TenantUsers: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Refresh"
             >
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
             {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
                 export backend) yet rendered ungated to every users:view delegate —

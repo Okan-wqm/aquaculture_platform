@@ -88,8 +88,8 @@ const MODULE_CONFIG: Record<string, { label: string; icon: React.ReactNode; colo
   other: {
     label: 'Other Tables',
     icon: <Database className="w-5 h-5" />,
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-50',
+    color: 'text-gray-600 dark:text-gray-400',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
   },
 };
 
@@ -183,13 +183,13 @@ const StatCard: React.FC<{
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-4">
         <div className={`p-3 rounded-xl ${colorClasses[color]}`}>{icon}</div>
         <div>
-          <p className="text-sm text-gray-500">{label}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-          {subValue && <p className="text-xs text-gray-500">{subValue}</p>}
+          <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+          {subValue && <p className="text-xs text-gray-500 dark:text-gray-400">{subValue}</p>}
         </div>
       </div>
     </div>
@@ -383,7 +383,7 @@ const TenantDatabase: React.FC = () => {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Spinner size="lg" block />
-          <p className="mt-2 text-sm text-gray-500">Loading database information...</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading database information...</p>
         </div>
       </div>
     );
@@ -395,8 +395,8 @@ const TenantDatabase: React.FC = () => {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-          <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load database info</p>
-          <p className="mt-1 text-sm text-gray-500">{error}</p>
+          <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load database info</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
           <button
             onClick={handleRefresh}
             className="mt-4 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700"
@@ -428,7 +428,7 @@ const TenantDatabase: React.FC = () => {
           <div className={`w-8 h-8 rounded-lg ${config.bgColor} flex items-center justify-center`}>
             <Table className={`w-4 h-4 ${config.color}`} />
           </div>
-          <span className="text-sm font-medium text-gray-900">
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {table.name}
           </span>
         </div>
@@ -438,7 +438,7 @@ const TenantDatabase: React.FC = () => {
       key: 'rows',
       header: 'Rows',
       render: (_value, table) => (
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-600 dark:text-gray-400">
           {formatNumber(table.rowCount)}
         </span>
       ),
@@ -447,21 +447,21 @@ const TenantDatabase: React.FC = () => {
       key: 'size',
       header: 'Size',
       render: (_value, table) => (
-        <span className="text-sm text-gray-600">{table.size}</span>
+        <span className="text-sm text-gray-600 dark:text-gray-400">{table.size}</span>
       ),
     },
     {
       key: 'indexes',
       header: 'Indexes',
       render: (_value, table) => (
-        <span className="text-sm text-gray-600">{table.indexCount}</span>
+        <span className="text-sm text-gray-600 dark:text-gray-400">{table.indexCount}</span>
       ),
     },
     {
       key: 'lastModified',
       header: 'Last Modified',
       render: (_value, table) => (
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {formatDate(table.lastModified)}
         </span>
       ),
@@ -500,7 +500,7 @@ const TenantDatabase: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -559,17 +559,17 @@ const TenantDatabase: React.FC = () => {
       </div>
 
       {/* Database Info Card */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-xl bg-tenant-50">
               <Server className="w-6 h-6 text-tenant-600" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {databaseInfo.databaseName}
               </h2>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Schema: {databaseInfo.schemaName}
               </p>
             </div>
@@ -577,42 +577,42 @@ const TenantDatabase: React.FC = () => {
           <StatusBadge status={databaseInfo.status} />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Database Type
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.databaseType}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{databaseInfo.databaseType}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Region
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.region}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{databaseInfo.region}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Isolation Level
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.isolationLevel}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{databaseInfo.isolationLevel}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider">
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Encryption
             </p>
-            <p className="text-sm font-medium text-gray-900 mt-1">{databaseInfo.encryption}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-1">{databaseInfo.encryption}</p>
           </div>
         </div>
       </div>
 
       {/* Tables List - Grouped by Module */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Layers className="w-5 h-5 text-gray-500" />
-              <h2 className="text-lg font-semibold text-gray-900">Tables</h2>
-              <span className="text-sm text-gray-500">
+              <Layers className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tables</h2>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
                 ({filteredTables.length} tables)
               </span>
             </div>
@@ -622,12 +622,12 @@ const TenantDatabase: React.FC = () => {
                 placeholder="Search tables..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
               />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               >
                 <option value="name">Sort by Name</option>
                 <option value="rows">Sort by Rows</option>
@@ -638,7 +638,7 @@ const TenantDatabase: React.FC = () => {
         </div>
 
         {/* Module Groups */}
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {['farm', 'sensor', 'hr', 'other'].map((module) => {
             const config = MODULE_CONFIG[module];
             const moduleTables = groupedTables[module] || [];
@@ -661,15 +661,15 @@ const TenantDatabase: React.FC = () => {
                     <span className={`text-sm font-semibold ${config.color}`}>
                       {config.label}
                     </span>
-                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
                       {stats.tableCount} tables
                     </span>
-                    <span className="text-xs text-gray-500 bg-white/60 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/60 dark:bg-gray-900/60 px-2 py-0.5 rounded-full">
                       {formatNumber(stats.totalRows)} rows
                     </span>
                   </div>
                   <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${
+                    className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${
                       expandedModules[module] ? 'rotate-0' : '-rotate-90'
                     }`}
                   />
@@ -696,11 +696,11 @@ const TenantDatabase: React.FC = () => {
         {/* Empty State */}
         {filteredTables.length === 0 && (
           <div className="py-12 text-center">
-            <Table className="w-12 h-12 text-gray-500 mx-auto" />
-            <h3 className="mt-4 text-sm font-medium text-gray-900">
+            <Table className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+            <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
               No tables found
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Try adjusting your search criteria.
             </p>
           </div>

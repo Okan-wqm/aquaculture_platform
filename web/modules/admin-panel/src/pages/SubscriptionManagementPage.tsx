@@ -171,8 +171,8 @@ const SubscriptionManagementPage: React.FC = () => {
       header: 'Tenant',
       render: (_value, sub) => (
         <>
-          <div className="font-medium text-gray-900">{sub.tenantName}</div>
-          <div className="text-sm text-gray-500">{sub.tenantId.substring(0, 8)}...</div>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{sub.tenantName}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.tenantId.substring(0, 8)}...</div>
         </>
       ),
     },
@@ -182,7 +182,7 @@ const SubscriptionManagementPage: React.FC = () => {
       render: (_value, sub) => (
         <>
           <div className="font-medium">{sub.planName}</div>
-          <div className="text-sm text-gray-500">{sub.planTier}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.planTier}</div>
         </>
       ),
     },
@@ -193,14 +193,14 @@ const SubscriptionManagementPage: React.FC = () => {
       render: (_value, sub) => (
         <>
           <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
-          <div className="text-sm text-gray-500">{sub.billingCycle}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.billingCycle}</div>
         </>
       ),
     },
     {
       key: 'currentPeriodEnd',
       header: 'Period End',
-      render: (_value, sub) => <span className="text-sm text-gray-500">{formatDate(sub.currentPeriodEnd)}</span>,
+      render: (_value, sub) => <span className="text-sm text-gray-500 dark:text-gray-400">{formatDate(sub.currentPeriodEnd)}</span>,
     },
     {
       key: 'autoRenew',
@@ -264,41 +264,41 @@ const SubscriptionManagementPage: React.FC = () => {
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">MRR</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">MRR</div>
             <div className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(stats.mrr)}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               ARR: {formatCurrency(stats.arr)}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Subscriptions</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Subscriptions</div>
+            <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {stats.totalSubscriptions}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Active: {stats.byStatus[SubscriptionStatus.ACTIVE] || 0}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Churn Rate</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Churn Rate</div>
             <div className="mt-1 text-2xl font-bold text-orange-600">
               {stats.churnRate.toFixed(1)}%
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Trial Conversion: {stats.trialConversionRate.toFixed(1)}%
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Attention Needed</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Attention Needed</div>
             <div className="mt-1 text-2xl font-bold text-red-600">
               {stats.pastDueCount}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Expiring this month: {stats.expiringThisMonth}
             </div>
           </Card>
@@ -313,7 +313,7 @@ const SubscriptionManagementPage: React.FC = () => {
             {Object.entries(stats.byStatus).map(([status, count]) => (
               <div
                 key={status}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg"
               >
                 {getStatusBadge(status as SubscriptionStatus)}
                 <span className="font-semibold">{count}</span>
@@ -338,7 +338,7 @@ const SubscriptionManagementPage: React.FC = () => {
           </div>
 
           <select
-            className="px-3 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value as SubscriptionStatus | '');
@@ -354,7 +354,7 @@ const SubscriptionManagementPage: React.FC = () => {
           </select>
 
           <select
-            className="px-3 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
             value={planFilter}
             onChange={(e) => {
               setPlanFilter(e.target.value as PlanTier | '');
@@ -405,16 +405,16 @@ const SubscriptionManagementPage: React.FC = () => {
             </>
           }
         >
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
             Are you sure you want to cancel the subscription for{' '}
             <strong>{selectedSubscription.tenantName}</strong>?
           </p>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Cancellation Reason
             </label>
             <textarea
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
               rows={3}
               value={cancelReason}
               onChange={(e) => setCancelReason(e.target.value)}
@@ -443,12 +443,12 @@ const SubscriptionManagementPage: React.FC = () => {
             </>
           }
         >
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
             Extend the trial period for{' '}
             <strong>{selectedSubscription.tenantName}</strong>
           </p>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Additional Days
             </label>
             <Input

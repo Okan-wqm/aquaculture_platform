@@ -148,7 +148,7 @@ const getStatusColor = (status: string): string => {
     case 'rolled_back':
       return 'text-purple-600 bg-purple-100';
     default:
-      return 'text-gray-600 bg-gray-100';
+      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
   }
 };
 
@@ -169,7 +169,7 @@ const ProgressBar: React.FC<{ value: number; max: number; color?: string }> = ({
 }) => {
   const percentage = max > 0 ? (value / max) * 100 : 0;
   return (
-    <div className="w-full bg-gray-200 rounded-full h-2">
+    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
       <div
         className={`h-2 rounded-full ${color}`}
         style={{ width: `${Math.min(percentage, 100)}%` }}
@@ -182,14 +182,14 @@ const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Loading...'
   <div className="flex items-center justify-center py-12">
     <div className="text-center">
       <Spinner size="lg" block className="mb-3" />
-      <p className="text-sm text-gray-500">{message}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
     </div>
   </div>
 );
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div className="flex items-center justify-center py-12">
-    <p className="text-sm text-gray-500">{message}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -263,8 +263,8 @@ const SchemasTab: React.FC = () => {
       header: 'Schema Name',
       render: (_value, schema) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{schema.schemaName}</div>
-          <div className="text-xs text-gray-500">Tenant: {schema.tenantId}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{schema.schemaName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Tenant: {schema.tenantId}</div>
         </>
       ),
     },
@@ -324,26 +324,26 @@ const SchemasTab: React.FC = () => {
           when the aggregate did not load, so a failed read is never read as a
           platform with no tenants. */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Total Schemas</div>
-          <div className="text-2xl font-bold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Schemas</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {summary ? summary.totalSchemas.toLocaleString() : '—'}
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Active</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
           <div className="text-2xl font-bold text-green-600">
             {summary ? summary.activeSchemas.toLocaleString() : '—'}
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Total Size</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Size</div>
           <div className="text-2xl font-bold text-blue-600">
             {summary ? formatBytes(summary.totalSizeBytes) : '—'}
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="text-sm text-gray-500">Total Tables</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Tables</div>
           <div className="text-2xl font-bold text-purple-600">
             {summary ? summary.totalTableCount.toLocaleString() : '—'}
           </div>
@@ -351,12 +351,12 @@ const SchemasTab: React.FC = () => {
       </div>
 
       {/* Schema List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
             Tenant Schemas
             {summary && summary.totalSchemas > schemas.length && (
-              <span className="ml-2 text-sm font-normal text-gray-500">
+              <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
                 showing {schemas.length.toLocaleString()} of {summary.totalSchemas.toLocaleString()}
               </span>
             )}
@@ -370,7 +370,7 @@ const SchemasTab: React.FC = () => {
                 provisioning failed silently. */}
             <button
               onClick={reload}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
@@ -399,39 +399,39 @@ const SchemasTab: React.FC = () => {
         >
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-sm text-gray-500">Schema Name</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Schema Name</div>
               <div className="font-medium">{selectedSchema.schemaName}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Tenant ID</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Tenant ID</div>
               <div className="font-medium">{selectedSchema.tenantId}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Status</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Status</div>
               <StatusBadge status={selectedSchema.status} />
             </div>
             <div>
-              <div className="text-sm text-gray-500">Version</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Version</div>
               <div className="font-medium">{selectedSchema.currentVersion}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Size</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Size</div>
               <div className="font-medium">{formatBytes(selectedSchema.sizeBytes || 0)}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Tables</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Tables</div>
               <div className="font-medium">{selectedSchema.tableCount || 0}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Last Migration</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Last Migration</div>
               <div className="font-medium">{formatDate(selectedSchema.lastMigrationAt)}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Last Backup</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Last Backup</div>
               <div className="font-medium">{formatDate(selectedSchema.lastBackupAt)}</div>
             </div>
             <div>
-              <div className="text-sm text-gray-500">Created</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Created</div>
               <div className="font-medium">{formatDate(selectedSchema.createdAt)}</div>
             </div>
           </div>
@@ -439,7 +439,7 @@ const SchemasTab: React.FC = () => {
             <button
               onClick={() => validateIsolation.mutate({ tenantId: selectedSchema.tenantId })}
               disabled={validateIsolation.isPending}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
             >
               {validateIsolation.isPending ? 'Validating…' : 'Validate Isolation'}
             </button>
@@ -527,8 +527,8 @@ const MigrationsTab: React.FC = () => {
       header: 'Migration',
       render: (_value, migration) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-          <div className="text-xs text-gray-500">{migration.migrationName}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{migration.version}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{migration.migrationName}</div>
         </>
       ),
     },
@@ -551,7 +551,7 @@ const MigrationsTab: React.FC = () => {
               actually carries. */}
           {migration.schemaName}
           {migration.affectedTables.length > 0 && (
-            <span className="ml-1 text-gray-400">
+            <span className="ml-1 text-gray-400 dark:text-gray-500">
               ({migration.affectedTables.length} tables)
             </span>
           )}
@@ -578,13 +578,13 @@ const MigrationsTab: React.FC = () => {
         onRetry={reload}
       />
       {/* Available Migrations */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Available Migrations</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Available Migrations</h3>
           <div className="flex space-x-3">
             <button
               onClick={() => void plansQuery.refetch()}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
@@ -597,13 +597,13 @@ const MigrationsTab: React.FC = () => {
             {plans.map((plan) => (
               <div
                 key={plan.version}
-                className="border border-gray-200 rounded-lg p-4 hover:border-blue-300"
+                className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-300"
               >
                 <div className="flex justify-between items-start">
                   <div>
                     <div className="flex items-center space-x-3">
-                      <span className="text-lg font-medium text-gray-900">{plan.version}</span>
-                      <span className="text-sm text-gray-500">{plan.name}</span>
+                      <span className="text-lg font-medium text-gray-900 dark:text-gray-100">{plan.version}</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">{plan.name}</span>
                       {plan.isDestructive && (
                         <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-600">
                           Destructive
@@ -615,8 +615,8 @@ const MigrationsTab: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
-                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{plan.description}</p>
+                    <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
                       <span>Tables: {plan.affectedTables.join(', ')}</span>
                       <span>Est. Duration: {formatDuration(plan.estimatedDuration)}</span>
                     </div>
@@ -629,12 +629,12 @@ const MigrationsTab: React.FC = () => {
       </div>
 
       {/* Migration History */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Migration History</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Migration History</h3>
           <button
             onClick={() => void historyQuery.refetch()}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 text-sm"
           >
             Refresh
           </button>
@@ -719,7 +719,7 @@ const MonitoringTab: React.FC = () => {
       key: 'queryPattern',
       header: 'Query Pattern',
       render: (_value, query) => (
-        <code className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
+        <code className="text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
           {query.query.length > 80
             ? query.query.substring(0, 80) + '...'
             : query.query}
@@ -755,8 +755,8 @@ const MonitoringTab: React.FC = () => {
       header: 'Schema',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{item.schemaName}</div>
-          <div className="text-xs text-gray-500">{item.tenantId}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.schemaName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{item.tenantId}</div>
         </>
       ),
     },
@@ -789,7 +789,7 @@ const MonitoringTab: React.FC = () => {
         return (
           <div className="flex items-center space-x-2">
             <ProgressBar value={percentage} max={100} />
-            <span className="text-sm text-gray-500">{percentage.toFixed(1)}%</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">{percentage.toFixed(1)}%</span>
           </div>
         );
       },
@@ -808,9 +808,9 @@ const MonitoringTab: React.FC = () => {
       />
       {/* Health Status */}
       {health ? (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Database Health</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Database Health</h3>
             <div className="flex items-center space-x-3">
               <span
                 className={`text-3xl font-bold ${
@@ -826,7 +826,7 @@ const MonitoringTab: React.FC = () => {
               <StatusBadge status={health.status} />
               <button
                 onClick={() => void healthQuery.refetch()}
-                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+                className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 text-sm"
               >
                 Refresh
               </button>
@@ -834,13 +834,13 @@ const MonitoringTab: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {health.checks.map((check) => (
-              <div key={check.name} className="p-4 bg-gray-50 rounded-lg">
+              <div key={check.name} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">{check.name}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{check.name}</span>
                   <StatusBadge status={check.status} />
                 </div>
-                <div className="text-xl font-bold text-gray-900">{check.value}</div>
-                <div className="text-xs text-gray-500">{check.message}</div>
+                <div className="text-xl font-bold text-gray-900 dark:text-gray-100">{check.value}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{check.message}</div>
               </div>
             ))}
           </div>
@@ -859,41 +859,41 @@ const MonitoringTab: React.FC = () => {
 
       {/* Connection Stats */}
       {connections ? (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Connection Pool</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Connection Pool</h3>
             <button
               onClick={() => void connectionsQuery.refetch()}
-              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">{connections.total}</div>
-              <div className="text-sm text-gray-500">Total</div>
+              <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">{connections.total}</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
             </div>
             <div className="text-center">
               <div className="text-3xl font-bold text-green-600">{connections.active}</div>
-              <div className="text-sm text-gray-500">Active</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
             </div>
             <div className="text-center">
               <div className="text-3xl font-bold text-blue-600">{connections.idle}</div>
-              <div className="text-sm text-gray-500">Idle</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Idle</div>
             </div>
             <div className="text-center">
               <div className="text-3xl font-bold text-yellow-600">{connections.waiting}</div>
-              <div className="text-sm text-gray-500">Waiting</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Waiting</div>
             </div>
             <div className="text-center">
               <div className="text-3xl font-bold text-purple-600">{connections.maxConnections}</div>
-              <div className="text-sm text-gray-500">Max</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Max</div>
             </div>
           </div>
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-gray-500">Utilization</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Utilization</span>
               <span className="text-sm font-medium">
                 {(connections.utilizationPercent || 0).toFixed(1)}%
               </span>
@@ -915,12 +915,12 @@ const MonitoringTab: React.FC = () => {
 
       {/* Storage by Tenant */}
       {storage.length > 0 ? (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900">Storage by Tenant</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Storage by Tenant</h3>
             <button
               onClick={() => void storageQuery.refetch()}
-              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
@@ -937,20 +937,20 @@ const MonitoringTab: React.FC = () => {
           />
         </div>
       ) : !storageQuery.isPending && !storageQuery.error ? (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Storage by Tenant</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Storage by Tenant</h3>
           <EmptyState message="No storage data available." />
         </div>
       ) : null}
 
       {/* Slow Queries */}
       {slowQueries.length > 0 ? (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900">Slow Queries (Grouped)</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Slow Queries (Grouped)</h3>
             <button
               onClick={() => void slowQueriesQuery.refetch()}
-              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
@@ -967,31 +967,31 @@ const MonitoringTab: React.FC = () => {
           />
         </div>
       ) : !slowQueriesQuery.isPending && !slowQueriesQuery.error ? (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Slow Queries</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Slow Queries</h3>
           <EmptyState message="No slow queries detected." />
         </div>
       ) : null}
 
       {/* Index Recommendations */}
       {indexRecommendations.length > 0 ? (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900">Index Recommendations</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Index Recommendations</h3>
             <button
               onClick={() => void indexQuery.refetch()}
-              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
             </button>
           </div>
           <div className="p-6 space-y-4">
             {indexRecommendations.map((rec, idx) => (
-              <div key={idx} className="border border-gray-200 rounded-lg p-4">
+              <div key={idx} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center space-x-2">
-                      <span className="font-medium text-gray-900">{rec.tableName}</span>
+                      <span className="font-medium text-gray-900 dark:text-gray-100">{rec.tableName}</span>
                       <span
                         className={`px-2 py-0.5 text-xs rounded-full ${
                           rec.estimatedImpact === 'high'
@@ -1004,8 +1004,8 @@ const MonitoringTab: React.FC = () => {
                         {rec.estimatedImpact} impact
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{rec.reason}</p>
-                    <code className="block text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded mt-2">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{rec.reason}</p>
+                    <code className="block text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded mt-2">
                       {rec.createStatement}
                     </code>
                   </div>
@@ -1015,8 +1015,8 @@ const MonitoringTab: React.FC = () => {
           </div>
         </div>
       ) : !indexQuery.isPending && !indexQuery.error ? (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Index Recommendations</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Index Recommendations</h3>
           <EmptyState message="No index recommendations at this time." />
         </div>
       ) : null}
@@ -1038,7 +1038,7 @@ const DatabaseManagementPage: React.FC = () => {
   ];
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
+    <div className="p-6 bg-gray-100 dark:bg-gray-800 min-h-screen">
       {/* Header */}
       <PageHeader
         title="Database Management"
@@ -1048,7 +1048,7 @@ const DatabaseManagementPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="mb-6">
-        <div className="border-b border-gray-200">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="-mb-px flex space-x-8">
             {tabs.map((tab) => (
               <button
@@ -1057,7 +1057,7 @@ const DatabaseManagementPage: React.FC = () => {
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
               >
                 {tab.label}

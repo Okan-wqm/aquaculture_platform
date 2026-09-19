@@ -43,7 +43,7 @@ const getTypeColor = (dataType: string): string => {
   if (type.includes('uuid')) {
     return 'text-cyan-500';
   }
-  return 'text-gray-500';
+  return 'text-gray-500 dark:text-gray-400';
 };
 
 /**
@@ -71,7 +71,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       key: 'indexName',
       header: 'Index Name',
       render: (_value, idx) => (
-        <span className="font-mono text-sm text-gray-700">
+        <span className="font-mono text-sm text-gray-700 dark:text-gray-300">
           {idx.indexName}
         </span>
       ),
@@ -80,7 +80,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       key: 'column',
       header: 'Column',
       render: (_value, idx) => (
-        <span className="font-mono text-sm text-gray-600">
+        <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
           {idx.columnName}
         </span>
       ),
@@ -96,7 +96,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               Y
             </span>
           ) : (
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs font-medium">
               N
             </span>
           )}
@@ -114,7 +114,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               Y
             </span>
           ) : (
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs font-medium">
               N
             </span>
           )}
@@ -130,7 +130,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       render: (_value, col) => (
         <div className="flex items-center gap-2">
           <Hash className={`w-3.5 h-3.5 ${getTypeColor(col.dataType)}`} />
-          <span className="font-mono text-sm font-medium text-gray-900">
+          <span className="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
             {col.columnName}
           </span>
         </div>
@@ -140,7 +140,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       key: 'type',
       header: 'Type',
       render: (_value, col) => (
-        <code className={`text-xs px-2 py-1 rounded-md bg-gray-100 ${getTypeColor(col.dataType)}`}>
+        <code className={`text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 ${getTypeColor(col.dataType)}`}>
           {formatDataType(col)}
         </code>
       ),
@@ -155,7 +155,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
             className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
               col.isNullable
                 ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 text-gray-500'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
             }`}
           >
             {col.isNullable ? 'Y' : 'N'}
@@ -169,13 +169,13 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       render: (_value, col) => (
         <>
           {col.columnDefault ? (
-            <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded max-w-[150px] truncate inline-block">
+            <code className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded max-w-[150px] truncate inline-block">
               {col.columnDefault.length > 30
                 ? `${col.columnDefault.substring(0, 30)}...`
                 : col.columnDefault}
             </code>
           ) : (
-            <span className="text-xs text-gray-500">-</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">-</span>
           )}
         </>
       ),
@@ -205,7 +205,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
             </span>
           )}
           {!col.isPrimaryKey && !col.isForeignKey && (
-            <span className="text-xs text-gray-500">-</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">-</span>
           )}
         </div>
       ),
@@ -224,12 +224,12 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
         <>
           <span className="text-tenant-600 font-medium">{schemaName}</span>
           <span className="mx-1">.</span>
-          <span className="font-semibold text-gray-700">{tableOnly}</span>
+          <span className="font-semibold text-gray-700 dark:text-gray-300">{tableOnly}</span>
         </>
       }
       footer={
         <div className="flex w-full items-center justify-between">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {!loading && !error && columns.length > 0 && (
               <>
                 {columns.length} column{columns.length !== 1 ? 's' : ''}
@@ -241,7 +241,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           </p>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           >
             Close
           </button>
@@ -252,7 +252,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Spinner size="lg" />
-          <p className="mt-3 text-sm text-gray-500">Loading schema information...</p>
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Loading schema information...</p>
         </div>
       )}
 
@@ -262,8 +262,8 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           <div className="p-3 rounded-full bg-red-100">
             <AlertCircle className="w-6 h-6 text-red-500" />
           </div>
-          <p className="mt-3 text-sm font-medium text-gray-900">Failed to load schema</p>
-          <p className="mt-1 text-sm text-gray-500 text-center max-w-md">{error}</p>
+          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">Failed to load schema</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">{error}</p>
         </div>
       )}
 
@@ -272,11 +272,11 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
         <div className="space-y-6">
           {/* Columns Section */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Type className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Type className="w-4 h-4 text-gray-500 dark:text-gray-400" />
               Columns ({columns.length})
             </h3>
-            <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl overflow-hidden border border-gray-100 dark:border-gray-700">
               <DataTable<ColumnInfo>
                 data={columns}
                 columns={columnInfoColumns}
@@ -293,11 +293,11 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           {/* Indexes Section */}
           {indexes && indexes.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Key className="w-4 h-4 text-gray-500" />
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Key className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 Indexes ({indexes.length})
               </h3>
-              <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl overflow-hidden border border-gray-100 dark:border-gray-700">
                 <DataTable<IndexInfo>
                   data={indexes}
                   columns={indexInfoColumns}
@@ -315,8 +315,8 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           {/* Foreign Key References */}
           {columns.some(col => col.isForeignKey) && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Link2 className="w-4 h-4 text-gray-500" />
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 Foreign Key References
               </h3>
               <div className="grid gap-2">
@@ -328,9 +328,9 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
                       className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100"
                     >
                       <Link2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                      <span className="font-mono text-sm text-gray-700">
+                      <span className="font-mono text-sm text-gray-700 dark:text-gray-300">
                         <span className="font-semibold">{col.columnName}</span>
-                        <span className="text-gray-500 mx-2">→</span>
+                        <span className="text-gray-500 dark:text-gray-400 mx-2">→</span>
                         <span className="text-blue-600">
                           {col.foreignKeyTable}.{col.foreignKeyColumn}
                         </span>

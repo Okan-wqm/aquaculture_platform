@@ -132,12 +132,6 @@ darkSurface:
       expiry: 2027-06-30
       findingId: FE-MEDIUM-072
       reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
-    - package: web/modules/admin-panel
-      ceiling: 376
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-072
-      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
     - package: web/modules/farm-module
       ceiling: 716
       owner: okan
@@ -146,12 +140,6 @@ darkSurface:
       reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
     - package: web/modules/sensor-module
       ceiling: 948
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-072
-      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
-    - package: web/modules/tenant-admin
-      ceiling: 224
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-072

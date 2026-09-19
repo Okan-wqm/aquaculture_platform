@@ -90,7 +90,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
           key: '__row',
           header: '#',
           render: (_value, _row, index) => (
-            <span className="font-mono text-xs text-gray-500">{data.offset + index + 1}</span>
+            <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{data.offset + index + 1}</span>
           ),
         },
         ...data.columns.map((col): DataTableColumn<Record<string, unknown>> => ({
@@ -124,24 +124,24 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
         <>
           <span className="text-blue-600 font-medium">{schemaName}</span>
           <span className="mx-1">.</span>
-          <span className="font-semibold text-gray-700">{tableOnly}</span>
+          <span className="font-semibold text-gray-700 dark:text-gray-300">{tableOnly}</span>
         </>
       }
       footer={
         <div className="flex w-full items-center justify-between">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {!loading && !error && data && (
               <>
                 Showing{' '}
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-gray-700 dark:text-gray-300">
                   {data.totalRows === 0 ? 0 : data.offset + 1}
                 </span>
                 {' - '}
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-gray-700 dark:text-gray-300">
                   {Math.min(data.offset + rows.length, data.totalRows)}
                 </span>
                 {' of '}
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-gray-700 dark:text-gray-300">
                   {data.totalRows.toLocaleString()}
                 </span>
                 {' rows'}
@@ -157,14 +157,14 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                   disabled={!hasPrevPage}
                   className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                     hasPrevPage
-                      ? 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
-                      : 'text-gray-500 bg-gray-100 cursor-not-allowed'
+                      ? 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
                   }`}
                 >
                   <ChevronLeft className="w-4 h-4" />
                   Previous
                 </button>
-                <span className="text-sm text-gray-500 px-2">
+                <span className="text-sm text-gray-500 dark:text-gray-400 px-2">
                   Page {currentPage} of {totalPages}
                 </span>
                 <button
@@ -172,8 +172,8 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
                   disabled={!hasNextPage}
                   className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                     hasNextPage
-                      ? 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
-                      : 'text-gray-500 bg-gray-100 cursor-not-allowed'
+                      ? 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
                   }`}
                 >
                   Next
@@ -183,7 +183,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="ml-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className="ml-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               Close
             </button>
@@ -195,7 +195,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
       {loading && (
         <div className="flex flex-col items-center justify-center py-12 flex-1">
           <Spinner size="lg" />
-          <p className="mt-3 text-sm text-gray-500">Loading table data...</p>
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Loading table data...</p>
         </div>
       )}
 
@@ -205,8 +205,8 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
           <div className="p-3 rounded-full bg-red-100">
             <AlertCircle className="w-6 h-6 text-red-500" />
           </div>
-          <p className="mt-3 text-sm font-medium text-gray-900">Failed to load data</p>
-          <p className="mt-1 text-sm text-gray-500 text-center max-w-md">{error}</p>
+          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">Failed to load data</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">{error}</p>
         </div>
       )}
 

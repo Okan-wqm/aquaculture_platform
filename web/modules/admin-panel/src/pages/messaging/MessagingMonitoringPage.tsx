@@ -63,8 +63,8 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Outbox Health</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Outbox Health</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Transactional event outbox of the messaging service
             </p>
           </div>
@@ -85,23 +85,23 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
         )}
 
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-3 rounded-lg bg-gray-50">
-            <dt className="text-xs font-medium text-gray-500">Pending events</dt>
-            <dd className="text-xl font-bold text-gray-900 mt-1">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Pending events</dt>
+            <dd className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {outbox.pendingCount.toLocaleString()}
             </dd>
           </div>
-          <div className={`p-3 rounded-lg ${hasFailures ? 'bg-red-50' : 'bg-gray-50'}`}>
-            <dt className={`text-xs font-medium ${hasFailures ? 'text-red-600' : 'text-gray-500'}`}>
+          <div className={`p-3 rounded-lg ${hasFailures ? 'bg-red-50' : 'bg-gray-50 dark:bg-gray-800'}`}>
+            <dt className={`text-xs font-medium ${hasFailures ? 'text-red-600' : 'text-gray-500 dark:text-gray-400'}`}>
               Dead-lettered events
             </dt>
-            <dd className={`text-xl font-bold mt-1 ${hasFailures ? 'text-red-700' : 'text-gray-900'}`}>
+            <dd className={`text-xl font-bold mt-1 ${hasFailures ? 'text-red-700' : 'text-gray-900 dark:text-gray-100'}`}>
               {outbox.failedCount.toLocaleString()}
             </dd>
           </div>
-          <div className="p-3 rounded-lg bg-gray-50">
-            <dt className="text-xs font-medium text-gray-500">Oldest pending age</dt>
-            <dd className="text-xl font-bold text-gray-900 mt-1">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Oldest pending age</dt>
+            <dd className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {outbox.oldestPendingAgeSeconds === null
                 ? '—'
                 : formatAge(outbox.oldestPendingAgeSeconds)}
@@ -202,10 +202,10 @@ const MessagingMonitoringPage: React.FC = () => {
       {/* Top tenants by 24h volume */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
             Top Tenants by 24h Message Volume
           </h3>
-          <p className="text-xs text-gray-500 mb-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Highest-volume tenants over the last 24 hours (tenant IDs shortened)
           </p>
 
@@ -224,7 +224,7 @@ const MessagingMonitoringPage: React.FC = () => {
               />
             </div>
           ) : (
-            <p className="text-sm text-gray-500 py-8 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
               {loading ? 'Loading tenant activity...' : 'No tenant messaging activity recorded yet.'}
             </p>
           )}
@@ -233,7 +233,7 @@ const MessagingMonitoringPage: React.FC = () => {
 
       {/* Freshness note */}
       {stats && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-gray-500">
           Statistics are aggregated by the messaging service and cached for 60 seconds. Last
           computed: {new Date(stats.generatedAt).toLocaleString()}
         </p>

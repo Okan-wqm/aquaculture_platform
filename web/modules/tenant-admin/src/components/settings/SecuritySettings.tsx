@@ -93,11 +93,11 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <RefreshCw className="w-4 h-4 animate-spin" />
         Loading security settings...
       </div>
@@ -120,7 +120,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
           <ShieldCheck className="w-4 h-4" />
           <h3 className="text-sm font-semibold uppercase tracking-wider">Authentication</h3>
         </div>
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           <Toggle
             enabled={enforceMfa}
             onChange={canEdit ? setEnforceMfa : () => undefined}
@@ -140,9 +140,9 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sessionTimeout">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="sessionTimeout">
           Session timeout (minutes)
-          <span className="ml-2 text-xs font-normal text-gray-400">
+          <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
             {MIN_SESSION_TIMEOUT}-{MAX_SESSION_TIMEOUT}; leave blank to use the platform default
           </span>
         </label>
@@ -165,14 +165,14 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
             {timeoutError}
           </p>
         )}
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Idle sessions end after this many minutes without activity.
         </p>
       </div>
 
       {/* IP whitelisting has no persistence and no enforcement yet
           (ADMIN-MEDIUM-013) — stated as a note, never as a control. */}
-      <div className="flex items-start gap-2 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-500">
+      <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
         <span>
           <strong>IP whitelisting</strong> is not configurable yet.

@@ -74,8 +74,8 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
  */
 const ActionBadge: React.FC<{ action: string }> = ({ action }) => {
   // Color-code common actions
-  let bg = 'bg-gray-100';
-  let text = 'text-gray-700';
+  let bg = 'bg-gray-100 dark:bg-gray-800';
+  let text = 'text-gray-700 dark:text-gray-300';
   const lower = action.toLowerCase();
   if (lower.includes('create') || lower.includes('add')) {
     bg = 'bg-green-100';
@@ -119,7 +119,7 @@ const DetailsModal: React.FC<{
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           Close
         </button>
@@ -127,52 +127,52 @@ const DetailsModal: React.FC<{
     >
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">Timestamp</label>
-          <p className="text-sm text-gray-900 mt-0.5">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Timestamp</label>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
             {new Date(entry.createdAt).toLocaleString()}
           </p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">Severity</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Severity</label>
           <div className="mt-0.5">
             <SeverityBadge severity={entry.severity} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">Action</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Action</label>
           <div className="mt-0.5">
             <ActionBadge action={entry.action} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">User</label>
-          <p className="text-sm text-gray-900 mt-0.5">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User</label>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
             {entry.performedByEmail || entry.performedBy}
           </p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">IP Address</label>
-          <p className="text-sm text-gray-900 mt-0.5 font-mono">{entry.ipAddress || 'N/A'}</p>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">IP Address</label>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5 font-mono">{entry.ipAddress || 'N/A'}</p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">Entity</label>
-          <p className="text-sm text-gray-900 mt-0.5">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Entity</label>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
             {entry.entityType}{entry.entityId ? ` / ${entry.entityId.slice(0, 8)}...` : ''}
           </p>
         </div>
       </div>
       {entry.userAgent && (
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">User Agent</label>
-          <p className="text-xs text-gray-600 mt-0.5 break-all font-mono bg-gray-50 p-2 rounded">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User Agent</label>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-all font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded">
             {entry.userAgent}
           </p>
         </div>
       )}
       {entry.details && Object.keys(entry.details).length > 0 && (
         <div>
-          <label className="text-xs font-medium text-gray-500 uppercase">Details</label>
-          <pre className="text-xs text-gray-700 mt-0.5 bg-gray-50 p-3 rounded-lg overflow-auto max-h-48 font-mono">
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Details</label>
+          <pre className="text-xs text-gray-700 dark:text-gray-300 mt-0.5 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto max-h-48 font-mono">
             {JSON.stringify(entry.details, null, 2)}
           </pre>
         </div>
@@ -189,13 +189,13 @@ const TableSkeleton: React.FC = () => (
   <div className="animate-pulse">
     {Array.from({ length: 8 }).map((_, i) => (
       <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-gray-50">
-        <div className="w-36 h-4 bg-gray-200 rounded" />
-        <div className="w-24 h-5 bg-gray-200 rounded-full" />
-        <div className="w-32 h-4 bg-gray-200 rounded" />
-        <div className="w-24 h-4 bg-gray-200 rounded" />
-        <div className="w-16 h-5 bg-gray-200 rounded-full" />
+        <div className="w-36 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+        <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full" />
+        <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+        <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+        <div className="w-16 h-5 bg-gray-200 dark:bg-gray-700 rounded-full" />
         <div className="flex-1" />
-        <div className="w-8 h-8 bg-gray-200 rounded" />
+        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded" />
       </div>
     ))}
   </div>
@@ -258,12 +258,12 @@ const TenantAuditLogPage: React.FC = () => {
       header: 'Timestamp',
       render: (_value, entry) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
+          <Calendar className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 hidden sm:block" />
           <div>
-            <p className="text-sm text-gray-900">
+            <p className="text-sm text-gray-900 dark:text-gray-100">
               {new Date(entry.createdAt).toLocaleDateString()}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {new Date(entry.createdAt).toLocaleTimeString()}
             </p>
           </div>
@@ -281,7 +281,7 @@ const TenantAuditLogPage: React.FC = () => {
       key: 'user',
       header: 'User',
       render: (_value, entry) => (
-        <p className="text-sm text-gray-900 truncate max-w-[200px]">
+        <p className="text-sm text-gray-900 dark:text-gray-100 truncate max-w-[200px]">
           {entry.performedByEmail || entry.performedBy}
         </p>
       ),
@@ -290,7 +290,7 @@ const TenantAuditLogPage: React.FC = () => {
       key: 'ipAddress',
       header: 'IP Address',
       render: (_value, entry) => (
-        <span className="text-sm text-gray-500 font-mono">
+        <span className="text-sm text-gray-500 dark:text-gray-400 font-mono">
           {entry.ipAddress || '--'}
         </span>
       ),
@@ -313,7 +313,7 @@ const TenantAuditLogPage: React.FC = () => {
               e.stopPropagation();
               setSelectedEntry(entry);
             }}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
             title="View details"
           >
             <Eye className="w-4 h-4" />
@@ -334,15 +334,15 @@ const TenantAuditLogPage: React.FC = () => {
             <button
               onClick={refresh}
               disabled={isFetching}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
               title="Refresh"
             >
-              <RefreshCw className={`w-5 h-5 text-gray-500 ${isFetching ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-5 h-5 text-gray-500 dark:text-gray-400 ${isFetching ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={exportCsv}
               disabled={entries.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="w-4 h-4" />
               Export CSV
@@ -352,7 +352,7 @@ const TenantAuditLogPage: React.FC = () => {
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
                   ? 'text-tenant-700 bg-tenant-50 border border-tenant-200'
-                  : 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
+                  : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Filter className="w-4 h-4" />
@@ -384,9 +384,9 @@ const TenantAuditLogPage: React.FC = () => {
 
       {/* Filters Panel */}
       {showFilters && (
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Filter Audit Logs</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Filter Audit Logs</h3>
             {hasActiveFilters && (
               <button
                 onClick={resetFilters}
@@ -398,39 +398,39 @@ const TenantAuditLogPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
               <input
                 type="date"
                 value={filters.startDate || ''}
                 onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">End Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
               <input
                 type="date"
                 value={filters.endDate || ''}
                 onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Action</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
               <input
                 type="text"
                 placeholder="e.g. USER_CREATE"
                 value={filters.action || ''}
                 onChange={(e) => updateFilters({ action: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
               <select
                 value={filters.severity || ''}
                 onChange={(e) => updateFilters({ severity: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               >
                 <option value="">All</option>
                 <option value="info">Info</option>
@@ -440,13 +440,13 @@ const TenantAuditLogPage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">User</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">User</label>
               <input
                 type="text"
                 placeholder="Email or ID"
                 value={filters.performedBy || ''}
                 onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
           </div>
@@ -454,21 +454,21 @@ const TenantAuditLogPage: React.FC = () => {
       )}
 
       {/* Search Bar */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search audit logs by action, user, or entity..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
           />
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
         {isLoading ? (
           <TableSkeleton />
         ) : (
@@ -487,9 +487,9 @@ const TenantAuditLogPage: React.FC = () => {
             {/* Empty State */}
             {visibleEntries.length === 0 && !isLoading && (
               <div className="py-12 text-center">
-                <Shield className="w-12 h-12 text-gray-500 mx-auto" />
-                <h3 className="mt-4 text-sm font-medium text-gray-900">No audit log entries found</h3>
-                <p className="mt-1 text-sm text-gray-500">
+                <Shield className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+                <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No audit log entries found</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   {hasActiveFilters
                     ? 'Try adjusting your filters to see more results.'
                     : 'Audit log entries will appear here as actions are performed.'}
@@ -506,8 +506,8 @@ const TenantAuditLogPage: React.FC = () => {
             )}
 
             {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Showing {visibleEntries.length} of {total} entries
                 {totalPages > 1 && ` (Page ${page} of ${totalPages})`}
               </p>
@@ -515,7 +515,7 @@ const TenantAuditLogPage: React.FC = () => {
                 <button
                   onClick={prevPage}
                   disabled={page <= 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   Previous
@@ -541,7 +541,7 @@ const TenantAuditLogPage: React.FC = () => {
                         className={`w-8 h-8 text-sm rounded-lg transition-colors ${
                           page === pageNum
                             ? 'bg-tenant-600 text-white'
-                            : 'text-gray-500 hover:bg-gray-100'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >
                         {pageNum}
@@ -553,7 +553,7 @@ const TenantAuditLogPage: React.FC = () => {
                 <button
                   onClick={nextPage}
                   disabled={page >= totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                   <ChevronRight className="w-4 h-4" />

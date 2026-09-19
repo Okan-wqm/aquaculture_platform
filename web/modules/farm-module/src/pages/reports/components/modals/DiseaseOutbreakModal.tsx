@@ -5,7 +5,7 @@
  * Contact: varsling.akva@mattilsynet.no
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { DiseaseOutbreakReport, AffectedBatch } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../../utils/thresholds';
 import { useTanksList, Tank } from '../../../../hooks/useTanks';
@@ -506,30 +506,18 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         </div>
 
         {/* Disease Selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Disease <span className="text-error-500">*</span>
-          </label>
-          <select
-            value={formData.diseaseCode}
-            onChange={(e) => handleChange('diseaseCode', e.target.value)}
-            className={`
-                    block w-full rounded-md shadow-sm text-sm
-                    ${errors.diseaseCode ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
-                    focus:ring-info-500 focus:border-info-500
-                  `}
-          >
-            <option value="">Select disease...</option>
-            {getDiseaseOptions(formData.diseaseCategory).map((disease) => (
-              <option key={disease.code} value={disease.code}>
-                {disease.code} - {disease.name} ({disease.norwegianName})
-              </option>
-            ))}
-          </select>
-          {errors.diseaseCode && (
-            <p className="mt-1 text-sm text-error-600 dark:text-error-400">{errors.diseaseCode}</p>
-          )}
-        </div>
+        <Select
+          label="Disease"
+          required
+          placeholder="Select disease..."
+          value={formData.diseaseCode}
+          onChange={(e) => handleChange('diseaseCode', e.target.value)}
+          error={errors.diseaseCode}
+          options={getDiseaseOptions(formData.diseaseCategory).map((disease) => ({
+            value: disease.code,
+            label: `${disease.code} - ${disease.name} (${disease.norwegianName})`,
+          }))}
+        />
 
         {/* Suspected/Confirmed */}
         <div>
@@ -964,20 +952,22 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      <label
+                        htmlFor={`disease-lab-sample-type-${idx}`}
+                        className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
+                      >
                         Sample Type
                       </label>
-                      <select
+                      <Select
+                        id={`disease-lab-sample-type-${idx}`}
+                        size="sm"
                         value={lr.sampleType}
                         onChange={(e) => updateLabResult(idx, 'sampleType', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-info-500 focus:border-info-500"
-                      >
-                        {['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
+                        options={['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => ({
+                          value: t,
+                          label: t,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">

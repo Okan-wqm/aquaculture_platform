@@ -10,8 +10,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../dashboard/types';
@@ -186,7 +186,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
 
                 {loading && (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 text-cyan-600 animate-spin" />
+                    <Spinner size="md" />
                     <span className="ml-2 text-gray-500">Loading channels...</span>
                   </div>
                 )}

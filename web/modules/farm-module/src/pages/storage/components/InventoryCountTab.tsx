@@ -9,7 +9,7 @@
  * replacing the previous mock data implementation.
  */
 import React, { useState } from 'react';
-import { useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useInventoryCounts,
   InventoryCountStatus,
@@ -189,7 +189,7 @@ export const InventoryCountTab: React.FC = () => {
       {/* Loading spinner */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

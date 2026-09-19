@@ -2,7 +2,7 @@
  * Storage Locations Tab - CRUD for warehouse/silo/cold room locations
  */
 import React, { useState } from 'react';
-import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
 import {
   useStorageLocationList,
   useCreateStorageLocation,
@@ -181,7 +181,7 @@ export const StorageLocationsTab: React.FC = () => {
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

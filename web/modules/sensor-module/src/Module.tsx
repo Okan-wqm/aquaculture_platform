@@ -23,6 +23,7 @@ import ThresholdsPage from './pages/ThresholdsPage';
 import CalibrationPage from './pages/CalibrationPage';
 import SensorAnalyticsPage from './pages/SensorAnalyticsPage';
 import WidgetDashboardPage from './pages/WidgetDashboardPage';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // Process Editor Pages (lazy loaded - reactflow is heavy and causes Module Federation issues if bundled in main chunk)
 const ProcessListPage = lazy(() => import('./pages/process/ProcessListPage'));
@@ -62,7 +63,7 @@ const WaterChemistryMonitoringPage = lazy(
 function PageLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+      <Spinner size="lg" />
     </div>
   );
 }

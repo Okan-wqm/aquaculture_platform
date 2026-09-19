@@ -7,7 +7,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap, Users, Clock, Award, Plus, Shield } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { useTrainingCourses, useCurrentEmployeeId } from '../hooks';
 const TrainingPage: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
@@ -50,7 +50,7 @@ const TrainingPage: React.FC = () => {
       {/* Courses */}
       {isLoading ? (
         <div className="flex h-32 items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : courses && courses.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">

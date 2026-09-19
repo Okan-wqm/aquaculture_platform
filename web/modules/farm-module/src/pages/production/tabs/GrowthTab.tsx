@@ -10,7 +10,7 @@ import {
   type GrowthAnalysis,
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -57,7 +57,7 @@ function getGrowthStatus(variancePercent: number): string {
 
 const LoadingSpinner: React.FC = () => (
   <div className="flex items-center justify-center py-12">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+    <Spinner size="lg" />
     <span className="ml-3 text-gray-500">Yukleniyor...</span>
   </div>
 );

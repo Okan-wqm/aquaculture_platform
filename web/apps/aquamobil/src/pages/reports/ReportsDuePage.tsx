@@ -11,6 +11,7 @@ import { CloudOff, FileText } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import type { MobileReportDeadlinesQuery } from '@/generated/graphql';
 import { MOBILE_REPORT_DEADLINES } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -109,7 +110,7 @@ export function ReportsDuePage(): JSX.Element {
 
         {isOnline && deadlinesQuery.isLoading && (
           <div className="text-center py-12 text-gray-400">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto" />
+            <Spinner size="lg" block />
           </div>
         )}
 

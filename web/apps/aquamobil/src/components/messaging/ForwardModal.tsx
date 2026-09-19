@@ -19,6 +19,7 @@ import { useState, useCallback, useMemo, type ReactElement } from 'react';
 
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { IconButton } from '@/components/ui/IconButton';
+import { Spinner } from '@/components/ui/Spinner';
 import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
@@ -210,7 +211,7 @@ export function ForwardModal({
       <div className="flex-1 overflow-y-auto">
         {channelsLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="w-6 h-6 border-2 border-ocean-600 border-t-transparent rounded-full animate-spin" />
+            <Spinner size="md" />
           </div>
         ) : filteredChannels.length === 0 ? (
           <div className="flex items-center justify-center py-12">

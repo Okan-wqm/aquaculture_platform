@@ -20,7 +20,6 @@ import {
   ArrowUpFromLine,
   Trash2,
   AlertCircle,
-  Loader2,
   ChevronRight,
   ChevronLeft,
   Search,
@@ -33,6 +32,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import { VirtualList } from '@/components/VirtualList';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -493,7 +493,7 @@ export function StockMovementPage(): JSX.Element {
             </div>
             {itemsLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={28} className="animate-spin text-teal-600" />
+                <Spinner size="lg" />
                 <span className="ml-2 text-gray-500 text-sm">Loading items...</span>
               </div>
             ) : filteredItems.length === 0 ? (
@@ -579,7 +579,7 @@ export function StockMovementPage(): JSX.Element {
             </p>
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={28} className="animate-spin text-teal-600" />
+                <Spinner size="lg" />
                 <span className="ml-2 text-gray-500 text-sm">Loading locations...</span>
               </div>
             ) : locations.length === 0 ? (
@@ -736,7 +736,7 @@ export function StockMovementPage(): JSX.Element {
             >
               {isSubmitting ? (
                 <span className="flex items-center justify-center gap-2">
-                  <Loader2 size={20} className="animate-spin" />
+                  <Spinner size="md" color="inherit" />
                   Submitting...
                 </span>
               ) : (

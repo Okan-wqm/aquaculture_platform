@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Server, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Server, CheckCircle, AlertCircle } from 'lucide-react';
 import {
   useCreateProvisionedDevice,
   DeviceModel,
@@ -151,7 +151,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
             >
               {isCreating ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                   Oluşturuluyor...
                 </>
               ) : (

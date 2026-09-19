@@ -4,18 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import {
-  Card,
-  Button,
-  Input,
-  Select,
-  Badge,
-  Table,
-  Modal,
-  ConfirmModal,
-  Alert,
-  formatDate,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Badge, Table, Modal, ConfirmModal, Alert, formatDate, Spinner } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   usersApi,
@@ -589,7 +578,7 @@ const UserManagementPage: React.FC = () => {
       {/* Table */}
       {usersQuery.isPending ? (
         <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+          <Spinner size="lg" block />
           <p className="mt-2 text-gray-500">Loading...</p>
         </div>
       ) : (

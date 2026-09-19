@@ -28,6 +28,7 @@ import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { MessageInput } from '@/components/messaging/MessageInput';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useEditMessage } from '@/hooks/useEditMessage';
@@ -534,7 +535,7 @@ export function ChatRoomPage(): JSX.Element {
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+            <Spinner size="lg" />
           </div>
         ) : errorMsg ? (
           <div className="text-center py-12 px-4">

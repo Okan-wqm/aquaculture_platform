@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useProtocolDetails, useProtocolValidation } from '../../../hooks/useProtocols';
 import { DynamicFormRenderer } from '../DynamicFormRenderer';
 import { JSONSchema, ValidationError } from '../../../types/registration.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface ProtocolConfigurationStepProps {
   protocolCode: string;
@@ -65,7 +66,7 @@ export function ProtocolConfigurationStep({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <Spinner size="lg" />
         <span className="ml-3 text-gray-600">Loading protocol configuration...</span>
       </div>
     );

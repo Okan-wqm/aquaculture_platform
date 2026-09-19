@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
@@ -186,7 +187,7 @@ export function AttendancePage(): JSX.Element {
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (
@@ -204,7 +205,7 @@ export function AttendancePage(): JSX.Element {
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (

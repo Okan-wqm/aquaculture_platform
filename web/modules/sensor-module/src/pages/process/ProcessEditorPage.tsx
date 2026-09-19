@@ -25,7 +25,6 @@ import {
   ZoomOut,
   Maximize2,
   Trash2,
-  Loader2,
   Settings,
   Paperclip,
   ChevronDown,
@@ -36,7 +35,7 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import type { Edge } from '@xyflow/react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, Spinner } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
@@ -84,7 +83,6 @@ interface CanvasEdge {
 
 // Right panel mode type
 type RightPanelMode = 'properties' | 'attachments';
-
 
 
 const ProcessEditorPage: React.FC = () => {
@@ -610,7 +608,7 @@ const ProcessEditorPage: React.FC = () => {
           {!isCanvasReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                <Spinner size="lg" />
                 <p className="text-gray-600">Loading Process Editor...</p>
               </div>
             </div>

@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Copy, Calendar, AlertTriangle } from 'lucide-react';
-import { cn, Modal } from '@aquaculture/shared-ui';
+import { cn, Modal, Spinner } from '@aquaculture/shared-ui';
 import { getWeekMonday, formatDateISO } from '../../hooks/useScheduling';
 
 interface CopyWeekModalProps {
@@ -171,7 +171,7 @@ export function CopyWeekModal({
           >
             {isLoading ? (
               <>
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+                <Spinner size="sm" color="white" />
                 Kopyalaniyor...
               </>
             ) : (

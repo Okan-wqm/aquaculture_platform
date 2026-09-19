@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
@@ -20,7 +20,6 @@ import {
   AlertCircle,
   Plus,
   RefreshCw,
-  Loader2,
   Inbox,
 } from 'lucide-react';
 import {
@@ -357,7 +356,7 @@ export const MessagingPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="animate-spin text-blue-600" size={32} />
+                <Spinner size="lg" />
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
@@ -475,7 +474,7 @@ export const MessagingPage: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {messagesLoading ? (
                   <div className="flex items-center justify-center h-full">
-                    <Loader2 className="animate-spin text-blue-600" size={32} />
+                    <Spinner size="lg" />
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-500">

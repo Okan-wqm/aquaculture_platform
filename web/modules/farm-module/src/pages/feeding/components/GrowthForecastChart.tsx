@@ -20,7 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
-import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -218,7 +218,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
       {/* Loading State */}
       {isLoading && (
         <div className="bg-white rounded-lg shadow p-12 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <Spinner size="xl" block />
           <p className="mt-4 text-gray-500">Calculating growth projections...</p>
         </div>
       )}

@@ -18,6 +18,10 @@
 #                 tokens they should use live in web/shared-ui/src/styles/theme.css
 #                 (primary/secondary/accent/success/warning/error/info/neutral/gray).
 #   inlineStyle — `style={{` occurrences, per package.
+#   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
+#                 inline <svg> spun by animate-spin, or a bordered ring spun
+#                 the same way), per package. shared-ui Spinner (aquamobil:
+#                 components/ui/Spinner) is the loading indicator.
 #
 # Per-package ceilings are EXACT live counts (the spec rejects slack), so the
 # workflow is: remove occurrences, run the spec, lower the ceiling to the number
@@ -108,6 +112,8 @@ rawTable:
       expiry: 2027-06-30
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+rawSpinner:
+  entries: []
 inlineStyle:
   entries:
     - package: web/modules/sensor-module

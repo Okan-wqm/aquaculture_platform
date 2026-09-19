@@ -10,8 +10,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
 import { graphqlFetch } from '../../config/api';
 import { AUTOMATION_PROGRAMS_QUERY, DEPLOY_PROGRAM_MUTATION } from '../../graphql/automation.queries';
@@ -146,7 +146,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
             <label className="block text-sm font-medium text-gray-700 mb-1">Automation Program</label>
             {loading ? (
               <div className="flex items-center gap-2 py-2 text-gray-500">
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
                 <span className="text-sm">Loading programs...</span>
               </div>
             ) : (
@@ -213,7 +213,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
             >
               {deploying ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                   Deploying...
                 </>
               ) : (

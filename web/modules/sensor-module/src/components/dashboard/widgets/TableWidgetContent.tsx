@@ -8,7 +8,7 @@ import React from 'react';
 import { Circle } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 interface TableWidgetContentProps {
   config: WidgetConfig;
@@ -22,7 +22,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }

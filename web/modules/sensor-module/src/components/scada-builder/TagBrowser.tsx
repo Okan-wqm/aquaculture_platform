@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { ChevronDown, Search, X, Loader2 } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../hooks/useDeviceTags';
 import { IoType } from '../../hooks/useEdgeDevices';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface TagBrowserProps {
   deviceId: string | null;
@@ -154,7 +155,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     if (loading) {
       return (
         <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-500">
-          <Loader2 className="w-4 h-4 animate-spin" />
+          <Spinner size="sm" color="inherit" />
           Loading...
         </div>
       );

@@ -25,7 +25,6 @@ import {
   Trash2,
   CheckCircle,
   Clock,
-  Loader2,
   AlertCircle,
   LayoutGrid,
   List,
@@ -35,7 +34,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useConfirm, usePrompt, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useConfirm, usePrompt, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
   ProgramStatus,
@@ -568,7 +567,7 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Content */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : isError ? (
         <div className="text-center py-12 bg-red-50 rounded-lg">

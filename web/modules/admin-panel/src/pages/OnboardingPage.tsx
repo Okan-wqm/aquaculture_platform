@@ -30,12 +30,12 @@ import {
   AlertTriangle,
   RefreshCw,
   Plus,
-  Loader2,
 } from 'lucide-react';
 import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -237,7 +237,7 @@ export const OnboardingPage: React.FC = () => {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <Loader2 size={48} className="mx-auto mb-3 text-blue-500 animate-spin" />
+          <Spinner size="xl" block className="mb-3" />
           <p className="text-gray-500">Loading onboarding data...</p>
         </div>
       </div>
@@ -485,7 +485,7 @@ export const OnboardingPage: React.FC = () => {
                       className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
                       {actionLoading ? (
-                        <Loader2 size={14} className="animate-spin" />
+                        <Spinner size="sm" color="inherit" />
                       ) : (
                         <Mail size={14} />
                       )}

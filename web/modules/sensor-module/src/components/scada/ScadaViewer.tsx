@@ -8,6 +8,7 @@ import { SCADA_VIEWER_CANVAS_URL } from '../../canvas-contract';
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
 import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // Strip HTML tags from a string to prevent stored XSS via canvas node rendering
 function stripHtml(value: unknown): unknown {
@@ -143,7 +144,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       {isLoading && (
         <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-10">
           <div className="text-center">
-            <Loader2 size={32} className="mx-auto mb-2 text-blue-500 animate-spin" />
+            <Spinner size="lg" block className="mb-2" />
             <p className="text-sm text-gray-600">SCADA görünümü yükleniyor...</p>
           </div>
         </div>

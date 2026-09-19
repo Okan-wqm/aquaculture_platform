@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -22,7 +22,6 @@ import {
   Trash2,
   CheckCircle,
   AlertCircle,
-  Loader2,
   Variable,
   Server,
   Send,
@@ -1000,7 +999,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   if (!isNew && isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -1158,7 +1157,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 disabled={!rejectReason.trim() || rejectMutation.isPending}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
+                {rejectMutation.isPending ? <Spinner size="sm" color="inherit" className="inline mr-1" /> : null}
                 Reject
               </button>
             </>
@@ -1216,7 +1215,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
                 {approveMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <CheckCircle className="h-4 w-4" />
                 )}
@@ -1237,7 +1236,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
             {(createMutation.isPending || updateMutation.isPending) ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Save className="h-4 w-4" />
             )}
@@ -1721,7 +1720,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deployMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}

@@ -24,7 +24,7 @@ import {
 } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -200,7 +200,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
       {/* Loading state */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

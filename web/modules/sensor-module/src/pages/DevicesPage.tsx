@@ -22,7 +22,6 @@ import {
   Activity,
   Zap,
   AlertCircle,
-  Loader2,
   ChevronDown,
   ChevronRight,
   Server,
@@ -39,7 +38,7 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { Modal, useAuth, useClickOutside, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useAuth, useClickOutside, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -945,7 +944,7 @@ const DevicesPage: React.FC = () => {
           {/* Edge Loading State */}
           {edgeLoading && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Edge cihazları yükleniyor...</p>
             </div>
           )}
@@ -1127,7 +1126,7 @@ const DevicesPage: React.FC = () => {
           {/* Loading State */}
           {loading && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Cihazlar yükleniyor...</p>
             </div>
           )}
@@ -1259,7 +1258,7 @@ const DevicesPage: React.FC = () => {
           {/* Loading */}
           {vfdLoading && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>VFD cihazları yükleniyor...</p>
             </div>
           )}
@@ -1387,7 +1386,7 @@ const DevicesPage: React.FC = () => {
                   disabled={!bulkFirmwareVersion || bulkFirmwareMutation.isPending}
                   className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
                 >
-                  {bulkFirmwareMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {bulkFirmwareMutation.isPending && <Spinner size="sm" color="inherit" />}
                   Devam
                 </button>
               )}

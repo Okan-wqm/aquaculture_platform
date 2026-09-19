@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useConfirm, useToast } from '@aquaculture/shared-ui';
+import { useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Trash2,
   AlertCircle,
-  Loader2,
   Layers,
   Zap,
   Play,
@@ -311,7 +310,7 @@ const DeviceDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -568,7 +567,7 @@ const DeviceDetailPage: React.FC = () => {
               className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-red-200 hover:bg-red-50 transition-all disabled:opacity-50"
             >
               {deleting ? (
-                <Loader2 className="w-8 h-8 text-red-600 mb-2 animate-spin" />
+                <Spinner size="lg" className="mb-2" />
               ) : (
                 <Trash2 className="w-8 h-8 text-red-600 mb-2" />
               )}

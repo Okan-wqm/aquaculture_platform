@@ -32,6 +32,7 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
@@ -416,7 +417,7 @@ export function NewChatPage(): JSX.Element {
               className="flex-1 py-3.5 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-semibold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all text-sm flex items-center justify-center gap-2"
             >
               {isCreating ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
               ) : (
                 <>
                   <UserPlus size={18} />
@@ -584,7 +585,7 @@ export function NewChatPage(): JSX.Element {
           aria-live="polite"
           className="fixed inset-x-4 bottom-24 z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
         >
-          <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-ocean-500" aria-hidden="true" />
+          <Spinner size="md" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Creating conversation...
           </p>

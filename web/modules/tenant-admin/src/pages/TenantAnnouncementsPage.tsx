@@ -25,7 +25,6 @@ import {
   Bell,
   X,
   RefreshCw,
-  Loader2,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -36,6 +35,7 @@ import {
   type Announcement,
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -369,7 +369,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-tenant-600" />
+              <Spinner size="lg" />
             </div>
           ) : filteredAnnouncements.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-gray-500">

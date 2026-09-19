@@ -4,13 +4,7 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  DeleteConfirmationDialog,
-  DeletePreviewData,
-  AffectedItemGroup,
-  useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+import { DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useCanMutate, useToast, Spinner } from '@aquaculture/shared-ui';
 import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
   useSiteList,
@@ -354,7 +348,7 @@ export const SitesTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

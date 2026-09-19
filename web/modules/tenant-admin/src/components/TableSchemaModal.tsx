@@ -1,7 +1,7 @@
 import React from 'react';
-import { Key, Link2, Loader2, AlertCircle, Hash, Type } from 'lucide-react';
+import { Key, Link2, AlertCircle, Hash, Type } from 'lucide-react';
 import { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 interface TableSchemaModalProps {
   isOpen: boolean;
@@ -251,7 +251,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-tenant-600" />
+          <Spinner size="lg" />
           <p className="mt-3 text-sm text-gray-500">Loading schema information...</p>
         </div>
       )}

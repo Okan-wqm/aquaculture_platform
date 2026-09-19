@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -28,7 +28,6 @@ import {
   Users,
   BarChart3,
   RefreshCw,
-  Loader2,
 } from 'lucide-react';
 import {
   supportApi,
@@ -289,7 +288,7 @@ export const AnnouncementsPage: React.FC = () => {
       {/* Loading/Error States */}
       {loading && (
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="animate-spin text-blue-600" size={32} />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -742,7 +741,7 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
           <h4 className="font-medium text-gray-900 mb-3">Recent Activity</h4>
           {loading ? (
             <div className="flex justify-center py-4">
-              <Loader2 className="animate-spin text-blue-600" size={24} />
+              <Spinner size="md" />
             </div>
           ) : acknowledgments.length > 0 ? (
             <div className="space-y-2">

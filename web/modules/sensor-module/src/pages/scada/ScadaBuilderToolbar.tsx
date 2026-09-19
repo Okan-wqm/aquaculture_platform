@@ -7,14 +7,13 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { useClickOutside, Spinner } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Save,
   Eye,
   ChevronDown,
-  Loader2,
   Monitor,
   Wifi,
   WifiOff,
@@ -293,7 +292,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           }`}
         >
           {isSaving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Save className="w-4 h-4" />
           )}

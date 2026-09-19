@@ -8,8 +8,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Monitor, Wifi, WifiOff, Upload, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Monitor, Wifi, WifiOff, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { useEdgeDevices, EdgeDevice, formatLastSeen } from '../../hooks/useEdgeDevices';
 
 export type DeployAccent = 'cyan' | 'purple';
@@ -21,7 +21,6 @@ const ACCENT_CLASSES: Record<
     icon: string;
     checkbox: string;
     radio: string;
-    spinner: string;
     rowSelected: string;
     buttonDisabled: string;
     buttonEnabled: string;
@@ -31,7 +30,6 @@ const ACCENT_CLASSES: Record<
     icon: 'text-cyan-600',
     checkbox: 'rounded text-cyan-600 focus:ring-cyan-500',
     radio: 'text-cyan-600 focus:ring-cyan-500',
-    spinner: 'w-6 h-6 text-cyan-600 animate-spin',
     rowSelected: 'bg-cyan-50 cursor-pointer',
     buttonDisabled: 'bg-cyan-400 cursor-not-allowed',
     buttonEnabled: 'bg-cyan-600 hover:bg-cyan-700',
@@ -40,7 +38,6 @@ const ACCENT_CLASSES: Record<
     icon: 'text-purple-600',
     checkbox: 'rounded text-purple-600 focus:ring-purple-500',
     radio: 'text-purple-600 focus:ring-purple-500',
-    spinner: 'w-6 h-6 text-purple-600 animate-spin',
     rowSelected: 'bg-purple-50 cursor-pointer',
     buttonDisabled: 'bg-purple-400 cursor-not-allowed',
     buttonEnabled: 'bg-purple-600 hover:bg-purple-700',
@@ -178,7 +175,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
           {/* Loading state */}
           {isLoading && (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className={classes.spinner} />
+              <Spinner size="md" color="inherit" className={classes.icon} />
               <span className="ml-2 text-gray-500">Loading devices...</span>
             </div>
           )}
@@ -275,7 +272,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
             >
               {isDeploying ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                   Deploying...
                 </>
               ) : (

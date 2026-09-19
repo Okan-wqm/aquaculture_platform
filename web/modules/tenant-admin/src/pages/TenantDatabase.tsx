@@ -13,7 +13,6 @@ import {
   Info,
   Server,
   Layers,
-  Loader2,
   Warehouse,
   Users,
   Cpu,
@@ -29,7 +28,7 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -383,7 +382,7 @@ const TenantDatabase: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-tenant-600 mx-auto" />
+          <Spinner size="lg" block />
           <p className="mt-2 text-sm text-gray-500">Loading database information...</p>
         </div>
       </div>

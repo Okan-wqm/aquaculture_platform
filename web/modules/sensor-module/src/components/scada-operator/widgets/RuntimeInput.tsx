@@ -11,8 +11,8 @@
  */
 
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Lock, Loader2 } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { CheckCircle, AlertCircle, Lock } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../../store/scada';
@@ -251,7 +251,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
 
         {/* Status icons */}
         {isWriting && (
-          <Loader2 className="w-4 h-4 text-blue-500 animate-spin flex-shrink-0" aria-label="Writing..." />
+          <Spinner size="sm" label="Writing..." className="flex-shrink-0" />
         )}
         {writeSuccess && !isWriting && (
           <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" aria-label="Write successful" />

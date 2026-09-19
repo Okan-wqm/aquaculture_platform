@@ -11,9 +11,9 @@ import {
   RefreshCw,
   CheckCircle,
   Settings,
-  Loader2,
 } from 'lucide-react';
 import { useIndustryTemplates, useApplyTemplate, IndustryTemplate } from '../../hooks/useIndustryTemplates';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface IndustryTemplateSelectorProps {
   onTemplateApplied?: () => void;
@@ -215,7 +215,7 @@ const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onT
               : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
-          {applying && <Loader2 className="w-4 h-4 animate-spin" />}
+          {applying && <Spinner size="sm" color="inherit" />}
           {selectedKey === '__custom__' ? 'Atla ve Devam Et' : 'Sablonu Uygula'}
         </button>
       </div>

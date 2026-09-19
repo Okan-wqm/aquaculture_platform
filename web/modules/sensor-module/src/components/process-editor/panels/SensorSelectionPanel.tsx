@@ -19,10 +19,10 @@ import {
   WifiOff,
   GripVertical,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { useSensorList, RegisteredSensor } from '../../../hooks/useSensorList';
 import { SensorMapping } from '../../../store/processStore';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -269,7 +269,7 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-            <Loader2 className="w-6 h-6 animate-spin mb-2" />
+            <Spinner size="md" color="inherit" className="mb-2" />
             <p className="text-sm">Sensörler yükleniyor...</p>
           </div>
         )}

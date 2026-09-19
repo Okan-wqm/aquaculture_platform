@@ -7,6 +7,7 @@ import React from 'react';
 import { AlertTriangle, AlertCircle, Info, Zap, Bell, CheckCircle, WifiOff } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData, WidgetDataPoint } from '../../../hooks/useWidgetData';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface AlertWidgetContentProps {
   config: WidgetConfig;
@@ -72,7 +73,7 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }

@@ -34,7 +34,6 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Loader2,
   Trash2,
   Save,
   AlignLeft,
@@ -55,6 +54,7 @@ import ExportDialog from './json-bundle/ExportDialog';
 import ImportDialog from './json-bundle/ImportDialog';
 import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
 import type { editor as monacoEditor, languages as monacoLanguages } from 'monaco-editor';
+import { Spinner } from '@aquaculture/shared-ui';
 
 /** Diagnostic item returned by validation */
 export interface DiagnosticItem {
@@ -473,7 +473,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           title="Compile (F5)"
         >
           {compileStatus === 'compiling' ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Play className="w-3.5 h-3.5" />
           )}
@@ -726,7 +726,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {compileStatus === 'compiling' && (
               <div className="px-2 py-4 text-xs text-gray-500 text-center flex flex-col items-center gap-1">
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
                 Compiling...
               </div>
             )}
@@ -782,7 +782,7 @@ function CompileStatusBadge({
   if (status === 'compiling') {
     return (
       <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        <Spinner size="sm" color="inherit" />
       </span>
     );
   }

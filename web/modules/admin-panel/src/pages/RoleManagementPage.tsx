@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Badge } from '@aquaculture/shared-ui';
+import { Card, Badge, Spinner } from '@aquaculture/shared-ui';
 import { usersApi, Permission, RoleHierarchyItem } from '../services/adminApi';
 import { adminKeys, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
@@ -84,7 +84,7 @@ const RoleManagementPage: React.FC = () => {
   if (rolesQuery.isPending && permissionsQuery.isPending) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

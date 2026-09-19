@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { AlertCircle, AlertTriangle, Info, CheckCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { Spinner } from '@aquaculture/shared-ui';
 
 export interface ValidationDiagnostic {
   line: number;
@@ -49,7 +50,7 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
   if (isValidating) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg border border-gray-200">
-        <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+        <Spinner size="sm" />
         <span className="text-sm text-gray-600">Validating ST code...</span>
       </div>
     );

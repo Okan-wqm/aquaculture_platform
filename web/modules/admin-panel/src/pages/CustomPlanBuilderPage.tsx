@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Spinner } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -319,7 +319,7 @@ const CustomPlanBuilderPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -580,7 +580,7 @@ const CustomPlanBuilderPage: React.FC = () => {
 
             {calculating ? (
               <div className="flex items-center justify-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <Spinner size="lg" />
               </div>
             ) : config.modules.length === 0 ? (
               <div className="text-center py-8 text-gray-500">

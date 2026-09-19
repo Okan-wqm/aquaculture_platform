@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
 import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { ReviewStatus } from '../types';
 
 const PerformancePage: React.FC = () => {
@@ -88,7 +88,7 @@ const PerformancePage: React.FC = () => {
         <div className="space-y-4">
           {isLoading ? (
             <div className="flex h-32 items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+              <Spinner size="lg" />
             </div>
           ) : reviews && reviews.items && reviews.items.length > 0 ? (
             reviews.items.map((review) => (

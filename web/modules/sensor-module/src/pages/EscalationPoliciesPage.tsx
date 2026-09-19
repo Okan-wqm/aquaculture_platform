@@ -13,12 +13,11 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Modal } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
   Trash2,
-  Loader2,
   XCircle,
   RefreshCw,
   AlertTriangle,
@@ -481,7 +480,7 @@ const PolicyForm: React.FC<{
             disabled={isPending || !form.name.trim() || form.severity.length === 0}
             className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
           >
-            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isPending && <Spinner size="sm" color="inherit" />}
             {mode === 'create' ? 'Oluştur' : 'Kaydet'}
           </button>
         </div>
@@ -624,7 +623,7 @@ const SuppressionWindowManager: React.FC<{
               disabled={isAdding}
               className="flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50"
             >
-              {isAdding && <Loader2 className="w-3 h-3 animate-spin" />}
+              {isAdding && <Spinner size="sm" color="inherit" />}
               Ekle
             </button>
           </div>
@@ -792,7 +791,7 @@ const CloneDialog: React.FC<{
             disabled={isPending || !newName.trim()}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
           >
-            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isPending && <Spinner size="sm" color="inherit" />}
             Kopyala
           </button>
         </>
@@ -908,7 +907,7 @@ const PolicyCard: React.FC<{
             } disabled:opacity-50`}
           >
             {isToggling ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : policy.isActive ? (
               <Bell className="w-4 h-4" />
             ) : (
@@ -1221,7 +1220,7 @@ const EscalationPoliciesPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500">Eskalasyon politikalari yükleniyor...</p>
         </div>
       </div>

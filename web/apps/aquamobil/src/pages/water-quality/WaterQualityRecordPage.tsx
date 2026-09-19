@@ -4,13 +4,14 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Droplets, AlertCircle } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import type {
   EquipmentListQuery,
   EquipmentListQueryVariables,
@@ -283,13 +284,13 @@ export function WaterQualityRecordPage(): JSX.Element {
       {/* Loading states */}
       {equipmentLoading && !routeEquipmentId && (
         <div className="flex items-center justify-center py-12">
-          <Loader2 size={28} className="animate-spin text-cyan-600" />
+          <Spinner size="lg" />
           <span className="ml-2 text-gray-500 text-sm">Loading equipment...</span>
         </div>
       )}
       {selectedEquipmentId && paramsLoading && (
         <div className="flex items-center justify-center py-12">
-          <Loader2 size={28} className="animate-spin text-cyan-600" />
+          <Spinner size="lg" />
           <span className="ml-2 text-gray-500 text-sm">Loading parameters...</span>
         </div>
       )}

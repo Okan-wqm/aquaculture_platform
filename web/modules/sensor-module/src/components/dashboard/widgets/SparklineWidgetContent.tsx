@@ -30,7 +30,7 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 interface SparklineWidgetContentProps {
   config: WidgetConfig;
@@ -51,7 +51,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }

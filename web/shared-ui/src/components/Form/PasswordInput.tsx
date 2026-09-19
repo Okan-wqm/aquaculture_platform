@@ -13,6 +13,8 @@
  */
 
 import React, { forwardRef, useId, useState, useCallback } from 'react';
+
+import { useI18n } from '../../i18n';
 import { Input, type InputProps } from './Input';
 
 export interface PasswordInputProps extends Omit<InputProps, 'type' | 'rightElement'> {
@@ -59,13 +61,17 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
       id: providedId,
       onKeyDown,
       onKeyUp,
-      showPasswordLabel = 'Show password',
-      hidePasswordLabel = 'Hide password',
-      capsLockLabel = 'Caps Lock is on',
+      showPasswordLabel: showPasswordLabelProp,
+      hidePasswordLabel: hidePasswordLabelProp,
+      capsLockLabel: capsLockLabelProp,
       ...props
     },
     ref
   ) => {
+    const { t } = useI18n();
+    const showPasswordLabel = showPasswordLabelProp ?? t('common.showPassword');
+    const hidePasswordLabel = hidePasswordLabelProp ?? t('common.hidePassword');
+    const capsLockLabel = capsLockLabelProp ?? t('common.capsLockOn');
     // Deterministik id: aria-describedby'ı Input'un error/helper id şemasıyla hizalamak
     // ve caps uyarısını da bağlamak için id'yi biz üretip Input'a veriyoruz.
     const reactId = useId();

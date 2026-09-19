@@ -4,6 +4,8 @@
  */
 
 import React, { useState } from 'react';
+
+import { useI18n } from '../../i18n';
 import type { User, Tenant } from '../../types';
 import { Menu, type MenuItem } from '../Menu';
 
@@ -57,6 +59,7 @@ const SearchBox: React.FC<{
 }> = ({ onSearch }) => {
   const [query, setQuery] = useState('');
 
+  const { t } = useI18n();
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSearch?.(query);
@@ -84,7 +87,7 @@ const SearchBox: React.FC<{
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ara..."
+          placeholder={t('header.searchPlaceholder')}
           className="block w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
         />
       </div>
@@ -98,12 +101,14 @@ const SearchBox: React.FC<{
 const NotificationButton: React.FC<{
   count?: number;
   onClick?: () => void;
-}> = ({ count = 0, onClick }) => (
+}> = ({ count = 0, onClick }) => {
+  const { t } = useI18n();
+  return (
   <button
     type="button"
     onClick={onClick}
     className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-    aria-label={`Bildirimler ${count > 0 ? `(${count} yeni)` : ''}`}
+    aria-label={count > 0 ? `${t('notifications.title')} (${t('notifications.new', { count })})` : t('notifications.title')}
   >
     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path
@@ -119,7 +124,8 @@ const NotificationButton: React.FC<{
       </span>
     )}
   </button>
-);
+  );
+};
 
 /**
  * Avatar renkleri tema bazlı
@@ -141,6 +147,7 @@ const UserMenu: React.FC<{
   onLogout?: () => void;
   theme?: HeaderTheme;
 }> = ({ user, tenant, menuItems, onLogout, theme = 'default' }) => {
+  const { t } = useI18n();
   if (!user) return null;
 
   // Initials - handle nullable firstName and lastName
@@ -160,7 +167,7 @@ const UserMenu: React.FC<{
       ? [
           {
             id: 'logout',
-            label: 'Çıkış Yap',
+            label: t('header.logout'),
             danger: true,
             separator: true,
             onSelect: onLogout,
@@ -181,7 +188,7 @@ const UserMenu: React.FC<{
 
   return (
     <Menu
-      aria-label="User menu"
+      aria-label={t('header.userMenu')}
       items={items}
       header={
         <>

@@ -5,6 +5,8 @@
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 
+import { useI18n } from '../../i18n';
+
 import { Spinner } from '../Loading/Loading';
 import { EmptyState } from '../EmptyState/EmptyState';
 
@@ -351,7 +353,7 @@ export function DataTable<T>({
   filters = {},
   onFilterChange,
   searchable = true,
-  searchPlaceholder = 'Search...',
+  searchPlaceholder: searchPlaceholderProp,
   searchValue = '',
   onSearchChange,
   searchDebounceMs = 300,
@@ -365,8 +367,8 @@ export function DataTable<T>({
   exportFileName = 'export',
   columnVisibilityToggle = false,
   loading = false,
-  loadingMessage = 'Loading...',
-  emptyMessage = 'No data available',
+  loadingMessage: loadingMessageProp,
+  emptyMessage: emptyMessageProp,
   emptyIcon,
   striped = true,
   hoverable = true,
@@ -388,6 +390,10 @@ export function DataTable<T>({
   onRefresh,
   refreshing = false,
 }: DataTableProps<T>) {
+  const { t } = useI18n();
+  const searchPlaceholder = searchPlaceholderProp ?? t('table.searchPlaceholder');
+  const loadingMessage = loadingMessageProp ?? t('common.loading');
+  const emptyMessage = emptyMessageProp ?? t('table.noData');
   // State
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(defaultSort || null);
   const [internalSearch, setInternalSearch] = useState(searchValue);
@@ -663,7 +669,7 @@ export function DataTable<T>({
                     ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
                     : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
-                title="Toggle filters"
+                title={t('table.toggleFilters')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -677,7 +683,7 @@ export function DataTable<T>({
                 <button
                   onClick={() => setShowColumnMenu(!showColumnMenu)}
                   className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                  title="Toggle columns"
+                  title={t('table.toggleColumns')}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
@@ -686,7 +692,7 @@ export function DataTable<T>({
                 {showColumnMenu && (
                   <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 dark:bg-gray-800 dark:border-gray-600">
                     <div className="p-2">
-                      <div className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 dark:text-gray-400">Columns</div>
+                      <div className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 dark:text-gray-400">{t('table.columns')}</div>
                       {columns.map((col) => (
                         <label
                           key={String(col.key)}
@@ -747,7 +753,7 @@ export function DataTable<T>({
                 onClick={onRefresh}
                 disabled={refreshing}
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="Refresh"
+                title={t('common.refresh')}
               >
                 <svg
                   className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`}
@@ -785,7 +791,7 @@ export function DataTable<T>({
                         }
                         className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       >
-                        <option value="">All</option>
+                        <option value="">{t('common.all')}</option>
                         {col.filterOptions?.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
@@ -940,11 +946,11 @@ export function DataTable<T>({
             {/* Page Size Selector — only when the page can act on it; an inert select is a false affordance */}
             {onPageSizeChange && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Rows:</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">{t('table.rows')}</span>
                 <select
                   value={pagination.limit}
                   onChange={(e) => onPageSizeChange(Number(e.target.value))}
-                  aria-label="Rows per page"
+                  aria-label={t('table.rowsPerPage')}
                   className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 >
                   {pageSizeOptions.map((size) => (
@@ -962,7 +968,7 @@ export function DataTable<T>({
                 onClick={() => onPageChange?.(1)}
                 disabled={pagination.page === 1}
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="First page"
+                title={t('table.firstPage')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -972,7 +978,7 @@ export function DataTable<T>({
                 onClick={() => onPageChange?.(pagination.page - 1)}
                 disabled={pagination.page === 1}
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="Previous page"
+                title={t('table.previousPage')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -980,14 +986,14 @@ export function DataTable<T>({
               </button>
 
               <span className="px-3 py-1 text-sm text-gray-600 dark:text-gray-300">
-                Page {pagination.page} of {pagination.totalPages}
+                {t('table.pageOf', { page: pagination.page, total: pagination.totalPages })}
               </span>
 
               <button
                 onClick={() => onPageChange?.(pagination.page + 1)}
                 disabled={pagination.page >= pagination.totalPages}
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="Next page"
+                title={t('table.nextPage')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -997,7 +1003,7 @@ export function DataTable<T>({
                 onClick={() => onPageChange?.(pagination.totalPages)}
                 disabled={pagination.page >= pagination.totalPages}
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title="Last page"
+                title={t('table.lastPage')}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />

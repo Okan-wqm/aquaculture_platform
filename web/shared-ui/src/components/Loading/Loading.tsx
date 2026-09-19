@@ -5,6 +5,8 @@
 
 import React from 'react';
 
+import { useI18n } from '../../i18n';
+
 // ============================================================================
 // Spinner Bileşeni
 // ============================================================================
@@ -122,11 +124,13 @@ const overlayOpacity = {
  */
 export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   visible,
-  text = 'Yükleniyor...',
+  text: textProp,
   fullScreen = false,
   opacity = 'medium',
   className = '',
 }) => {
+  const { t } = useI18n();
+  const text = textProp ?? t('common.loading');
   if (!visible) return null;
 
   return (
@@ -309,9 +313,9 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
 /**
  * Tam sayfa yükleme durumu
  */
-export const PageLoading: React.FC<{ text?: string }> = ({
-  text = 'Sayfa yükleniyor...',
-}) => {
+export const PageLoading: React.FC<{ text?: string }> = ({ text: textProp }) => {
+  const { t } = useI18n();
+  const text = textProp ?? t('common.pageLoading');
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-800">
       <div className="text-center">

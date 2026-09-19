@@ -31,6 +31,11 @@
 #                 breakpoint variant, per package (web/apps excluded: phone-first
 #                 by construction). A week (7) and a layout grid (12) are not
 #                 counted. The phone shape is grid-cols-1 sm:grid-cols-2 lg:grid-cols-N.
+#   hardcodedText — user-visible strings written in the file (JSX text, or a
+#                 placeholder / title / aria-label / alt / label attribute)
+#                 instead of a message key through useI18n, per package,
+#                 shared-ui included; the SUPER_ADMIN panel is the declared
+#                 English-only surface and is not counted (FE-HIGH-089).
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -250,6 +255,68 @@ rawField:
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
 fixedGrid:
   entries: []
+hardcodedText:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 619
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 90
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 2678
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 545
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 191
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 11
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 3340
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 503
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/shared-ui
+      ceiling: 203
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/shell
+      ceiling: 155
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
 rawSpinner:
   entries: []
 rawPageTitle:
@@ -349,7 +416,7 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/shell
-      ceiling: 113
+      ceiling: 110
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

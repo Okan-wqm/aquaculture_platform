@@ -11,6 +11,8 @@
  */
 import React from 'react';
 
+import { useI18n } from '../../i18n';
+
 import { Button } from '../Button';
 
 export interface EmptyStateAction {
@@ -104,14 +106,18 @@ const ErrorIcon: React.FC = () => (
 
 /** A surface that could not load. Announced as an alert; offers one retry. */
 export const ErrorState: React.FC<ErrorStateProps> = ({
-  title = 'Something went wrong',
+  title: titleProp,
   description,
   onRetry,
-  retryLabel = 'Retry',
+  retryLabel: retryLabelProp,
   variant = 'card',
   size = 'md',
   className = '',
-}) => (
+}) => {
+  const { t } = useI18n();
+  const title = titleProp ?? t('common.somethingWentWrong');
+  const retryLabel = retryLabelProp ?? t('common.retry');
+  return (
   <div
     role="alert"
     className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
@@ -131,4 +137,5 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
       </div>
     )}
   </div>
-);
+  );
+};

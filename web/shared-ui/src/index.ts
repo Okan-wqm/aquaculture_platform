@@ -162,6 +162,15 @@ export {
 export { I18nProvider, useI18n } from './i18n';
 export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
 export {
+  SUPPORTED_LOCALES,
+  DEFAULT_LOCALE,
+  LOCALE_STORAGE_KEY,
+  isSupportedLocale,
+  getStoredLocale,
+  persistLocale,
+  resolveInitialLocale,
+} from './i18n';
+export {
   useGraphQLQuery,
   useGraphQLMutation,
   usePrefetchQuery,

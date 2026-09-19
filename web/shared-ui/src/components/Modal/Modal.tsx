@@ -5,6 +5,8 @@
  */
 
 import React, { useCallback, useId, useRef } from 'react';
+
+import { useI18n } from '../../i18n';
 import { createPortal } from 'react-dom';
 
 import { dialogThemeAttributes, useDialogBehavior, type DialogTheme } from './useDialogBehavior';
@@ -118,7 +120,7 @@ export const Modal: React.FC<ModalProps> = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   showCloseButton = true,
-  closeLabel = 'Close',
+  closeLabel: closeLabelProp,
   theme = 'auto',
   labelledBy,
   describedBy,
@@ -127,6 +129,8 @@ export const Modal: React.FC<ModalProps> = ({
   className = '',
   bodyClassName = 'p-4',
 }) => {
+  const { t } = useI18n();
+  const closeLabel = closeLabelProp ?? t('common.close');
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -303,16 +307,20 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onConfirm,
   title,
   message,
-  confirmText = 'Onayla',
-  cancelText = 'İptal',
+  confirmText: confirmTextProp,
+  cancelText: cancelTextProp,
   variant: variantProp = 'info',
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
   warning,
-  loadingText = 'İşleniyor...',
+  loadingText: loadingTextProp,
   typedConfirmationLabel,
 }) => {
+  const { t } = useI18n();
+  const confirmText = confirmTextProp ?? t('common.confirm');
+  const cancelText = cancelTextProp ?? t('common.cancel');
+  const loadingText = loadingTextProp ?? t('common.processing');
   // isOpen ve open birleştir
   const isOpen = isOpenProp ?? open ?? false;
 

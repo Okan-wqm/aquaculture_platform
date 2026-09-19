@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner, PageHeader, useConfirm } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -244,8 +244,9 @@ const TenantDetailPage: React.FC = () => {
 
   const deleteNote = useAdminMutation<unknown, { noteId: string }>(
     ({ noteId }) => tenantsApi.deleteNote(tenantId ?? '', noteId),
-    { invalidateKeys: tenantWriteKeys },
+    { invalidateKeys: tenantWriteKeys, feedback: { success: 'Note deleted' } },
   );
+  const confirm = useConfirm();
 
   const assignModule = useAdminMutation<unknown, { moduleId: string }>(
     ({ moduleId }) => modulesApi.assignToTenant(tenantId ?? '', moduleId),
@@ -304,7 +305,18 @@ const TenantDetailPage: React.FC = () => {
     });
   };
 
-  const handleDeleteNote = (noteId: string): void => {
+  // FE-HIGH-086: a note is an audit trail entry; deleting one asks first.
+  const handleDeleteNote = async (noteId: string): Promise<void> => {
+    if (
+      !(await confirm({
+        title: 'Delete this note?',
+        message: 'The note is removed from the tenant record.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    )
+      return;
     deleteNote.mutate({ noteId });
   };
 
@@ -825,7 +837,7 @@ const TenantDetailPage: React.FC = () => {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => handleDeleteNote(note.id)}
+                      onClick={() => { void handleDeleteNote(note.id); }}
                     >
                       Delete
                     </Button>

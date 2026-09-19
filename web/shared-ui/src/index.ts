@@ -169,6 +169,8 @@ export {
   useInvalidateQueries,
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
+export { useFeedbackMutation, DEFAULT_MUTATION_ERROR_TITLE } from './hooks/useFeedbackMutation';
+export type { MutationFeedback, FeedbackMutationOptions } from './hooks/useFeedbackMutation';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
 export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';
 export { useClickOutside } from './hooks/useClickOutside';

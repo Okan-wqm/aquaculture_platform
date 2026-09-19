@@ -3,8 +3,8 @@
  * TanStack Query hooks for certification and training operations
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantInvalidationKey, useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_CERTIFICATION_TYPES,
@@ -326,7 +326,8 @@ export function useMandatoryTrainingStatus(employeeId: string) {
 export function useAddEmployeeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Certification added' },
     mutationFn: (input: AddEmployeeCertificationInput) =>
       graphqlRequest<{ addEmployeeCertification: EmployeeCertification }, unknown>(
         client,
@@ -355,7 +356,8 @@ export function useAddEmployeeCertification() {
 export function useVerifyCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Certification verified' },
     mutationFn: (input: VerifyCertificationInput) =>
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
         client,
@@ -378,7 +380,8 @@ export function useRevokeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Certification revoked' },
     mutationFn: (input: RevokeCertificationInput) =>
       graphqlRequest<{ revokeCertification: EmployeeCertification }, unknown>(
         client,
@@ -399,7 +402,8 @@ export function useRenewCertification() {
   const queryClient = useQueryClient();
 
   const { tenantId } = useAuth();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Certification renewed' },
     mutationFn: ({
       certificationId,
       newExpiryDate,
@@ -436,7 +440,8 @@ export function useRenewCertification() {
 export function useEnrollInTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Enrolled in training' },
     mutationFn: (input: EnrollInTrainingInput & {
       dueDate?: string;
       sessionId?: string;
@@ -465,7 +470,8 @@ export function useEnrollInTraining() {
 export function useStartTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Training started' },
     mutationFn: (enrollmentId: string) =>
       graphqlRequest<{ startTraining: TrainingEnrollment }, unknown>(
         client,
@@ -487,7 +493,8 @@ export function useCompleteTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Training completed' },
     mutationFn: (input: CompleteTrainingInput) =>
       graphqlRequest<{ completeTraining: TrainingEnrollment }, unknown>(
         client,
@@ -512,7 +519,8 @@ export function useCompleteTraining() {
 export function useWithdrawFromTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Withdrawn from training' },
     mutationFn: ({ enrollmentId, reason }: { enrollmentId: string; reason?: string }) =>
       graphqlRequest<{ withdrawFromTraining: TrainingEnrollment }, unknown>(
         client,

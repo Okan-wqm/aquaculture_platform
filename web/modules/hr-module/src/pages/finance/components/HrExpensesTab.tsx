@@ -34,6 +34,22 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
     deleteEntry.mutate(id);
   };
 
+  // FE-HIGH-086: archiving a category hides it from every new entry; it asks
+  // first, like deleting an entry does.
+  const handleArchiveCategory = async (category: { id: string; name: string }): Promise<void> => {
+    if (
+      !(await confirm({
+        title: `Archive category "${category.name}"?`,
+        message: 'Existing entries keep it; new entries can no longer use it.',
+        confirmText: 'Archive',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    )
+      return;
+    archiveCategory.mutate(category.id);
+  };
+
   const [modal, setModal] = useState<{ open: boolean; entry?: HrFinanceEntry }>({ open: false });
   const [newCategory, setNewCategory] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -157,7 +173,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
               )}
               {canArchive(c) && (
                 <button
-                  onClick={() => archiveCategory.mutate(c.id)}
+                  onClick={() => { void handleArchiveCategory(c); }}
                   className="text-red-500 hover:text-red-700"
                   aria-label={`Archive ${c.name}`}
                 >

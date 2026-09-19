@@ -35,7 +35,7 @@ import type {
   UseMutationOptions,
   UseMutationResult,
 } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, formatErrorForToast, useToast, DEFAULT_MUTATION_ERROR_TITLE } from '@aquaculture/shared-ui';
 
 /**
  * Extra options specific to useAdminMutation (beyond standard React Query mutation options).
@@ -49,6 +49,19 @@ export interface AdminMutationExtras<TData, TVariables> {
    * an entire domain, or narrow keys for surgical cache busting.
    */
   invalidateKeys?: QueryKey[];
+
+  /**
+   * What the user hears (FE-HIGH-086). Every admin write toasts its error
+   * with the parsed message by default — 121 `setError` banners were the
+   * only feedback before, and a banner above the fold is invisible from a
+   * modal. `success` adds a success toast; `quiet` silences both for
+   * background bookkeeping.
+   */
+  feedback?: {
+    success?: string | ((data: TData, variables: TVariables) => string);
+    error?: string | ((error: Error, variables: TVariables) => string);
+    quiet?: boolean;
+  };
 
   /**
    * Additional React Query mutation options (onSuccess, onError, onSettled, etc.).
@@ -71,7 +84,8 @@ export function useAdminMutation<TData, TVariables = void>(
   extras?: AdminMutationExtras<TData, TVariables>,
 ): UseMutationResult<TData, Error, TVariables> {
   const queryClient = useQueryClient();
-  const { invalidateKeys, mutationOptions } = extras ?? {};
+  const { toast } = useToast();
+  const { invalidateKeys, mutationOptions, feedback } = extras ?? {};
 
   // WHY: Destructure callbacks separately to avoid forwarding arity issues
   // when optional-chaining. The rest is spread into useMutation directly.
@@ -95,12 +109,21 @@ export function useAdminMutation<TData, TVariables = void>(
         );
       }
 
+      if (feedback?.success !== undefined && !feedback.quiet) {
+        const title = typeof feedback.success === 'function' ? feedback.success(data, variables) : feedback.success;
+        toast({ title, variant: 'success' });
+      }
+
       // ── Forward to caller's onSuccess if provided ──
       if (callerOnSuccess) {
         await callerOnSuccess(data, variables, onMutateResult, context);
       }
     },
     onError: async (error, variables, onMutateResult, context) => {
+      if (!feedback?.quiet) {
+        const title = typeof feedback?.error === 'function' ? feedback.error(error, variables) : feedback?.error;
+        toast({ title: title ?? DEFAULT_MUTATION_ERROR_TITLE, description: formatErrorForToast(error), variant: 'error' });
+      }
       if (callerOnError) {
         await callerOnError(error, variables, onMutateResult, context);
       }

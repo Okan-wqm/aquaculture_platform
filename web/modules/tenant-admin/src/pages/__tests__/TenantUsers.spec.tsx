@@ -41,6 +41,9 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   ConfirmModal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).ConfirmModal,
   DataTable: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).DataTable,
   PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
+  // The user hooks report through the real feedback wrapper (FE-HIGH-086); its
+  // toast surface falls back to local state without a provider.
+  useFeedbackMutation: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).useFeedbackMutation,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: mockAuthState.role },

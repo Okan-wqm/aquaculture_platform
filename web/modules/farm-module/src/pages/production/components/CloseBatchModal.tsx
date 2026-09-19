@@ -18,6 +18,7 @@ import {
   Modal,
   Button,
   useToast,
+  useConfirm,
   parseGraphQLError,
 } from '@aquaculture/shared-ui';
 
@@ -89,6 +90,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
   const [blocker, setBlocker] = useState<WithdrawalBlock | null>(null);
 
   const closeBatch = useCloseBatch();
+  const confirm = useConfirm();
   const { toast } = useToast();
 
   const errors = useMemo(() => {
@@ -113,6 +115,18 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
 
   const handleSubmit = async () => {
     if (!isValid) return;
+    // FE-HIGH-086: closing a batch ends its production record for good; the
+    // form collects the reason, this asks for the decision.
+    if (
+      !(await confirm({
+        title: `Close batch ${batchNumber}?`,
+        message: 'A closed batch cannot be reopened.',
+        confirmText: 'Close batch',
+        cancelText: 'Keep open',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await closeBatch.mutateAsync({
         id: batchId,

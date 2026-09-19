@@ -97,6 +97,15 @@ const RAW_PALETTE =
  * states, export. Counted per package the same way as raw hex.
  */
 const RAW_TABLE = /<table\b/g;
+/**
+ * A TanStack `useMutation(` called directly by a module (FE-HIGH-086). A
+ * mutation that reports nothing is the silent-save defect; modules declare
+ * their outcome messages through shared-ui `useFeedbackMutation`, and the
+ * admin panel through `useAdminMutation` (the one wrapper allowed to call
+ * `useMutation` itself).
+ */
+const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
+const MUTATION_WRAPPERS = ['web/modules/admin-panel/src/hooks/useAdminMutation.ts'];
 
 /** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
 const LOADER_ICON_SPINNER = /<(?:Loader2|LoaderCircle|Loader)\b[^>]*className="[^"]*\banimate-spin\b/g;
@@ -246,6 +255,7 @@ interface Allowlist {
   rawPalette: { entries: PackageCeiling[] };
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
+  rawMutation: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
   darkSurface: { entries: PackageCeiling[] };
@@ -402,6 +412,32 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.rawTable.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets direct useMutation calls per package — feedback belongs to the hook layer (FE-HIGH-086)', () => {
+    const actual = countByPackage(
+      files.filter((file) => !file.startsWith('web/apps/') && !MUTATION_WRAPPERS.includes(file)),
+      RAW_MUTATION,
+    );
+    const ceilings = new Map(doc.rawMutation.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} direct useMutation calls, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} direct useMutation calls, ceiling ${entry.ceiling}. Declare the outcome through useFeedbackMutation({ feedback: { success, error? } }) (admin-panel: useAdminMutation feedback) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawMutation.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

@@ -18,7 +18,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, Modal, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { cn, Modal, useAuth, useConfirm, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -498,6 +498,26 @@ const PayrollPage: React.FC = () => {
   // Mutations
   const createMutation = useCreatePayroll();
   const approveMutation = useApprovePayroll();
+  const confirm = useConfirm();
+
+  // FE-HIGH-086: approving a payroll releases money; it asks first, like a
+  // routine delete does elsewhere.
+  const handleApprove = useCallback(
+    async (id: string): Promise<void> => {
+      if (
+        !(await confirm({
+          title: 'Approve this payroll?',
+          message: 'Approval marks the period as payable. It cannot be undone from here.',
+          confirmText: 'Approve',
+          cancelText: 'Cancel',
+          variant: 'warning',
+        }))
+      )
+        return;
+      approveMutation.mutate(id);
+    },
+    [confirm, approveMutation],
+  );
 
   const employees = employeesData?.items || [];
 
@@ -632,7 +652,7 @@ const PayrollPage: React.FC = () => {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  approveMutation.mutate(row.id);
+                  void handleApprove(row.id);
                 }}
                 disabled={approveMutation.isPending}
                 className="rounded p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
@@ -646,7 +666,7 @@ const PayrollPage: React.FC = () => {
       },
     ],
      
-    [approveMutation.isPending]
+    [approveMutation.isPending, handleApprove]
   );
 
   // Stable keyExtractor

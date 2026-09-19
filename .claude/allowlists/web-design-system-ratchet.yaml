@@ -22,6 +22,9 @@
 #                 per package. shared-ui is never granted a ceiling: the
 #                 primitives paint from primary / secondary / accent / success /
 #                 warning / error / info / neutral.
+#   rawMutation — direct TanStack useMutation( calls per package (web/apps and
+#                 the admin panel's useAdminMutation wrapper excluded); a
+#                 mutation declares its outcome through useFeedbackMutation.
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -101,6 +104,26 @@ rawTable:
       expiry: 2027-06-30
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+rawMutation:
+  entries:
+    - package: web/modules/farm-module
+      ceiling: 177
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 77
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+    - package: web/shell
+      ceiling: 3
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
 rawSpinner:
   entries: []
 rawPageTitle:

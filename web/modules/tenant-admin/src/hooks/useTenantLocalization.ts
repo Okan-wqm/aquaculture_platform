@@ -7,12 +7,11 @@
  * ekran "yakında" bir stub olarak kalamazdı — motorun zamanlaması operatörün
  * göremediği bir sabite bağlıydı.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTenantInvalidationKey,
   createTenantQueryKey,
-  getTenantId,
-} from '@aquaculture/shared-ui';
+  getTenantId, useFeedbackMutation } from '@aquaculture/shared-ui';
 
 import { MY_TENANT_LOCALIZATION_QUERY, UPDATE_TENANT_LOCALIZATION_MUTATION } from '../graphql';
 import { graphqlRequest } from '../services/tenant-api.service';
@@ -42,7 +41,8 @@ export function useTenantLocalization() {
 export function useUpdateTenantLocalization() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Localization settings saved' },
     mutationFn: async (input: { timezone: string; locale?: string | null }) => {
       const data = await graphqlRequest<{ updateTenantLocalization: TenantLocalization }>(
         UPDATE_TENANT_LOCALIZATION_MUTATION,

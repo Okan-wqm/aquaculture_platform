@@ -10,7 +10,7 @@
  * devam eder — bu sekme YALNIZ v2 modelini düzenler.
  */
 import React, { useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useFeedingProtocolsV2,
   useCreateFeedingProtocolV2,
@@ -949,6 +949,81 @@ export const ProtocolBuilderTab: React.FC = () => {
     await archiveMutation.mutateAsync(protocol.id);
   };
 
+  type ProtocolRow = (typeof protocols)[number];
+  const protocolRowColumns: DataTableColumn<ProtocolRow>[] = [
+    {
+      key: 'tFeedingv2Name',
+      header: '{t(\'feedingV2.name\')}',
+      render: (_value, protocol) => (
+        <>
+          <div className="font-medium text-gray-900">{protocol.name}</div>
+          {protocol.migrationNote && (
+            <div className="text-xs text-amber-600 mt-0.5">
+              {t('feedingV2.migrationNote')}: {protocol.migrationNote}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2Species',
+      header: '{t(\'feedingV2.species\')}',
+      render: (_value, protocol) => protocol.speciesName ?? t('feedingV2.speciesAny'),
+    },
+    {
+      key: 'tFeedingv2Statuslabel',
+      header: '{t(\'feedingV2.statusLabel\')}',
+      render: (_value, protocol) => (
+        <>
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[protocol.status]}`}
+          >
+            {t(STATUS_KEY[protocol.status])}
+          </span>
+          {protocol.isDefault && (
+            <span className="ml-2 inline-flex rounded-full bg-blue-100 text-blue-800 px-2 py-0.5 text-xs">
+              {t('feedingV2.isDefault')}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2Bands',
+      header: '{t(\'feedingV2.bands\')}',
+      render: (_value, protocol) => protocol.bands.length,
+    },
+    {
+      key: 'tFeedingv2MealscheduleMealsperday',
+      header: '{t(\'feedingV2.mealSchedule.mealsPerDay\')}',
+      render: (_value, protocol) => protocol.defaultMealSchedule.mealsPerDay,
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, protocol) => (
+        <>
+          {canUpdate && protocol.status !== 'ARCHIVED' && (
+            <button
+              onClick={() => setModalProtocol(protocol)}
+              className="text-blue-600 hover:text-blue-800 mr-3"
+            >
+              {t('common.edit')}
+            </button>
+          )}
+          {canArchive && protocol.status !== 'ARCHIVED' && (
+            <button
+              onClick={() => void handleArchive(protocol)}
+              className="text-gray-500 hover:text-red-600"
+            >
+              {t('feedingV2.archive')}
+            </button>
+          )}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -984,71 +1059,15 @@ export const ProtocolBuilderTab: React.FC = () => {
       )}
 
       {protocols.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3">{t('feedingV2.name')}</th>
-                <th className="px-4 py-3">{t('feedingV2.species')}</th>
-                <th className="px-4 py-3">{t('feedingV2.statusLabel')}</th>
-                <th className="px-4 py-3">{t('feedingV2.bands')}</th>
-                <th className="px-4 py-3">{t('feedingV2.mealSchedule.mealsPerDay')}</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {protocols.map((protocol) => (
-                <tr key={protocol.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{protocol.name}</div>
-                    {protocol.migrationNote && (
-                      <div className="text-xs text-amber-600 mt-0.5">
-                        {t('feedingV2.migrationNote')}: {protocol.migrationNote}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {protocol.speciesName ?? t('feedingV2.speciesAny')}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[protocol.status]}`}
-                    >
-                      {t(STATUS_KEY[protocol.status])}
-                    </span>
-                    {protocol.isDefault && (
-                      <span className="ml-2 inline-flex rounded-full bg-blue-100 text-blue-800 px-2 py-0.5 text-xs">
-                        {t('feedingV2.isDefault')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{protocol.bands.length}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {protocol.defaultMealSchedule.mealsPerDay}
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    {canUpdate && protocol.status !== 'ARCHIVED' && (
-                      <button
-                        onClick={() => setModalProtocol(protocol)}
-                        className="text-blue-600 hover:text-blue-800 mr-3"
-                      >
-                        {t('common.edit')}
-                      </button>
-                    )}
-                    {canArchive && protocol.status !== 'ARCHIVED' && (
-                      <button
-                        onClick={() => void handleArchive(protocol)}
-                        className="text-gray-500 hover:text-red-600"
-                      >
-                        {t('feedingV2.archive')}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ProtocolRow>
+          data={protocols}
+          columns={protocolRowColumns}
+          keyExtractor={(protocol) => protocol.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {modalProtocol && (

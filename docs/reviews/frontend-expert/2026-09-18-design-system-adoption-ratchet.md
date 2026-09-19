@@ -246,7 +246,23 @@ a feed's feeding curve, fish-health chemicals, slaughter facilities,
 workers, purchase-order lines, delivery receipts, on-demand steps and
 recent water-chemistry entries. Rows that had no identity of their own
 (form arrays keyed by position) needed `DataTable`'s `keyExtractor` to see
-the row index, which it now does. **Owner:** okan · **Expiry:** 2027-06-30.
+the row index, which it now does. Batch 16: hydroponics (10 → 2) and the rest
+of farm-module's fixed-column lists (33 → 23, three of them HTML strings in
+report exports) — the dynamic tank table,
+nutrient profiles, the current-formula, drainage-composition and
+previous-drainage parameter grids, the result tab's macro and micro
+nutrient grids (one column set reads the calculation for both), user-option
+targets; feeding assignments and protocols, health events, maintenance
+schedules, spare parts, work orders, feeding records, inventory-count
+lines, parameter configs and the finance overview's category tables (a
+column factory takes the currency). What stays raw now has a structural
+reason: dynamic column sets (the water-chemistry history and translation
+matrices, the feeding-record and CSV column pickers), rows that span
+several `<tr>` (protocol bands), matrix editors (feeding matrix, meal
+board), row components with their own state (calibration, thresholds,
+water analysis, alarm and simulation panels), the storage and task tabs'
+row components, and the SCADA runtime grids. **Owner:** okan ·
+**Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -259,8 +275,8 @@ the row index, which it now does. **Owner:** okan · **Expiry:** 2027-06-30.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 66 remain after batch 15 (admin-panel 3,
-  tenant-admin 1, hr 3, shell 1, hydroponics 10, sensor 15, farm 33).
+- Raw `<table>` → `DataTable`: 48 remain after batch 16 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, hydroponics 2, sensor 15, farm 23).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

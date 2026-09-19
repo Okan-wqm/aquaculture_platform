@@ -15,8 +15,7 @@ import {
   type SidebarTheme,
   useAuthContext,
   useAuth,
-  useTenantContext,
-} from '@aquaculture/shared-ui';
+  useTenantContext, SkipToContent } from '@aquaculture/shared-ui';
 import { Sparkles } from 'lucide-react';
 import AiAssistantDrawer from '../components/ai/AiAssistantDrawer';
 import { useQueryClient } from '@tanstack/react-query';
@@ -587,6 +586,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
+      <SkipToContent />
       {/* Sidebar */}
       <Sidebar
         items={navigationItems}
@@ -616,7 +616,7 @@ const MainLayout: React.FC = () => {
         />
 
         {/* Page Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-6 overflow-auto focus:outline-hidden">
           <Outlet />
         </main>
       </div>

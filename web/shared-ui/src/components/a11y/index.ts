@@ -15,3 +15,6 @@ export type { FocusTrapProps } from './FocusTrap';
 
 export { RouteAnnouncer } from './RouteAnnouncer';
 export type { RouteAnnouncerProps } from './RouteAnnouncer';
+
+export { SkipToContent } from './SkipToContent';
+export type { SkipToContentProps } from './SkipToContent';

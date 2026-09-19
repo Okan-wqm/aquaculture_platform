@@ -170,7 +170,7 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 111
+      ceiling: 107
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
@@ -194,7 +194,7 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/shell
-      ceiling: 115
+      ceiling: 113
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

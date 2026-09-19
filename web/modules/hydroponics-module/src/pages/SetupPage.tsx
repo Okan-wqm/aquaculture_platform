@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import NutrientProfileManager from './setup/NutrientProfileManager';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Tabs, TabPanel } from '@aquaculture/shared-ui';
 
-const SETUP_TABS = [
+type SetupTab = 'sites' | 'profiles';
+const SETUP_TABS: { id: SetupTab; label: string }[] = [
   { id: 'sites', label: 'Sites' },
   { id: 'profiles', label: 'Nutrient Profiles' },
 ];
 
 const SetupPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('sites');
+  const [activeTab, setActiveTab] = useState<SetupTab>('sites');
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -20,33 +21,10 @@ const SetupPage: React.FC = () => {
       />
 
       {/* Tab Bar */}
-      <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <nav className="flex gap-0 -mb-px" role="tablist">
-          {SETUP_TABS.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                  ${isActive
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                  }
-                `}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      <Tabs items={SETUP_TABS} value={activeTab} onChange={setActiveTab} tabsId="hydro-setup" aria-label="Setup sections" className="mb-6" />
 
       {/* Tab Content */}
-      {activeTab === 'sites' && (
+      <TabPanel tabsId="hydro-setup" value="sites" selected={activeTab}>
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-50 mb-4">
@@ -72,9 +50,11 @@ const SetupPage: React.FC = () => {
             </button>
           </div>
         </div>
-      )}
+      </TabPanel>
 
-      {activeTab === 'profiles' && <NutrientProfileManager />}
+      <TabPanel tabsId="hydro-setup" value="profiles" selected={activeTab}>
+        <NutrientProfileManager />
+      </TabPanel>
     </div>
   );
 };

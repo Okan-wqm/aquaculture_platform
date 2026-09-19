@@ -2258,6 +2258,7 @@ def invoke_claude_cli(
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
             dispatch_model=agent_profile.model,
+            usage=completed.usage,
         )
         envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2283,6 +2284,7 @@ def invoke_claude_cli(
                 role=role,
                 request_id=request_id,
                 signer_key_fp=signer_key_fp,
+                usage=completed.usage,
             )
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
@@ -2305,8 +2307,13 @@ def _record_claude_cli_usage(
     role: str,
     request_id: str,
     signer_key_fp: str | None = None,
+    usage: dict[str, Any] | None = None,
 ) -> None:
     """Record Claude usage with a TRUTHFUL USD attribution.
+
+    ``usage`` is the run result's own block when the caller holds one
+    (ARIA-HIGH-161, same seam as ``_build_envelope_from_claude_output``);
+    the stream parse of ``raw_stdout`` is the fallback.
 
     ``signer_key_fp`` is the fingerprint of the signing identity this
     executor holds for the request (ARIA-HIGH-115: minted in the request
@@ -2330,7 +2337,8 @@ def _record_claude_cli_usage(
     closed in ``claude_runtime.run_claude_exec`` before submit.
     """
     events = parse_claude_jsonl(raw_stdout)
-    usage = extract_usage(events)
+    if usage is None:
+        usage = extract_usage(events)
     if not isinstance(usage, dict):
         return
     input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
@@ -2503,8 +2511,16 @@ def _build_envelope_from_claude_output(
     subagent_type: str,
     must_satisfy: list[dict[str, Any]],
     dispatch_model: str | None = None,
+    usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
+
+    ``usage`` is the run result's own usage block when the caller holds one
+    (ARIA-HIGH-161): the Z.ai transport reports usage on the result, not as
+    a stream-json event, so parsing ``raw_stdout`` alone left the
+    cross-vendor rung's envelope without ``claude_cli_usage`` and the native
+    wrapper released a finished verdict as ``usage_unavailable``. The stream
+    parse stays the fallback for a caller that has only the bytes.
 
     Claude Code emits JSONL events. ARIA keeps those raw events out of
     artifacts, extracts the final agent message, and injects the
@@ -2591,7 +2607,8 @@ def _build_envelope_from_claude_output(
     if dispatch_model:
         details["agent_dispatch_model"] = dispatch_model
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
-    usage = extract_usage(parse_claude_jsonl(raw_stdout))
+    if usage is None:
+        usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:
         details.setdefault("claude_cli_usage", usage)
     envelope["details"] = details
@@ -3259,6 +3276,27 @@ def _invoke_native_zai(
         })
 
 
+_NATIVE_CLAUDE_ADMISSION_UNNAMED = "execution_unavailable"
+
+
+def _result_admission_for(exc: BaseException, current: str) -> str:
+    """The attempt row's ``result_admission`` after ``exc`` ended the run.
+
+    ARIA-HIGH-161 — the wrapper names ``usage_unavailable`` (a finished run
+    whose envelope carries no usage) BEFORE it raises, and the handler used
+    to overwrite that name with the exception family's generic
+    ``control_or_transport_unavailable``: the attempt row read "transport"
+    for a run whose transport had answered. A name the wrapper already gave
+    stands; only the unnamed default is classified by exception type.
+    """
+    if current != _NATIVE_CLAUDE_ADMISSION_UNNAMED:
+        return current
+    return {
+        ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
+        subprocess.TimeoutExpired: "timeout",
+    }.get(type(exc), "control_or_transport_unavailable")
+
+
 def _invoke_native_claude(
     *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
     request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
@@ -3297,7 +3335,7 @@ def _invoke_native_claude(
     except GovernanceError as exc:
         raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
     cli_exit: int | None = None
-    result_admission = "execution_unavailable"
+    result_admission = _NATIVE_CLAUDE_ADMISSION_UNNAMED
     usage_row_hash: str | None = None
     contract_row: dict[str, Any] | None = None
     try:
@@ -3334,10 +3372,7 @@ def _invoke_native_claude(
         # Classification only, by type: the ONE handler that releases the
         # claim on an auth failure lives in the executor's main body and
         # stays the only `except ClaudeAuthFailure` in this module.
-        result_admission = {
-            ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
-            subprocess.TimeoutExpired: "timeout",
-        }.get(type(exc), "control_or_transport_unavailable")
+        result_admission = _result_admission_for(exc, result_admission)
         raise
     finally:
         append_tools_governance(tools_dir, "runtime_attempt_finished", {

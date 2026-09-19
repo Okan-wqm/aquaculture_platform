@@ -2,6 +2,7 @@
  * Control Panel - tank values, target ranges, reagent selection, system params
  */
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { SimConfig, SimState } from '../simulation/types';
 import { ACID_REAGENTS, BASE_REAGENTS } from '../engine/reagents';
 
@@ -66,7 +67,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* Tank Values */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Tank Values</h4>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className={`rounded p-2 text-center ${phInRange ? 'bg-green-50' : 'bg-red-50'}`}>
             <div className="text-[10px] text-gray-500 dark:text-gray-400">pH</div>
             <div className={`text-xl font-bold font-mono ${phColor}`}>{state.pH.toFixed(2)}</div>
@@ -194,7 +195,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* Disturbances */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Disturbances</h4>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           <button onClick={() => onDisturbance('phUp')}
             className="px-2 py-1.5 text-[11px] bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200"
             disabled={!running}>pH +0.5 ALK</button>
@@ -228,11 +229,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* Control */}
       <div className="flex gap-1.5">
         {!running ? (
-          <button onClick={onStart}
-            className="flex-1 py-2 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white rounded">START</button>
+          <Button variant="primary" size="xs" className="flex-1" onClick={onStart}>START</Button>
         ) : (
-          <button onClick={onStop}
-            className="flex-1 py-2 text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white rounded">STOP</button>
+          <Button variant="warning" size="xs" className="flex-1" onClick={onStop}>STOP</Button>
         )}
         <button onClick={onReset}
           className="flex-1 py-2 text-xs font-semibold bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 text-gray-700 dark:text-gray-300 rounded">RESET</button>

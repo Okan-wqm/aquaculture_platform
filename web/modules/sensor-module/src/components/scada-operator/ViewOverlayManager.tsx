@@ -32,6 +32,7 @@ import React, {
   memo,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { Button } from '@aquaculture/shared-ui';
 import { X, GripHorizontal, Maximize2, Minimize2 } from 'lucide-react';
 
 import { useOperatorStore } from '../../store/scada/operatorStore';
@@ -219,18 +220,7 @@ const OverlayTitleBar = memo<OverlayTitleBarProps>(
       <span className="flex-1 truncate text-xs font-medium text-gray-200">
         {title ?? 'Overlay'}
       </span>
-      <button
-        type="button"
-        onClick={onClose}
-        className="
-          flex items-center justify-center w-5 h-5 rounded shrink-0
-          text-gray-400 hover:text-gray-100 hover:bg-gray-700 transition-colors
-          focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
-        "
-        aria-label="Close overlay"
-      >
-        <X size={12} aria-hidden="true" />
-      </button>
+      <Button variant="ghost" iconOnly className="justify-center w-5 h-5 shrink-0" type="button" onClick={onClose} aria-label="Close overlay"><X size={12} aria-hidden="true" /></Button>
     </div>
   ),
 );
@@ -373,22 +363,10 @@ const CardOverlay = memo<OverlayItemProps>(
         />
 
         {/* Maximise toggle */}
-        <button
-          type="button"
-          onClick={() => setMaximised((v) => !v)}
-          className="
-            absolute right-8 top-1.5
-            flex items-center justify-center w-5 h-5 rounded
-            text-gray-400 hover:text-gray-100 hover:bg-gray-700 transition-colors
-            focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
-          "
-          aria-label={maximised ? 'Restore card' : 'Maximise card'}
-        >
-          {maximised
+        <Button variant="ghost" className="absolute right-8 top-1.5 justify-center w-5 h-5" type="button" onClick={() => setMaximised((v) => !v)} aria-label={maximised ? 'Restore card' : 'Maximise card'}>{maximised
             ? <Minimize2 size={11} aria-hidden="true" />
             : <Maximize2 size={11} aria-hidden="true" />
-          }
-        </button>
+          }</Button>
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-gray-950">

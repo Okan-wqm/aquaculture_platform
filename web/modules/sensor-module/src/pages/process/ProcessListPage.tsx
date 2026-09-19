@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -147,12 +147,7 @@ const ProcessListPage: React.FC = () => {
             <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
             <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load processes</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
-            <button
-              onClick={refetch}
-              className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-            >
-              Try Again
-            </button>
+            <Button variant="primary" className="mt-4" onClick={refetch}>Try Again</Button>
           </div>
         </div>
       </div>
@@ -239,14 +234,9 @@ const ProcessListPage: React.FC = () => {
               <Spinner size="md" color="gray" />
             ) : (
               <>
-                <button
-                  onClick={() =>
+                <Button variant="ghost" iconOnly aria-label="More actions" onClick={() =>
                     setActiveDropdown(activeDropdown === process.id ? null : process.id)
-                  }
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                >
-                  <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                </button>
+                  }><MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
 
                 {activeDropdown === process.id && (
                   <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
@@ -257,38 +247,14 @@ const ProcessListPage: React.FC = () => {
                       <Edit className="w-4 h-4" />
                       Edit
                     </Link>
-                    <button
-                      onClick={() => handleDuplicate(process)}
-                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      <Copy className="w-4 h-4" />
-                      Duplicate
-                    </button>
+                    <Button variant="ghost" leftIcon={<Copy className="w-4 h-4" />} onClick={() => handleDuplicate(process)}>Duplicate</Button>
                     {status === 'active' ? (
-                      <button
-                        onClick={() => handleStatusChange(process, 'inactive')}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
-                      >
-                        <Pause className="w-4 h-4" />
-                        Deactivate
-                      </button>
+                      <Button variant="ghost" leftIcon={<Pause className="w-4 h-4" />} onClick={() => handleStatusChange(process, 'inactive')}>Deactivate</Button>
                     ) : status !== 'archived' ? (
-                      <button
-                        onClick={() => handleStatusChange(process, 'active')}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-700 hover:bg-green-50"
-                      >
-                        <Play className="w-4 h-4" />
-                        Activate
-                      </button>
+                      <Button variant="ghost" leftIcon={<Play className="w-4 h-4" />} onClick={() => handleStatusChange(process, 'active')}>Activate</Button>
                     ) : null}
                     <hr className="my-1 border-gray-200 dark:border-gray-700" />
-                    <button
-                      onClick={() => handleDelete(process)}
-                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
+                    <Button variant="ghost" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => handleDelete(process)}>Delete</Button>
                   </div>
                 )}
               </>
@@ -307,13 +273,7 @@ const ProcessListPage: React.FC = () => {
         description="Create and manage equipment connection diagrams"
         actions={
           <div className="flex gap-3">
-            <button
-              onClick={refetch}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+            <Button variant="secondary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={refetch}>Refresh</Button>
             <Link
               to="/sensor/processes/templates"
               className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -350,17 +310,7 @@ const ProcessListPage: React.FC = () => {
         {/* Status Filter */}
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 appearance-none bg-white dark:bg-gray-900"
-          >
-            <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
-          </select>
+          <Select options={[{ value: 'all', label: 'All Status' }, { value: 'draft', label: 'Draft' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'archived', label: 'Archived' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </div>
 

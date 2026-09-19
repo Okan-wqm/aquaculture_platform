@@ -4,7 +4,7 @@
 
 import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors, Input } from '@aquaculture/shared-ui';
 
 const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = (config.label ?? 'Setpoint') as string;
@@ -37,25 +37,18 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
     >
       <span style={{ fontSize: 10, color: colors.gray[400], fontWeight: 500 }}>{label}</span>
       <div className="flex items-center gap-1">
-        <input
-          type="text"
-          readOnly={isEditing}
-          disabled={isEditing}
-          value={safeValue.toFixed((config.decimals ?? 1) as number)}
-          onChange={handleChange}
-          style={{
-            width: Math.max(60, width * 0.5),
-            height: 28,
-            textAlign: 'center',
-            fontSize: 16,
-            fontWeight: 600,
-            border: `1px solid ${themeColors.neutral[300]}`,
-            borderRadius: 4,
-            background: isEditing ? colors.neutral[50] : colors.white,
-            color: colors.neutral[900],
-            outline: 'none',
-          }}
-        />
+        <Input type="text" readOnly={isEditing} disabled={isEditing} value={safeValue.toFixed((config.decimals ?? 1) as number)} onChange={handleChange} style={{
+      width: Math.max(60, width * 0.5),
+      height: 28,
+      textAlign: 'center',
+      fontSize: 16,
+      fontWeight: 600,
+      border: `1px solid ${themeColors.neutral[300]}`,
+      borderRadius: 4,
+      background: isEditing ? colors.neutral[50] : colors.white,
+      color: colors.neutral[900],
+      outline: 'none',
+     }} />
         {unit && <span style={{ fontSize: 12, color: colors.gray[400] }}>{unit}</span>}
       </div>
     </div>

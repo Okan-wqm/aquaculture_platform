@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   X, Settings, Link2, Trash2, Info, Unlink, Edit3, Activity, Radio,
   Wifi, RotateCcw, Cpu, ToggleLeft, ToggleRight, Zap, AlertTriangle,
@@ -291,12 +291,7 @@ export const PropertiesPanel: React.FC = () => {
         {/* Header */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Equipment</h3>
-          <button
-            onClick={() => selectNode(null)}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-          >
-            <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={() => selectNode(null)}><X className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
         </div>
 
         {/* Content */}
@@ -392,13 +387,7 @@ export const PropertiesPanel: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-2 bg-cyan-50 rounded-lg border border-cyan-200">
                   <span className="text-sm text-cyan-700 font-medium">Linked</span>
-                  <button
-                    onClick={handleUnlink}
-                    className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
-                  >
-                    <Unlink className="w-3 h-3" />
-                    Unlink
-                  </button>
+                  <Button variant="ghost" size="xs" leftIcon={<Unlink className="w-3 h-3" />} onClick={handleUnlink}>Unlink</Button>
                 </div>
 
                 {/* Inline Name Edit */}
@@ -406,31 +395,17 @@ export const PropertiesPanel: React.FC = () => {
                   <span className="text-sm text-gray-500 dark:text-gray-400">Name:</span>
                   {isEditingName ? (
                     <div className="flex-1 flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={editedName}
-                        onChange={(e) => setEditedName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleNameSave();
-                          if (e.key === 'Escape') setIsEditingName(false);
-                        }}
-                        onBlur={handleNameSave}
-                        autoFocus
-                        className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                      />
+                      <Input type="text" value={editedName} onChange={(e) => setEditedName(e.target.value)} onKeyDown={(e) => {
+             if (e.key === 'Enter') handleNameSave();
+             if (e.key === 'Escape') setIsEditingName(false);
+            }} onBlur={handleNameSave} autoFocus />
                     </div>
                   ) : (
                     <div className="flex-1 flex items-center justify-between">
                       <span className="text-sm text-gray-900 dark:text-gray-100">
                         {selectedNode.data.equipmentName}
                       </span>
-                      <button
-                        onClick={handleNameEdit}
-                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                        title="Edit Name"
-                      >
-                        <Edit3 className="w-4 h-4 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
-                      </button>
+                      <Button variant="ghost" size="sm" iconOnly aria-label="Edit Name" onClick={handleNameEdit} title="Edit Name"><Edit3 className="w-4 h-4 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" /></Button>
                     </div>
                   )}
                 </div>
@@ -477,20 +452,11 @@ export const PropertiesPanel: React.FC = () => {
                 {/* Data Mode */}
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Data Mode</label>
-                  <select
-                    value={(selectedNode.data as SensorWidgetNodeData).mode || ''}
-                    onChange={(e) =>
-                      updateNodeData(selectedNode.id, {
-                        mode: e.target.value as 'push' | 'poll' | 'onChange' | undefined,
-                      })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  >
-                    <option value="">Static (manual)</option>
-                    <option value="push">MQTT Push (WebSocket)</option>
-                    <option value="poll">HTTP Poll (Interval)</option>
-                    <option value="onChange">HTTP onChange (ETag)</option>
-                  </select>
+                  <Select fullWidth options={[{ value: '', label: 'Static (manual)' }, { value: 'push', label: 'MQTT Push (WebSocket)' }, { value: 'poll', label: 'HTTP Poll (Interval)' }, { value: 'onChange', label: 'HTTP onChange (ETag)' }]} value={(selectedNode.data as SensorWidgetNodeData).mode || ''} onChange={(e) =>
+           updateNodeData(selectedNode.id, {
+            mode: e.target.value as 'push' | 'poll' | 'onChange' | undefined,
+           })
+          } />
                 </div>
 
                 {/* MQTT Settings */}
@@ -501,27 +467,15 @@ export const PropertiesPanel: React.FC = () => {
                         <Wifi className="w-3 h-3 inline mr-1" />
                         MQTT Broker URL
                       </label>
-                      <input
-                        type="text"
-                        placeholder="ws://localhost:9001"
-                        value={(selectedNode.data as SensorWidgetNodeData).mqttUrl || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, { mqttUrl: e.target.value })
-                        }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                      />
+                      <Input fullWidth type="text" placeholder="ws://localhost:9001" value={(selectedNode.data as SensorWidgetNodeData).mqttUrl || ''} onChange={(e) =>
+             updateNodeData(selectedNode.id, { mqttUrl: e.target.value })
+            } />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">MQTT Topic</label>
-                      <input
-                        type="text"
-                        placeholder="sensors/temperature"
-                        value={(selectedNode.data as SensorWidgetNodeData).mqttTopic || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, { mqttTopic: e.target.value })
-                        }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                      />
+                      <Input fullWidth type="text" placeholder="sensors/temperature" value={(selectedNode.data as SensorWidgetNodeData).mqttTopic || ''} onChange={(e) =>
+             updateNodeData(selectedNode.id, { mqttTopic: e.target.value })
+            } />
                     </div>
                   </>
                 )}
@@ -532,33 +486,20 @@ export const PropertiesPanel: React.FC = () => {
                   <>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">HTTP URL</label>
-                      <input
-                        type="text"
-                        placeholder="https://api.example.com/sensor/1"
-                        value={(selectedNode.data as SensorWidgetNodeData).httpUrl || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, { httpUrl: e.target.value })
-                        }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                      />
+                      <Input fullWidth type="text" placeholder="https://api.example.com/sensor/1" value={(selectedNode.data as SensorWidgetNodeData).httpUrl || ''} onChange={(e) =>
+             updateNodeData(selectedNode.id, { httpUrl: e.target.value })
+            } />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <RotateCcw className="w-3 h-3 inline mr-1" />
                         Poll Interval (seconds)
                       </label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder={(selectedNode.data as SensorWidgetNodeData).mode === 'onChange' ? '10' : '5'}
-                        value={(selectedNode.data as SensorWidgetNodeData).pollInterval || ''}
-                        onChange={(e) =>
-                          updateNodeData(selectedNode.id, {
-                            pollInterval: e.target.value ? Number(e.target.value) : undefined,
-                          })
-                        }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                      />
+                      <Input fullWidth type="number" min="1" placeholder={(selectedNode.data as SensorWidgetNodeData).mode === 'onChange' ? '10' : '5'} value={(selectedNode.data as SensorWidgetNodeData).pollInterval || ''} onChange={(e) =>
+             updateNodeData(selectedNode.id, {
+              pollInterval: e.target.value ? Number(e.target.value) : undefined,
+             })
+            } />
                     </div>
                   </>
                 )}
@@ -566,81 +507,47 @@ export const PropertiesPanel: React.FC = () => {
                 {/* Display Settings */}
                 <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Widget Name</label>
-                  <input
-                    type="text"
-                    placeholder="Temperature"
-                    value={(selectedNode.data as SensorWidgetNodeData).widgetName || (selectedNode.data as SensorWidgetNodeData).label || ''}
-                    onChange={(e) =>
-                      updateNodeData(selectedNode.id, {
-                        widgetName: e.target.value,
-                        label: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input fullWidth type="text" placeholder="Temperature" value={(selectedNode.data as SensorWidgetNodeData).widgetName || (selectedNode.data as SensorWidgetNodeData).label || ''} onChange={(e) =>
+           updateNodeData(selectedNode.id, {
+            widgetName: e.target.value,
+            label: e.target.value,
+           })
+          } />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-                    <input
-                      type="text"
-                      placeholder="°C"
-                      value={(selectedNode.data as SensorWidgetNodeData).unit || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, { unit: e.target.value })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input fullWidth type="text" placeholder="°C" value={(selectedNode.data as SensorWidgetNodeData).unit || ''} onChange={(e) =>
+            updateNodeData(selectedNode.id, { unit: e.target.value })
+           } />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Scale Max</label>
-                    <input
-                      type="number"
-                      placeholder="100"
-                      value={(selectedNode.data as SensorWidgetNodeData).scaleMax || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          scaleMax: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input fullWidth type="number" placeholder="100" value={(selectedNode.data as SensorWidgetNodeData).scaleMax || ''} onChange={(e) =>
+            updateNodeData(selectedNode.id, {
+             scaleMax: e.target.value ? Number(e.target.value) : undefined,
+            })
+           } />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Low Threshold (%)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="25"
-                      value={(selectedNode.data as SensorWidgetNodeData).lowThreshold || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          lowThreshold: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input fullWidth type="number" min="0" max="100" placeholder="25" value={(selectedNode.data as SensorWidgetNodeData).lowThreshold || ''} onChange={(e) =>
+            updateNodeData(selectedNode.id, {
+             lowThreshold: e.target.value ? Number(e.target.value) : undefined,
+            })
+           } />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">High Threshold (%)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="75"
-                      value={(selectedNode.data as SensorWidgetNodeData).highThreshold || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          highThreshold: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input fullWidth type="number" min="0" max="100" placeholder="75" value={(selectedNode.data as SensorWidgetNodeData).highThreshold || ''} onChange={(e) =>
+            updateNodeData(selectedNode.id, {
+             highThreshold: e.target.value ? Number(e.target.value) : undefined,
+            })
+           } />
                   </div>
                 </div>
 
@@ -648,17 +555,11 @@ export const PropertiesPanel: React.FC = () => {
                 {!(selectedNode.data as SensorWidgetNodeData).mode && (
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Static Value</label>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      value={(selectedNode.data as SensorWidgetNodeData).value || ''}
-                      onChange={(e) =>
-                        updateNodeData(selectedNode.id, {
-                          value: e.target.value ? Number(e.target.value) : undefined,
-                        })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input fullWidth type="number" placeholder="0" value={(selectedNode.data as SensorWidgetNodeData).value || ''} onChange={(e) =>
+            updateNodeData(selectedNode.id, {
+             value: e.target.value ? Number(e.target.value) : undefined,
+            })
+           } />
                   </div>
                 )}
               </div>
@@ -683,14 +584,7 @@ export const PropertiesPanel: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={handleOpenSensorConfig}
-                      className="text-xs text-green-600 hover:text-green-700 flex items-center gap-1 px-2 py-1 hover:bg-green-100 rounded transition-colors"
-                      title="Düzenle"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                      Edit
-                    </button>
+                    <Button variant="ghost" size="xs" leftIcon={<Edit3 className="w-3 h-3" />} onClick={handleOpenSensorConfig} title="Düzenle">Edit</Button>
                     <button
                       onClick={handleSensorUnlink}
                       className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
@@ -742,13 +636,7 @@ export const PropertiesPanel: React.FC = () => {
                 <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-200">
                   <span className="text-sm text-amber-700 font-medium">No sensor linked</span>
                 </div>
-                <button
-                  onClick={handleOpenSensorConfig}
-                  className="w-full px-3 py-2.5 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <Activity className="w-4 h-4" />
-                  Link Sensor...
-                </button>
+                <Button variant="primary" size="sm" className="justify-center" leftIcon={<Activity className="w-4 h-4" />} onClick={handleOpenSensorConfig}>Link Sensor...</Button>
               </div>
             )}
           </div>
@@ -777,13 +665,7 @@ export const PropertiesPanel: React.FC = () => {
                     </span>
                     <p className="text-xs text-indigo-500">{selectedNode.data.edgeDeviceCode}</p>
                   </div>
-                  <button
-                    onClick={handleEdgeDeviceUnlink}
-                    className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 hover:bg-red-50 rounded transition-colors"
-                  >
-                    <Unlink className="w-3 h-3" />
-                    Unbind
-                  </button>
+                  <Button variant="ghost" size="xs" leftIcon={<Unlink className="w-3 h-3" />} onClick={handleEdgeDeviceUnlink}>Unbind</Button>
                 </div>
 
                 {/* -------------------------------------------------------
@@ -900,12 +782,7 @@ export const PropertiesPanel: React.FC = () => {
                     <p className="font-medium">Output command failed</p>
                     <p className="mt-0.5">{doToggleError}</p>
                   </div>
-                  <button
-                    onClick={() => setDoToggleError(null)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <Button variant="ghost" iconOnly aria-label="Close" onClick={() => setDoToggleError(null)}><X className="w-3 h-3" /></Button>
                 </div>
               )}
 
@@ -1029,15 +906,9 @@ export const PropertiesPanel: React.FC = () => {
 
         {/* Actions */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => {
+          <Button variant="secondary" className="justify-center" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => {
               removeNode(selectedNode.id);
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Remove from Process
-          </button>
+            }}>Remove from Process</Button>
         </div>
       </div>
     );
@@ -1054,12 +925,7 @@ export const PropertiesPanel: React.FC = () => {
         {/* Header */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Connection</h3>
-          <button
-            onClick={() => selectEdge(null)}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-          >
-            <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={() => selectEdge(null)}><X className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
         </div>
 
         {/* Content */}
@@ -1142,28 +1008,14 @@ export const PropertiesPanel: React.FC = () => {
                 Flow Rate (optional)
               </label>
               <div className="flex gap-2">
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={selectedEdge.data?.flowRate || ''}
-                  onChange={(e) =>
-                    updateEdgeData(selectedEdge.id, {
-                      flowRate: e.target.value ? Number(e.target.value) : undefined,
-                    })
-                  }
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                />
-                <select
-                  value={selectedEdge.data?.flowUnit || 'L/min'}
-                  onChange={(e) =>
-                    updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })
-                  }
-                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="L/min">L/min</option>
-                  <option value="m3/h">m³/h</option>
-                  <option value="kg/h">kg/h</option>
-                </select>
+                <Input type="number" placeholder="0" value={selectedEdge.data?.flowRate || ''} onChange={(e) =>
+          updateEdgeData(selectedEdge.id, {
+           flowRate: e.target.value ? Number(e.target.value) : undefined,
+          })
+         } />
+                <Select options={[{ value: 'L/min', label: 'L/min' }, { value: 'm3/h', label: 'm³/h' }, { value: 'kg/h', label: 'kg/h' }]} value={selectedEdge.data?.flowUnit || 'L/min'} onChange={(e) =>
+          updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })
+         } />
               </div>
             </div>
           )}
@@ -1171,15 +1023,9 @@ export const PropertiesPanel: React.FC = () => {
 
         {/* Actions */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => {
+          <Button variant="secondary" className="justify-center" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => {
               removeEdge(selectedEdge.id);
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Remove Connection
-          </button>
+            }}>Remove Connection</Button>
         </div>
       </div>
     );

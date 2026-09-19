@@ -3,7 +3,7 @@ import { Users, Edit, Trash2, MapPin, UserCheck, LockOpen, ShieldCheck } from 'l
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 
 export interface DisplayUser {
   id: string;
@@ -112,37 +112,13 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
       render: (_value, user) => (
         <div className="flex items-center justify-end gap-2">
           {canEditUsers && (
-            <button
-              type="button"
-              onClick={() => onEditUser(user)}
-              aria-label={`Edit ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-              title="Edit user"
-            >
-              <Edit className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onEditUser(user)} aria-label={`Edit ${user.name}`} title="Edit user"><Edit className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {canManageSiteAccess && user.role === 'MODULE_USER' && (
-            <button
-              type="button"
-              onClick={() => onManageSiteAccess(user)}
-              aria-label={`Manage site access for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-              title="Manage site access"
-            >
-              <MapPin className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onManageSiteAccess(user)} aria-label={`Manage site access for ${user.name}`} title="Manage site access"><MapPin className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {canDeactivateUsers && user.status !== 'inactive' && (
-            <button
-              type="button"
-              onClick={() => onDeleteUser(user)}
-              aria-label={`Delete ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete user"
-            >
-              <Trash2 className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onDeleteUser(user)} aria-label={`Delete ${user.name}`} title="Delete user"><Trash2 className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {/* ADMIN-HIGH-012: deactivation used to be a one-way
               trapdoor here — the guarded resolvers existed but no UI
@@ -150,37 +126,13 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               admin. The reactivate and unlock actions are gated by
               the SAME capability that allowed the deactivation. */}
           {canDeactivateUsers && user.status === 'inactive' && (
-            <button
-              type="button"
-              onClick={() => onActivateUser(user)}
-              aria-label={`Activate ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-              title="Activate user"
-            >
-              <UserCheck className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onActivateUser(user)} aria-label={`Activate ${user.name}`} title="Activate user"><UserCheck className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {canDeactivateUsers && user.isLocked && (
-            <button
-              type="button"
-              onClick={() => onUnlockUser(user)}
-              aria-label={`Unlock ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-              title="Unlock user"
-            >
-              <LockOpen className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onUnlockUser(user)} aria-label={`Unlock ${user.name}`} title="Unlock user"><LockOpen className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {canEditUsers && (
-            <button
-              type="button"
-              onClick={() => onViewPermissions(user)}
-              aria-label={`Effective permissions for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-              title="Effective permissions"
-            >
-              <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly type="button" onClick={() => onViewPermissions(user)} aria-label={`Effective permissions for ${user.name}`} title="Effective permissions"><ShieldCheck className="w-4 h-4" aria-hidden="true" /></Button>
           )}
           {!canEditUsers &&
           !canDeactivateUsers &&
@@ -226,20 +178,8 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
           Showing {users.length} users (page {pagination.page + 1})
         </p>
         <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            disabled={pagination.page === 0}
-            onClick={() => onPageChange(pagination.page - 1)}
-          >
-            Previous
-          </button>
-          <button
-            className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            disabled={pagination.rawPageCount < pagination.pageSize}
-            onClick={() => onPageChange(pagination.page + 1)}
-          >
-            Next
-          </button>
+          <Button variant="ghost" size="sm" disabled={pagination.page === 0} onClick={() => onPageChange(pagination.page - 1)}>Previous</Button>
+          <Button variant="ghost" size="sm" disabled={pagination.rawPageCount < pagination.pageSize} onClick={() => onPageChange(pagination.page + 1)}>Next</Button>
         </div>
       </div>
     </div>

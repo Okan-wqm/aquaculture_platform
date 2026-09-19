@@ -23,7 +23,7 @@ import {
   distributeV,
 } from '../../store/scada/alignmentUtils';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
-import { Tooltip } from '@aquaculture/shared-ui';
+import { Tooltip, Button } from '@aquaculture/shared-ui';
 
 type WidgetRect = { id: string; position: WidgetPosition };
 type AlignFn = (widgets: WidgetRect[]) => Map<string, WidgetPosition>;
@@ -82,35 +82,17 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Left */}
       <Tooltip content="Align Left">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Left"
-        onClick={() => handleAlign(alignLeft)}
-      >
-        <AlignStartVertical className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Left" onClick={() => handleAlign(alignLeft)}><AlignStartVertical className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Align Center Horizontal */}
       <Tooltip content="Align Center Horizontally">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Center Horizontally"
-        onClick={() => handleAlign(alignCenterH)}
-      >
-        <AlignCenterVertical className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Center Horizontally" onClick={() => handleAlign(alignCenterH)}><AlignCenterVertical className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Align Right */}
       <Tooltip content="Align Right">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Right"
-        onClick={() => handleAlign(alignRight)}
-      >
-        <AlignEndVertical className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Right" onClick={() => handleAlign(alignRight)}><AlignEndVertical className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Separator */}
@@ -118,35 +100,17 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Top */}
       <Tooltip content="Align Top">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Top"
-        onClick={() => handleAlign(alignTop)}
-      >
-        <AlignStartHorizontal className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Top" onClick={() => handleAlign(alignTop)}><AlignStartHorizontal className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Align Center Vertical */}
       <Tooltip content="Align Center Vertically">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Center Vertically"
-        onClick={() => handleAlign(alignCenterV)}
-      >
-        <AlignCenterHorizontal className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Center Vertically" onClick={() => handleAlign(alignCenterV)}><AlignCenterHorizontal className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Align Bottom */}
       <Tooltip content="Align Bottom">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Align Bottom"
-        onClick={() => handleAlign(alignBottom)}
-      >
-        <AlignEndHorizontal className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Align Bottom" onClick={() => handleAlign(alignBottom)}><AlignEndHorizontal className="w-4 h-4" /></Button>
       </Tooltip>
 
       {/* Separator */}
@@ -189,13 +153,7 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Zoom to Selection */}
       <Tooltip content="Focus on Selection">
-      <button
-        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-        aria-label="Focus on Selection"
-        onClick={handleZoomToSelection}
-      >
-        <Focus className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Focus on Selection" onClick={handleZoomToSelection}><Focus className="w-4 h-4" /></Button>
       </Tooltip>
     </div>
   );

@@ -8,6 +8,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 import { DEFAULT_ROLE_COLOR } from '../../lib/constants';
 import { Shield, Edit, Trash2, Users, Star } from 'lucide-react';
@@ -119,24 +120,10 @@ export const RoleCard: React.FC<RoleCardProps> = ({
         {(onEdit || onDelete) && (
           <div className="flex items-center gap-1">
             {onEdit && (
-              <button
-                onClick={() => onEdit(role)}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-                title="Edit role"
-                aria-label={`Edit ${role.name} role`}
-              >
-                <Edit className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly onClick={() => onEdit(role)} title="Edit role" aria-label={`Edit ${role.name} role`}><Edit className="w-4 h-4" /></Button>
             )}
             {onDelete && !role.isSystem && (
-              <button
-                onClick={() => onDelete(role)}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                title="Delete role"
-                aria-label={`Delete ${role.name} role`}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly onClick={() => onDelete(role)} title="Delete role" aria-label={`Delete ${role.name} role`}><Trash2 className="w-4 h-4" /></Button>
             )}
           </div>
         )}

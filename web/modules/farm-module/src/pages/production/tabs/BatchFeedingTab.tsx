@@ -14,8 +14,7 @@ import {
   ConfirmModal,
   formatErrorForToast,
   useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Button } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import {
@@ -115,23 +114,10 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
         </div>
         <div className="flex items-center space-x-2">
           {assignment && canDelete && (
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={deleteMutation.isPending}
-              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40"
-            >
-              Atamayı Sil
-            </button>
+            <Button variant="danger" size="sm" type="button" onClick={() => setShowDeleteConfirm(true)} disabled={deleteMutation.isPending}>Atamayı Sil</Button>
           )}
           {((assignment && canEdit) || (!assignment && canAssign)) && (
-            <button
-              type="button"
-              onClick={() => setShowAssignModal(true)}
-              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              {assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}
-            </button>
+            <Button variant="primary" size="sm" type="button" onClick={() => setShowAssignModal(true)}>{assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}</Button>
           )}
         </div>
       </div>
@@ -155,13 +141,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
             Bu parti için henüz yem ataması yapılmamış.
           </p>
           {canAssign && (
-            <button
-              type="button"
-              onClick={() => setShowAssignModal(true)}
-              className="mt-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              İlk atamayı oluştur
-            </button>
+            <Button variant="primary" size="sm" className="mt-2" type="button" onClick={() => setShowAssignModal(true)}>İlk atamayı oluştur</Button>
           )}
         </div>
       )}

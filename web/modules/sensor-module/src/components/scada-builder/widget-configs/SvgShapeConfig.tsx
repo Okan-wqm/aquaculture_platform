@@ -80,8 +80,8 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     />
 
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Fill</div>
-    <div className="grid grid-cols-2 gap-2">
-      <div className="col-span-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="sm:col-span-2">
         <ColorAlphaInput
           color={(config.fill as string) || themeColors.info[500]}
           alpha={(config.opacity as number) ?? 1}
@@ -287,7 +287,7 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
         aria-label="Text content"
       />
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
         <input
@@ -375,7 +375,7 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => (
   <div className="space-y-3">
     <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Polygon</div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sides</label>
         <input
@@ -484,7 +484,7 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
         <option value="down">Down</option>
       </select>
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Head Width</label>
         <input type="range" min={0.3} max={1} step={0.05} value={(config.headWidthRatio as number) ?? 0.6} onChange={(e) => onChange({ headWidthRatio: Number(e.target.value) })} className="w-full" aria-label="Arrow head width ratio" />

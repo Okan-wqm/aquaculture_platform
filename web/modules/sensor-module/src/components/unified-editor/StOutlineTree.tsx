@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   ChevronRight,
   ChevronDown,
@@ -133,16 +134,11 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       >
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <button
-            onClick={handleToggle}
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
-          >
-            {expanded ? (
+          <Button variant="ghost" className="w-4 h-4 justify-center flex-shrink-0" onClick={handleToggle}>{expanded ? (
               <ChevronDown className="w-3 h-3" />
             ) : (
               <ChevronRight className="w-3 h-3" />
-            )}
-          </button>
+            )}</Button>
         ) : (
           <span className="w-4 h-4 flex-shrink-0" />
         )}

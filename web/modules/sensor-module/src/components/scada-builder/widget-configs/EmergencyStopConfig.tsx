@@ -1,4 +1,5 @@
 import React from 'react';
+import { Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -10,24 +11,11 @@ export const EmergencyStopConfig: React.FC<WidgetConfigProps> = ({ config, onCha
     <div className="space-y-3">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hold Duration (ms)</label>
-        <input
-          type="number"
-          min={500}
-          step={100}
-          value={config.holdDuration ?? 2000}
-          onChange={(e) => onChange({ holdDuration: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={500} step={100} value={config.holdDuration ?? 2000} onChange={(e) => onChange({ holdDuration: Number(e.target.value) })} />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={config.label || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="EMERGENCY STOP"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="EMERGENCY STOP" />
       </div>
     </div>
   );

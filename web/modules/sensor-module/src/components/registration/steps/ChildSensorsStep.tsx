@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { ChildSensorConfig, SensorType } from '../../../types/registration.types';
 
 interface ChildSensorsStepProps {
@@ -103,19 +104,9 @@ export function ChildSensorsStep({
           </div>
         </div>
         <div className="flex items-center space-x-4">
-          <button
-            onClick={onAddSensor}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            + Add Parameter
-          </button>
+          <Button variant="primary" size="sm" onClick={onAddSensor}>+ Add Parameter</Button>
           {childSensors.length > 0 && (
-            <button
-              onClick={handleSelectAll}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              {childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}
-            </button>
+            <Button variant="ghost" onClick={handleSelectAll}>{childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}</Button>
           )}
         </div>
       </div>
@@ -188,15 +179,10 @@ export function ChildSensorsStep({
                               Needs Config
                             </span>
                           )}
-                          <button
-                            onClick={() => onEditSensor(sensor)}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                          >
-                            {sensor.isConfigured ? 'Edit' : 'Configure'}
+                          <Button variant="secondary" size="sm" onClick={() => onEditSensor(sensor)}>{sensor.isConfigured ? 'Edit' : 'Configure'}
                             <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </button>
+                            </svg></Button>
                         </>
                       )}
                     </div>

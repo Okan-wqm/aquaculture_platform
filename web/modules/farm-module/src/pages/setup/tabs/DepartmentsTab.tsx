@@ -3,7 +3,7 @@
  * Displays list of departments with CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
+import { Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useDepartmentList,
   useCreateDepartment,
@@ -321,18 +321,8 @@ export const DepartmentsTab: React.FC = () => {
       align: 'right',
       render: (_value, dept) => (
         <>
-          <button
-            onClick={() => handleEdit(dept)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => handleDelete(dept)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(dept)}>Edit</Button>
+          <Button variant="ghost" onClick={() => handleDelete(dept)}>Delete</Button>
         </>
       ),
     }
@@ -379,16 +369,12 @@ export const DepartmentsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={() => {
+        <Button variant="primary" onClick={() => {
             setEditingId(null);
             setFormData(initialFormData);
             setFormErrors({});
             setIsModalOpen(true);
-          }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          }}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -396,8 +382,7 @@ export const DepartmentsTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Department
-        </button>
+          Add Department</Button>
       </div>
 
       {/* Loading State */}
@@ -411,9 +396,7 @@ export const DepartmentsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load departments. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -555,40 +538,18 @@ export const DepartmentsTab: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capacity</label>
-              <input
-                type="number"
-                min="0"
-                value={formData.capacity}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
-                }
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Input fullWidth type="number" min="0" value={formData.capacity} onChange={(e) =>
+         setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
+        } />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} />
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit">{editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

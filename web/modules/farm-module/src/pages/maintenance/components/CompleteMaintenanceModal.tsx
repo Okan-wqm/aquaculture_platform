@@ -45,8 +45,7 @@ import {
   Button,
   Modal,
   formatErrorForToast,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Input, Textarea } from '@aquaculture/shared-ui';
 
 import {
   CompleteMaintenanceInput,
@@ -226,16 +225,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               Sayaç Okuması{' '}
               <span className="text-red-600">*</span>
             </label>
-            <input
-              id="complete-maint-meter"
-              type="number"
-              step="0.01"
-              min={lastMeter ?? 0}
-              value={meterReadingRaw}
-              onChange={(e) => setMeterReadingRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              required
-            />
+            <Input fullWidth id="complete-maint-meter" type="number" step="0.01" min={lastMeter ?? 0} value={meterReadingRaw} onChange={(e) => setMeterReadingRaw(e.target.value)} required />
             {lastMeter != null && (
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Son bakım okuması: {lastMeter}
@@ -251,15 +241,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
           >
             Notlar
           </label>
-          <textarea
-            id="complete-maint-notes"
-            rows={4}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            maxLength={NOTES_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar"
-          />
+          <Textarea fullWidth id="complete-maint-notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={NOTES_MAX} placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar" />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {notes.length} / {NOTES_MAX}
           </p>

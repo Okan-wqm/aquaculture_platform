@@ -4,9 +4,9 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, useFeedbackMutation } from '@aquaculture/shared-ui';
 import {
   getMyTenant,
   getTenantStats,
@@ -213,7 +213,8 @@ export function useTenantDatabase() {
 export function useAssignModuleManager() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Module manager assigned' },
     mutationFn: ({ moduleId, userId }: { moduleId: string; userId: string }) =>
       assignModuleManager(moduleId, userId),
     onSuccess: () => {
@@ -229,7 +230,8 @@ export function useAssignModuleManager() {
 export function useRemoveModuleManager() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Module manager removed' },
     mutationFn: (moduleId: string) => removeModuleManager(moduleId),
     onSuccess: () => {
       // Invalidate modules query to refetch
@@ -244,7 +246,8 @@ export function useRemoveModuleManager() {
 export function useUpdateTenantSettings() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Tenant settings saved' },
     mutationFn: (
       { id, input }: {
         id: string;
@@ -348,7 +351,8 @@ export function useDeviceEvents(deviceId: string, enabled = true) {
  */
 export function useDeviceAction() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Device command sent' },
     mutationFn: ({ mutation, variables }: { mutation: string; variables: Record<string, unknown> }) =>
       graphqlRequest(mutation, variables),
     onSuccess: () => {
@@ -397,7 +401,8 @@ export function useThreadMessages(threadId: string | null) {
  */
 export function useSendMessage() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: null },
     // senderName is derived server-side from the authenticated user
     // (SupportSendMessageInput has no senderName field).
     mutationFn: ({ threadId, content }: { threadId: string; content: string }) =>
@@ -414,7 +419,8 @@ export function useSendMessage() {
  */
 export function useCreateThread() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Thread created' },
     // senderName is derived server-side; SupportCreateThreadInput only takes
     // subject + initialMessage (mapped from `content`).
     mutationFn: ({ subject, content }: { subject: string; content: string }) =>
@@ -457,7 +463,8 @@ export function useTicketComments(ticketId: string | null) {
  */
 export function useCreateTicket() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Ticket created' },
     mutationFn: (data: {
       subject: string;
       description: string;
@@ -477,7 +484,8 @@ export function useCreateTicket() {
  */
 export function useAddTicketComment() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: null },
     mutationFn: ({ ticketId, content, authorName }: { ticketId: string; content: string; authorName: string }) =>
       addTicketComment({ ticketId, content, authorName }),
     onSuccess: (_data, variables) => {
@@ -492,7 +500,8 @@ export function useAddTicketComment() {
  */
 export function useSubmitTicketRating() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Rating submitted' },
     mutationFn: ({ ticketId, rating }: { ticketId: string; rating: number }) =>
       rateTicket({ ticketId, rating }),
     onSuccess: () => {
@@ -521,7 +530,8 @@ export function useAnnouncements() {
  */
 export function useAcknowledgeAnnouncement() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Announcement acknowledged' },
     mutationFn: (announcementId: string) => acknowledgeAnnouncementApi(announcementId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
@@ -534,7 +544,8 @@ export function useAcknowledgeAnnouncement() {
  */
 export function useMarkAnnouncementViewed() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Updated', quiet: true },
     mutationFn: (announcementId: string) => viewAnnouncement(announcementId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.announcements() });
@@ -575,7 +586,8 @@ export function useTenantUsersRaw(options: {
  */
 export function useCreateTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User created' },
     mutationFn: (input: {
       firstName: string;
       lastName: string;
@@ -594,7 +606,8 @@ export function useCreateTenantUser() {
  */
 export function useUpdateTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User updated' },
     mutationFn: ({ userId, input }: { userId: string; input: { firstName?: string; lastName?: string; roleId?: string } }) =>
       updateTenantUserApi(userId, input),
     onSuccess: () => {
@@ -608,7 +621,8 @@ export function useUpdateTenantUser() {
  */
 export function useDeleteTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User deleted' },
     mutationFn: (userId: string) => deleteTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
@@ -621,7 +635,8 @@ export function useDeleteTenantUser() {
  */
 export function useDeactivateTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User deactivated' },
     mutationFn: (userId: string) => deactivateTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
@@ -635,7 +650,8 @@ export function useDeactivateTenantUser() {
  */
 export function useActivateTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User activated' },
     mutationFn: (userId: string) => activateTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
@@ -648,7 +664,8 @@ export function useActivateTenantUser() {
  */
 export function useUnlockTenantUser() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'User unlocked' },
     mutationFn: (userId: string) => unlockTenantUserApi(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
@@ -662,7 +679,8 @@ export function useUnlockTenantUser() {
  */
 export function useBulkAssignUserRole() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Roles assigned' },
     mutationFn: (input: { userIds: string[]; roleId: string }): Promise<BulkAssignRoleResult> =>
       bulkAssignUserRoleApi(input),
     onSuccess: () => {
@@ -791,7 +809,8 @@ export function useNotificationPreferences(enabled = false) {
  */
 export function useUpdateNotificationPreferences() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Notification preferences saved' },
     mutationFn: (input: Partial<import('../lib/types').NotificationPreferences>) =>
       updateNotificationPrefsApi(input),
     onMutate: async (newPrefs) => {
@@ -869,7 +888,8 @@ export function useMobileUsersData(enabled = false) {
  */
 export function useUpdateMobileUserSettings() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Mobile settings saved' },
     mutationFn: (input: {
       userId: string;
       isMobileEnabled: boolean;

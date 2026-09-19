@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useSensorList, RegisteredSensor } from '../../../hooks/useSensorList';
 import { SensorMapping } from '../../../store/processStore';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -296,12 +296,7 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
               {searchTerm ? 'Sonuç bulunamadı' : 'Henüz sensör yok'}
             </p>
             {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="mt-2 text-xs text-cyan-600 hover:underline"
-              >
-                Aramayı temizle
-              </button>
+              <Button variant="ghost" size="xs" className="mt-2" onClick={() => setSearchTerm('')}>Aramayı temizle</Button>
             )}
           </div>
         )}

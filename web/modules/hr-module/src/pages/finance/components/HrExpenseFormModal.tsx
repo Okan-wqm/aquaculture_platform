@@ -3,7 +3,7 @@
  * Currency defaults to the tenant setting when left blank.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 import {
   type HrFinanceEntry,
@@ -72,21 +72,8 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
       size="md"
       footer={
         <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form={formId}
-            disabled={isSaving}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add expense'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form={formId} disabled={isSaving}>{isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add expense'}</Button>
         </div>
       }
     >
@@ -110,49 +97,25 @@ export const HrExpenseFormModal: React.FC<HrExpenseFormModalProps> = ({ entry, o
             ))}
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label htmlFor="hr-expense-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Date
             </label>
-            <input
-              id="hr-expense-date"
-              type="date"
-              value={entryDate}
-              onChange={(e) => setEntryDate(e.target.value)}
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-              required
-            />
+            <Input fullWidth id="hr-expense-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />
           </div>
           <div>
             <label htmlFor="hr-expense-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Amount
             </label>
-            <input
-              id="hr-expense-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-              placeholder="0.00"
-              required
-            />
+            <Input fullWidth id="hr-expense-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" required />
           </div>
         </div>
         <div>
           <label htmlFor="hr-expense-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
-          <textarea
-            id="hr-expense-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-            placeholder="Optional note (e.g. Q1 safety training)"
-          />
+          <Textarea fullWidth id="hr-expense-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional note (e.g. Q1 safety training)" />
         </div>
         {errorMessage && (
           <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">

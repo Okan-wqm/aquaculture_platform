@@ -30,7 +30,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
-import { colors as themeColors, DataTable, type DataTableColumn, type SortConfig } from '@aquaculture/shared-ui';
+import { colors as themeColors, DataTable, type DataTableColumn, type SortConfig, Button, Input } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -274,11 +274,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       data-testid="tag-watch-panel"
     >
       {/* Toggle header */}
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-      >
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+      <Button variant="ghost" onClick={() => setExpanded((e) => !e)}><div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
           <Activity className="w-3.5 h-3.5 text-cyan-600" />
           Tag Watch
           <span className="text-gray-400 dark:text-gray-500">({entries.size} tags)</span>
@@ -292,8 +288,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           <ChevronDown className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         ) : (
           <ChevronUp className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        )}
-      </button>
+        )}</Button>
 
       {expanded && (
         <div className="flex flex-col max-h-[280px]">
@@ -301,14 +296,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex-1 relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search tags..."
-                className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
-                data-testid="tag-watch-search"
-              />
+              <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tags..." data-testid="tag-watch-search" />
             </div>
             <button
               onClick={() => setPaused((p) => !p)}
@@ -319,20 +307,8 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
             >
               {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             </button>
-            <button
-              onClick={handleCsvExport}
-              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-              title="Export CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleClearHistory}
-              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-              title="Clear history"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="Export CSV" onClick={handleCsvExport} title="Export CSV"><Download className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="Clear history" onClick={handleClearHistory} title="Clear history"><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
 
           {/* Table */}

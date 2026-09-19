@@ -10,7 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { Modal, graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner } from '@aquaculture/shared-ui';
+import { Modal, graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -337,21 +337,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       size="lg"
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={updateSettingsMutation.isPending || isLoading}
-            className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {updateSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="button" onClick={handleSave} disabled={updateSettingsMutation.isPending || isLoading}>{updateSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}</Button>
         </>
       }
     >
@@ -468,60 +455,34 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     Client ID{' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
-                  <input
-                    type="text"
-                    value={formData.maskinportenClientId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenClientId: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  />
+                  <Input fullWidth type="text" value={formData.maskinportenClientId} onChange={(e) =>
+           setFormData({ ...formData, maskinportenClientId: e.target.value })
+          } placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Key ID (kid)
                   </label>
-                  <input
-                    type="text"
-                    value={formData.maskinportenKeyId}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenKeyId: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    placeholder="optional-key-id"
-                  />
+                  <Input fullWidth type="text" value={formData.maskinportenKeyId} onChange={(e) =>
+           setFormData({ ...formData, maskinportenKeyId: e.target.value })
+          } placeholder="optional-key-id" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Private Key (PEM){' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
-                  <textarea
-                    value={formData.maskinportenPrivateKey}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                    placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
-                  />
+                  <Textarea className="font-mono" fullWidth value={formData.maskinportenPrivateKey} onChange={(e) =>
+           setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
+          } rows={3} placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Environment
                   </label>
-                  <select
-                    value={formData.maskinportenEnvironment}
-                    onChange={(e) =>
-                      setFormData({ ...formData, maskinportenEnvironment: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="TEST">Test (test.maskinporten.no)</option>
-                    <option value="PRODUCTION">Production (maskinporten.no)</option>
-                    <option value="VER2">Ver2 (ver2.maskinporten.no)</option>
-                  </select>
+                  <Select fullWidth options={[{ value: 'TEST', label: 'Test (test.maskinporten.no)' }, { value: 'PRODUCTION', label: 'Production (maskinporten.no)' }, { value: 'VER2', label: 'Ver2 (ver2.maskinporten.no)' }]} value={formData.maskinportenEnvironment} onChange={(e) =>
+           setFormData({ ...formData, maskinportenEnvironment: e.target.value })
+          } />
                 </div>
                 <div className="flex items-end">
                   <button
@@ -577,39 +538,21 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-                  <input
-                    type="text"
-                    value={formData.defaultContactName}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactName: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ola Nordmann"
-                  />
+                  <Input fullWidth type="text" value={formData.defaultContactName} onChange={(e) =>
+           setFormData({ ...formData, defaultContactName: e.target.value })
+          } placeholder="Ola Nordmann" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={formData.defaultContactEmail}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactEmail: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    placeholder="ola@example.com"
-                  />
+                  <Input fullWidth type="email" value={formData.defaultContactEmail} onChange={(e) =>
+           setFormData({ ...formData, defaultContactEmail: e.target.value })
+          } placeholder="ola@example.com" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    value={formData.defaultContactPhone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, defaultContactPhone: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    placeholder="+47 123 45 678"
-                  />
+                  <Input fullWidth type="tel" value={formData.defaultContactPhone} onChange={(e) =>
+           setFormData({ ...formData, defaultContactPhone: e.target.value })
+          } placeholder="+47 123 45 678" />
                 </div>
               </div>
             </div>
@@ -629,15 +572,9 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         <span className="text-gray-500 dark:text-gray-400 text-sm ml-2">({site.code})</span>
                       </div>
                       <div className="w-48">
-                        <input
-                          type="number"
-                          value={siteMappings[site.id] || ''}
-                          onChange={(e) =>
-                            setSiteMappings({ ...siteMappings, [site.id]: e.target.value })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                          placeholder="Lokalitetsnummer"
-                        />
+                        <Input fullWidth type="number" value={siteMappings[site.id] || ''} onChange={(e) =>
+              setSiteMappings({ ...siteMappings, [site.id]: e.target.value })
+             } placeholder="Lokalitetsnummer" />
                       </div>
                     </div>
                   ))}

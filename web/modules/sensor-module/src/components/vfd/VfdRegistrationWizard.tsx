@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { VfdBrandSelectionStep } from './steps/VfdBrandSelectionStep';
 import { VfdProtocolSelectionStep } from './steps/VfdProtocolSelectionStep';
 import { VfdBasicInfoStep } from './steps/VfdBasicInfoStep';
@@ -162,12 +162,7 @@ export function VfdRegistrationWizard({
       bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       footer={
         <div className="flex w-full items-center justify-between">
-          <button
-            onClick={wizard.currentStep === 0 ? handleClose : wizard.prevStep}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
-          >
-            {wizard.currentStep === 0 ? 'İptal' : 'Geri'}
-          </button>
+          <Button variant="secondary" onClick={wizard.currentStep === 0 ? handleClose : wizard.prevStep}>{wizard.currentStep === 0 ? 'İptal' : 'Geri'}</Button>
 
           <div className="flex items-center space-x-3">
             {/* Skip button for optional steps */}
@@ -181,28 +176,16 @@ export function VfdRegistrationWizard({
             )}
 
             {wizard.currentStep === STEPS.length - 1 ? (
-              <button
-                onClick={handleSubmit}
-                disabled={wizard.isSubmitting || registering}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {wizard.isSubmitting || registering ? (
+              <Button variant="primary" onClick={handleSubmit} disabled={wizard.isSubmitting || registering}>{wizard.isSubmitting || registering ? (
                   <span className="flex items-center">
                     <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                     Kaydediliyor...
                   </span>
                 ) : (
                   'VFD Kaydet'
-                )}
-              </button>
+                )}</Button>
             ) : (
-              <button
-                onClick={wizard.nextStep}
-                disabled={!canProceed}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                İleri
-              </button>
+              <Button variant="primary" onClick={wizard.nextStep} disabled={!canProceed}>İleri</Button>
             )}
           </div>
         </div>

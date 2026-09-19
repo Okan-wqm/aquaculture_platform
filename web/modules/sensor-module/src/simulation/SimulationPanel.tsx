@@ -19,7 +19,7 @@ import {
   AlertCircle,
   Download,
 } from 'lucide-react';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import { useSimulation } from './useSimulation';
 import type { SimValue } from './st-interpreter';
 import type { SimulationState } from './useSimulation';
@@ -403,38 +403,14 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Load button (shown when idle/error) */}
           {(state === 'idle' || state === 'error') && (
-            <button
-              onClick={handleLoadClick}
-              disabled={!code || code.trim().length === 0}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Kodu yükle ve hazırla"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Yükle
-            </button>
+            <Button variant="primary" size="xs" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleLoadClick} disabled={!code || code.trim().length === 0} title="Kodu yükle ve hazırla">Yükle</Button>
           )}
 
           {/* Start */}
-          <button
-            onClick={handleStart}
-            disabled={!canStart}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sürekli çalıştır"
-          >
-            <Play className="w-3.5 h-3.5" />
-            Başlat
-          </button>
+          <Button variant="primary" size="xs" leftIcon={<Play className="w-3.5 h-3.5" />} onClick={handleStart} disabled={!canStart} title="Sürekli çalıştır">Başlat</Button>
 
           {/* Pause */}
-          <button
-            onClick={pause}
-            disabled={!canPause}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Duraklat"
-          >
-            <Pause className="w-3.5 h-3.5" />
-            Duraklat
-          </button>
+          <Button variant="warning" size="xs" leftIcon={<Pause className="w-3.5 h-3.5" />} onClick={pause} disabled={!canPause} title="Duraklat">Duraklat</Button>
 
           {/* Stop / Reset */}
           <button
@@ -448,15 +424,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           </button>
 
           {/* Single cycle step */}
-          <button
-            onClick={runOneCycle}
-            disabled={!canStep}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Tek cycle çalıştır"
-          >
-            <SkipForward className="w-3.5 h-3.5" />
-            1 Cycle
-          </button>
+          <Button variant="primary" size="xs" leftIcon={<SkipForward className="w-3.5 h-3.5" />} onClick={runOneCycle} disabled={!canStep} title="Tek cycle çalıştır">1 Cycle</Button>
         </div>
 
         {/* Row 2: Cycle count, scan interval, status */}

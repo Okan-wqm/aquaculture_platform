@@ -12,7 +12,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock } from 'lucide-react';
-import { Modal, Spinner, QualityIndicator } from '@aquaculture/shared-ui';
+import { Modal, Spinner, QualityIndicator, Button, Input } from '@aquaculture/shared-ui';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../../store/scada';
@@ -306,35 +306,13 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         showCloseButton={!pinVerifying}
         footer={
           <>
-            <button
-              type="button"
-              onClick={closePinDialog}
-              disabled={pinVerifying}
-              className="px-4 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handlePinConfirm}
-              disabled={pinVerifying}
-              className="px-4 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-            >
-              OK
-            </button>
+            <Button variant="secondary" size="sm" type="button" onClick={closePinDialog} disabled={pinVerifying}>Cancel</Button>
+            <Button variant="primary" size="sm" type="button" onClick={handlePinConfirm} disabled={pinVerifying}>OK</Button>
           </>
         }
       >
         <div className="flex flex-col gap-3">
-          <input
-            type="password"
-            value={pinInput}
-            onChange={(e) => setPinInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
-            placeholder="PIN"
-            aria-label="PIN"
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-          />
+          <Input type="password" value={pinInput} onChange={(e) => setPinInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()} placeholder="PIN" aria-label="PIN" />
           {pinError && (
             <p className="text-xs text-red-600" role="alert">{pinError}</p>
           )}

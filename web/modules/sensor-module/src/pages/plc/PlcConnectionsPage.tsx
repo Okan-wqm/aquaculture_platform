@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -193,45 +193,22 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bağlantı Adı *</label>
-            <input
-              type="text"
-              required
-              minLength={2}
-              maxLength={255}
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              placeholder="PLC-Tank-01"
-            />
+            <Input fullWidth type="text" required minLength={2} maxLength={255} value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="PLC-Tank-01" />
           </div>
           {!connection && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site ID *</label>
-              <input
-                type="text"
-                required
-                value={form.siteId}
-                onChange={(e) => updateField('siteId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="Site UUID"
-              />
+              <Input fullWidth type="text" required value={form.siteId} onChange={(e) => updateField('siteId', e.target.value)} placeholder="Site UUID" />
             </div>
           )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-          <textarea
-            value={form.description}
-            onChange={(e) => updateField('description', e.target.value)}
-            maxLength={1000}
-            rows={2}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            placeholder="Bağlantı açıklaması..."
-          />
+          <Textarea fullWidth value={form.description} onChange={(e) => updateField('description', e.target.value)} maxLength={1000} rows={2} placeholder="Bağlantı açıklaması..." />
         </div>
 
         {/* Connection Settings */}
@@ -241,14 +218,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Endpoint URL *</label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  required
-                  value={form.endpointUrl}
-                  onChange={(e) => updateField('endpointUrl', e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="opc.tcp://192.168.1.100:4840"
-                />
+                <Input className="font-mono" type="text" required value={form.endpointUrl} onChange={(e) => updateField('endpointUrl', e.target.value)} placeholder="opc.tcp://192.168.1.100:4840" />
                 <button
                   type="button"
                   onClick={handleDiscover}
@@ -265,83 +235,42 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                   <h4 className="text-xs font-semibold text-indigo-800 mb-2">Bulunan Endpoint&apos;ler ({discoveredEndpoints.length})</h4>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {discoveredEndpoints.map((ep, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => {
+                      <Button variant="ghost" size="xs" key={i} type="button" onClick={() => {
                           updateField('securityMode', ep.securityMode);
                           updateField('securityPolicy', ep.securityPolicy);
                           if (ep.serverCertificate) updateField('serverCertificate', atob(ep.serverCertificate));
-                        }}
-                        className="flex w-full items-center justify-between rounded px-2 py-1 text-xs hover:bg-indigo-100"
-                      >
-                        <span className="font-mono">{ep.securityMode}/{ep.securityPolicy}</span>
-                        <span className="text-indigo-600">Seviye: {ep.securityLevel}</span>
-                      </button>
+                        }}><span className="font-mono">{ep.securityMode}/{ep.securityPolicy}</span>
+                        <span className="text-indigo-600">Seviye: {ep.securityLevel}</span></Button>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-            <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Guvenlik Modu</label>
-                <select
-                  value={form.securityMode}
-                  onChange={(e) => updateField('securityMode', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="None">Yok</option>
-                  <option value="Sign">Imzali</option>
-                  <option value="SignAndEncrypt">Imzali & Sifreli</option>
-                </select>
+                <Select fullWidth options={[{ value: 'None', label: 'Yok' }, { value: 'Sign', label: 'Imzali' }, { value: 'SignAndEncrypt', label: 'Imzali & Sifreli' }]} value={form.securityMode} onChange={(e) => updateField('securityMode', e.target.value)} />
               </div>
               {form.securityMode !== 'None' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Guvenlik Politikasi</label>
-                  <select
-                    value={form.securityPolicy}
-                    onChange={(e) => updateField('securityPolicy', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option value="Basic256Sha256">Basic256Sha256</option>
-                    <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
-                    <option value="Aes256_Sha256_RsPss">Aes256_Sha256_RsPss</option>
-                  </select>
+                  <Select fullWidth options={[{ value: 'Basic256Sha256', label: 'Basic256Sha256' }, { value: 'Aes128_Sha256_RsaOaep', label: 'Aes128_Sha256_RsaOaep' }, { value: 'Aes256_Sha256_RsPss', label: 'Aes256_Sha256_RsPss' }]} value={form.securityPolicy} onChange={(e) => updateField('securityPolicy', e.target.value)} />
                 </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kimlik Dogrulama</label>
-                <select
-                  value={form.authMode}
-                  onChange={(e) => updateField('authMode', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="Anonymous">Anonim</option>
-                  <option value="Username">Kullanici Adi</option>
-                  <option value="Certificate">Sertifika</option>
-                </select>
+                <Select fullWidth options={[{ value: 'Anonymous', label: 'Anonim' }, { value: 'Username', label: 'Kullanici Adi' }, { value: 'Certificate', label: 'Sertifika' }]} value={form.authMode} onChange={(e) => updateField('authMode', e.target.value)} />
               </div>
             </div>
             {form.authMode === 'Username' && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kullanici Adi</label>
-                  <input
-                    type="text"
-                    value={form.username}
-                    onChange={(e) => updateField('username', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  />
+                  <Input fullWidth type="text" value={form.username} onChange={(e) => updateField('username', e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sifre</label>
-                  <input
-                    type="password"
-                    value={form.password}
-                    onChange={(e) => updateField('password', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  />
+                  <Input fullWidth type="password" value={form.password} onChange={(e) => updateField('password', e.target.value)} />
                 </div>
               </div>
             )}
@@ -353,13 +282,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                     Client Sertifikasi (PEM) *
                   </label>
                   <div className="flex gap-2">
-                    <textarea
-                      value={form.clientCertificate}
-                      onChange={(e) => updateField('clientCertificate', e.target.value)}
-                      rows={3}
-                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                    />
+                    <Textarea className="font-mono" value={form.clientCertificate} onChange={(e) => updateField('clientCertificate', e.target.value)} rows={3} placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" />
                     <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
                       <input
@@ -392,13 +315,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                         placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                         style={!showPrivateKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPrivateKey(!showPrivateKey)}
-                        className="absolute right-2 top-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                      >
-                        {showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                      <Button variant="ghost" className="absolute right-2 top-2" type="button" onClick={() => setShowPrivateKey(!showPrivateKey)}>{showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</Button>
                     </div>
                     <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
@@ -423,13 +340,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                     Sunucu Sertifikasi (PEM, opsiyonel)
                   </label>
                   <div className="flex gap-2">
-                    <textarea
-                      value={form.serverCertificate}
-                      onChange={(e) => updateField('serverCertificate', e.target.value)}
-                      rows={3}
-                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                    />
+                    <Textarea className="font-mono" value={form.serverCertificate} onChange={(e) => updateField('serverCertificate', e.target.value)} rows={3} placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" />
                     <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
                       <input
@@ -456,36 +367,18 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         {/* Timing Settings */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Zamanlama</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yayinlama (ms)</label>
-              <input
-                type="number"
-                min={100} max={60000}
-                value={form.publishingIntervalMs}
-                onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={100} max={60000} value={form.publishingIntervalMs} onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ornekleme (ms)</label>
-              <input
-                type="number"
-                min={50} max={60000}
-                value={form.samplingIntervalMs}
-                onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={50} max={60000} value={form.samplingIntervalMs} onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Oturum Zamani (ms)</label>
-              <input
-                type="number"
-                min={5000} max={3600000}
-                value={form.sessionTimeoutMs}
-                onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={5000} max={3600000} value={form.sessionTimeoutMs} onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))} />
             </div>
           </div>
         </div>
@@ -493,60 +386,30 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         {/* Node IDs */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">OPC UA Node ID&apos;leri</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Node</label>
-              <input
-                type="text"
-                value={form.parametersNodeId}
-                onChange={(e) => updateField('parametersNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="ns=2;s=Parameters"
-              />
+              <Input className="font-mono" fullWidth type="text" value={form.parametersNodeId} onChange={(e) => updateField('parametersNodeId', e.target.value)} placeholder="ns=2;s=Parameters" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Telemetri Node</label>
-              <input
-                type="text"
-                value={form.telemetryNodeId}
-                onChange={(e) => updateField('telemetryNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="ns=2;s=Telemetry"
-              />
+              <Input className="font-mono" fullWidth type="text" value={form.telemetryNodeId} onChange={(e) => updateField('telemetryNodeId', e.target.value)} placeholder="ns=2;s=Telemetry" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Alarm Node</label>
-              <input
-                type="text"
-                value={form.alarmsNodeId}
-                onChange={(e) => updateField('alarmsNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="ns=2;s=Alarms"
-              />
+              <Input className="font-mono" fullWidth type="text" value={form.alarmsNodeId} onChange={(e) => updateField('alarmsNodeId', e.target.value)} placeholder="ns=2;s=Alarms" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Durum Node</label>
-              <input
-                type="text"
-                value={form.statusNodeId}
-                onChange={(e) => updateField('statusNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="ns=2;s=Status"
-              />
+              <Input className="font-mono" fullWidth type="text" value={form.statusNodeId} onChange={(e) => updateField('statusNodeId', e.target.value)} placeholder="ns=2;s=Status" />
             </div>
           </div>
         </div>
 
         {/* Advanced Settings */}
         <div className="border rounded-lg">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            <span>Gelismis Ayarlar</span>
-            {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
+          <Button variant="ghost" type="button" onClick={() => setShowAdvanced(!showAdvanced)}><span>Gelismis Ayarlar</span>
+            {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>
           {showAdvanced && (
             <div className="border-t px-4 py-4 space-y-4">
               {/* Reconnection */}
@@ -563,36 +426,18 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                     <span className="text-sm text-gray-700 dark:text-gray-300">Otomatik Yeniden Baglan</span>
                   </label>
                   {form.autoReconnect && (
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maks Deneme (-1=sinirsiz)</label>
-                        <input
-                          type="number"
-                          min={-1} max={1000}
-                          value={form.maxReconnectAttempts}
-                          onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        />
+                        <Input fullWidth type="number" min={-1} max={1000} value={form.maxReconnectAttempts} onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))} />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baslangic Gecikme (ms)</label>
-                        <input
-                          type="number"
-                          min={100} max={60000}
-                          value={form.reconnectDelayMs}
-                          onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        />
+                        <Input fullWidth type="number" min={100} max={60000} value={form.reconnectDelayMs} onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))} />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maks Gecikme (ms)</label>
-                        <input
-                          type="number"
-                          min={1000} max={300000}
-                          value={form.maxReconnectDelayMs}
-                          onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                        />
+                        <Input fullWidth type="number" min={1000} max={300000} value={form.maxReconnectDelayMs} onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))} />
                       </div>
                     </div>
                   )}
@@ -602,36 +447,18 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               {/* Timeouts */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Zaman Asimlari</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baglanti (ms)</label>
-                    <input
-                      type="number"
-                      min={1000} max={60000}
-                      value={form.connectTimeoutMs}
-                      onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
+                    <Input fullWidth type="number" min={1000} max={60000} value={form.connectTimeoutMs} onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Istek (ms)</label>
-                    <input
-                      type="number"
-                      min={5000} max={300000}
-                      value={form.requestTimeoutMs}
-                      onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
+                    <Input fullWidth type="number" min={5000} max={300000} value={form.requestTimeoutMs} onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Keep-Alive (ms)</label>
-                    <input
-                      type="number"
-                      min={1000} max={60000}
-                      value={form.keepAliveIntervalMs}
-                      onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
+                    <Input fullWidth type="number" min={1000} max={60000} value={form.keepAliveIntervalMs} onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))} />
                   </div>
                 </div>
               </div>
@@ -639,13 +466,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               {/* Failover */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Yedek Bağlantı (Failover)</h4>
-                <input
-                  type="text"
-                  value={form.failoverEndpointUrl}
-                  onChange={(e) => updateField('failoverEndpointUrl', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  placeholder="opc.tcp://backup-plc:4840"
-                />
+                <Input className="font-mono" fullWidth type="text" value={form.failoverEndpointUrl} onChange={(e) => updateField('failoverEndpointUrl', e.target.value)} placeholder="opc.tcp://backup-plc:4840" />
               </div>
             </div>
           )}
@@ -653,21 +474,9 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
         {/* Submit */}
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            İptal
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isLoading && <Spinner size="sm" color="inherit" />}
-            {connection ? 'Güncelle' : 'Oluştur'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>İptal</Button>
+          <Button variant="primary" type="submit" disabled={isLoading}>{isLoading && <Spinner size="sm" color="inherit" />}
+            {connection ? 'Güncelle' : 'Oluştur'}</Button>
         </div>
       </form>
     </Modal>
@@ -893,53 +702,18 @@ const PlcConnectionsPage: React.FC = () => {
       align: 'right',
       render: (_value, conn) => (
         <div className="relative" ref={menuOpenId === conn.id ? openMenuRef : undefined}>
-          <button
-            onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}
-            className="rounded p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="More actions" onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}><MoreVertical className="h-4 w-4" /></Button>
           {menuOpenId === conn.id && (
             <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
-              <button
-                onClick={() => { handleTest(conn.id, conn.name); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Zap className="h-4 w-4" />
-                Bağlantı Test Et
-              </button>
-              <button
-                onClick={() => { setEditingConnection(conn); setShowForm(true); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Edit className="h-4 w-4" />
-                Düzenle
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Zap className="h-4 w-4" />} onClick={() => { handleTest(conn.id, conn.name); }}>Bağlantı Test Et</Button>
+              <Button variant="ghost" size="sm" leftIcon={<Edit className="h-4 w-4" />} onClick={() => { setEditingConnection(conn); setShowForm(true); setMenuOpenId(null); }}>Düzenle</Button>
               {conn.isActive ? (
-                <button
-                  onClick={() => handleDeactivate(conn.id)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
-                >
-                  <ZapOff className="h-4 w-4" />
-                  Devre Disi Birak
-                </button>
+                <Button variant="ghost" size="sm" leftIcon={<ZapOff className="h-4 w-4" />} onClick={() => handleDeactivate(conn.id)}>Devre Disi Birak</Button>
               ) : (
-                <button
-                  onClick={() => handleActivate(conn.id)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                >
-                  <PlayCircle className="h-4 w-4" />
-                  Etkinlestir
-                </button>
+                <Button variant="ghost" size="sm" leftIcon={<PlayCircle className="h-4 w-4" />} onClick={() => handleActivate(conn.id)}>Etkinlestir</Button>
               )}
               <div className="border-t my-1" />
-              <button
-                onClick={() => { setDeleteConfirm(conn.id); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Sil
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Trash2 className="h-4 w-4" />} onClick={() => { setDeleteConfirm(conn.id); setMenuOpenId(null); }}>Sil</Button>
             </div>
           )}
         </div>
@@ -955,19 +729,8 @@ const PlcConnectionsPage: React.FC = () => {
         description="OPC UA PLC baglantilarini yonetin"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => { setEditingConnection(null); setShowForm(true); }}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Yeni Bağlantı
-            </button>
+            <Button variant="secondary" size="sm" iconOnly aria-label="Refresh" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { setEditingConnection(null); setShowForm(true); }}>Yeni Bağlantı</Button>
           </div>
         }
         className="mb-6"
@@ -985,17 +748,7 @@ const PlcConnectionsPage: React.FC = () => {
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as PlcConnectionStatus | '')}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        >
-          <option value="">Tum Durumlar</option>
-          <option value="ONLINE">Online</option>
-          <option value="OFFLINE">Offline</option>
-          <option value="CONNECTING">Baglaniyor</option>
-          <option value="ERROR">Hata</option>
-        </select>
+        <Select options={[{ value: '', label: 'Tum Durumlar' }, { value: 'ONLINE', label: 'Online' }, { value: 'OFFLINE', label: 'Offline' }, { value: 'CONNECTING', label: 'Baglaniyor' }, { value: 'ERROR', label: 'Hata' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as PlcConnectionStatus | '')} />
       </div>
 
       {/* Table */}
@@ -1025,13 +778,7 @@ const PlcConnectionsPage: React.FC = () => {
               : 'Ilk PLC baglantinizi olusturun.'}
           </p>
           {!searchTerm && !statusFilter && (
-            <button
-              onClick={() => setShowForm(true)}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Yeni Bağlantı
-            </button>
+            <Button variant="primary" className="mt-4" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowForm(true)}>Yeni Bağlantı</Button>
           )}
         </div>
       )}

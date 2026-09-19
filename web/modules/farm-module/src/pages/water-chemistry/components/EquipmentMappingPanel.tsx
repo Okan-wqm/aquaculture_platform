@@ -5,7 +5,7 @@
  * adding/removing mappings with frequency and alert configuration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
   useCreateParamEquipmentMapping,
@@ -216,13 +216,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       header: 'Actions',
       align: 'right',
       render: (_value, mapping) => (
-        <button
-          onClick={() => void handleRemove(mapping.id)}
-          disabled={deletingId === mapping.id}
-          className="text-red-600 hover:text-red-900 disabled:opacity-50"
-        >
-          {deletingId === mapping.id ? 'Removing...' : 'Remove'}
-        </button>
+        <Button variant="ghost" onClick={() => void handleRemove(mapping.id)} disabled={deletingId === mapping.id}>{deletingId === mapping.id ? 'Removing...' : 'Remove'}</Button>
       ),
     },
   ];
@@ -369,23 +363,12 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
 
             {/* Form actions */}
             <div className="mt-4 flex justify-end space-x-2">
-              <button
-                onClick={() => {
+              <Button variant="secondary" size="sm" onClick={() => {
                   setShowAddForm(false);
                   setAddForm(INITIAL_ADD_FORM);
                   createMutation.reset();
-                }}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddMapping}
-                disabled={!addForm.equipmentId || createMutation.isPending}
-                className="px-3 py-1.5 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-              >
-                {createMutation.isPending ? 'Adding...' : 'Add Mapping'}
-              </button>
+                }}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={handleAddMapping} disabled={!addForm.equipmentId || createMutation.isPending}>{createMutation.isPending ? 'Adding...' : 'Add Mapping'}</Button>
             </div>
           </div>
         )}
@@ -398,11 +381,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
         </div>
         <div className="flex space-x-3">
           {!showAddForm && (
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-            >
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <Button variant="primary" onClick={() => setShowAddForm(true)}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -410,15 +389,9 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                   d="M12 4v16m8-8H4"
                 />
               </svg>
-              Add Equipment
-            </button>
+              Add Equipment</Button>
           )}
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Close
-          </button>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
         </div>
       </div>
     </Modal>

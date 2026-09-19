@@ -19,7 +19,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useMessageThreads,
@@ -111,21 +111,8 @@ const TenantMessagesPage: React.FC = () => {
           description="Communicate with platform support"
           actions={
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                title="Refresh"
-              >
-                <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                onClick={() => setShowNewThreadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Plus size={18} />
-                New Message
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} disabled={loading} title="Refresh"><RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} /></Button>
+              <Button variant="primary" leftIcon={<Plus size={18} />} onClick={() => setShowNewThreadModal(true)}>New Message</Button>
             </div>
           }
         />
@@ -181,15 +168,7 @@ const TenantMessagesPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')}
-                className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-              >
-                <option value="all">All Threads</option>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
+              <Select options={[{ value: 'all', label: 'All Threads' }, { value: 'open', label: 'Open' }, { value: 'closed', label: 'Closed' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')} />
             </div>
           </div>
 
@@ -199,12 +178,7 @@ const TenantMessagesPage: React.FC = () => {
               <div className="flex items-center gap-2 text-red-700">
                 <AlertCircle size={18} />
                 <span className="text-sm">{error}</span>
-                <button
-                  onClick={handleRefresh}
-                  className="ml-auto text-sm underline hover:no-underline"
-                >
-                  Retry
-                </button>
+                <Button variant="ghost" onClick={handleRefresh}>Retry</Button>
               </div>
             </div>
           )}
@@ -277,13 +251,7 @@ const TenantMessagesPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
                     {/* Mobile-only back to the thread list (master-detail) */}
-                    <button
-                      onClick={() => setSelectedThread(null)}
-                      className="md:hidden p-2 -ml-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-                      aria-label="Back to conversations"
-                    >
-                      <ArrowLeft size={20} />
-                    </button>
+                    <Button variant="ghost" iconOnly className="md:hidden" onClick={() => setSelectedThread(null)} aria-label="Back to conversations"><ArrowLeft size={20} /></Button>
                     <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedThread.subject}</h2>
@@ -296,9 +264,7 @@ const TenantMessagesPage: React.FC = () => {
                     <p className="text-sm text-gray-500 dark:text-gray-400">{selectedThread.messageCount} messages</p>
                     </div>
                   </div>
-                  <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                    <MoreVertical size={18} />
-                  </button>
+                  <Button variant="ghost" iconOnly aria-label="More actions"><MoreVertical size={18} /></Button>
                 </div>
               </div>
 
@@ -367,30 +333,15 @@ const TenantMessagesPage: React.FC = () => {
                 <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
-                      <textarea
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        placeholder="Type your message..."
-                        rows={3}
-                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-lg resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                            handleSendMessage();
-                          }
-                        }}
-                      />
+                      <Textarea className="resize-none" fullWidth value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." rows={3} onKeyDown={(e) => {
+             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              handleSendMessage();
+             }
+            }} />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <Paperclip size={20} />
-                      </button>
-                      <button
-                        onClick={handleSendMessage}
-                        disabled={!newMessage.trim() || sendMessageMutation.isPending}
-                        className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <Send size={20} />
-                      </button>
+                      <Button variant="ghost" iconOnly aria-label="Attach file"><Paperclip size={20} /></Button>
+                      <Button variant="primary" iconOnly aria-label="Send" onClick={handleSendMessage} disabled={!newMessage.trim() || sendMessageMutation.isPending}><Send size={20} /></Button>
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-2">
@@ -481,47 +432,24 @@ const NewThreadModal: React.FC<{
       bodyClassName="p-6 space-y-4"
       footer={
         <>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!subject || !message || submitting}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {submitting ? (
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} disabled={!subject || !message || submitting}>{submitting ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <MessageSquare size={18} />
             )}
-            {submitting ? 'Creating...' : 'Start Conversation'}
-          </button>
+            {submitting ? 'Creating...' : 'Start Conversation'}</Button>
         </>
       }
     >
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subject</label>
-        <input
-          type="text"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          placeholder="Enter subject..."
-        />
+        <Input fullWidth type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Enter subject..." />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Message</label>
-        <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          rows={5}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-          placeholder="Describe your question or issue..."
-        />
+        <Textarea className="resize-none" fullWidth value={message} onChange={(e) => setMessage(e.target.value)} rows={5} placeholder="Describe your question or issue..." />
       </div>
       {submitError && (
         <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, parseMoney, PageHeader } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, parseMoney, PageHeader, Button } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -276,19 +276,8 @@ const TenantDashboard: React.FC = () => {
         description="Welcome back! Here's what's happening with your tenant."
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
-            <button
-              onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              Add User
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
+            <Button variant="primary" onClick={() => navigate('/tenant/users')}>Add User</Button>
           </div>
         }
       />
@@ -301,12 +290,7 @@ const TenantDashboard: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load data</p>
             <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
-          <button
-            onClick={handleRefresh}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={handleRefresh}>Retry</Button>
         </div>
       )}
 
@@ -410,12 +394,7 @@ const TenantDashboard: React.FC = () => {
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 Module Status
               </h2>
-              <button
-                onClick={() => navigate('/tenant/modules')}
-                className="text-sm text-green-600 hover:text-green-700 font-medium"
-              >
-                View All
-              </button>
+              <Button variant="ghost" onClick={() => navigate('/tenant/modules')}>View All</Button>
             </div>
           </div>
           {modules.length === 0 ? (
@@ -447,9 +426,7 @@ const TenantDashboard: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-4">
                       <StatusBadge status={module.status} />
-                      <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                        <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                      </button>
+                      <Button variant="ghost" size="sm" iconOnly aria-label="More actions"><MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
                     </div>
                   </div>
                 </div>

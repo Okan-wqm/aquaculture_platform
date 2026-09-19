@@ -179,13 +179,7 @@ const ChartSkeleton: React.FC<{ height?: number }> = ({ height = 300 }) => (
 const ChartError: React.FC<{ title: string; onRetry: () => void }> = ({ title, onRetry }) => (
   <div className="p-4 text-center py-8">
     <p className="text-sm text-red-500 mb-2">{title} verileri yuklenemedi</p>
-    <button
-      type="button"
-      onClick={onRetry}
-      className="text-xs text-primary-600 font-medium hover:underline"
-    >
-      Tekrar Dene
-    </button>
+    <Button variant="ghost" size="xs" type="button" onClick={onRetry}>Tekrar Dene</Button>
   </div>
 );
 

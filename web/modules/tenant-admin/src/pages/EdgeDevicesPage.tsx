@@ -18,7 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
 import { formatRelativeTime } from '../utils/date-utils';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button, Select } from '@aquaculture/shared-ui';
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -87,13 +87,7 @@ const EdgeDevicesPage: React.FC = () => {
         title="Edge Devices"
         description="Manage industrial edge controllers and IoT gateways"
         actions={
-          <button
-            onClick={() => setShowInstallerModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-sm"
-          >
-            <Plus className="w-5 h-5" />
-            Installer Link Oluştur
-          </button>
+          <Button variant="primary" size="lg" leftIcon={<Plus className="w-5 h-5" />} onClick={() => setShowInstallerModal(true)}>Installer Link Oluştur</Button>
         }
       />
 
@@ -126,20 +120,7 @@ const EdgeDevicesPage: React.FC = () => {
           />
         </div>
 
-        <select
-          value={stateFilter}
-          onChange={(e) => { setStateFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-        >
-          <option value="">All States</option>
-          <option value="active">Active</option>
-          <option value="pending_approval">Pending Approval</option>
-          <option value="registered">Registered</option>
-          <option value="maintenance">Maintenance</option>
-          <option value="offline">Offline</option>
-          <option value="error">Error</option>
-          <option value="decommissioned">Decommissioned</option>
-        </select>
+        <Select options={[{ value: '', label: 'All States' }, { value: 'active', label: 'Active' }, { value: 'pending_approval', label: 'Pending Approval' }, { value: 'registered', label: 'Registered' }, { value: 'maintenance', label: 'Maintenance' }, { value: 'offline', label: 'Offline' }, { value: 'error', label: 'Error' }, { value: 'decommissioned', label: 'Decommissioned' }]} value={stateFilter} onChange={(e) => { setStateFilter(e.target.value); setPage(1); }} />
 
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           {[
@@ -161,13 +142,7 @@ const EdgeDevicesPage: React.FC = () => {
           ))}
         </div>
 
-        <button
-          onClick={handleRefresh}
-          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
       </div>
 
       {/* Device Grid */}
@@ -183,12 +158,7 @@ const EdgeDevicesPage: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Create an installer link to start adding edge devices
           </p>
-          <button
-            onClick={() => setShowInstallerModal(true)}
-            className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-          >
-            Create Installer Link
-          </button>
+          <Button variant="primary" className="mt-4" onClick={() => setShowInstallerModal(true)}>Create Installer Link</Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -290,20 +260,8 @@ const EdgeDevicesPage: React.FC = () => {
             Showing {(page - 1) * limit + 1}-{Math.min(page * limit, total)} of {total}
           </p>
           <div className="flex gap-2">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setPage(p => p + 1)}
-              disabled={page * limit >= total}
-              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Next
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
+            <Button variant="secondary" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>Next</Button>
           </div>
         </div>
       )}

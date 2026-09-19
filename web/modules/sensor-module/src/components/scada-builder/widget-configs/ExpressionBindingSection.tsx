@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { ChevronDown, Zap } from 'lucide-react';
 import { ExpressionEditor } from './ExpressionEditor';
 
@@ -91,13 +92,7 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       {/* Collapsible header */}
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="w-full flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-        data-testid="expression-section-toggle"
-      >
-        <ChevronDown
+      <Button variant="ghost" size="xs" type="button" onClick={() => setExpanded((prev) => !prev)} data-testid="expression-section-toggle"><ChevronDown
           className={`w-3.5 h-3.5 transition-transform ${expanded ? '' : '-rotate-90'}`}
         />
         <Zap className="w-3.5 h-3.5 text-amber-500" />
@@ -106,8 +101,7 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
           <span className="ml-auto text-[10px] text-cyan-600 font-semibold uppercase">
             Active
           </span>
-        )}
-      </button>
+        )}</Button>
 
       {/* Expanded content */}
       {expanded && (

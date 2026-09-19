@@ -7,7 +7,7 @@
  * records, batch detail, maintenance, health, harvest), preserving the
  * single source of truth.
  */
-import { ConfirmModal, useCanMutate, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ConfirmModal, useCanMutate, DataTable, type DataTableColumn, Button, Select } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -129,20 +129,10 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           {item.editable ? (
             <span className="space-x-3">
               {canUpdate && (
-                <button
-                  onClick={() => setModalState({ open: true, entry: item })}
-                  className="font-medium text-blue-600 hover:text-blue-800"
-                >
-                  Edit
-                </button>
+                <Button variant="ghost" onClick={() => setModalState({ open: true, entry: item })}>Edit</Button>
               )}
               {canDelete && (
-                <button
-                  onClick={() => setPendingDelete(item.id)}
-                  className="font-medium text-red-600 hover:text-red-800"
-                >
-                  Delete
-                </button>
+                <Button variant="ghost" onClick={() => setPendingDelete(item.id)}>Delete</Button>
               )}
               {!canUpdate && !canDelete && (
                 <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
@@ -168,27 +158,13 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           <label htmlFor="origin-filter" className="text-sm text-gray-600 dark:text-gray-400">
             Show:
           </label>
-          <select
-            id="origin-filter"
-            value={originFilter}
-            onChange={(e) => {
-              setOriginFilter(e.target.value as typeof originFilter);
-              setOffset(0);
-            }}
-            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="ALL">All entries</option>
-            <option value="MANUAL">Manual entries</option>
-            <option value="DERIVED">Auto (from records)</option>
-          </select>
+          <Select options={[{ value: 'ALL', label: 'All entries' }, { value: 'MANUAL', label: 'Manual entries' }, { value: 'DERIVED', label: 'Auto (from records)' }]} id="origin-filter" value={originFilter} onChange={(e) => {
+       setOriginFilter(e.target.value as typeof originFilter);
+       setOffset(0);
+      }} />
         </div>
         {canCreate && (
-        <button
-          onClick={() => setModalState({ open: true })}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
-        >
-          + Add expense
-        </button>
+        <Button variant="primary" onClick={() => setModalState({ open: true })}>+ Add expense</Button>
         )}
       </div>
 
@@ -215,23 +191,11 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
 
           {/* Pagination */}
           <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3">
-            <button
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              disabled={offset === 0}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 disabled:opacity-40"
-            >
-              ← Previous
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} disabled={offset === 0}>← Previous</Button>
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {offset + 1}–{offset + items.length}
             </span>
-            <button
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-              disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 disabled:opacity-40"
-            >
-              Next →
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => setOffset(offset + PAGE_SIZE)} disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}>Next →</Button>
           </div>
         </div>
       )}

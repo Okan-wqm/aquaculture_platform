@@ -7,13 +7,10 @@
  */
 
 import {
-  useQuery,
-  useMutation,
-  useQueryClient,
+  useQuery, useQueryClient,
   type UseQueryResult,
-  type UseMutationResult,
-} from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+  type UseMutationResult, } from '@tanstack/react-query';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, useFeedbackMutation } from '@aquaculture/shared-ui';
 
 import { DEFAULT_ROLE_COLOR } from '../lib/constants';
 import {
@@ -242,7 +239,8 @@ const generateTempId = (): string => `temp-${Date.now()}-${Math.random().toStrin
 export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Role created' },
     mutationFn: (input: CreateTenantRoleInput) => createTenantRole(input),
 
     // Optimistically add the new role to the list
@@ -342,7 +340,8 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
 export function useUpdateTenantRole() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Role updated' },
     mutationFn: ({ roleId, input }: { roleId: string; input: UpdateTenantRoleInput }) =>
       updateTenantRole(roleId, input),
 
@@ -458,7 +457,8 @@ export function useUpdateTenantRole() {
 export function useDeleteTenantRole() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Role deleted' },
     mutationFn: (roleId: string) => deleteTenantRole(roleId),
 
     // Optimistically remove the role from the list
@@ -521,7 +521,8 @@ export function useDeleteTenantRole() {
 export function useSeedTenantRoles() {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Default roles created' },
     mutationFn: seedTenantRoles,
     onSuccess: () => {
       // Invalidate ALL role queries (list/detail/default/categories) to refetch.

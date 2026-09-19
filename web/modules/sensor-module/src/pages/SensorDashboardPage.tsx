@@ -28,7 +28,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { SensorPicker, WidgetType } from '../components/dashboard/SensorPicker';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -136,12 +136,7 @@ const SensorDashboardPage: React.FC = () => {
           <AlertTriangle size={48} className="mx-auto mb-4 text-red-500" />
           <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Sensörler Yüklenemedi</h2>
           <p className="text-gray-500 dark:text-gray-400 mt-2">{error}</p>
-          <button
-            onClick={() => refetch()}
-            className="mt-4 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="primary" className="mt-4" onClick={() => refetch()}>Tekrar Dene</Button>
         </div>
       </div>
     );

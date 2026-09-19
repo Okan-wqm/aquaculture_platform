@@ -10,7 +10,7 @@
  * - Create/Edit form with all plan fields
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
   useHarvestPlanStats,
@@ -717,25 +717,14 @@ const PlanCard: React.FC<{
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{plan.name}</p>
           </div>
           <div className="relative">
-            <button
-              onClick={() => setShowActions(!showActions)}
-              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <MoreVertical className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="More actions" onClick={() => setShowActions(!showActions)}><MoreVertical className="w-4 h-4 text-gray-400 dark:text-gray-500" /></Button>
             {showActions && (
               <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
-                  <button
-                    onClick={() => {
+                  <Button variant="ghost" leftIcon={<Edit className="w-4 h-4 mr-2" />} onClick={() => {
                       onEdit(plan);
                       setShowActions(false);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Edit
-                  </button>
+                    }}>Edit</Button>
                 )}
                 {workflowActions.map((wa) => (
                   <button
@@ -751,16 +740,10 @@ const PlanCard: React.FC<{
                   </button>
                 ))}
                 {plan.canDelete && (
-                  <button
-                    onClick={() => {
+                  <Button variant="ghost" leftIcon={<Trash2 className="w-4 h-4 mr-2" />} onClick={() => {
                       onDelete(plan);
                       setShowActions(false);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete
-                  </button>
+                    }}>Delete</Button>
                 )}
               </div>
             )}
@@ -804,25 +787,14 @@ const PlanCard: React.FC<{
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{plan.name}</p>
           </div>
           <div className="relative">
-            <button
-              onClick={() => setShowActions(!showActions)}
-              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <MoreVertical className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="More actions" onClick={() => setShowActions(!showActions)}><MoreVertical className="w-5 h-5 text-gray-400 dark:text-gray-500" /></Button>
             {showActions && (
               <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-md shadow-lg z-10 border border-gray-200 dark:border-gray-700">
                 {plan.canEdit && (
-                  <button
-                    onClick={() => {
+                  <Button variant="ghost" leftIcon={<Edit className="w-4 h-4 mr-2" />} onClick={() => {
                       onEdit(plan);
                       setShowActions(false);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Edit
-                  </button>
+                    }}>Edit</Button>
                 )}
                 {workflowActions.map((wa) => (
                   <button
@@ -838,16 +810,10 @@ const PlanCard: React.FC<{
                   </button>
                 ))}
                 {plan.canDelete && (
-                  <button
-                    onClick={() => {
+                  <Button variant="ghost" leftIcon={<Trash2 className="w-4 h-4 mr-2" />} onClick={() => {
                       onDelete(plan);
                       setShowActions(false);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete
-                  </button>
+                    }}>Delete</Button>
                 )}
               </div>
             )}
@@ -887,7 +853,7 @@ const PlanCard: React.FC<{
         </div>
 
         {/* Estimates */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Quantity</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -940,7 +906,7 @@ const PlanCard: React.FC<{
         {plan.status === 'completed' && plan.actualBiomassHarvested && (
           <div className="bg-green-50 rounded-md p-3 mt-2">
             <p className="text-xs font-medium text-green-800 mb-2">Actual Results</p>
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-xs text-green-600">Quantity</p>
                 <p className="text-sm font-semibold text-green-800">
@@ -979,13 +945,7 @@ const FilterPanel: React.FC<{
           <Filter className="w-4 h-4" />
           Filters
         </h3>
-        <button
-          onClick={onReset}
-          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 flex items-center gap-1"
-        >
-          <RefreshCw className="w-3 h-3" />
-          Reset
-        </button>
+        <Button variant="ghost" size="xs" leftIcon={<RefreshCw className="w-3 h-3" />} onClick={onReset}>Reset</Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1062,23 +1022,13 @@ const FilterPanel: React.FC<{
         {/* Date From */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Planned From</label>
-          <input
-            type="date"
-            value={filters.plannedDateFrom}
-            onChange={(e) => onFilterChange({ ...filters, plannedDateFrom: e.target.value })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="date" value={filters.plannedDateFrom} onChange={(e) => onFilterChange({ ...filters, plannedDateFrom: e.target.value })} />
         </div>
 
         {/* Date To */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Planned To</label>
-          <input
-            type="date"
-            value={filters.plannedDateTo}
-            onChange={(e) => onFilterChange({ ...filters, plannedDateTo: e.target.value })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="date" value={filters.plannedDateTo} onChange={(e) => onFilterChange({ ...filters, plannedDateTo: e.target.value })} />
         </div>
 
         {/* Quick Filters */}
@@ -1192,27 +1142,14 @@ const HarvestPlanFormModal: React.FC<{
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Plan Name *
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name || ''}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    placeholder="e.g., Full Harvest - Sea Bass Batch A"
-                  />
+                  <Input fullWidth type="text" required value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Full Harvest - Sea Bass Batch A" />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Description
                   </label>
-                  <textarea
-                    value={formData.description || ''}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    placeholder="Describe the harvest plan..."
-                  />
+                  <Textarea fullWidth value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Describe the harvest plan..." />
                 </div>
 
                 <div>
@@ -1232,7 +1169,7 @@ const HarvestPlanFormModal: React.FC<{
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Harvest Type *
@@ -1277,7 +1214,7 @@ const HarvestPlanFormModal: React.FC<{
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Product Form *
@@ -1305,41 +1242,25 @@ const HarvestPlanFormModal: React.FC<{
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Planned Date *
                     </label>
-                    <input
-                      type="date"
-                      required
-                      value={formData.plannedDate || ''}
-                      onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })}
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="date" required value={formData.plannedDate || ''} onChange={(e) => setFormData({ ...formData, plannedDate: e.target.value })} />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Window Start
                     </label>
-                    <input
-                      type="date"
-                      value={formData.windowStartDate || ''}
-                      onChange={(e) =>
-                        setFormData({ ...formData, windowStartDate: e.target.value })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="date" value={formData.windowStartDate || ''} onChange={(e) =>
+            setFormData({ ...formData, windowStartDate: e.target.value })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Window End
                     </label>
-                    <input
-                      type="date"
-                      value={formData.windowEndDate || ''}
-                      onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })}
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="date" value={formData.windowEndDate || ''} onChange={(e) => setFormData({ ...formData, windowEndDate: e.target.value })} />
                   </div>
                 </div>
               </div>
@@ -1352,69 +1273,51 @@ const HarvestPlanFormModal: React.FC<{
 
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
                   <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">Target Weight (grams)</h4>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Minimum</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.min || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                min: Number(e.target.value),
-                              },
-                            },
-                          })
-                        }
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      />
+                      <Input fullWidth type="number" min="0" value={formData.criteria?.targetWeight.min || 0} onChange={(e) =>
+             setFormData({
+              ...formData,
+              criteria: {
+               ...formData.criteria!,
+               targetWeight: {
+                ...formData.criteria!.targetWeight,
+                min: Number(e.target.value),
+               },
+              },
+             })
+            } />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.target || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                target: Number(e.target.value),
-                              },
-                            },
-                          })
-                        }
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      />
+                      <Input fullWidth type="number" min="0" value={formData.criteria?.targetWeight.target || 0} onChange={(e) =>
+             setFormData({
+              ...formData,
+              criteria: {
+               ...formData.criteria!,
+               targetWeight: {
+                ...formData.criteria!.targetWeight,
+                target: Number(e.target.value),
+               },
+              },
+             })
+            } />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Maximum</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={formData.criteria?.targetWeight.max || 0}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            criteria: {
-                              ...formData.criteria!,
-                              targetWeight: {
-                                ...formData.criteria!.targetWeight,
-                                max: Number(e.target.value),
-                              },
-                            },
-                          })
-                        }
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                      />
+                      <Input fullWidth type="number" min="0" value={formData.criteria?.targetWeight.max || 0} onChange={(e) =>
+             setFormData({
+              ...formData,
+              criteria: {
+               ...formData.criteria!,
+               targetWeight: {
+                ...formData.criteria!.targetWeight,
+                max: Number(e.target.value),
+               },
+              },
+             })
+            } />
                     </div>
                   </div>
                 </div>
@@ -1423,24 +1326,15 @@ const HarvestPlanFormModal: React.FC<{
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Quality Grade
                   </label>
-                  <select
-                    value={formData.criteria?.qualityGrade || ''}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        criteria: {
-                          ...formData.criteria!,
-                          qualityGrade: e.target.value || undefined,
-                        },
-                      })
-                    }
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="">Not specified</option>
-                    <option value="A">Grade A</option>
-                    <option value="B">Grade B</option>
-                    <option value="C">Grade C</option>
-                  </select>
+                  <Select fullWidth options={[{ value: '', label: 'Not specified' }, { value: 'A', label: 'Grade A' }, { value: 'B', label: 'Grade B' }, { value: 'C', label: 'Grade C' }]} value={formData.criteria?.qualityGrade || ''} onChange={(e) =>
+           setFormData({
+            ...formData,
+            criteria: {
+             ...formData.criteria!,
+             qualityGrade: e.target.value || undefined,
+            },
+           })
+          } />
                 </div>
               </div>
             )}
@@ -1450,94 +1344,65 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Harvest Estimates</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Quantity *
                     </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.estimates?.estimatedQuantity || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedQuantity: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" required min="0" value={formData.estimates?.estimatedQuantity || 0} onChange={(e) =>
+            setFormData({
+             ...formData,
+             estimates: {
+              ...formData.estimates!,
+              estimatedQuantity: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Biomass (kg) *
                     </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="0.1"
-                      value={formData.estimates?.estimatedBiomass || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedBiomass: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" required min="0" step="0.1" value={formData.estimates?.estimatedBiomass || 0} onChange={(e) =>
+            setFormData({
+             ...formData,
+             estimates: {
+              ...formData.estimates!,
+              estimatedBiomass: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Avg Weight (g) *
                     </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.estimates?.estimatedAvgWeight || 0}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedAvgWeight: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" required min="0" value={formData.estimates?.estimatedAvgWeight || 0} onChange={(e) =>
+            setFormData({
+             ...formData,
+             estimates: {
+              ...formData.estimates!,
+              estimatedAvgWeight: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Yield (%)
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={formData.estimates?.estimatedYield || 85}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          estimates: {
-                            ...formData.estimates!,
-                            estimatedYield: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" max="100" value={formData.estimates?.estimatedYield || 85} onChange={(e) =>
+            setFormData({
+             ...formData,
+             estimates: {
+              ...formData.estimates!,
+              estimatedYield: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
                 </div>
 
@@ -1545,23 +1410,15 @@ const HarvestPlanFormModal: React.FC<{
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Confidence Level
                   </label>
-                  <select
-                    value={formData.estimates?.confidenceLevel || 'medium'}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        estimates: {
-                          ...formData.estimates!,
-                          confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
-                        },
-                      })
-                    }
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
+                  <Select fullWidth options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} value={formData.estimates?.confidenceLevel || 'medium'} onChange={(e) =>
+           setFormData({
+            ...formData,
+            estimates: {
+             ...formData.estimates!,
+             confidenceLevel: e.target.value as 'low' | 'medium' | 'high',
+            },
+           })
+          } />
                 </div>
               </div>
             )}
@@ -1571,122 +1428,84 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Financial Projection</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Price
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedPrice || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection,
-                            estimatedPrice: Number(e.target.value),
-                            priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
-                            estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
-                            estimatedCost: formData.financialProjection?.estimatedCost || 0,
-                            estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
-                            margin: formData.financialProjection?.margin || 0,
-                            currency: formData.financialProjection?.currency || 'EUR',
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.01" value={formData.financialProjection?.estimatedPrice || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             financialProjection: {
+              ...formData.financialProjection,
+              estimatedPrice: Number(e.target.value),
+              priceUnit: formData.financialProjection?.priceUnit || 'per_kg',
+              estimatedRevenue: formData.financialProjection?.estimatedRevenue || 0,
+              estimatedCost: formData.financialProjection?.estimatedCost || 0,
+              estimatedProfit: formData.financialProjection?.estimatedProfit || 0,
+              margin: formData.financialProjection?.margin || 0,
+              currency: formData.financialProjection?.currency || 'EUR',
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Price Unit
                     </label>
-                    <select
-                      value={formData.financialProjection?.priceUnit || 'per_kg'}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            priceUnit: e.target.value as 'per_kg' | 'per_piece',
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="per_kg">Per Kilogram</option>
-                      <option value="per_piece">Per Piece</option>
-                    </select>
+                    <Select fullWidth options={[{ value: 'per_kg', label: 'Per Kilogram' }, { value: 'per_piece', label: 'Per Piece' }]} value={formData.financialProjection?.priceUnit || 'per_kg'} onChange={(e) =>
+            setFormData({
+             ...formData,
+             financialProjection: {
+              ...formData.financialProjection!,
+              priceUnit: e.target.value as 'per_kg' | 'per_piece',
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Revenue
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedRevenue || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            estimatedRevenue: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.01" value={formData.financialProjection?.estimatedRevenue || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             financialProjection: {
+              ...formData.financialProjection!,
+              estimatedRevenue: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Cost
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.financialProjection?.estimatedCost || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            estimatedCost: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.01" value={formData.financialProjection?.estimatedCost || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             financialProjection: {
+              ...formData.financialProjection!,
+              estimatedCost: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Currency</label>
-                    <select
-                      value={formData.financialProjection?.currency || 'EUR'}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          financialProjection: {
-                            ...formData.financialProjection!,
-                            currency: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="EUR">EUR</option>
-                      <option value="USD">USD</option>
-                      <option value="TRY">TRY</option>
-                      <option value="GBP">GBP</option>
-                      <option value="NOK">NOK</option>
-                    </select>
+                    <Select fullWidth options={[{ value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'GBP', label: 'GBP' }, { value: 'NOK', label: 'NOK' }]} value={formData.financialProjection?.currency || 'EUR'} onChange={(e) =>
+            setFormData({
+             ...formData,
+             financialProjection: {
+              ...formData.financialProjection!,
+              currency: e.target.value,
+             },
+            })
+           } />
                   </div>
                 </div>
               </div>
@@ -1697,123 +1516,86 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Logistics Plan</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Harvest Start Time
                     </label>
-                    <input
-                      type="time"
-                      value={formData.logistics?.harvestStartTime || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            harvestStartTime: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="time" value={formData.logistics?.harvestStartTime || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             logistics: {
+              ...formData.logistics,
+              harvestStartTime: e.target.value,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Expected Duration (hours)
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={formData.logistics?.expectedDuration || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            expectedDuration: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.5" value={formData.logistics?.expectedDuration || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             logistics: {
+              ...formData.logistics,
+              expectedDuration: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Required Personnel
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.logistics?.requiredPersonnel || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            requiredPersonnel: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" value={formData.logistics?.requiredPersonnel || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             logistics: {
+              ...formData.logistics,
+              requiredPersonnel: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Transport Type
                     </label>
-                    <select
-                      value={formData.logistics?.transportType || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            transportType:
-                              (e.target.value as 'truck' | 'boat' | 'container') || undefined,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select type</option>
-                      <option value="truck">Truck</option>
-                      <option value="boat">Boat</option>
-                      <option value="container">Container</option>
-                    </select>
+                    <Select fullWidth options={[{ value: '', label: 'Select type' }, { value: 'truck', label: 'Truck' }, { value: 'boat', label: 'Boat' }, { value: 'container', label: 'Container' }]} value={formData.logistics?.transportType || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             logistics: {
+              ...formData.logistics,
+              transportType:
+               (e.target.value as 'truck' | 'boat' | 'container') || undefined,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Destination Type
                     </label>
-                    <select
-                      value={formData.logistics?.destinationType || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          logistics: {
-                            ...formData.logistics,
-                            destinationType:
-                              (e.target.value as
-                                | 'processing'
-                                | 'market'
-                                | 'direct_sale'
-                                | 'export') || undefined,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select destination</option>
-                      <option value="processing">Processing Plant</option>
-                      <option value="market">Market</option>
-                      <option value="direct_sale">Direct Sale</option>
-                      <option value="export">Export</option>
-                    </select>
+                    <Select fullWidth options={[{ value: '', label: 'Select destination' }, { value: 'processing', label: 'Processing Plant' }, { value: 'market', label: 'Market' }, { value: 'direct_sale', label: 'Direct Sale' }, { value: 'export', label: 'Export' }]} value={formData.logistics?.destinationType || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             logistics: {
+              ...formData.logistics,
+              destinationType:
+               (e.target.value as
+                | 'processing'
+                | 'market'
+                | 'direct_sale'
+                | 'export') || undefined,
+             },
+            })
+           } />
                   </div>
 
                   <div>
@@ -1841,20 +1623,15 @@ const HarvestPlanFormModal: React.FC<{
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Destination Address
                   </label>
-                  <textarea
-                    value={formData.logistics?.destinationAddress || ''}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        logistics: {
-                          ...formData.logistics,
-                          destinationAddress: e.target.value,
-                        },
-                      })
-                    }
-                    rows={2}
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                  />
+                  <Textarea fullWidth value={formData.logistics?.destinationAddress || ''} onChange={(e) =>
+           setFormData({
+            ...formData,
+            logistics: {
+             ...formData.logistics,
+             destinationAddress: e.target.value,
+            },
+           })
+          } rows={2} />
                 </div>
               </div>
             )}
@@ -1866,130 +1643,93 @@ const HarvestPlanFormModal: React.FC<{
                   Customer / Order Information
                 </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Customer Name
                     </label>
-                    <input
-                      type="text"
-                      value={formData.customerOrder?.customerName || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            customerName: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="text" value={formData.customerOrder?.customerName || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              customerName: e.target.value,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Order ID</label>
-                    <input
-                      type="text"
-                      value={formData.customerOrder?.orderId || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderId: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="text" value={formData.customerOrder?.orderId || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              orderId: e.target.value,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Order Quantity
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.customerOrder?.orderQuantity || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderQuantity: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" value={formData.customerOrder?.orderQuantity || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              orderQuantity: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Order Unit
                     </label>
-                    <select
-                      value={formData.customerOrder?.orderUnit || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            orderUnit: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    >
-                      <option value="">Select unit</option>
-                      <option value="kg">Kilograms</option>
-                      <option value="pieces">Pieces</option>
-                      <option value="tons">Tons</option>
-                    </select>
+                    <Select fullWidth options={[{ value: '', label: 'Select unit' }, { value: 'kg', label: 'Kilograms' }, { value: 'pieces', label: 'Pieces' }, { value: 'tons', label: 'Tons' }]} value={formData.customerOrder?.orderUnit || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              orderUnit: e.target.value,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Delivery Date
                     </label>
-                    <input
-                      type="date"
-                      value={formData.customerOrder?.deliveryDate || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            deliveryDate: e.target.value,
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="date" value={formData.customerOrder?.deliveryDate || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              deliveryDate: e.target.value,
+             },
+            })
+           } />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Contract Price
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.customerOrder?.contractPrice || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          customerOrder: {
-                            ...formData.customerOrder,
-                            contractPrice: Number(e.target.value),
-                          },
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.01" value={formData.customerOrder?.contractPrice || ''} onChange={(e) =>
+            setFormData({
+             ...formData,
+             customerOrder: {
+              ...formData.customerOrder,
+              contractPrice: Number(e.target.value),
+             },
+            })
+           } />
                   </div>
                 </div>
               </div>
@@ -1999,19 +1739,8 @@ const HarvestPlanFormModal: React.FC<{
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
-          >
-            {plan ? 'Update Plan' : 'Create Plan'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit">{plan ? 'Update Plan' : 'Create Plan'}</Button>
         </div>
       </form>
     </Modal>
@@ -2055,14 +1784,7 @@ const CompleteHarvestModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Quantity Harvested
           </label>
-          <input
-            type="number"
-            required
-            min="0"
-            value={formData.actualQuantity}
-            onChange={(e) => setFormData({ ...formData, actualQuantity: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="number" required min="0" value={formData.actualQuantity} onChange={(e) => setFormData({ ...formData, actualQuantity: Number(e.target.value) })} />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {formatNumber(plan.estimates.estimatedQuantity)}
           </p>
@@ -2072,15 +1794,7 @@ const CompleteHarvestModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Biomass (kg)
           </label>
-          <input
-            type="number"
-            required
-            min="0"
-            step="0.1"
-            value={formData.actualBiomass}
-            onChange={(e) => setFormData({ ...formData, actualBiomass: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="number" required min="0" step="0.1" value={formData.actualBiomass} onChange={(e) => setFormData({ ...formData, actualBiomass: Number(e.target.value) })} />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {formatNumber(plan.estimates.estimatedBiomass)} kg
           </p>
@@ -2090,34 +1804,15 @@ const CompleteHarvestModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Actual Average Weight (g)
           </label>
-          <input
-            type="number"
-            required
-            min="0"
-            step="0.1"
-            value={formData.actualAvgWeight}
-            onChange={(e) => setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="number" required min="0" step="0.1" value={formData.actualAvgWeight} onChange={(e) => setFormData({ ...formData, actualAvgWeight: Number(e.target.value) })} />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Estimated: {plan.estimates.estimatedAvgWeight}g
           </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
-          >
-            Complete Harvest
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit">Complete Harvest</Button>
         </div>
       </form>
     </Modal>
@@ -2153,32 +1848,15 @@ const ScheduleModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Confirmed Harvest Date *
           </label>
-          <input
-            type="date"
-            required
-            value={confirmedDate}
-            onChange={(e) => setConfirmedDate(e.target.value)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="date" required value={confirmedDate} onChange={(e) => setConfirmedDate(e.target.value)} />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Originally planned: {formatDate(plan.plannedDate)}
           </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
-          >
-            Schedule Harvest
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit">Schedule Harvest</Button>
         </div>
       </form>
     </Modal>
@@ -2212,31 +1890,13 @@ const PostponeModal: React.FC<{
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Planned Date *</label>
-          <input
-            type="date"
-            required
-            value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
-            min={new Date().toISOString().split('T')[0]}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-          />
+          <Input fullWidth type="date" required value={newDate} onChange={(e) => setNewDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Current date: {formatDate(plan.plannedDate)}</p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
-          >
-            Postpone
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="warning" type="submit">Postpone</Button>
         </div>
       </form>
     </Modal>
@@ -2269,20 +1929,8 @@ const ConfirmDeleteModal: React.FC<{
       </p>
 
       <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
-        >
-          Delete
-        </button>
+        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="danger" type="button" onClick={onConfirm}>Delete</Button>
       </div>
     </Modal>
   );
@@ -2650,22 +2298,10 @@ export const HarvestPlansPage: React.FC = () => {
       render: (_value, plan) => (
         <div className="flex items-center justify-end gap-2">
           {plan.canEdit && (
-            <button
-              onClick={() => setEditingPlan(plan)}
-              className="text-blue-600 hover:text-blue-900"
-              title="Edit"
-            >
-              <Edit className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Edit" onClick={() => setEditingPlan(plan)} title="Edit"><Edit className="w-4 h-4" /></Button>
           )}
           {plan.canDelete && (
-            <button
-              onClick={() => setDeletingPlan(plan)}
-              className="text-red-600 hover:text-red-900"
-              title="Delete"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => setDeletingPlan(plan)} title="Delete"><Trash2 className="w-4 h-4" /></Button>
           )}
         </div>
       ),
@@ -2698,13 +2334,7 @@ export const HarvestPlansPage: React.FC = () => {
                     <ChevronRight className="w-4 h-4 ml-1" />
                   )}
                 </button>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Plan
-                </button>
+                <Button variant="primary" leftIcon={<Plus className="w-4 h-4 mr-2" />} onClick={() => setShowCreateModal(true)}>New Plan</Button>
               </div>
             }
           />
@@ -2871,13 +2501,7 @@ export const HarvestPlansPage: React.FC = () => {
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   Get started by creating a new harvest plan.
                 </p>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Plan
-                </button>
+                <Button variant="primary" className="mt-4" leftIcon={<Plus className="w-4 h-4 mr-2" />} onClick={() => setShowCreateModal(true)}>New Plan</Button>
               </div>
             )}
           </div>

@@ -305,7 +305,7 @@ const PlanManagementPage: React.FC = () => {
                         <Badge variant="success">%{price.discountPercent} indirim</Badge>
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="p-3 bg-white dark:bg-gray-900 rounded-lg">
                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Per User</div>
                         <div className="font-bold">

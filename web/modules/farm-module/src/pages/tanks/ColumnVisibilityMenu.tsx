@@ -3,6 +3,7 @@
  * Dropdown menu for toggling column visibility with group support
  */
 import React, { useState, useRef, useEffect } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { TankColumn } from './types';
 import { columnGroups, getColumnsByGroup } from './columns';
 
@@ -69,11 +70,7 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
   return (
     <div className="relative" ref={menuRef}>
       {/* Toggle Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-      >
-        <svg
+      <Button variant="secondary" onClick={() => setIsOpen(!isOpen)}><svg
           className="w-5 h-5 text-gray-500 dark:text-gray-400"
           fill="none"
           stroke="currentColor"
@@ -96,8 +93,7 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {/* Dropdown Menu */}
       {isOpen && (
@@ -107,19 +103,9 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
             <div className="flex justify-between items-center">
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Show Columns</span>
               <div className="flex gap-2">
-                <button
-                  onClick={onShowAll}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  Show All
-                </button>
+                <Button variant="ghost" size="xs" onClick={onShowAll}>Show All</Button>
                 <span className="text-gray-300">|</span>
-                <button
-                  onClick={onReset}
-                  className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 font-medium"
-                >
-                  Reset
-                </button>
+                <Button variant="ghost" size="xs" onClick={onReset}>Reset</Button>
               </div>
             </div>
           </div>

@@ -13,7 +13,7 @@
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, chartChrome, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -227,15 +227,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
       )}
 
       {/* Trigger button */}
-      <button
-        type="button"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-label={label}
-        onClick={toggleOpen}
-        onKeyDown={handleKeyDown}
-        style={{
+      <Button variant="ghost" type="button" role="combobox" aria-expanded={isOpen} aria-haspopup="listbox" aria-label={label} onClick={toggleOpen} onKeyDown={handleKeyDown} style={{
           width: '100%',
           height: BUTTON_H,
           padding: '0 8px',
@@ -254,15 +246,12 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
           boxShadow: isOpen ? '0 0 0 2px rgba(6, 182, 212, 0.2)' : 'none',
           transition: 'border-color 150ms, box-shadow 150ms',
           textAlign: 'left',
-        }}
-      >
-        <span
+        }}><span
           className="overflow-hidden whitespace-nowrap text-ellipsis flex-1"
         >
           {displayText}
         </span>
-        {chevron}
-      </button>
+        {chevron}</Button>
 
       {/* Dropdown popover */}
       {isOpen && !isEditing && (

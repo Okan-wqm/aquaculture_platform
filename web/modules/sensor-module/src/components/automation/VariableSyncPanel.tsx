@@ -25,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { parseStVariables, type ParsedVariable } from '../../utils/st-variable-parser';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 type DetectedVariable = ParsedVariable;
 
@@ -407,32 +407,20 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
         return (
           <>
             {item.status === 'missing' && item.detected && (
-              <button
-                onClick={() => handleAddOne(item.detected!)}
-                disabled={isItemAdding || isAdding}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {isItemAdding ? (
+              <Button variant="primary" size="xs" onClick={() => handleAddOne(item.detected!)} disabled={isItemAdding || isAdding}>{isItemAdding ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
-                Ekle
-              </button>
+                Ekle</Button>
             )}
             {item.status === 'orphaned' && item.registered && (
-              <button
-                onClick={() => handleRemoveOne(item.registered!.id)}
-                disabled={isItemRemoving || isRemoving}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
-              >
-                {isItemRemoving ? (
+              <Button variant="warning" size="xs" onClick={() => handleRemoveOne(item.registered!.id)} disabled={isItemRemoving || isRemoving}>{isItemRemoving ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Trash2 className="h-3 w-3" />
                 )}
-                Kaldir
-              </button>
+                Kaldir</Button>
             )}
           </>
         );
@@ -522,32 +510,20 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
           </span>
           <div className="ml-auto flex items-center gap-2">
             {missingCount > 0 && !onSyncAll && (
-              <button
-                onClick={handleAddAll}
-                disabled={isAdding}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {isAdding ? (
+              <Button variant="primary" size="xs" onClick={handleAddAll} disabled={isAdding}>{isAdding ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
-                Add All
-              </button>
+                Add All</Button>
             )}
             {onSyncAll && (
-              <button
-                onClick={handleSyncAll}
-                disabled={isSyncing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-              >
-                {isSyncing ? (
+              <Button variant="primary" size="xs" onClick={handleSyncAll} disabled={isSyncing}>{isSyncing ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <RefreshCw className="h-3 w-3" />
                 )}
-                Sync All
-              </button>
+                Sync All</Button>
             )}
           </div>
         </div>

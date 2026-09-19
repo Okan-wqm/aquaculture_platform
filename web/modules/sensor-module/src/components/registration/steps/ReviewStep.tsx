@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   ProtocolInfo,
   ConnectionTestResult,
@@ -49,12 +50,7 @@ function Section({
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b">
         <h3 className="font-medium text-gray-900 dark:text-gray-100">{title}</h3>
-        <button
-          onClick={() => onEdit(stepIndex)}
-          className="text-sm text-blue-600 hover:text-blue-800"
-        >
-          Edit
-        </button>
+        <Button variant="ghost" onClick={() => onEdit(stepIndex)}>Edit</Button>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -194,7 +190,7 @@ export function ReviewStep({
         {(basicInfo.farmId || basicInfo.pondId || basicInfo.tankId) && (
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assignment</h4>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {basicInfo.farmId && (
                 <div>
                   <span className="text-xs text-gray-500 dark:text-gray-400">Farm</span>
@@ -302,7 +298,7 @@ export function ReviewStep({
       {/* Summary box */}
       <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Registration Summary</h4>
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
           <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
             <div className="text-2xl font-bold text-blue-600">1</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Parent Device</div>

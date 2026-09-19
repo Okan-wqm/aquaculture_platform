@@ -29,7 +29,7 @@
  *     handler also pre-checks; DB partial unique index is the
  *     authoritative gate).
  *   - Each row's `name` is required (>= 1 char trimmed).
- *   - Email validated by `<input type="email">` browser pattern (same
+ *   - Email validated by `<Input type="email" />` browser pattern (same
  *     posture as elsewhere in this app); backend also runs RFC-5321
  *     validation via class-validator's `@IsEmail()`.
  *   - Empty list is valid (semantics: "clear all contacts").
@@ -39,8 +39,7 @@ import {
   Button,
   formatErrorForToast,
   useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Input } from '@aquaculture/shared-ui';
 
 import {
   type SiteContact,
@@ -227,13 +226,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
-        <button
-          type="button"
-          onClick={handleAddRow}
-          className="text-sm text-blue-600 hover:text-blue-800"
-        >
-          + Yeni Kişi
-        </button>
+        <Button variant="ghost" type="button" onClick={handleAddRow}>+ Yeni Kişi</Button>
       </div>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         Sitenin operatif irtibat kişileri. En fazla bir kişi "ana
@@ -253,46 +246,18 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
               key={row.localKey}
               className="grid grid-cols-1 md:grid-cols-12 gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded"
             >
-              <input
-                type="text"
-                placeholder="İsim *"
-                value={row.name}
-                onChange={(e) =>
-                  handleChange(row.localKey, { name: e.target.value })
-                }
-                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
-                maxLength={100}
-              />
-              <input
-                type="text"
-                placeholder="Rol"
-                value={row.role}
-                onChange={(e) =>
-                  handleChange(row.localKey, { role: e.target.value })
-                }
-                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
-                maxLength={100}
-              />
-              <input
-                type="email"
-                placeholder="E-posta"
-                value={row.email}
-                onChange={(e) =>
-                  handleChange(row.localKey, { email: e.target.value })
-                }
-                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
-                maxLength={150}
-              />
-              <input
-                type="tel"
-                placeholder="Telefon"
-                value={row.phone}
-                onChange={(e) =>
-                  handleChange(row.localKey, { phone: e.target.value })
-                }
-                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
-                maxLength={50}
-              />
+              <Input type="text" placeholder="İsim *" value={row.name} onChange={(e) =>
+         handleChange(row.localKey, { name: e.target.value })
+        } maxLength={100} />
+              <Input type="text" placeholder="Rol" value={row.role} onChange={(e) =>
+         handleChange(row.localKey, { role: e.target.value })
+        } maxLength={100} />
+              <Input type="email" placeholder="E-posta" value={row.email} onChange={(e) =>
+         handleChange(row.localKey, { email: e.target.value })
+        } maxLength={150} />
+              <Input type="tel" placeholder="Telefon" value={row.phone} onChange={(e) =>
+         handleChange(row.localKey, { phone: e.target.value })
+        } maxLength={50} />
               <div className="md:col-span-2 flex items-center justify-end gap-2">
                 <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                   <input
@@ -304,14 +269,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                   />
                   Ana
                 </label>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveRow(row.localKey)}
-                  className="text-xs text-red-600 hover:text-red-800"
-                  aria-label={`${row.name || 'Kişi'} satırını çıkar`}
-                >
-                  Sil
-                </button>
+                <Button variant="ghost" size="xs" type="button" onClick={() => handleRemoveRow(row.localKey)} aria-label={`${row.name || 'Kişi'} satırını çıkar`}>Sil</Button>
               </div>
             </div>
           ))}

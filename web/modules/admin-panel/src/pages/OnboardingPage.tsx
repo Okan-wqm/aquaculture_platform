@@ -289,7 +289,7 @@ export const OnboardingPage: React.FC = () => {
         />
 
         {/* Stats */}
-        <div className="grid grid-cols-5 gap-3 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="text-sm text-gray-500 dark:text-gray-400">Total Tenants</div>
             <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{count(totalTenants)}</div>
@@ -612,7 +612,7 @@ export const OnboardingPage: React.FC = () => {
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 capitalize">
                     {category} Resources
                   </h2>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {categoryResources.map((resource) => (
                       <div
                         key={resource.id}

@@ -6,7 +6,7 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, chartChrome, colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, chartChrome, colors, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -65,21 +65,8 @@ const DeleteConfirmDialog: React.FC<{
       </div>
     </div>
     <div className="mt-5 flex justify-end space-x-3">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
-        disabled={isDeleting}
-        onClick={onConfirm}
-        className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
-      >
-        {isDeleting ? 'Deleting...' : 'Delete'}
-      </button>
+      <Button variant="secondary" type="button" onClick={onCancel}>Cancel</Button>
+      <Button variant="danger" type="button" disabled={isDeleting} onClick={onConfirm}>{isDeleting ? 'Deleting...' : 'Delete'}</Button>
     </div>
   </Modal>
 );
@@ -395,21 +382,11 @@ export const ParameterConfigManager: React.FC = () => {
       align: 'right',
       render: (_value, config) => (
         <>
-          <button
-            onClick={() => {
+          <Button variant="ghost" onClick={() => {
               setEditingConfig(config);
               setModalMode('edit');
-            }}
-            className="text-blue-600 hover:text-blue-900"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => setDeleteTarget(config)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Delete
-          </button>
+            }}>Edit</Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(config)}>Delete</Button>
         </>
       ),
     }
@@ -450,11 +427,7 @@ export const ParameterConfigManager: React.FC = () => {
           </select>
         </div>
         <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setShowTemplatePicker(true)}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md shadow-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="secondary" onClick={() => setShowTemplatePicker(true)}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -462,16 +435,11 @@ export const ParameterConfigManager: React.FC = () => {
                 d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
               />
             </svg>
-            Apply Template
-          </button>
-          <button
-            onClick={() => {
+            Apply Template</Button>
+          <Button variant="primary" onClick={() => {
               setEditingConfig(null);
               setModalMode('create');
-            }}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            }}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -479,8 +447,7 @@ export const ParameterConfigManager: React.FC = () => {
                 d="M12 4v16m8-8H4"
               />
             </svg>
-            Add Parameter
-          </button>
+            Add Parameter</Button>
         </div>
       </div>
 

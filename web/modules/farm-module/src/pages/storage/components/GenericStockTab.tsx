@@ -24,7 +24,7 @@ import {
 } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -128,30 +128,20 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
       // Per-row actions: Adjust (count correction) and Write Off (waste disposal).
       render: (_value, item) => (
         <div className="flex gap-1 justify-end">
-          <button
-            onClick={() =>
+          <Button variant="ghost" size="xs" onClick={() =>
               openModal({
                 movementType: MovementType.ADJUSTMENT,
                 itemId: item.itemId,
                 itemName: item.itemName,
               })
-            }
-            className="text-xs px-2 py-1 text-blue-600 hover:bg-blue-50 rounded"
-          >
-            Adjust
-          </button>
-          <button
-            onClick={() =>
+            }>Adjust</Button>
+          <Button variant="ghost" size="xs" onClick={() =>
               openModal({
                 movementType: MovementType.WASTE,
                 itemId: item.itemId,
                 itemName: item.itemName,
               })
-            }
-            className="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded"
-          >
-            Write Off
-          </button>
+            }>Write Off</Button>
         </div>
       ),
     },
@@ -189,12 +179,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
         {/* Primary entry point for receiving new deliveries or recording manual
             stock additions. Pre-fills item type and movement type to IN. */}
-        <button
-          onClick={() => openModal({ movementType: MovementType.IN })}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium whitespace-nowrap"
-        >
-          + Add Stock
-        </button>
+        <Button variant="primary" onClick={() => openModal({ movementType: MovementType.IN })}>+ Add Stock</Button>
       </div>
 
       {/* Loading state */}
@@ -208,9 +193,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load {itemLabel} stock.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 

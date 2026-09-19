@@ -23,7 +23,7 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -95,7 +95,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       {closed && (
         <div>
           <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Fill</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill</label>
               <input
@@ -160,14 +160,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       />
 
       {/* Reset path */}
-      <button
-        type="button"
-        onClick={handleResetPath}
-        className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
-        aria-label="Reset path to default"
-      >
-        Reset to Default Triangle
-      </button>
+      <Button variant="secondary" size="xs" type="button" onClick={handleResetPath} aria-label="Reset path to default">Reset to Default Triangle</Button>
     </div>
   );
 };

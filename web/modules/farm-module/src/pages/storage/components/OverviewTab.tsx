@@ -3,7 +3,7 @@
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
 import React, { useState, useMemo, useRef } from 'react';
-import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY, useClickOutside, colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY, useClickOutside, colors, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
@@ -210,12 +210,8 @@ export const OverviewTab: React.FC = () => {
                 </h4>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {pendingDeliveries!.slice(0, 3).map(po => (
-                    <button key={po.id}
-                      onClick={() => setReceiveTarget(po)}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-amber-300 rounded-full text-amber-700 hover:bg-amber-100 transition-colors">
-                      {po.orderNumber} - {po.supplierName}
-                      <span className="text-amber-500">Mark Received</span>
-                    </button>
+                    <Button variant="secondary" size="xs" key={po.id} onClick={() => setReceiveTarget(po)}>{po.orderNumber} - {po.supplierName}
+                      <span className="text-amber-500">Mark Received</span></Button>
                   ))}
                   {pendingDeliveries!.length > 3 && (
                     <span className="text-xs text-amber-600 py-1">+{pendingDeliveries!.length - 3} more</span>
@@ -336,14 +332,9 @@ export const OverviewTab: React.FC = () => {
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {CATEGORY_CONFIG[drillDownCategory]?.label || drillDownCategory} Inventory Details
             </h3>
-            <button
-              onClick={() => setDrillDownCategory(null)}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <Button variant="ghost" onClick={() => setDrillDownCategory(null)}><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+              </svg></Button>
           </div>
           {drillDownLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -439,24 +430,14 @@ export const OverviewTab: React.FC = () => {
             {/* Location filter dropdown */}
             {(locations?.items || []).length > 0 && (
               <div className="relative" ref={locationDropdownRef}>
-                <button
-                  onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
-                  className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
-                >
-                  {selectedLocationIds.size > 0 ? `${selectedLocationIds.size} selected` : 'All locations'}
+                <Button variant="secondary" size="xs" onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}>{selectedLocationIds.size > 0 ? `${selectedLocationIds.size} selected` : 'All locations'}
                   <svg className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+                  </svg></Button>
                 {locationDropdownOpen && (
                   <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
                     {selectedLocationIds.size > 0 && (
-                      <button
-                        onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
-                      >
-                        Clear selection
-                      </button>
+                      <Button variant="ghost" size="xs" onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}>Clear selection</Button>
                     )}
                     {(locations?.items || []).map((loc: any) => (
                       <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">

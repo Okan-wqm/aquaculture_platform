@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, Check, Key, AlertCircle, AlertTriangle } from 'lucide-react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../../services/tenant-api.service';
 import {
   CREATE_PROVISIONING_KEY_MUTATION,
@@ -152,37 +152,17 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Key Ad\u0131 (opsiyonel)</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            />
+            <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Cihaz</label>
-              <input
-                type="number"
-                value={maxDevices}
-                onChange={(e) => setMaxDevices(e.target.value)}
-                placeholder="S\u0131n\u0131rs\u0131z"
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
+              <Input fullWidth type="number" value={maxDevices} onChange={(e) => setMaxDevices(e.target.value)} placeholder="S\u0131n\u0131rs\u0131z" min="1" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ge\u00E7erlilik (g\u00FCn)</label>
-              <input
-                type="number"
-                value={expiresInDays}
-                onChange={(e) => setExpiresInDays(e.target.value)}
-                placeholder="S\u00FCresiz"
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
+              <Input fullWidth type="number" value={expiresInDays} onChange={(e) => setExpiresInDays(e.target.value)} placeholder="S\u00FCresiz" min="1" />
             </div>
           </div>
 
@@ -212,21 +192,9 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           )}
 
           <div className="flex items-center justify-between pt-2">
-            <button
-              onClick={loadExistingKeys}
-              disabled={loadingKeys}
-              className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
-            >
-              {loadingKeys ? 'Y\u00FCkleniyor...' : 'Mevcut key\'leri g\u00F6r\u00FCnt\u00FCle'}
-            </button>
-            <button
-              onClick={handleCreate}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
-            >
-              {loading ? <Spinner size="sm" color="inherit" /> : <Key className="w-4 h-4" />}
-              Olu\u015Ftur
-            </button>
+            <Button variant="ghost" onClick={loadExistingKeys} disabled={loadingKeys}>{loadingKeys ? 'Y\u00FCkleniyor...' : 'Mevcut key\'leri g\u00F6r\u00FCnt\u00FCle'}</Button>
+            <Button variant="primary" onClick={handleCreate} disabled={loading}>{loading ? <Spinner size="sm" color="inherit" /> : <Key className="w-4 h-4" />}
+              Olu\u015Ftur</Button>
           </div>
 
           {/* Existing Keys */}
@@ -244,12 +212,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
                       <span className="ml-2 text-gray-500 dark:text-gray-400">{key.usedCount} devices</span>
                     </div>
                     {key.isActive && (
-                      <button
-                        onClick={() => handleRevoke(key.id)}
-                        className="text-red-600 hover:text-red-700 font-medium"
-                      >
-                        Revoke
-                      </button>
+                      <Button variant="ghost" onClick={() => handleRevoke(key.id)}>Revoke</Button>
                     )}
                   </div>
                 ))}
@@ -279,7 +242,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           </div>
 
           {/* Info */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <span className="text-gray-500 dark:text-gray-400 block text-xs">Max Cihaz</span>
               <span className="font-medium">{result.maxDevices ?? 'S\u0131n\u0131rs\u0131z'}</span>
@@ -289,7 +252,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               <span className="font-medium">{result.autoApprove ? 'Evet' : 'Hay\u0131r'}</span>
             </div>
             {result.expiresAt && (
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg col-span-2">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg sm:col-span-2">
                 <span className="text-gray-500 dark:text-gray-400 block text-xs">Ge\u00E7erlilik</span>
                 <span className="font-medium">{formatDate(result.expiresAt)}</span>
               </div>

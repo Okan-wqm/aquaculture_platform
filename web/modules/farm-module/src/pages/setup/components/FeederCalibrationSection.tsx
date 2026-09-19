@@ -4,7 +4,7 @@
  * Only shown in edit mode (when equipmentId exists)
  */
 import React, { useState, useEffect } from 'react';
-import { useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useToast, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 import {
   useFeederCalibrations,
   useSaveFeederCalibrations,
@@ -112,73 +112,41 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       key: 'feedSizeMm',
       header: 'Feed Size (mm)',
       render: (_value, row) => (
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          value={row.feedSizeMm}
-          onChange={(e) =>
-            updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
-          }
-          className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input type="number" step="0.01" min="0" value={row.feedSizeMm} onChange={(e) =>
+      updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
+     } />
       ),
     },
     {
       key: 'label',
       header: 'Label',
       render: (_value, row) => (
-        <input
-          type="text"
-          value={row.feedSizeLabel || ''}
-          onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)}
-          placeholder="e.g., Starter"
-          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input type="text" value={row.feedSizeLabel || ''} onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)} placeholder="e.g., Starter" />
       ),
     },
     {
       key: 'dispensingGShot',
       header: 'Dispensing (g/shot)',
       render: (_value, row) => (
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          value={row.gramsPerDispensing}
-          onChange={(e) =>
-            updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
-          }
-          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input type="number" step="0.01" min="0" value={row.gramsPerDispensing} onChange={(e) =>
+      updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
+     } />
       ),
     },
     {
       key: 'siloCapacityKg',
       header: 'Silo Capacity (kg)',
       render: (_value, row) => (
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          value={row.siloCapacityKg}
-          onChange={(e) =>
-            updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
-          }
-          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input type="number" step="0.01" min="0" value={row.siloCapacityKg} onChange={(e) =>
+      updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
+     } />
       ),
     },
     {
       key: 'notes',
       header: 'Notes',
       render: (_value, row) => (
-        <input
-          type="text"
-          value={row.notes || ''}
-          onChange={(e) => updateRow(row._key, 'notes', e.target.value)}
-          className="w-32 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input type="text" value={row.notes || ''} onChange={(e) => updateRow(row._key, 'notes', e.target.value)} />
       ),
     },
     {
@@ -186,16 +154,9 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       header: '',
       render: (_value, row) => (
         <>
-          <button
-            type="button"
-            onClick={() => removeRow(row._key)}
-            className="text-red-500 hover:text-red-700"
-            title="Remove row"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="ghost" type="button" onClick={() => removeRow(row._key)} title="Remove row"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            </svg></Button>
         </>
       ),
     }
@@ -239,14 +200,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
         </button>
 
         {isDirty && (
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saveCalibrations.isPending}
-            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
-          >
-            {saveCalibrations.isPending ? 'Saving...' : 'Save Calibrations'}
-          </button>
+          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={saveCalibrations.isPending}>{saveCalibrations.isPending ? 'Saving...' : 'Save Calibrations'}</Button>
         )}
 
         {saveCalibrations.isSuccess && !isDirty && (

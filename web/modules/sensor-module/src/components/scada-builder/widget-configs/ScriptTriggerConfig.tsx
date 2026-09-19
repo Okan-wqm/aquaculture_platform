@@ -12,6 +12,7 @@
  */
 
 import React, { useState } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import type { ScriptTrigger, ScadaScript } from '../../../engine/events/types';
 import { TagBrowser } from '../TagBrowser';
 
@@ -111,15 +112,7 @@ export const ScriptTriggerConfig: React.FC<ScriptTriggerConfigProps> = ({
         <div data-testid="trigger-interval-config">
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Interval</label>
           <div className="flex items-center gap-1">
-            <input
-              type="number"
-              value={displayInterval}
-              onChange={(e) => handleIntervalChange(Number(e.target.value))}
-              min={intervalUnit === 's' ? 1 : 1000}
-              step={intervalUnit === 's' ? 1 : 100}
-              className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              data-testid="trigger-interval-input"
-            />
+            <Input type="number" value={displayInterval} onChange={(e) => handleIntervalChange(Number(e.target.value))} min={intervalUnit === 's' ? 1 : 1000} step={intervalUnit === 's' ? 1 : 100} data-testid="trigger-interval-input" />
             <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
               <button
                 onClick={() => setIntervalUnit('ms')}

@@ -19,7 +19,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -179,12 +179,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
   ): React.ReactElement => (
     <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
       {label}
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => set(e.target.value)}
-        className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-      />
+      <Input type="number" value={value} onChange={(e) => set(e.target.value)} />
     </label>
   );
 
@@ -202,54 +197,31 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
       bodyClassName="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3"
       footer={
         <>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
-          >
-            İptal
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={updateTag.isPending}
-            className="px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50 flex items-center gap-1.5"
-          >
-            {updateTag.isPending && <Spinner size="sm" color="inherit" />}
-            Kaydet
-          </button>
+          <Button variant="ghost" size="sm" onClick={onClose}>İptal</Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={updateTag.isPending}>{updateTag.isPending && <Spinner size="sm" color="inherit" />}
+            Kaydet</Button>
         </>
       }
     >
       <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
         Görünen Ad
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-        />
+        <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
         Açıklama
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-        />
+        <Input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
           Birim
-          <input
-            value={engUnit}
-            onChange={(e) => setEngUnit(e.target.value)}
-            className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-          />
+          <Input value={engUnit} onChange={(e) => setEngUnit(e.target.value)} />
         </label>
         {numField('Eng Min', engMin, setEngMin)}
         {numField('Eng Max', engMax, setEngMax)}
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {numField('Alarm LL', alarmLL, setAlarmLL)}
         {numField('Alarm L', alarmL, setAlarmL)}
         {numField('Alarm H', alarmH, setAlarmH)}
@@ -265,7 +237,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
           Bu tag&apos;i bir sensör kanalına bağlayın — gelen ölçümler bu tag&apos;in
           FQN&apos;i altında operatör ekranlarına canlı akar.
         </p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
             Sensör
             <select
@@ -463,35 +435,14 @@ const TagRegistryPage: React.FC = () => {
       render: (_value, tag) => (
         <>
           {tag.status !== 'retired' && (
-            <button
-              onClick={() => setEditingTag(tag)}
-              className="p-1 text-gray-400 dark:text-gray-500 hover:text-cyan-600"
-              title="Düzenle"
-              aria-label={`${tag.fqn} tag'ini düzenle`}
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setEditingTag(tag)} title="Düzenle" aria-label={`${tag.fqn} tag'ini düzenle`}><Pencil className="w-4 h-4" /></Button>
           )}
           {/* Lifecycle: hard delete exists only while DRAFT; anything
               past DRAFT can only be retired (server-enforced). */}
           {tag.status === 'draft' ? (
-            <button
-              onClick={() => setConfirmDeleteTag(tag)}
-              className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600"
-              title="Sil"
-              aria-label={`${tag.fqn} tag'ini sil`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setConfirmDeleteTag(tag)} title="Sil" aria-label={`${tag.fqn} tag'ini sil`}><Trash2 className="w-4 h-4" /></Button>
           ) : tag.status !== 'retired' ? (
-            <button
-              onClick={() => setConfirmRetireTag(tag)}
-              className="p-1 text-gray-400 dark:text-gray-500 hover:text-amber-600"
-              title="Emekli et"
-              aria-label={`${tag.fqn} tag'ini emekli et`}
-            >
-              <Archive className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setConfirmRetireTag(tag)} title="Emekli et" aria-label={`${tag.fqn} tag'ini emekli et`}><Archive className="w-4 h-4" /></Button>
           ) : null}
         </>
       ),
@@ -523,25 +474,11 @@ const TagRegistryPage: React.FC = () => {
               <option key={d.id} value={d.id}>{d.deviceCode}</option>
             ))}
           </select>
-          <button
-            onClick={handleDiscover}
-            disabled={!deviceId || discover.isPending}
-            title={deviceId ? 'Cihazın I/O konfigürasyonlarından tag keşfet' : 'Önce bir cihaz seçin'}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50"
-          >
-            {discover.isPending
+          <Button variant="primary" size="sm" onClick={handleDiscover} disabled={!deviceId || discover.isPending} title={deviceId ? 'Cihazın I/O konfigürasyonlarından tag keşfet' : 'Önce bir cihaz seçin'}>{discover.isPending
               ? <Spinner size="sm" color="inherit" />
               : <Radar className="w-4 h-4" />}
-            Tag Keşfet
-          </button>
-          <button
-            onClick={() => refetch()}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
-            title="Yenile"
-            aria-label="Yenile"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+            Tag Keşfet</Button>
+          <Button variant="ghost" size="sm" iconOnly onClick={() => refetch()} title="Yenile" aria-label="Yenile"><RefreshCw className="w-4 h-4" /></Button>
         </div>
       </div>
 
@@ -561,12 +498,7 @@ const TagRegistryPage: React.FC = () => {
       {/* Search */}
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-        <input
-          value={searchTerm}
-          onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
-          placeholder="FQN veya ada göre ara..."
-          className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-        />
+        <Input fullWidth value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }} placeholder="FQN veya ada göre ara..." />
       </div>
 
       {/* Table */}
@@ -592,21 +524,9 @@ const TagRegistryPage: React.FC = () => {
       <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{total} tag</span>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40"
-          >
-            Önceki
-          </button>
+          <Button variant="secondary" size="xs" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Önceki</Button>
           <span>{page} / {totalPages}</span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40"
-          >
-            Sonraki
-          </button>
+          <Button variant="secondary" size="xs" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Sonraki</Button>
         </div>
       </div>
 

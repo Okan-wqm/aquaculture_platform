@@ -3,9 +3,9 @@
  * TanStack Query hooks for employee operations
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
-import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, useFeedbackMutation } from '@aquaculture/shared-ui';
 import {
   GET_EMPLOYEES,
   GET_EMPLOYEE,
@@ -307,7 +307,8 @@ export function useCreateEmployee() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Employee created' },
     mutationFn: (input: CreateEmployeeInput) =>
       graphqlRequest<{ createEmployee: Employee }, unknown>(
         client,
@@ -324,7 +325,8 @@ export function useCreateEmployee() {
 export function useUpdateEmployee() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Employee updated' },
     mutationFn: (input: UpdateEmployeeInput) =>
       graphqlRequest<{ updateEmployee: Employee }, unknown>(
         client,
@@ -345,7 +347,8 @@ export function useUpdateEmployeeStatus() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Employee status updated' },
     mutationFn: ({
       id,
       status,
@@ -368,7 +371,8 @@ export function useUpdateEmployeeStatus() {
 export function useToggleFarmWorker() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Farm-worker flag updated' },
     mutationFn: ({ id, isFarmWorker }: { id: string; isFarmWorker: boolean }) =>
       graphqlRequest<{ toggleFarmWorker: Employee }, unknown>(
         client,
@@ -386,7 +390,8 @@ export function useAssignEmployeeToDepartment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Department assigned' },
     mutationFn: ({ employeeId, department }: { employeeId: string; department: string }) =>
       graphqlRequest<{ updateEmployee: { id: string; department: string; departmentHrId?: string } }, unknown>(
         client,
@@ -403,7 +408,8 @@ export function useAssignEmployeeToDepartment() {
 export function useAssignEmployeeToPosition() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Position assigned' },
     mutationFn: ({ employeeId, position }: { employeeId: string; position: string }) =>
       graphqlRequest<{ updateEmployee: { id: string; position: string; positionId?: string } }, unknown>(
         client,
@@ -420,7 +426,8 @@ export function useAssignManager() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Manager assigned' },
     mutationFn: ({ employeeId, supervisorId }: { employeeId: string; supervisorId: string }) =>
       graphqlRequest<{ updateEmployee: { id: string; supervisorId: string } }, unknown>(
         client,
@@ -441,7 +448,8 @@ export function useAssignManager() {
 export function useCreateDepartment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Department created' },
     mutationFn: (input: CreateDepartmentInput) =>
       graphqlRequest<{ createHRDepartment: Department }, unknown>(
         client,
@@ -458,7 +466,8 @@ export function useUpdateDepartment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Department updated' },
     mutationFn: (input: UpdateDepartmentInput) =>
       graphqlRequest<{ updateHRDepartment: Department }, unknown>(
         client,
@@ -476,7 +485,8 @@ export function useUpdateDepartment() {
 // =====================
 
 export function useCreatePosition() {
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Position created' },
     mutationFn: async (_input: { title: string }) => {
       return { createPosition: { title: _input.title } as Position };
     },
@@ -484,7 +494,8 @@ export function useCreatePosition() {
 }
 
 export function useUpdatePosition() {
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Position updated' },
     mutationFn: async (_input: { id: string; title?: string }) => {
       return { updatePosition: { title: _input.title || '' } as Position };
     },

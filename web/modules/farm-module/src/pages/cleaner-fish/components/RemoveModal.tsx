@@ -5,7 +5,7 @@
  * Not for mortality - use MortalityModal for that.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useRemoveCleanerFish,
   useTankCleanerFish,
@@ -164,21 +164,12 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
         </div>
 
         {/* Quantity */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Quantity to Remove <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              id="quantity"
-              min="1"
-              max={maxQuantity}
-              value={quantity || ''}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter quantity"
-            />
+            <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Max: {maxQuantity.toLocaleString()}
             </p>
@@ -188,16 +179,7 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
               Avg Weight (g)
               {reason === 'harvest' && <span className="text-amber-500 ml-1">Recommended</span>}
             </label>
-            <input
-              type="number"
-              id="avgWeight"
-              min="0.1"
-              step="0.1"
-              value={avgWeightG || ''}
-              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder={`Default: ${batchDetail?.avgWeightG?.toFixed(1) || 'N/A'}`}
-            />
+            <Input fullWidth type="number" id="avgWeight" min="0.1" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)} placeholder={`Default: ${batchDetail?.avgWeightG?.toFixed(1) || 'N/A'}`} />
           </div>
         </div>
 
@@ -218,14 +200,7 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
           <label htmlFor="removedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Removal Date
           </label>
-          <input
-            type="date"
-            id="removedAt"
-            value={removedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setRemovedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          />
+          <Input fullWidth type="date" id="removedAt" value={removedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setRemovedAt(e.target.value)} />
         </div>
 
         {/* Notes */}
@@ -233,15 +208,7 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
           <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
-          <textarea
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Optional notes about this removal..."
-          />
+          <Textarea fullWidth id="notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes about this removal..." />
         </div>
 
         {/* Validation Error */}

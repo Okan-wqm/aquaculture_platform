@@ -38,7 +38,7 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { Modal, useAuth, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, useAuth, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -650,15 +650,10 @@ const DevicesPage: React.FC = () => {
       header: 'İşlemler',
       align: 'right',
       render: (_value, device) => (
-        <button
-          onClick={(e) => {
+        <Button variant="ghost" onClick={(e) => {
             e.stopPropagation();
             handleEdgeDeviceClick(device);
-          }}
-          className="text-cyan-600 hover:text-cyan-700 text-sm font-medium"
-        >
-          Detay
-        </button>
+          }}>Detay</Button>
       ),
     },
   ];
@@ -672,55 +667,34 @@ const DevicesPage: React.FC = () => {
         actions={
           <div className="relative" ref={deviceTypeSelectorRef}>
             {canManageDevices && (
-            <button
-              onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Yeni Cihaz Ekle
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}>Yeni Cihaz Ekle</Button>
             )}
 
             {/* Device Type Selector Dropdown */}
             {showDeviceTypeSelector && (
               <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
                 <div className="p-2">
-                  <button
-                    onClick={() => handleAddDevice('edge')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                  <Button variant="ghost" onClick={() => handleAddDevice('edge')}><div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
                       <Server className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-gray-100">Edge Controller</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Revolution Pi, Industrial PC</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('sensor')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-cyan-100 rounded-lg">
+                    </div></Button>
+                  <Button variant="ghost" onClick={() => handleAddDevice('sensor')}><div className="p-2 bg-cyan-100 rounded-lg">
                       <Activity className="w-5 h-5 text-cyan-600" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-gray-100">Sensör</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Sıcaklık, pH, oksijen vb.</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('vfd')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-indigo-100 rounded-lg">
+                    </div></Button>
+                  <Button variant="ghost" onClick={() => handleAddDevice('vfd')}><div className="p-2 bg-indigo-100 rounded-lg">
                       <Zap className="w-5 h-5 text-indigo-600" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-gray-100">VFD / Frekans Konvertör</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Danfoss, ABB, Siemens vb.</p>
-                    </div>
-                  </button>
+                    </div></Button>
                 </div>
               </div>
             )}
@@ -872,28 +846,17 @@ const DevicesPage: React.FC = () => {
                   }}
                 />
                 {hasEdgeFilters && (
-                  <button
-                    onClick={clearEdgeFilters}
-                    className="text-sm text-cyan-600 hover:text-cyan-700 font-medium"
-                  >
-                    Temizle
-                  </button>
+                  <Button variant="ghost" onClick={clearEdgeFilters}>Temizle</Button>
                 )}
               </div>
 
               {/* Bulk Firmware Update (SENSOR-LOW-003: manage-gated) */}
               {canManageDevices && selectedDeviceIds.size > 0 && (
-                <button
-                  onClick={() => {
+                <Button variant="primary" size="sm" leftIcon={<Upload size={16} />} onClick={() => {
                     setBulkFirmwareVersion('');
                     setBulkUpdateResult(null);
                     setShowBulkFirmwareModal(true);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-                >
-                  <Upload size={16} />
-                  Toplu Firmware Güncelle ({selectedDeviceIds.size})
-                </button>
+                  }}>Toplu Firmware Güncelle ({selectedDeviceIds.size})</Button>
               )}
 
               {/* View Mode Toggle */}
@@ -956,13 +919,7 @@ const DevicesPage: React.FC = () => {
                 İlk Revolution Pi veya Industrial PC cihazınızı kaydedin
               </p>
               {canManageDevices && (
-              <button
-                onClick={() => handleAddDevice('edge')}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                İlk Edge Controller'ı Kaydet
-              </button>
+              <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => handleAddDevice('edge')}>İlk Edge Controller'ı Kaydet</Button>
               )}
             </div>
           )}
@@ -973,12 +930,7 @@ const DevicesPage: React.FC = () => {
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama veya filtre kriterlerini değiştirmeyi deneyin</p>
-              <button
-                onClick={clearEdgeFilters}
-                className="mt-4 text-cyan-600 hover:text-cyan-700 font-medium"
-              >
-                Filtreleri temizle
-              </button>
+              <Button variant="ghost" className="mt-4" onClick={clearEdgeFilters}>Filtreleri temizle</Button>
             </div>
           )}
 
@@ -1030,13 +982,7 @@ const DevicesPage: React.FC = () => {
                 {(edgePage - 1) * edgeLimit + 1} - {Math.min(edgePage * edgeLimit, edgeTotal)} / {edgeTotal} cihaz
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setEdgePage((p) => Math.max(1, p - 1))}
-                  disabled={edgePage === 1}
-                  className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Önceki
-                </button>
+                <Button variant="secondary" size="sm" onClick={() => setEdgePage((p) => Math.max(1, p - 1))} disabled={edgePage === 1}>Önceki</Button>
                 <div className="flex items-center gap-1">
                   {[...Array(Math.min(5, edgeTotalPages))].map((_, i) => {
                     const pageNum = i + 1;
@@ -1055,13 +1001,7 @@ const DevicesPage: React.FC = () => {
                     );
                   })}
                 </div>
-                <button
-                  onClick={() => setEdgePage((p) => Math.min(edgeTotalPages, p + 1))}
-                  disabled={edgePage === edgeTotalPages}
-                  className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Sonraki
-                </button>
+                <Button variant="secondary" size="sm" onClick={() => setEdgePage((p) => Math.min(edgeTotalPages, p + 1))} disabled={edgePage === edgeTotalPages}>Sonraki</Button>
               </div>
             </div>
           )}
@@ -1091,15 +1031,7 @@ const DevicesPage: React.FC = () => {
               {/* Status Filter */}
               <div className="flex items-center gap-2">
                 <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                >
-                  <option value="all">Tüm Durumlar</option>
-                  <option value="online">Çevrimiçi</option>
-                  <option value="offline">Çevrimdışı</option>
-                </select>
+                <Select options={[{ value: 'all', label: 'Tüm Durumlar' }, { value: 'online', label: 'Çevrimiçi' }, { value: 'offline', label: 'Çevrimdışı' }]} value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} />
               </div>
             </div>
           </div>
@@ -1136,13 +1068,7 @@ const DevicesPage: React.FC = () => {
               <p className="text-lg font-medium">Henüz cihaz kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">Başlamak için yeni bir sensör veya VFD cihazı ekleyin</p>
               {canManageDevices && (
-              <button
-                onClick={() => setShowDeviceTypeSelector(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                İlk Cihazı Ekle
-              </button>
+              <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setShowDeviceTypeSelector(true)}>İlk Cihazı Ekle</Button>
               )}
             </div>
           )}
@@ -1226,12 +1152,7 @@ const DevicesPage: React.FC = () => {
                 </select>
               </div>
               {hasVfdFilters && (
-                <button
-                  onClick={clearVfdFilters}
-                  className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
-                >
-                  Filtreleri Temizle
-                </button>
+                <Button variant="ghost" size="sm" onClick={clearVfdFilters}>Filtreleri Temizle</Button>
               )}
             </div>
           </div>
@@ -1269,13 +1190,7 @@ const DevicesPage: React.FC = () => {
                 {hasVfdFilters ? 'Sonuç bulunamadı' : 'Henüz VFD cihazı kaydedilmemiş'}
               </p>
               {!hasVfdFilters && canManageDevices && (
-                <button
-                  onClick={() => handleAddDevice('vfd')}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  VFD Cihazı Ekle
-                </button>
+                <Button variant="primary" className="mt-4" leftIcon={<Plus className="w-4 h-4" />} onClick={() => handleAddDevice('vfd')}>VFD Cihazı Ekle</Button>
               )}
             </div>
           )}
@@ -1284,12 +1199,7 @@ const DevicesPage: React.FC = () => {
           {!vfdLoading && vfdDevices.length > 0 && (
             <div className="space-y-3">
               {vfdDevices.map((device) => (
-                <button
-                  key={device.id}
-                  onClick={() => handleVfdDeviceClick(device)}
-                  className="w-full text-left bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:border-cyan-300 transition-colors flex items-center gap-4"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center">
+                <Button variant="secondary" key={device.id} onClick={() => handleVfdDeviceClick(device)}><div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center">
                     <Zap className="w-5 h-5 text-cyan-600" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1305,8 +1215,7 @@ const DevicesPage: React.FC = () => {
                   <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                     {device.status}
                   </span>
-                  <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-                </button>
+                  <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" /></Button>
               ))}
             </div>
           )}
@@ -1318,20 +1227,8 @@ const DevicesPage: React.FC = () => {
                 {vfdTotal} cihaz · Sayfa {vfdPage}/{vfdTotalPages}
               </p>
               <div className="flex items-center gap-2">
-                <button
-                  disabled={vfdPage <= 1}
-                  onClick={() => setVfdPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  Önceki
-                </button>
-                <button
-                  disabled={vfdPage >= vfdTotalPages}
-                  onClick={() => setVfdPage((p) => Math.min(vfdTotalPages, p + 1))}
-                  className="px-3 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  Sonraki
-                </button>
+                <Button variant="secondary" size="sm" disabled={vfdPage <= 1} onClick={() => setVfdPage((p) => Math.max(1, p - 1))}>Önceki</Button>
+                <Button variant="secondary" size="sm" disabled={vfdPage >= vfdTotalPages} onClick={() => setVfdPage((p) => Math.min(vfdTotalPages, p + 1))}>Sonraki</Button>
               </div>
             </div>
           )}
@@ -1372,21 +1269,10 @@ const DevicesPage: React.FC = () => {
           bodyClassName="p-6"
           footer={
             <>
-              <button
-                onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                {bulkUpdateResult ? 'Kapat' : 'İptal'}
-              </button>
+              <Button variant="secondary" onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}>{bulkUpdateResult ? 'Kapat' : 'İptal'}</Button>
               {!bulkUpdateResult && (
-                <button
-                  onClick={handleBulkFirmwareUpdate}
-                  disabled={!bulkFirmwareVersion || bulkFirmwareMutation.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {bulkFirmwareMutation.isPending && <Spinner size="sm" color="inherit" />}
-                  Devam
-                </button>
+                <Button variant="primary" onClick={handleBulkFirmwareUpdate} disabled={!bulkFirmwareVersion || bulkFirmwareMutation.isPending}>{bulkFirmwareMutation.isPending && <Spinner size="sm" color="inherit" />}
+                  Devam</Button>
               )}
             </>
           }

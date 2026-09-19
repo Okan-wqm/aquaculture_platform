@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 import { Plus, Trash2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -67,13 +68,7 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Rules</h4>
-        <button
-          onClick={addAlarmRule}
-          className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-        >
-          <Plus className="w-3 h-3" />
-          Add Alarm
-        </button>
+        <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={addAlarmRule}>Add Alarm</Button>
       </div>
 
       {alarmRules.length === 0 && (
@@ -97,21 +92,9 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            <button
-              onClick={() => removeAlarmRule(rule.id)}
-              aria-label="Remove alarm rule"
-              className="text-red-400 hover:text-red-600"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" iconOnly onClick={() => removeAlarmRule(rule.id)} aria-label="Remove alarm rule"><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
-          <input
-            type="text"
-            value={rule.tag}
-            onChange={(e) => updateAlarmRule(rule.id, 'tag', e.target.value)}
-            placeholder="Tag"
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="text" value={rule.tag} onChange={(e) => updateAlarmRule(rule.id, 'tag', e.target.value)} placeholder="Tag" />
           <div className="flex gap-1">
             <select
               value={rule.condition}
@@ -122,44 +105,17 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-            <input
-              type="number"
-              value={rule.value}
-              onChange={(e) => updateAlarmRule(rule.id, 'value', Number(e.target.value))}
-              className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            />
+            <Input type="number" value={rule.value} onChange={(e) => updateAlarmRule(rule.id, 'value', Number(e.target.value))} />
           </div>
-          <input
-            type="text"
-            value={rule.message}
-            onChange={(e) => updateAlarmRule(rule.id, 'message', e.target.value)}
-            placeholder="Alarm message"
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="text" value={rule.message} onChange={(e) => updateAlarmRule(rule.id, 'message', e.target.value)} placeholder="Alarm message" />
           <div className="flex gap-1">
             <div className="flex-1">
               <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5">Deadband</label>
-              <input
-                type="number"
-                value={rule.deadband ?? ''}
-                onChange={(e) => updateAlarmRule(rule.id, 'deadband', e.target.value === '' ? undefined : Number(e.target.value))}
-                placeholder="Hysteresis value"
-                min={0}
-                step={0.1}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              />
+              <Input fullWidth type="number" value={rule.deadband ?? ''} onChange={(e) => updateAlarmRule(rule.id, 'deadband', e.target.value === '' ? undefined : Number(e.target.value))} placeholder="Hysteresis value" min={0} step={0.1} />
             </div>
             <div className="flex-1">
               <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5">Delay (sec)</label>
-              <input
-                type="number"
-                value={rule.delay ?? ''}
-                onChange={(e) => updateAlarmRule(rule.id, 'delay', e.target.value === '' ? undefined : Number(e.target.value))}
-                placeholder="Seconds"
-                min={0}
-                step={1}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              />
+              <Input fullWidth type="number" value={rule.delay ?? ''} onChange={(e) => updateAlarmRule(rule.id, 'delay', e.target.value === '' ? undefined : Number(e.target.value))} placeholder="Seconds" min={0} step={1} />
             </div>
           </div>
         </div>

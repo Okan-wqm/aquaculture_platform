@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   AutoRule,
   AutoRuleTrigger,
@@ -81,26 +81,13 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
           {/* Rule Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kural Adı *</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Stok azaldığında sipariş görevi oluştur"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              required
-            />
+            <Input fullWidth type="text" value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="Stok azaldığında sipariş görevi oluştur" required />
           </div>
 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              rows={2}
-              placeholder="Kuralın ne yaptığını kısaca açıklayın..."
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Textarea fullWidth value={formData.description} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} rows={2} placeholder="Kuralın ne yaptığını kısaca açıklayın..." />
           </div>
 
           {/* Trigger Section */}
@@ -132,16 +119,9 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tetikleyici Koşul *
               </label>
-              <input
-                type="text"
-                value={formData.triggerCondition}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, triggerCondition: e.target.value }))
-                }
-                placeholder={TRIGGER_PLACEHOLDERS[formData.trigger]}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
+              <Input fullWidth type="text" value={formData.triggerCondition} onChange={(e) =>
+         setFormData((prev) => ({ ...prev, triggerCondition: e.target.value }))
+        } placeholder={TRIGGER_PLACEHOLDERS[formData.trigger]} required />
             </div>
           </div>
 
@@ -154,14 +134,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Görev Başlığı *
               </label>
-              <input
-                type="text"
-                value={formData.taskTitle}
-                onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))}
-                placeholder="Yem siparişi ver"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
+              <Input fullWidth type="text" value={formData.taskTitle} onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))} placeholder="Yem siparişi ver" required />
             </div>
 
             {/* Task Description */}
@@ -169,19 +142,13 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Görev Açıklaması
               </label>
-              <textarea
-                value={formData.taskDescription}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, taskDescription: e.target.value }))
-                }
-                rows={2}
-                placeholder="Görev detayları..."
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Textarea fullWidth value={formData.taskDescription} onChange={(e) =>
+         setFormData((prev) => ({ ...prev, taskDescription: e.target.value }))
+        } rows={2} placeholder="Görev detayları..." />
             </div>
 
             {/* Category + Priority */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategori *</label>
                 <select
@@ -245,21 +212,8 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
         {/* Footer */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            disabled={saving}
-          >
-            İptal
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>İptal</Button>
+          <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}</Button>
         </div>
       </form>
     </Modal>

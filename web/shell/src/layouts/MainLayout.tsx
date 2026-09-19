@@ -8,6 +8,7 @@
 
 import {
   ADMIN_BILLING_NAV_ITEMS,
+  Button,
   Header,
   Sidebar,
   createTenantInvalidationKey,
@@ -363,6 +364,9 @@ const moduleUserBaseNavigation: NavigationItem[] = [
 // Layout Component
 // ============================================================================
 
+/** The aside's id — the hamburger's `aria-controls` target. */
+const SIDEBAR_ID = 'main-navigation';
+
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -376,8 +380,10 @@ const MainLayout: React.FC = () => {
   // Derive primitive role value to avoid callback identity churn on user object refresh
   const userRole = user?.role;
 
-  // Sidebar state
+  // Sidebar state: the desktop column's rail mode, and the phone overlay
+  // (FE-HIGH-088 — below md the column is off-canvas until the hamburger opens it).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // AI assistant drawer (shell-level, accessible from every module).
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const canUseAiAssistant = hasPermission('ai_assistant:use');
@@ -543,14 +549,16 @@ const MainLayout: React.FC = () => {
     () => (
       <div className="flex items-center gap-1">
         {canUseAiAssistant && (
-          <button
+          <Button
+            variant="ghost"
+            iconOnly
             onClick={() => setAiDrawerOpen(true)}
             title="AI Assistant"
             aria-label="Open AI assistant"
-            className="rounded-lg p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-primary-600"
+            className="text-gray-500 hover:text-primary-600 dark:text-gray-400"
           >
             <Sparkles className="h-5 w-5" />
-          </button>
+          </Button>
         )}
         <NotificationPanel />
       </div>
@@ -568,30 +576,37 @@ const MainLayout: React.FC = () => {
   ), [logoColorClass, logoText]);
 
   /**
-   * Sidebar toggle button — memoized to avoid Header re-renders
+   * Hamburger — phone widths only. It opens the Sidebar's overlay (the column
+   * is off-canvas below md); the column's own toggle handles collapsing on
+   * desktop. Memoized to avoid Header re-renders.
    */
   const leftContent = useMemo(() => (
-    <button
-      type="button"
-      onClick={handleSidebarToggle}
-      aria-label="Toggle navigation"
-      aria-expanded={!sidebarCollapsed}
-      className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg md:hidden"
+    <Button
+      variant="ghost"
+      iconOnly
+      onClick={() => setMobileNavOpen(true)}
+      aria-label="Open navigation"
+      aria-expanded={mobileNavOpen}
+      aria-controls={SIDEBAR_ID}
+      className="md:hidden text-gray-500 dark:text-gray-400"
     >
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
       </svg>
-    </button>
-  ), [handleSidebarToggle, sidebarCollapsed]);
+    </Button>
+  ), [mobileNavOpen]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
       <SkipToContent />
       {/* Sidebar */}
       <Sidebar
+        id={SIDEBAR_ID}
         items={navigationItems}
         activePath={location.pathname}
         collapsed={sidebarCollapsed}
+        mobileOpen={mobileNavOpen}
+        onMobileOpenChange={setMobileNavOpen}
         onNavigate={handleNavigate}
         onCollapsedChange={handleSidebarToggle}
         theme={theme}
@@ -616,7 +631,7 @@ const MainLayout: React.FC = () => {
         />
 
         {/* Page Content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 p-6 overflow-auto focus:outline-hidden">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden">
           <Outlet />
         </main>
       </div>

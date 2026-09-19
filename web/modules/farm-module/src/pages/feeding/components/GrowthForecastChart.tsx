@@ -20,7 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
-import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn, Spinner, Input } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -192,14 +192,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               SGR (%) - Default: {batchSGR.toFixed(2)}%
             </label>
-            <input
-              type="number"
-              step="0.1"
-              placeholder={`${batchSGR.toFixed(2)}`}
-              value={customSGR ?? ''}
-              onChange={(e) => setCustomSGR(e.target.value ? Number(e.target.value) : null)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="number" step="0.1" placeholder={`${batchSGR.toFixed(2)}`} value={customSGR ?? ''} onChange={(e) => setCustomSGR(e.target.value ? Number(e.target.value) : null)} />
           </div>
 
           {/* Current Stats */}

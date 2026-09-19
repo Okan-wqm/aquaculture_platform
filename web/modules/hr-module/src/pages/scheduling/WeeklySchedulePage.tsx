@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey, colors, PageHeader } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey, colors, PageHeader, Button } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -456,7 +456,7 @@ export function WeeklySchedulePage() {
             className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-1.5 min-w-[120px]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
               {categories.map((c) => (
                 <button
                   key={c.code}
@@ -474,12 +474,7 @@ export function WeeklySchedulePage() {
               ))}
             </div>
             {code && (
-              <button
-                className="w-full mt-1.5 px-2 py-1 text-[10px] text-red-500 hover:bg-red-50 rounded transition-colors"
-                onClick={() => setCellValue(empId, dateStr, null)}
-              >
-                Temizle
-              </button>
+              <Button variant="ghost" size="xs" className="mt-1.5" onClick={() => setCellValue(empId, dateStr, null)}>Temizle</Button>
             )}
           </div>
         )}
@@ -521,42 +516,21 @@ export function WeeklySchedulePage() {
 
               {/* Navigation */}
               <div className="flex items-center gap-1">
-                <button
-                  onClick={navigatePrev}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Previous" onClick={navigatePrev}><ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" /></Button>
 
                 <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[200px] justify-center">
                   <Calendar className="h-4 w-4 text-indigo-600" />
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{navTitle}</span>
                 </div>
 
-                <button
-                  onClick={navigateNext}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Next" onClick={navigateNext}><ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" /></Button>
 
-                <button
-                  onClick={navigateToday}
-                  className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                >
-                  Bugüne Dön
-                </button>
+                <Button variant="ghost" size="xs" className="ml-1" onClick={navigateToday}>Bugüne Dön</Button>
               </div>
 
               {/* Save */}
               {hasUnsaved && (
-                <button
-                  onClick={handleSave}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  <Save className="h-4 w-4" />
-                  Kaydet
-                </button>
+                <Button variant="primary" leftIcon={<Save className="h-4 w-4" />} onClick={handleSave}>Kaydet</Button>
               )}
 
               {/* Settings Link */}

@@ -6,6 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Bookmark, Trash2, Plus } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
@@ -77,20 +78,8 @@ export const WidgetTemplatePanel: React.FC = () => {
                     {t.widgetType} · {t.defaultSize.w}x{t.defaultSize.h}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleApply(t.id)}
-                  className="p-1 rounded text-cyan-600 hover:bg-cyan-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Add"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => deleteTemplate(t.id)}
-                  className="p-1 rounded text-red-400 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Delete"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Add" onClick={() => handleApply(t.id)} title="Add"><Plus className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => deleteTemplate(t.id)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></Button>
               </div>
             ))}
           </div>

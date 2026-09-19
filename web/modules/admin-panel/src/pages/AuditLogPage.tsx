@@ -245,7 +245,7 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
     footer={<Button onClick={onClose}>Close</Button>}
   >
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <DetailField label="Date" value={formatDateTime(log.createdAt)} />
         <DetailField label="Action">
           <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>

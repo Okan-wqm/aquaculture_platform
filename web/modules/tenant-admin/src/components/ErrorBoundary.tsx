@@ -6,6 +6,7 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { AlertTriangle, RefreshCw, Home, Bug, ChevronDown, ChevronUp } from 'lucide-react';
 import { logError, processError, type AppError } from '../utils/error-handling';
 
@@ -136,45 +137,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
               {enableRetry && error?.retryable && (
-                <button
-                  onClick={this.handleRetry}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Try Again
-                </button>
+                <Button variant="primary" className="justify-center" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={this.handleRetry}>Try Again</Button>
               )}
-              <button
-                onClick={this.handleRefresh}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Refresh Page
-              </button>
-              <button
-                onClick={this.handleGoHome}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Home className="w-4 h-4" />
-                Go to Dashboard
-              </button>
+              <Button variant="secondary" className="justify-center" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={this.handleRefresh}>Refresh Page</Button>
+              <Button variant="secondary" className="justify-center" leftIcon={<Home className="w-4 h-4" />} onClick={this.handleGoHome}>Go to Dashboard</Button>
             </div>
 
             {/* Technical Details (Development) */}
             {import.meta.env.DEV && (error || errorInfo) && (
               <div className="text-left">
-                <button
-                  onClick={this.toggleDetails}
-                  className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 mb-3"
-                >
-                  <Bug className="w-4 h-4" />
+                <Button variant="ghost" className="mb-3" onClick={this.toggleDetails}><Bug className="w-4 h-4" />
                   Technical Details
                   {showDetails ? (
                     <ChevronUp className="w-4 h-4" />
                   ) : (
                     <ChevronDown className="w-4 h-4" />
-                  )}
-                </button>
+                  )}</Button>
 
                 {showDetails && (
                   <div className="bg-gray-900 rounded-lg p-4 text-left overflow-auto max-h-64">
@@ -239,20 +217,9 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{processedError.userMessage}</p>
         <div className="flex justify-center gap-3">
           {processedError.retryable && (
-            <button
-              onClick={resetErrorBoundary}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Try Again
-            </button>
+            <Button variant="primary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={resetErrorBoundary}>Try Again</Button>
           )}
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Refresh Page
-          </button>
+          <Button variant="secondary" onClick={() => window.location.reload()}>Refresh Page</Button>
         </div>
       </div>
     </div>

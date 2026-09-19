@@ -24,7 +24,7 @@ import React, {
 } from 'react';
 import { Play, Pause, Square, Video } from 'lucide-react';
 import type { RuntimeWidgetProps } from '../../../types/scada-runtime.types';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Supported MIME types                                                */
@@ -252,27 +252,11 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
           role="toolbar"
           aria-label="Video controls"
         >
-          <button
-            type="button"
-            onClick={handlePlayPause}
-            disabled={!isEnabled || !isLoaded}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-          >
-            {isPlaying
+          <Button variant="ghost" size="sm" type="button" onClick={handlePlayPause} disabled={!isEnabled || !isLoaded} aria-label={isPlaying ? 'Pause' : 'Play'}>{isPlaying
               ? <Pause className="w-4 h-4" aria-hidden="true" />
               : <Play  className="w-4 h-4" aria-hidden="true" />
-            }
-          </button>
-          <button
-            type="button"
-            onClick={handleStop}
-            disabled={!isEnabled || !isLoaded}
-            aria-label="Stop and reset"
-            className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-          >
-            <Square className="w-4 h-4" aria-hidden="true" />
-          </button>
+            }</Button>
+          <Button variant="ghost" size="sm" iconOnly type="button" onClick={handleStop} disabled={!isEnabled || !isLoaded} aria-label="Stop and reset"><Square className="w-4 h-4" aria-hidden="true" /></Button>
         </div>
       )}
     </div>

@@ -27,7 +27,7 @@ import {
   getLanguageCodes,
   TRANSLATION_PREFIX,
 } from '../../engine/i18n/ViewTranslations';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -188,13 +188,7 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
       key: lang,
       header: lang.toUpperCase(),
       render: (_value, key) => (
-        <input
-          type="text"
-          value={translations.languages[lang]?.[key] ?? ''}
-          onChange={(e) => handleUpdateValue(key, lang, e.target.value)}
-          className="w-full px-1.5 py-0.5 text-[11px] border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
-          placeholder={`${lang}...`}
-        />
+        <Input fullWidth type="text" value={translations.languages[lang]?.[key] ?? ''} onChange={(e) => handleUpdateValue(key, lang, e.target.value)} placeholder={`${lang}...`} />
       ),
     })),
     {
@@ -202,9 +196,7 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
       header: '',
       width: '2rem',
       render: (_value, key) => (
-        <button onClick={() => handleRemoveKey(key)} className="p-1 rounded hover:bg-red-100 text-red-400" title="Remove key">
-          <Trash2 className="w-3 h-3" />
-        </button>
+        <Button variant="ghost" size="sm" iconOnly aria-label="Remove key" onClick={() => handleRemoveKey(key)} title="Remove key"><Trash2 className="w-3 h-3" /></Button>
       ),
     },
   ];
@@ -250,33 +242,14 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
                 <span className="text-[9px] font-semibold text-cyan-600">DEFAULT</span>
               ) : (
                 <>
-                  <button
-                    onClick={() => handleSetDefaultLanguage(lang)}
-                    className="text-[9px] text-gray-400 dark:text-gray-500 hover:text-cyan-600"
-                    title="Set as default"
-                  >
-                    set default
-                  </button>
-                  <button
-                    onClick={() => handleRemoveLanguage(lang)}
-                    className="ml-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500"
-                    title="Remove language"
-                  >
-                    <Trash2 className="w-2.5 h-2.5" />
-                  </button>
+                  <Button variant="ghost" onClick={() => handleSetDefaultLanguage(lang)} title="Set as default">set default</Button>
+                  <Button variant="ghost" iconOnly aria-label="Remove language" className="ml-0.5" onClick={() => handleRemoveLanguage(lang)} title="Remove language"><Trash2 className="w-2.5 h-2.5" /></Button>
                 </>
               )}
             </div>
           ))}
           <div className="flex items-center gap-1">
-            <input
-              type="text"
-              value={newLangCode}
-              onChange={(e) => setNewLangCode(e.target.value)}
-              placeholder="lang code"
-              className="w-16 px-1.5 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded"
-              maxLength={5}
-            />
+            <Input type="text" value={newLangCode} onChange={(e) => setNewLangCode(e.target.value)} placeholder="lang code" maxLength={5} />
             <button
               onClick={handleAddLanguage}
               disabled={!newLangCode.trim()}
@@ -292,35 +265,15 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search keys..."
-          className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
-        />
+        <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search keys..." />
       </div>
 
       {/* Add key */}
       <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleAddKey();
-          }}
-          placeholder="New translation key"
-          className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
-          data-testid="translation-new-key"
-        />
-        <button
-          onClick={handleAddKey}
-          disabled={!newKey.trim()}
-          className="p-1.5 rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:text-gray-400 dark:disabled:text-gray-500"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <Input type="text" value={newKey} onChange={(e) => setNewKey(e.target.value)} onKeyDown={(e) => {
+      if (e.key === 'Enter') handleAddKey();
+     }} placeholder="New translation key" data-testid="translation-new-key" />
+        <Button variant="primary" size="sm" iconOnly aria-label="Add" onClick={handleAddKey} disabled={!newKey.trim()}><Plus className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Translation table */}

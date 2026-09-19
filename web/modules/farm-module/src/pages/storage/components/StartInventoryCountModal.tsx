@@ -8,7 +8,7 @@
  * Only active locations are shown — decommissioned locations cannot be counted.
  */
 import React, { useState } from 'react';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Textarea } from '@aquaculture/shared-ui';
 import { useCreateInventoryCount } from '../../../hooks/useInventoryCounts';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 
@@ -94,31 +94,13 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
           {/* Notes — optional context for the counting session */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g., Quarterly cycle count, reason for ad-hoc count..."
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Textarea fullWidth rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g., Quarterly cycle count, reason for ad-hoc count..." />
           </div>
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!storageLocationId || createCount.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {createCount.isPending ? 'Starting...' : 'Start Count'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!storageLocationId || createCount.isPending}>{createCount.isPending ? 'Starting...' : 'Start Count'}</Button>
         </div>
       </form>
     </Modal>

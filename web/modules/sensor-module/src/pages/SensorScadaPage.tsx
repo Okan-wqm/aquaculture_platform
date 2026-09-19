@@ -30,7 +30,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { useScadaTrend, type TrendQuery } from '../hooks/useScadaTrend';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 
 // ============================================================================
@@ -80,16 +80,8 @@ const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, o
               {error}
             </span>
           )}
-          <button
-            onClick={refetch}
-            className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-            title="Yenile"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-          <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Yenile" onClick={refetch} title="Yenile"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose}><X className="w-3.5 h-3.5" /></Button>
         </div>
       </div>
 
@@ -217,13 +209,7 @@ const SensorScadaPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setProcesses([]); refetchProcesses(); }}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-            title="Yenile"
-          >
-            <RefreshCw className={`w-4 h-4 ${processesLoading ? 'animate-spin' : ''}`} />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Yenile" onClick={() => { setProcesses([]); refetchProcesses(); }} title="Yenile"><RefreshCw className={`w-4 h-4 ${processesLoading ? 'animate-spin' : ''}`} /></Button>
           {selectedProcess && (
             <button
               onClick={() => setIsTrendOpen((prev) => !prev)}

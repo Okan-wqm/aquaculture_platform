@@ -9,7 +9,7 @@ import { Search, ChevronDown, ChevronRight, Link2, Check, Package, RefreshCw } f
 import { useAttachableEquipment, AttachableEquipment, CATEGORY_LABELS } from '../../../hooks/useAttachableEquipment';
 import { useProcessStore } from '../../../store/processStore';
 import { getEquipmentIcon } from '../../equipment-icons';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface AttachmentsPanelProps {
   className?: string;
@@ -83,13 +83,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
       <div className={`flex flex-col items-center justify-center h-full p-4 ${className}`}>
         <Package className="w-12 h-12 text-red-300 mb-3" />
         <p className="text-sm text-red-600 text-center mb-3">Error loading equipment</p>
-        <button
-          onClick={() => refetch()}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Retry
-        </button>
+        <Button variant="ghost" size="sm" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={() => refetch()}>Retry</Button>
       </div>
     );
   }
@@ -127,19 +121,9 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
         {/* Expand/Collapse buttons */}
         {categoryEntries.length > 0 && (
           <div className="flex gap-2 mt-2">
-            <button
-              onClick={expandAll}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-cyan-600 transition-colors"
-            >
-              Expand All
-            </button>
+            <Button variant="ghost" size="xs" onClick={expandAll}>Expand All</Button>
             <span className="text-gray-500 dark:text-gray-400">|</span>
-            <button
-              onClick={collapseAll}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-cyan-600 transition-colors"
-            >
-              Collapse All
-            </button>
+            <Button variant="ghost" size="xs" onClick={collapseAll}>Collapse All</Button>
           </div>
         )}
       </div>
@@ -164,11 +148,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
             return (
               <div key={category} className="mb-1">
                 {/* Category Header */}
-                <button
-                  onClick={() => toggleCategory(category)}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                >
-                  {isExpanded ? (
+                <Button variant="ghost" onClick={() => toggleCategory(category)}>{isExpanded ? (
                     <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   ) : (
                     <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -179,8 +159,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                       {linkedInCategory}
                     </span>
                   )}
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{equipmentList.length}</span>
-                </button>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{equipmentList.length}</span></Button>
 
                 {/* Equipment Items */}
                 {isExpanded && (

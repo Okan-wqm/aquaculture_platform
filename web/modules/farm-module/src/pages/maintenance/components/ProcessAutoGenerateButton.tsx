@@ -31,8 +31,7 @@ import {
   ConfirmModal,
   formatErrorForToast,
   useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Button } from '@aquaculture/shared-ui';
 
 import { useProcessAutoGenerateWorkOrders } from '../../../hooks/useMaintenance';
 
@@ -77,15 +76,7 @@ const ProcessAutoGenerateButton: React.FC = () => {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setShowConfirm(true)}
-        disabled={processMutation.isPending}
-        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-md font-medium"
-        title="Aktif planlardan otomatik iş emri üret (admin)"
-      >
-        Otomatik İş Emri Üret
-      </button>
+      <Button variant="primary" size="sm" type="button" onClick={() => setShowConfirm(true)} disabled={processMutation.isPending} title="Aktif planlardan otomatik iş emri üret (admin)">Otomatik İş Emri Üret</Button>
 
       <ConfirmModal
         isOpen={showConfirm}

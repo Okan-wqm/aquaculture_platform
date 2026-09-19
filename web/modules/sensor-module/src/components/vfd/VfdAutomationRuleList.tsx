@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { VfdAutomationRule } from '../../types/vfd.types';
 import { VfdAutomationRuleForm } from './VfdAutomationRuleForm';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -105,13 +105,7 @@ export function VfdAutomationRuleList({
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Automation Rules</h3>
-        <button
-          type="button"
-          onClick={handleCreate}
-          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-3.5 w-3.5" /> Create Rule
-        </button>
+        <Button variant="primary" size="xs" leftIcon={<Plus className="h-3.5 w-3.5" />} type="button" onClick={handleCreate}>Create Rule</Button>
       </div>
 
       {/* List */}
@@ -180,13 +174,7 @@ export function VfdAutomationRuleList({
 
               {/* Actions */}
               <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleEdit(rule)}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  <Edit3 className="h-3 w-3" /> Edit
-                </button>
+                <Button variant="secondary" size="xs" leftIcon={<Edit3 className="h-3 w-3" />} type="button" onClick={() => handleEdit(rule)}>Edit</Button>
                 <button
                   type="button"
                   onClick={() => onToggle(rule.id, !rule.isActive)}
@@ -206,31 +194,11 @@ export function VfdAutomationRuleList({
                 {confirmDeleteId === rule.id ? (
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-red-600">Confirm?</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(rule.id)}
-                      className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
-                      data-testid={`confirm-delete-${rule.id}`}
-                    >
-                      Yes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      No
-                    </button>
+                    <Button variant="danger" size="xs" type="button" onClick={() => handleDelete(rule.id)} data-testid={`confirm-delete-${rule.id}`}>Yes</Button>
+                    <Button variant="secondary" size="xs" type="button" onClick={() => setConfirmDeleteId(null)}>No</Button>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteId(rule.id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                    data-testid={`delete-btn-${rule.id}`}
-                  >
-                    <Trash2 className="h-3 w-3" /> Delete
-                  </button>
+                  <Button variant="secondary" size="xs" leftIcon={<Trash2 className="h-3 w-3" />} type="button" onClick={() => setConfirmDeleteId(rule.id)} data-testid={`delete-btn-${rule.id}`}>Delete</Button>
                 )}
               </div>
             </div>

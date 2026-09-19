@@ -25,6 +25,11 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const { useQuery } = await import('@tanstack/react-query');
   const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
   return {
+    // The controls under test are the real shared-ui primitives (FE-HIGH-079).
+    Button: actual.Button,
+    Input: actual.Input,
+    Select: actual.Select,
+    Textarea: actual.Textarea,
     Modal: actual.Modal,
     ConfirmModal: actual.ConfirmModal,
     // The registry list renders through the real DataTable (empty state, rows).

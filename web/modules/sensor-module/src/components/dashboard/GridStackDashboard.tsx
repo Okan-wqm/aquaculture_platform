@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Modal, useConfirm, useClickOutside, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useClickOutside, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -140,12 +140,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
       bodyClassName="p-6"
       footer={
         <>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <button
             onClick={() => onSave(name, description, setAsDefault)}
             disabled={!name.trim() || saving}
@@ -168,26 +163,14 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Layout Name
           </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter dashboard name"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-          />
+          <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter dashboard name" />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description (Optional)
           </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Layout description"
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-          />
+          <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Layout description" rows={2} />
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer">
@@ -530,12 +513,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-red-700">
           <AlertCircle size={16} />
           <span className="text-sm">{error}</span>
-          <button
-            onClick={clearError}
-            className="ml-auto text-red-500 hover:text-red-700"
-          >
-            Close
-          </button>
+          <Button variant="ghost" onClick={clearError}>Close</Button>
         </div>
       )}
 
@@ -579,11 +557,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           ${currentLayout?.id === layout.id ? 'bg-cyan-50' : ''}
                         `}
                       >
-                        <button
-                          onClick={() => handleLayoutSelect(layout.id)}
-                          className="flex-1 text-left"
-                        >
-                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                        <Button variant="ghost" className="flex-1" onClick={() => handleLayoutSelect(layout.id)}><span className="font-medium text-gray-900 dark:text-gray-100">
                             {layout.name}
                           </span>
                           {layout.isDefault && (
@@ -596,26 +570,13 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
                               (System)
                             </span>
-                          )}
-                        </button>
+                          )}</Button>
                         <div className="flex items-center gap-1">
                           {!layout.isDefault && !layout.isSystemDefault && (
-                            <button
-                              onClick={() => handleSetAsDefault(layout.id)}
-                              className="p-1 text-gray-500 dark:text-gray-400 hover:text-yellow-500"
-                              title="Set as default"
-                            >
-                              <Star size={14} />
-                            </button>
+                            <Button variant="ghost" size="sm" iconOnly aria-label="Set as default" onClick={() => handleSetAsDefault(layout.id)} title="Set as default"><Star size={14} /></Button>
                           )}
                           {!layout.isSystemDefault && (
-                            <button
-                              onClick={() => handleDeleteLayout(layout.id)}
-                              className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-500"
-                              title="Delete"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => handleDeleteLayout(layout.id)} title="Delete"><Trash2 size={14} /></Button>
                           )}
                         </div>
                       </div>
@@ -623,17 +584,11 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                   )}
                 </div>
                 <div className="p-2 border-t border-gray-100 dark:border-gray-700">
-                  <button
-                    onClick={() => {
+                  <Button variant="ghost" size="sm" className="justify-center" leftIcon={<Plus size={16} />} onClick={() => {
                       setSaveAsNew(true);
                       setShowSaveModal(true);
                       setShowLayoutDropdown(false);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-cyan-600 hover:bg-cyan-50 rounded-lg"
-                  >
-                    <Plus size={16} />
-                    Create New Layout
-                  </button>
+                    }}>Create New Layout</Button>
                 </div>
               </div>
             )}
@@ -739,45 +694,27 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
           {/* Reset Background Position (only in edit mode with background) */}
           {processBackground.processId && isEditMode && (
-            <button
-              onClick={() => {
+            <Button variant="ghost" size="sm" iconOnly aria-label="Reset background position" onClick={() => {
                 setProcessBackground(prev => ({
                   ...prev,
                   position: { x: 0, y: 0 },
                   scale: 1,
                 }));
                 setHasUnsavedChanges(true);
-              }}
-              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              title="Reset background position"
-            >
-              <RotateCcw size={16} />
-            </button>
+              }} title="Reset background position"><RotateCcw size={16} /></Button>
           )}
         </div>
 
         <div className="flex items-center gap-2">
           {isEditMode ? (
             <>
-              <button
-                onClick={() => setShowConfigModal(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                <Plus size={16} />
-                Add Widget
-              </button>
-              <button
-                onClick={handleQuickSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-              >
-                {saving ? (
+              <Button variant="primary" size="sm" leftIcon={<Plus size={16} />} onClick={() => setShowConfigModal(true)}>Add Widget</Button>
+              <Button variant="primary" size="sm" onClick={handleQuickSave} disabled={saving}>{saving ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Save size={16} />
                 )}
-                Save
-              </button>
+                Save</Button>
               <button
                 onClick={() => {
                   setSaveAsNew(true);
@@ -850,16 +787,10 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 <p className="text-sm mb-4">
                   Click the "Edit" button to add widgets
                 </p>
-                <button
-                  onClick={() => {
+                <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => {
                     setIsEditMode(true);
                     setShowConfigModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors mx-auto"
-                >
-                  <Plus size={16} />
-                  Add First Widget
-                </button>
+                  }}>Add First Widget</Button>
               </div>
             </div>
           ) : (
@@ -882,20 +813,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     </span>
                     {isEditMode && (
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleEditWidget(widget)}
-                          className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
-                          title="Edit"
-                        >
-                          <Settings size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleRemoveWidget(widget.id)}
-                          className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-600 rounded"
-                          title="Remove"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <Button variant="ghost" size="sm" iconOnly aria-label="Edit" onClick={() => handleEditWidget(widget)} title="Edit"><Settings size={14} /></Button>
+                        <Button variant="ghost" size="sm" iconOnly aria-label="Remove" onClick={() => handleRemoveWidget(widget.id)} title="Remove"><Trash2 size={14} /></Button>
                       </div>
                     )}
                   </div>

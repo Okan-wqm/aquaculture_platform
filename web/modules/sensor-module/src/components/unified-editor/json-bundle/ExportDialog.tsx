@@ -28,7 +28,7 @@ import type {
   STBundleTransition,
 } from '../../../types/st-editor.types';
 import { serializeBundle, formatFileSize } from './bundle.utils';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -114,12 +114,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
   const footer = (
     <>
-      <button
-        onClick={onClose}
-        className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 rounded"
-      >
-        Cancel
-      </button>
+      <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
       <button
         onClick={handleCopy}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
@@ -136,14 +131,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           </>
         )}
       </button>
-      <button
-        onClick={handleDownload}
-        disabled={bundleSize > 1_048_576}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 dark:disabled:text-gray-400 text-white rounded"
-      >
-        <Download className="w-3.5 h-3.5" />
-        Download .json
-      </button>
+      <Button variant="primary" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownload} disabled={bundleSize > 1_048_576}>Download .json</Button>
     </>
   );
 
@@ -168,7 +156,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Program
         </h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Code: </span>
             <span className="text-gray-200 font-mono">
@@ -191,7 +179,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       </div>
 
       {/* Statistics */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="bg-gray-800 rounded p-2 text-center">
           <div className="text-lg font-semibold text-gray-100">
             {variables.length}
@@ -256,17 +244,12 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       </div>
 
       {/* Preview Toggle */}
-      <button
-        onClick={() => setShowPreview(!showPreview)}
-        className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200"
-      >
-        {showPreview ? (
+      <Button variant="ghost" onClick={() => setShowPreview(!showPreview)}>{showPreview ? (
           <EyeOff className="w-3.5 h-3.5" />
         ) : (
           <Eye className="w-3.5 h-3.5" />
         )}
-        {showPreview ? 'Hide' : 'Show'} Preview
-      </button>
+        {showPreview ? 'Hide' : 'Show'} Preview</Button>
 
       {/* Preview Pane */}
       {showPreview && (

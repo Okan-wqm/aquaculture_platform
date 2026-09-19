@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { HelpCircle, X } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -114,17 +115,7 @@ export const FunctionReference: React.FC = () => {
 
   return (
     <div className="relative inline-block">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="text-gray-400 dark:text-gray-500 hover:text-cyan-600 transition-colors"
-        title="Function reference"
-        aria-label="Function reference"
-        data-testid="function-reference-trigger"
-      >
-        <HelpCircle className="w-4 h-4" />
-      </button>
+      <Button variant="ghost" iconOnly ref={buttonRef} type="button" onClick={() => setOpen((prev) => !prev)} title="Function reference" aria-label="Function reference" data-testid="function-reference-trigger"><HelpCircle className="w-4 h-4" /></Button>
 
       {open && (
         <div
@@ -138,14 +129,7 @@ export const FunctionReference: React.FC = () => {
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
               Available Functions
             </span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-              aria-label="Close reference"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" iconOnly type="button" onClick={() => setOpen(false)} aria-label="Close reference"><X className="w-3.5 h-3.5" /></Button>
           </div>
 
           {FUNCTION_GROUPS.map((group) => (

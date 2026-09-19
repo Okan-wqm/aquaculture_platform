@@ -28,7 +28,7 @@ import {
   Calendar,
   ArrowUpCircle,
 } from 'lucide-react';
-import { parseMoney, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, PageHeader, Button, Badge } from '@aquaculture/shared-ui';
 
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
@@ -40,49 +40,20 @@ import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling'
  * Subscription status badge
  */
 const SubscriptionStatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const config: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> =
-    {
-      ACTIVE: {
-        bg: 'bg-green-100',
-        text: 'text-green-700',
-        icon: <CheckCircle className="w-3.5 h-3.5" />,
-        label: 'Active',
-      },
-      TRIAL: {
-        bg: 'bg-blue-100',
-        text: 'text-blue-700',
-        icon: <Clock className="w-3.5 h-3.5" />,
-        label: 'Trial',
-      },
-      PAST_DUE: {
-        bg: 'bg-yellow-100',
-        text: 'text-yellow-700',
-        icon: <AlertTriangle className="w-3.5 h-3.5" />,
-        label: 'Past Due',
-      },
-      CANCELLED: {
-        bg: 'bg-gray-100 dark:bg-gray-800',
-        text: 'text-gray-700 dark:text-gray-300',
-        icon: <XCircle className="w-3.5 h-3.5" />,
-        label: 'Cancelled',
-      },
-      SUSPENDED: {
-        bg: 'bg-red-100',
-        text: 'text-red-700',
-        icon: <AlertCircle className="w-3.5 h-3.5" />,
-        label: 'Suspended',
-      },
-    };
-
+  // FE-HIGH-079: subscription state on the shared-ui Badge scale.
+  const config: Record<string, { variant: 'success' | 'info' | 'warning' | 'default' | 'error'; icon: React.ReactNode; label: string }> = {
+    ACTIVE: { variant: 'success', icon: <CheckCircle className="w-3.5 h-3.5" />, label: 'Active' },
+    TRIAL: { variant: 'info', icon: <Clock className="w-3.5 h-3.5" />, label: 'Trial' },
+    PAST_DUE: { variant: 'warning', icon: <AlertTriangle className="w-3.5 h-3.5" />, label: 'Past Due' },
+    CANCELLED: { variant: 'default', icon: <XCircle className="w-3.5 h-3.5" />, label: 'Cancelled' },
+    SUSPENDED: { variant: 'error', icon: <AlertCircle className="w-3.5 h-3.5" />, label: 'Suspended' },
+  };
   const c = config[status] || config.ACTIVE;
-
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium ${c.bg} ${c.text}`}
-    >
+    <Badge variant={c.variant} size="md" className="gap-1.5">
       {c.icon}
       {c.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -332,13 +303,7 @@ const TenantBillingPage: React.FC = () => {
         description="View your subscription details, invoices, and usage metrics"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => refetch()}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refetch()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
             <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium">
               Read-Only
             </span>
@@ -354,12 +319,7 @@ const TenantBillingPage: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load billing data</p>
             <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -425,14 +385,7 @@ const TenantBillingPage: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate('/tenant/support')}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 whitespace-nowrap"
-              >
-                <ArrowUpCircle className="w-4 h-4" />
-                Upgrade plan
-              </button>
+              <Button variant="primary" leftIcon={<ArrowUpCircle className="w-4 h-4" />} type="button" onClick={() => navigate('/tenant/support')}>Upgrade plan</Button>
             </div>
           )}
         </div>

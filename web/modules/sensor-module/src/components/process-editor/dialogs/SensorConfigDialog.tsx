@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input } from '@aquaculture/shared-ui';
 import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import { useLinkableSensors, LinkableSensor, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
@@ -242,13 +242,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Node Adı
                 </label>
-                <input
-                  type="text"
-                  value={config.customName || ''}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, customName: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  placeholder="Örn: Havuz 1 - pH"
-                />
+                <Input fullWidth type="text" value={config.customName || ''} onChange={(e) => setConfig((prev) => ({ ...prev, customName: e.target.value }))} placeholder="Örn: Havuz 1 - pH" />
               </div>
 
               {/* Display Type */}
@@ -256,7 +250,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Görselleştirme Tipi
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {DISPLAY_TYPES.map((type) => (
                     <button
                       key={type.value}
@@ -277,34 +271,18 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
               {/* Value Range */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Değer Aralığı</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-                    <input
-                      type="number"
-                      value={config.minValue ?? 0}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                    />
+                    <Input fullWidth type="number" value={config.minValue ?? 0} onChange={(e) => setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))} />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-                    <input
-                      type="number"
-                      value={config.maxValue ?? 100}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, maxValue: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                    />
+                    <Input fullWidth type="number" value={config.maxValue ?? 100} onChange={(e) => setConfig((prev) => ({ ...prev, maxValue: Number(e.target.value) }))} />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Birim</label>
-                    <input
-                      type="text"
-                      value={config.displayUnit || ''}
-                      onChange={(e) => setConfig((prev) => ({ ...prev, displayUnit: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                      placeholder="pH, °C, mg/L..."
-                    />
+                    <Input fullWidth type="text" value={config.displayUnit || ''} onChange={(e) => setConfig((prev) => ({ ...prev, displayUnit: e.target.value }))} placeholder="pH, °C, mg/L..." />
                   </div>
                 </div>
               </div>
@@ -327,50 +305,26 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 {config.alarmsEnabled && (
                   <div className="space-y-3">
                     {/* Warning */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-yellow-600 mb-1 font-medium">Warning Low</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={config.warningLow ?? ''}
-                          onChange={(e) => setConfig((prev) => ({ ...prev, warningLow: e.target.value ? Number(e.target.value) : undefined }))}
-                          className="w-full px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm bg-yellow-50"
-                        />
+                        <Input fullWidth type="number" step="0.1" value={config.warningLow ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, warningLow: e.target.value ? Number(e.target.value) : undefined }))} />
                       </div>
                       <div>
                         <label className="block text-xs text-yellow-600 mb-1 font-medium">Warning High</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={config.warningHigh ?? ''}
-                          onChange={(e) => setConfig((prev) => ({ ...prev, warningHigh: e.target.value ? Number(e.target.value) : undefined }))}
-                          className="w-full px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 text-sm bg-yellow-50"
-                        />
+                        <Input fullWidth type="number" step="0.1" value={config.warningHigh ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, warningHigh: e.target.value ? Number(e.target.value) : undefined }))} />
                       </div>
                     </div>
 
                     {/* Critical */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-red-600 mb-1 font-medium">Critical Low</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={config.criticalLow ?? ''}
-                          onChange={(e) => setConfig((prev) => ({ ...prev, criticalLow: e.target.value ? Number(e.target.value) : undefined }))}
-                          className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-red-50"
-                        />
+                        <Input fullWidth type="number" step="0.1" value={config.criticalLow ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, criticalLow: e.target.value ? Number(e.target.value) : undefined }))} />
                       </div>
                       <div>
                         <label className="block text-xs text-red-600 mb-1 font-medium">Critical High</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={config.criticalHigh ?? ''}
-                          onChange={(e) => setConfig((prev) => ({ ...prev, criticalHigh: e.target.value ? Number(e.target.value) : undefined }))}
-                          className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm bg-red-50"
-                        />
+                        <Input fullWidth type="number" step="0.1" value={config.criticalHigh ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, criticalHigh: e.target.value ? Number(e.target.value) : undefined }))} />
                       </div>
                     </div>
                   </div>
@@ -382,20 +336,8 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
 
         {/* Actions */}
         <div className="sticky bottom-0 flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
-          >
-            İptal
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!config.sensorId || !config.customName?.trim()}
-            className="flex-1 px-4 py-2.5 text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <CheckCircle className="w-4 h-4" />
-            Tamam
-          </button>
+          <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>İptal</Button>
+          <Button variant="primary" size="lg" className="flex-1 justify-center" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={handleConfirm} disabled={!config.sensorId || !config.customName?.trim()}>Tamam</Button>
         </div>
     </Modal>
   );

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { usePrompt, type PromptFn, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { usePrompt, type PromptFn, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -260,19 +260,11 @@ export function VfdChangeSetList({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpand(cs.id)}
-                          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                          aria-label={isExpanded ? 'Collapse items' : 'Expand items'}
-                          aria-expanded={isExpanded}
-                        >
-                          {isExpanded ? (
+                        <Button variant="ghost" type="button" onClick={() => toggleExpand(cs.id)} aria-label={isExpanded ? 'Collapse items' : 'Expand items'} aria-expanded={isExpanded}>{isExpanded ? (
                             <ChevronDown className="h-4 w-4" />
                           ) : (
                             <ChevronRight className="h-4 w-4" />
-                          )}
-                        </button>
+                          )}</Button>
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                           {cs.description || `Change Set ${cs.id.slice(0, 8)}`}
                         </h4>
@@ -298,13 +290,7 @@ export function VfdChangeSetList({
 
                   {/* Action buttons */}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedChangeSetId(cs.id)}
-                      className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      View Details
-                    </button>
+                    <Button variant="secondary" size="xs" type="button" onClick={() => setSelectedChangeSetId(cs.id)}>View Details</Button>
                     {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval }, prompt)}
                   </div>
                 </div>
@@ -333,15 +319,8 @@ export function VfdChangeSetList({
       {/* Load more */}
       {hasMore && (
         <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={onLoadMore}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-          >
-            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
-            Load More
-          </button>
+          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>{loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
+            Load More</Button>
         </div>
       )}
     </div>
@@ -389,48 +368,19 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn)
 
   if (cs.status === VfdChangeSetStatus.DRAFT) {
     buttons.push(
-      <button
-        key="submit"
-        type="button"
-        onClick={() => cbs.onSubmitForApproval(cs.id)}
-        className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-      >
-        <Play className="h-3 w-3" /> Submit
-      </button>,
-      <button
-        key="cancel"
-        type="button"
-        onClick={() => cbs.onCancel(cs.id)}
-        className="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-      >
-        Cancel
-      </button>,
+      <Button variant="primary" size="xs" leftIcon={<Play className="h-3 w-3" />} key="submit" type="button" onClick={() => cbs.onSubmitForApproval(cs.id)}>Submit</Button>,
+      <Button variant="secondary" size="xs" key="cancel" type="button" onClick={() => cbs.onCancel(cs.id)}>Cancel</Button>,
     );
   }
 
   if (cs.status === VfdChangeSetStatus.PENDING_APPROVAL) {
     buttons.push(
-      <button
-        key="approve"
-        type="button"
-        onClick={() => cbs.onApprove(cs.id)}
-        className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
-        data-testid={`approve-btn-${cs.id}`}
-      >
-        <Check className="h-3 w-3" /> Approve
-      </button>,
-      <button
-        key="reject"
-        type="button"
-        onClick={() =>
+      <Button variant="primary" size="xs" leftIcon={<Check className="h-3 w-3" />} key="approve" type="button" onClick={() => cbs.onApprove(cs.id)} data-testid={`approve-btn-${cs.id}`}>Approve</Button>,
+      <Button variant="secondary" size="xs" leftIcon={<X className="h-3 w-3" />} key="reject" type="button" onClick={() =>
           void prompt({ title: 'Reject change set', label: 'Rejection reason', confirmText: 'Reject', cancelText: 'Cancel' }).then((reason) => {
             if (reason) void cbs.onReject(cs.id, reason);
           })
-        }
-        className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-      >
-        <X className="h-3 w-3" /> Reject
-      </button>,
+        }>Reject</Button>,
     );
   }
 
@@ -453,31 +403,17 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn)
           ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
           : 'Applying automatically'}
       </span>,
-      <button
-        key="cancel-approved"
-        type="button"
-        onClick={() => cbs.onCancel(cs.id)}
-        className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-      >
-        Cancel
-      </button>,
+      <Button variant="secondary" size="xs" key="cancel-approved" type="button" onClick={() => cbs.onCancel(cs.id)}>Cancel</Button>,
     );
   }
 
   if (cs.status === VfdChangeSetStatus.APPLIED) {
     buttons.push(
-      <button
-        key="rollback"
-        type="button"
-        onClick={() =>
+      <Button variant="secondary" size="xs" leftIcon={<RotateCcw className="h-3 w-3" />} key="rollback" type="button" onClick={() =>
           void prompt({ title: 'Roll back change set', label: 'Rollback reason', confirmText: 'Roll back', cancelText: 'Cancel' }).then((reason) => {
             if (reason) void cbs.onRollback(cs.id, reason);
           })
-        }
-        className="inline-flex items-center gap-1 rounded-md border border-purple-200 px-3 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50"
-      >
-        <RotateCcw className="h-3 w-3" /> Rollback
-      </button>,
+        }>Rollback</Button>,
     );
   }
 

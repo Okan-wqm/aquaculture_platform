@@ -15,6 +15,7 @@
  * reference that moves the report to the terminal, immutable state.
  */
 import React, { useState } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 
 import {
   BiomassReportListRow,
@@ -91,14 +92,7 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
           </p>
         </div>
         {mutationError && <p className="text-xs text-red-600">{mutationError}</p>}
-        <button
-          type="button"
-          onClick={() => markReady.mutate(report.id)}
-          disabled={markReady.isPending}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {markReady.isPending ? 'Marking ready…' : 'Mark ready for Altinn'}
-        </button>
+        <Button variant="primary" type="button" onClick={() => markReady.mutate(report.id)} disabled={markReady.isPending}>{markReady.isPending ? 'Marking ready…' : 'Mark ready for Altinn'}</Button>
       </div>
     );
   }
@@ -123,13 +117,7 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
       ) : exportData ? (
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => downloadCsv(exportData.filename, exportData.csv)}
-              className="px-3 py-1.5 text-xs bg-white dark:bg-gray-900 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100"
-            >
-              Download CSV ({exportData.filename})
-            </button>
+            <Button variant="secondary" size="xs" type="button" onClick={() => downloadCsv(exportData.filename, exportData.csv)}>Download CSV ({exportData.filename})</Button>
             <span className="text-xs text-blue-600">Period {exportData.periodLabel}</span>
           </div>
           <pre className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 text-xs text-gray-800 dark:text-gray-200 overflow-x-auto whitespace-pre-wrap">
@@ -144,33 +132,12 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
           Altinn receipt reference
         </label>
         <div className="flex items-center gap-3">
-          <input
-            id="altinn-reference"
-            type="text"
-            value={altinnReference}
-            onChange={(e) => setAltinnReference(e.target.value)}
-            placeholder="e.g. AR123456789"
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 flex-1"
-          />
-          <button
-            type="button"
-            onClick={() =>
+          <Input id="altinn-reference" type="text" value={altinnReference} onChange={(e) => setAltinnReference(e.target.value)} placeholder="e.g. AR123456789" />
+          <Button variant="primary" type="button" onClick={() =>
               confirmSubmitted.mutate({ id: report.id, altinnReference: trimmedReference })
-            }
-            disabled={trimmedReference === '' || confirmSubmitted.isPending}
-            className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {confirmSubmitted.isPending ? 'Confirming…' : 'Confirm submitted'}
-          </button>
+            } disabled={trimmedReference === '' || confirmSubmitted.isPending}>{confirmSubmitted.isPending ? 'Confirming…' : 'Confirm submitted'}</Button>
         </div>
-        <button
-          type="button"
-          onClick={() => revertToDraft.mutate(report.id)}
-          disabled={revertToDraft.isPending}
-          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 underline disabled:opacity-50"
-        >
-          Reopen to draft
-        </button>
+        <Button variant="ghost" size="xs" type="button" onClick={() => revertToDraft.mutate(report.id)} disabled={revertToDraft.isPending}>Reopen to draft</Button>
       </div>
     </div>
   );

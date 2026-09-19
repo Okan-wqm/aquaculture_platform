@@ -6,7 +6,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { useAuthContext, PageHeader } from '@aquaculture/shared-ui';
+import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
@@ -115,13 +115,7 @@ const TenantModules: React.FC = () => {
         description="Manage your tenant&apos;s modules and assign managers"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => refreshAuth()}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refreshAuth()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
             <span className="px-3 py-1.5 rounded-lg bg-green-50 text-green-700 text-sm font-medium">
               {modules.filter((m) => m.status === 'active').length} Active
             </span>
@@ -139,12 +133,7 @@ const TenantModules: React.FC = () => {
               {fetchError instanceof Error ? fetchError.message : 'Unknown error occurred'}
             </p>
           </div>
-          <button
-            onClick={() => refreshAuth()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => refreshAuth()}>Retry</Button>
         </div>
       )}
 
@@ -161,16 +150,7 @@ const TenantModules: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="pending">Pending</option>
-          </select>
+          <Select options={[{ value: 'all', label: 'All Status' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'pending', label: 'Pending' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </div>
 

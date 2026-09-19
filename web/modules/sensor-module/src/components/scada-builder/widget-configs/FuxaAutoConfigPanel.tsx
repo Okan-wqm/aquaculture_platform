@@ -22,6 +22,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight, Palette, Eye, RotateCw, Settings2 } from 'lucide-react';
 import type { FuxaExportVariable, FuxaVarGroup, FuxaVarType } from '../fuxa-bridge/FuxaExportParser';
 
@@ -143,13 +144,7 @@ const ColorField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => {
         className="w-8 h-8 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
         aria-label={variable.label}
       />
-      <input
-        type="text"
-        value={strVal}
-        onChange={(e) => onUpdate(variable.id, e.target.value)}
-        className="flex-1 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-cyan-500"
-        data-testid={`fuxa-field-${variable.id}`}
-      />
+      <Input className="font-mono" type="text" value={strVal} onChange={(e) => onUpdate(variable.id, e.target.value)} data-testid={`fuxa-field-${variable.id}`} />
     </div>
   );
 };

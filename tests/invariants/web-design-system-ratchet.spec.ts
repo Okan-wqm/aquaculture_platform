@@ -105,6 +105,14 @@ const RAW_TABLE = /<table\b/g;
  * `useMutation` itself).
  */
 const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
+/**
+ * Raw `<button>` and raw `<input>` / `<select>` / `<textarea>` outside the
+ * primitives (FE-HIGH-079): each re-derives padding, radius, focus ring,
+ * disabled state, label binding and error display that shared-ui Button /
+ * Input / Select / Textarea (AquaMobil: Button / Field) already own.
+ */
+const RAW_BUTTON = /<button\b/g;
+const RAW_FIELD = /<(?:input|select|textarea)\b/g;
 const MUTATION_WRAPPERS = ['web/modules/admin-panel/src/hooks/useAdminMutation.ts'];
 
 /** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
@@ -256,6 +264,8 @@ interface Allowlist {
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
   rawMutation: { entries: PackageCeiling[] };
+  rawButton: { entries: PackageCeiling[] };
+  rawField: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
   darkSurface: { entries: PackageCeiling[] };
@@ -438,6 +448,50 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.rawMutation.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets raw <button> elements per package (FE-HIGH-079)', () => {
+    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_BUTTON);
+    const ceilings = new Map(doc.rawButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw buttons, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} raw <button> elements, ceiling ${entry.ceiling}. Render through shared-ui Button (AquaMobil: Button / IconButton) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets raw <input>, <select> and <textarea> elements per package (FE-HIGH-079)', () => {
+    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_FIELD);
+    const ceilings = new Map(doc.rawField.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw fields, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} raw form controls, ceiling ${entry.ceiling}. Render through shared-ui Input / Select / Textarea / Checkbox (AquaMobil: Field) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawField.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

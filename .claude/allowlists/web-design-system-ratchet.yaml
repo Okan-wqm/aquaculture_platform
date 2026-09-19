@@ -25,6 +25,8 @@
 #   rawMutation — direct TanStack useMutation( calls per package (web/apps and
 #                 the admin panel's useAdminMutation wrapper excluded); a
 #                 mutation declares its outcome through useFeedbackMutation.
+#   rawButton   — raw <button> elements per package, primitives excluded.
+#   rawField    — raw <input> / <select> / <textarea> per package, primitives excluded.
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -124,6 +126,124 @@ rawMutation:
       expiry: 2026-12-31
       findingId: FE-HIGH-086
       reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+rawButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 153
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 182
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 8
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 521
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 120
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 19
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 835
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 157
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/shell
+      ceiling: 27
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+rawField:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 24
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 124
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 829
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 85
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 797
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 64
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/shell
+      ceiling: 4
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
 rawSpinner:
   entries: []
 rawPageTitle:

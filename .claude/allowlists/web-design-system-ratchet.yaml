@@ -162,7 +162,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 50
+      ceiling: 46
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -218,7 +218,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 24
+      ceiling: 23
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -276,7 +276,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 577
+      ceiling: 562
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -386,7 +386,7 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 879
+      ceiling: 856
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

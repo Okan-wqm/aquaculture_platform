@@ -20,20 +20,6 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('lucide-react', () => {
-  const factory =
-    (name: string) =>
-    (props: Record<string, unknown>): React.ReactElement => (
-      <span data-testid={`icon-${name}`} {...props} />
-    );
-  return new Proxy(
-    {},
-    {
-      get: (_target, prop: string) => (prop === '__esModule' ? true : factory(prop)),
-    },
-  );
-});
-
 import { ChannelEditorModal } from '../components/registration/ChannelEditorModal';
 import { ChannelDataType, DataChannelConfig } from '../types/registration.types';
 

@@ -30,15 +30,6 @@ import { buildFuxaSrcdoc } from '../components/scada-builder/widget-renderers/Fu
 /*  Mocks                                                              */
 /* ------------------------------------------------------------------ */
 
-// Mock lucide-react to avoid import issues in test environment
-vi.mock('lucide-react', () => ({
-  Upload: (props: Record<string, unknown>) => <span data-testid="icon-upload" {...props} />,
-  Trash2: (props: Record<string, unknown>) => <span data-testid="icon-trash" {...props} />,
-  AlertCircle: (props: Record<string, unknown>) => <span data-testid="icon-alert" {...props} />,
-  Plus: (props: Record<string, unknown>) => <span data-testid="icon-plus" {...props} />,
-  X: (props: Record<string, unknown>) => <span data-testid="icon-x" {...props} />,
-}));
-
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */

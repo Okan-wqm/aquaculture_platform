@@ -17,7 +17,6 @@
  */
 
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { RecordTransferPage } from '../RecordTransferPage';
@@ -124,17 +123,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
     <div data-testid="queued-badge">queued:{operationId}</div>
   ),
 }));
-
-// lucide-react icons use forwardRef; stub each one the page transitively needs.
-vi.mock('lucide-react', () => {
-  const Stub = (): ReactNode => <svg data-testid="icon" />;
-  return {
-    ArrowLeft: Stub,
-    ArrowLeftRight: Stub,
-    AlertCircle: Stub,
-    ChevronRight: Stub,
-  };
-});
 
 // Fully stub react-router-dom — importActual pulls real react-router which
 // attempts useRef() against the local (null) React instance (dual-React quirk).

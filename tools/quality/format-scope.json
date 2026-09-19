@@ -47853,6 +47853,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/web-no-hand-rolled-icon-mock.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/web-no-hand-rolled-modal-shell.spec.ts",
       "prettier_managed": true
     },

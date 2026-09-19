@@ -19,19 +19,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 /*  Mock lucide-react                                                  */
 /* ------------------------------------------------------------------ */
 
-vi.mock('lucide-react', () => {
-  const factory = (name: string) =>
-    (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
-  return {
-    Zap: factory('zap'),
-    Minimize2: factory('minimize2'),
-    LayoutGrid: factory('layout-grid'),
-    ChevronDown: factory('chevron-down'),
-    ChevronRight: factory('chevron-right'),
-    GripVertical: factory('grip-vertical'),
-  };
-});
-
 /* ------------------------------------------------------------------ */
 /*  Mock useVfdRealtimeReadings                                        */
 /* ------------------------------------------------------------------ */

@@ -79,7 +79,7 @@ const RangeFieldset: React.FC<{
 }> = ({ legend, minName, maxName, minValue, maxValue, onChange }) => (
   <fieldset className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
     <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 px-1">{legend}</legend>
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
         <Input fullWidth type="number" name={minName} value={minValue} onChange={onChange} step="any" />
@@ -141,7 +141,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         </div>
 
         {/* Name + Unit */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
             <Input fullWidth type="text" name="name" value={formData.name} onChange={handleChange} required />
@@ -153,7 +153,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         </div>
 
         {/* Data Type + Group */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data Type</label>
             <select

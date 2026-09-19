@@ -134,7 +134,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
           {step === 'type' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {PROCESS_WIDGET_TYPES.map((wt) => (
                 <button
                   key={wt.type}
@@ -297,7 +297,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Y-Axis Range (optional)
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Value</label>
                         <Input fullWidth type="number" value={yAxisMin} onChange={(e) => setYAxisMin(e.target.value)} placeholder="Auto" />

@@ -114,7 +114,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       </div>
 
       {/* Module Stats */}
-      <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800 grid grid-cols-2 gap-4">
+      <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           <span className="text-sm text-gray-600 dark:text-gray-400">{module.assignedUsers} users</span>
@@ -134,7 +134,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
               Usage Stats
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">Actions this month</p>
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">

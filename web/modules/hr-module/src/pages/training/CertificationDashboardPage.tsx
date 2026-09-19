@@ -187,7 +187,7 @@ const CertificationTypeCard: React.FC<{
           </span>
         )}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
         <div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeCount}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>

@@ -853,7 +853,7 @@ const PlanCard: React.FC<{
         </div>
 
         {/* Estimates */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Quantity</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -906,7 +906,7 @@ const PlanCard: React.FC<{
         {plan.status === 'completed' && plan.actualBiomassHarvested && (
           <div className="bg-green-50 rounded-md p-3 mt-2">
             <p className="text-xs font-medium text-green-800 mb-2">Actual Results</p>
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-xs text-green-600">Quantity</p>
                 <p className="text-sm font-semibold text-green-800">
@@ -1169,7 +1169,7 @@ const HarvestPlanFormModal: React.FC<{
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Harvest Type *
@@ -1214,7 +1214,7 @@ const HarvestPlanFormModal: React.FC<{
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Product Form *
@@ -1246,7 +1246,7 @@ const HarvestPlanFormModal: React.FC<{
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Window Start
@@ -1273,7 +1273,7 @@ const HarvestPlanFormModal: React.FC<{
 
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
                   <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">Target Weight (grams)</h4>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Minimum</label>
                       <Input fullWidth type="number" min="0" value={formData.criteria?.targetWeight.min || 0} onChange={(e) =>
@@ -1344,7 +1344,7 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Harvest Estimates</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Quantity *
@@ -1428,7 +1428,7 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Financial Projection</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Estimated Price
@@ -1516,7 +1516,7 @@ const HarvestPlanFormModal: React.FC<{
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Logistics Plan</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Harvest Start Time
@@ -1643,7 +1643,7 @@ const HarvestPlanFormModal: React.FC<{
                   Customer / Order Information
                 </h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Customer Name

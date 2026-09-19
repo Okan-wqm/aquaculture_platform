@@ -24,7 +24,7 @@ export const ToggleSwitchConfig: React.FC<WidgetConfigProps> = ({ config, onChan
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Pump Control" />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">ON Label</label>
           <Input fullWidth type="text" value={config.onLabel || ''} onChange={(e) => onChange({ onLabel: e.target.value })} placeholder="On" />

@@ -391,7 +391,7 @@ export function SchedulingSettingsPage() {
                   </h3>
                   <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={resetCategoryForm}><X className="h-4 w-4" /></Button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
                     <Input fullWidth type="text" maxLength={4} value={categoryForm.code} onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} disabled={!!editingCategoryCode} placeholder="D, X, P, OT..." />
@@ -527,7 +527,7 @@ export function SchedulingSettingsPage() {
                   </h3>
                   <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={resetShiftForm}><X className="h-4 w-4" /></Button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
                     <Input fullWidth type="text" maxLength={10} value={shiftForm.code} onChange={(e) => setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} disabled={!!editingShiftId} placeholder="S, A, G..." />

@@ -77,7 +77,7 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       </div>
 
       {!config.autoScale && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Y Min</label>
             <Input fullWidth type="number" value={(config.yAxisMin as number) ?? 0} onChange={(e) => onChange({ yAxisMin: Number(e.target.value) })} />

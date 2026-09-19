@@ -555,7 +555,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Severity <span className="text-red-500">*</span>
           </label>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {severityOptions.map((opt) => (
               <label
                 key={opt.value}
@@ -668,7 +668,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         </div>
 
         {/* Affected Population */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Estimated Affected <span className="text-red-500">*</span>
@@ -901,7 +901,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                     </span>
                     <Button variant="ghost" size="xs" type="button" onClick={() => removeLabResult(idx)}>Remove</Button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Sample Type</label>
                       <select
@@ -970,7 +970,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Veterinarian Notified</span>
           </label>
           {formData.veterinarianNotified && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Veterinarian Name <span className="text-red-500">*</span>

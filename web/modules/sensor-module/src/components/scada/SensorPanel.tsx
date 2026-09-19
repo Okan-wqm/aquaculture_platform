@@ -144,7 +144,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
 
       {/* Stats summary */}
       <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <div className="grid grid-cols-4 gap-2 text-center">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-center">
           <div>
             <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Sensör</div>

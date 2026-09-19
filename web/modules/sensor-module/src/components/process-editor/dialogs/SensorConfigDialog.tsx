@@ -250,7 +250,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Görselleştirme Tipi
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {DISPLAY_TYPES.map((type) => (
                     <button
                       key={type.value}
@@ -271,7 +271,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
               {/* Value Range */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Değer Aralığı</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
                     <Input fullWidth type="number" value={config.minValue ?? 0} onChange={(e) => setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))} />
@@ -305,7 +305,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 {config.alarmsEnabled && (
                   <div className="space-y-3">
                     {/* Warning */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-yellow-600 mb-1 font-medium">Warning Low</label>
                         <Input fullWidth type="number" step="0.1" value={config.warningLow ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, warningLow: e.target.value ? Number(e.target.value) : undefined }))} />
@@ -317,7 +317,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                     </div>
 
                     {/* Critical */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-red-600 mb-1 font-medium">Critical Low</label>
                         <Input fullWidth type="number" step="0.1" value={config.criticalLow ?? ''} onChange={(e) => setConfig((prev) => ({ ...prev, criticalLow: e.target.value ? Number(e.target.value) : undefined }))} />

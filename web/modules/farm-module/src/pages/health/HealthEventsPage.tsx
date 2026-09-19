@@ -865,7 +865,7 @@ export const HealthEventsPage: React.FC = () => {
         title={editingId ? 'Edit Health Event' : 'New Health Event'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Batch ID"
               value={formData.batchId}
@@ -890,7 +890,7 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Event Type"
               value={formData.eventType}
@@ -914,7 +914,7 @@ export const HealthEventsPage: React.FC = () => {
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Event Date"
               type="date"
@@ -929,7 +929,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, eventTime: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Disease Category"
               value={formData.diseaseCategory}
@@ -947,7 +947,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, diseaseName: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Affected Count"
               type="number"
@@ -972,7 +972,7 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -1030,7 +1030,7 @@ export const HealthEventsPage: React.FC = () => {
               label,
             }))}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Medication Name"
               value={treatmentData.medicationName}
@@ -1046,7 +1046,7 @@ export const HealthEventsPage: React.FC = () => {
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Dosage"
               type="number"
@@ -1065,7 +1065,7 @@ export const HealthEventsPage: React.FC = () => {
               placeholder="mg/L, mg/kg, etc."
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Start Date"
               type="date"
@@ -1084,7 +1084,7 @@ export const HealthEventsPage: React.FC = () => {
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Frequency"
               value={treatmentData.frequency}

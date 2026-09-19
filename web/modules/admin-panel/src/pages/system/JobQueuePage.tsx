@@ -549,7 +549,7 @@ export const JobQueuePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <div className="text-2xl font-bold text-blue-600">{queue.pendingCount}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>

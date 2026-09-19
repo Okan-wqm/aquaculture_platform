@@ -288,7 +288,7 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
       </div>
 
       {/* Week / Year Selection */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Week Number</label>
           <Input fullWidth type="number" min={1} max={52} value={formData.weekNumber} onChange={(e) =>
@@ -308,7 +308,7 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Report Type</label>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button
             type="button"
             onClick={() => onChange({ reportType: 'planned' })}
@@ -441,7 +441,7 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           These will be populated from Setup &gt; Regulatory Settings
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Organization Number (organisasjonsnummer)
@@ -457,7 +457,7 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
        } placeholder="31234" />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3 mt-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Contact Person (navn)</label>
             <Input fullWidth type="text" value={formData.regulatory.kontaktperson.navn} onChange={(e) => updateKontakt({ navn: e.target.value })} placeholder="Erik Hansen" />
@@ -635,7 +635,7 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
 
       {/* Summary */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-sm text-blue-800">Total Planned Fish</span>
             <div className="text-2xl font-bold text-blue-700">{formatNumber(totalQuantity)}</div>
@@ -844,7 +844,7 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
 
       {/* Summary */}
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-sm text-green-800">Total Harvested Fish</span>
             <div className="text-2xl font-bold text-green-700">
@@ -1092,7 +1092,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <h4 className="text-sm font-medium text-yellow-800 mb-2">
           Regulatory Metadata (Mattilsynet)
         </h4>
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Org. Number:</span>
             <span className="ml-1 font-medium text-gray-900 dark:text-gray-100">
@@ -1141,7 +1141,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Slaughter Facility */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
         <h5 className="text-xs font-medium text-purple-800 uppercase mb-2">Slaughter Facility</h5>
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Facility Name:</span>
             <span className="ml-1 font-medium text-gray-900 dark:text-gray-100">
@@ -1288,7 +1288,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Quality Grade Distribution
           </h5>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="text-center p-2 bg-green-50 rounded">
               <div className="text-lg font-bold text-green-700">
                 {formData.gradeDistribution.superior}%

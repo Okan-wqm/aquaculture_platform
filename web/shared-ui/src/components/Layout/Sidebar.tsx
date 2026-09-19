@@ -3,9 +3,10 @@
  * Application side navigation — menu items, module access
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import type { NavigationItem, UserRole } from '../../types';
+import { useDialogBehavior } from '../Modal/useDialogBehavior';
 
 // Alias for backward compatibility
 type NavItem = NavigationItem;
@@ -49,6 +50,19 @@ export interface SidebarProps {
    * it wins; otherwise the built-in `defaultIcons` is consulted.
    */
   customIcons?: Record<string, React.ReactNode>;
+  /**
+   * Below Tailwind's `md` (768 px) the sidebar is off-canvas: nothing until
+   * `mobileOpen`, then a fixed overlay over a backdrop that closes on Escape,
+   * on the backdrop, on the close button, on navigation and when the viewport
+   * grows past `md`. Above `md` it is the in-flow column and this prop has no
+   * visual effect. Required, so every consumer wires a way to open it — a
+   * sidebar that is hidden on a phone with no opener is the type error.
+   */
+  mobileOpen: boolean;
+  /** Overlay open-state change handler; `false` from the backdrop, Escape, the close button and navigation */
+  onMobileOpenChange: (open: boolean) => void;
+  /** `id` of the aside, the target of the opener's `aria-controls` */
+  id?: string;
   className?: string;
 }
 
@@ -430,6 +444,9 @@ const sidebarThemeStyles = {
   },
 };
 
+/** Tailwind's `md`: above it the sidebar is an in-flow column, below it an off-canvas overlay. */
+const DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
+
 export const Sidebar: React.FC<SidebarProps> = ({
   items,
   activePath,
@@ -441,66 +458,133 @@ export const Sidebar: React.FC<SidebarProps> = ({
   footer,
   theme = 'default',
   customIcons,
+  mobileOpen,
+  onMobileOpenChange,
+  id,
   className = '',
 }) => {
   const themeStyle = sidebarThemeStyles[theme];
+  const asideRef = useRef<HTMLElement>(null);
+
+  const closeOverlay = useCallback(() => onMobileOpenChange(false), [onMobileOpenChange]);
+
+  // Escape, focus into the panel, focus back to the opener on close and the
+  // body scroll lock come from the hook Modal and Drawer share — one open-
+  // surface behaviour, not a third copy.
+  useDialogBehavior({ isOpen: mobileOpen, onClose: closeOverlay, closeOnEscape: true, containerRef: asideRef });
+
+  // The overlay is a phone-width surface. Once the viewport grows past `md`
+  // the in-flow column is on screen again, so an open overlay would show the
+  // navigation twice; it closes itself on that crossing.
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const desktop = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const settle = (): void => {
+      if (desktop.matches) closeOverlay();
+    };
+    settle();
+    desktop.addEventListener('change', settle);
+    return () => desktop.removeEventListener('change', settle);
+  }, [mobileOpen, closeOverlay]);
+
+  // Choosing a destination closes the overlay; the in-flow column stays put.
+  const handleNavigate = useCallback(
+    (path: string) => {
+      onNavigate(path);
+      if (mobileOpen) closeOverlay();
+    },
+    [onNavigate, mobileOpen, closeOverlay],
+  );
+
+  // `collapsed` is the desktop column's rail mode; the overlay always shows labels.
+  const rail = collapsed && !mobileOpen;
+  const desktopWidth = collapsed ? 'md:w-16' : 'md:w-64';
+  const placement = mobileOpen
+    ? `flex fixed inset-y-0 left-0 z-50 w-64 md:static md:inset-auto md:z-auto ${desktopWidth}`
+    : `hidden md:flex ${desktopWidth}`;
 
   return (
-    <aside
-      aria-label="Main navigation"
-      className={`
-        flex flex-col
-        ${collapsed ? 'w-16' : 'w-64'}
-        h-screen ${themeStyle.bg} border-r ${themeStyle.border}
-        transition-all duration-300
-        ${className}
-      `}
-    >
-      {/* Logo and collapse button */}
-      <div className={`h-16 flex items-center ${collapsed ? 'justify-center' : 'justify-between px-4'} border-b ${themeStyle.border}`}>
-        {!collapsed && logo}
-        {onCollapsedChange && (
-          <button
-            onClick={() => onCollapsedChange(!collapsed)}
-            className={`p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
-            title={collapsed ? 'Expand' : 'Collapse'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <svg
-              className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-            </svg>
-          </button>
-        )}
-      </div>
-
-      {/* Navigation menu */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-        {items.map((item) => (
-          <MenuItem
-            key={item.id}
-            item={item}
-            activePath={activePath}
-            collapsed={collapsed}
-            onNavigate={onNavigate}
-            userRoles={userRoles}
-            theme={theme}
-            customIcons={customIcons}
-          />
-        ))}
-      </nav>
-
-      {/* Footer content */}
-      {footer && (
-        <div className={`p-4 border-t ${themeStyle.border} ${collapsed ? 'hidden' : ''}`}>
-          {footer}
-        </div>
+    <>
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={closeOverlay}
+          aria-hidden="true"
+          data-testid="sidebar-backdrop"
+        />
       )}
-    </aside>
+      <aside
+        ref={asideRef}
+        id={id}
+        tabIndex={-1}
+        aria-label="Main navigation"
+        className={`
+          flex-col ${placement}
+          md:h-screen ${themeStyle.bg} border-r ${themeStyle.border}
+          transition-all duration-300 focus:outline-hidden
+          ${className}
+        `}
+      >
+        {/* Logo, the overlay's close button and the column's collapse button */}
+        <div className={`h-16 flex items-center ${rail ? 'justify-center' : 'justify-between px-4'} border-b ${themeStyle.border}`}>
+          {!rail && logo}
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={closeOverlay}
+              className={`md:hidden p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
+              aria-label="Close navigation"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            {onCollapsedChange && (
+              <button
+                type="button"
+                onClick={() => onCollapsedChange(!collapsed)}
+                className={`hidden md:inline-flex p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
+                title={collapsed ? 'Expand' : 'Collapse'}
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                <svg
+                  className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation menu */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+          {items.map((item) => (
+            <MenuItem
+              key={item.id}
+              item={item}
+              activePath={activePath}
+              collapsed={rail}
+              onNavigate={handleNavigate}
+              userRoles={userRoles}
+              theme={theme}
+              customIcons={customIcons}
+            />
+          ))}
+        </nav>
+
+        {/* Footer content */}
+        {footer && (
+          <div className={`p-4 border-t ${themeStyle.border} ${rail ? 'hidden' : ''}`}>
+            {footer}
+          </div>
+        )}
+      </aside>
+    </>
   );
 };
 

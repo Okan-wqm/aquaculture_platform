@@ -397,7 +397,7 @@ const SchemasTab: React.FC = () => {
           title="Schema Details"
           bodyClassName="p-6 space-y-4"
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="text-sm text-gray-500 dark:text-gray-400">Schema Name</div>
               <div className="font-medium">{selectedSchema.schemaName}</div>

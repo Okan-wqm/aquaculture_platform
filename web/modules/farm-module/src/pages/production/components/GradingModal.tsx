@@ -240,8 +240,8 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <Button variant="ghost" size="xs" type="button" onClick={() => removeRow(index)} disabled={rows.length <= 1}>Remove</Button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
                   <label
                     htmlFor={`grading-destination-${index}`}
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300"
@@ -316,7 +316,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
         </div>
 
         {/* Date + Notes */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label htmlFor="gradedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Grading Date
@@ -334,7 +334,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
         {/* Totals summary */}
         {totalQuantity > 0 && (
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
                 <p className="text-xs text-purple-600 uppercase">Total Graded</p>
                 <p className="text-lg font-bold text-purple-700">

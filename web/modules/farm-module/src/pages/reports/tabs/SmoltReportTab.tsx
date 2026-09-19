@@ -195,7 +195,7 @@ interface BasicInfoStepProps {
 
 const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteName }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
         <Input fullWidth type="text" value={siteName} disabled />
@@ -207,7 +207,7 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
     </div>
     <div>
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Facility Type</label>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
           onClick={() => onChange({ facilityType: 'land_based' })}
@@ -484,7 +484,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stage</label>
                     <Select fullWidth options={[{ value: 'fry', label: 'Fry' }, { value: 'parr', label: 'Parr' }, { value: 'smolt', label: 'Smolt' }]} value={unit.stage} onChange={(e) =>
@@ -739,7 +739,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-blue-600">
             {formatNumber(formData.fishCounts.total)}
@@ -765,7 +765,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
           Mortality Breakdown (Mattilsynet)
         </h5>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="text-center p-2 bg-orange-50 rounded">
             <div className="text-lg font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Euthanized (avlivet)</div>
@@ -787,7 +787,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {stageTotals.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Fish by Stage</h5>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {stageTotals.map((s) => (
               <div key={s.stage} className="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
                 <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatNumber(s.quantity)}</div>

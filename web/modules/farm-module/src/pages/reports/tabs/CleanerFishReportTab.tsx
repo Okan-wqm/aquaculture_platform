@@ -437,7 +437,7 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg></Button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Count</label>
                   <Input fullWidth type="number" min="0" value={fish.count || ''} onChange={(e) => updateSpecies(index, { count: parseInt(e.target.value) || 0 })} placeholder="0" />
@@ -447,7 +447,7 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
                   <Select fullWidth options={[{ value: 'farmed', label: 'Farmed' }, { value: 'wild_caught', label: 'Wild Caught' }]} value={fish.source} onChange={(e) => updateSpecies(index, { source: e.target.value as 'wild_caught' | 'farmed' })} />
                 </div>
                 {fish.source === 'wild_caught' && (
-                  <div className="col-span-2">
+                  <div className="sm:col-span-2">
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Capture Location</label>
                     <Input fullWidth type="text" value={fish.sourceLocation || ''} onChange={(e) => updateSpecies(index, { sourceLocation: e.target.value })} placeholder="Location where fish were caught" />
                   </div>
@@ -676,7 +676,7 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
       {/* Feed Consumption */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
         <h5 className="text-xs font-medium text-amber-800 uppercase mb-3">Feed Consumption (for period)</h5>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Dry feed - torrforKg</label>
             <div className="relative">
@@ -890,7 +890,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
           <div className="text-xl font-bold text-teal-600">{formatNumber(formData.totalCount)}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Inventory</div>
@@ -957,7 +957,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     </span>
                     <span className="text-xs text-red-600">- {formatNumber(speciesTotal)} removals</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-x-4 gap-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400">
                     {MORTALITY_CATEGORIES.map((cat) => {
                       const val = entry[cat.key];
                       if (val === 0) return null;
@@ -998,7 +998,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {(formData.feedConsumption.dryFeedKg > 0 || formData.feedConsumption.wetFeedKg > 0) && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Feed Consumption</h5>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Dry feed (torrforKg)</span>
               <span className="font-medium text-gray-900 dark:text-gray-100">{formData.feedConsumption.dryFeedKg.toFixed(1)} kg</span>

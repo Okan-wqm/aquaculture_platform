@@ -27,6 +27,10 @@
 #                 mutation declares its outcome through useFeedbackMutation.
 #   rawButton   — raw <button> elements per package, primitives excluded.
 #   rawField    — raw <input> / <select> / <textarea> per package, primitives excluded.
+#   fixedGrid   — class attributes fixing grid-cols-N (2–6, 8–11) with no
+#                 breakpoint variant, per package (web/apps excluded: phone-first
+#                 by construction). A week (7) and a layout grid (12) are not
+#                 counted. The phone shape is grid-cols-1 sm:grid-cols-2 lg:grid-cols-N.
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -135,7 +139,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 182
+      ceiling: 177
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -183,7 +187,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/shell
-      ceiling: 27
+      ceiling: 25
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -197,7 +201,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 124
+      ceiling: 123
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -244,6 +248,8 @@ rawField:
       expiry: 2027-03-31
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+fixedGrid:
+  entries: []
 rawSpinner:
   entries: []
 rawPageTitle:
@@ -295,7 +301,7 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 1483
+      ceiling: 1478
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

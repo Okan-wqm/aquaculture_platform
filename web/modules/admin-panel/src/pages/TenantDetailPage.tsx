@@ -416,7 +416,7 @@ const TenantDetailPage: React.FC = () => {
           {/* Basic Info */}
           <Card className="p-6 lg:col-span-2">
             <h3 className="text-lg font-semibold mb-4">General Information</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400">Company Name</label>
                 <p className="font-medium">{tenant.name}</p>
@@ -435,7 +435,7 @@ const TenantDetailPage: React.FC = () => {
                   {tenant.country || '-'} {tenant.region && `/ ${tenant.region}`}
                 </p>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="text-xs text-gray-500 dark:text-gray-400">Description</label>
                 <p className="text-gray-600 dark:text-gray-400">{tenant.description || '-'}</p>
               </div>
@@ -463,7 +463,7 @@ const TenantDetailPage: React.FC = () => {
 
             {/* Contacts */}
             <h4 className="text-md font-semibold mt-6 mb-3">Contact Information</h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <label className="text-xs text-gray-500 dark:text-gray-400">Primary Contact</label>
                 {tenant.primaryContact ? (
@@ -874,7 +874,7 @@ const TenantDetailPage: React.FC = () => {
             value={editForm.description || ''}
             onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Country"
               value={editForm.country || ''}

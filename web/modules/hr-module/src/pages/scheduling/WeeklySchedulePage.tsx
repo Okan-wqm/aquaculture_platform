@@ -456,7 +456,7 @@ export function WeeklySchedulePage() {
             className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-1.5 min-w-[120px]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
               {categories.map((c) => (
                 <button
                   key={c.code}

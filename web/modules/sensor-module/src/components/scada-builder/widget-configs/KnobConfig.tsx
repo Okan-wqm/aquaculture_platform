@@ -35,7 +35,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       </div>
 
       {/* Value range */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
           <Input fullWidth type="number" value={(config.min as number) ?? 0} onChange={(e) => onChange({ min: Number(e.target.value) })} />
@@ -51,7 +51,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       </div>
 
       {/* Angular range */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle</label>
           <Input fullWidth type="number" value={(config.startAngle as number) ?? 30} onChange={(e) => onChange({ startAngle: Number(e.target.value) })} min={0} max={180} />
@@ -93,7 +93,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           <div>
             <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Knob</label>
             <input

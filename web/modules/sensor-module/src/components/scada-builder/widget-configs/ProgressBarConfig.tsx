@@ -103,7 +103,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       {/* Range */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
           <input
@@ -125,7 +125,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       {/* Bar dimensions */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bar Height (px)</label>
           <input
@@ -188,7 +188,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Background</label>
             <input

@@ -1286,7 +1286,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       {/* Info Tab / New Form */}
       {activeTab === 'info' && (
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Code *
@@ -1307,7 +1307,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 Structured Text (ST)
               </div>
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
@@ -1357,7 +1357,7 @@ const AutomationProgramEditorPage: React.FC = () => {
           {showAddVariable && (
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h3 className="font-medium mb-3">New Variable</h3>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Input type="text" value={newVariable.varName} onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })} placeholder="Variable name" />
                 <Select options={[{ value: 'BOOL', label: 'BOOL' }, { value: 'INT', label: 'INT' }, { value: 'REAL', label: 'REAL' }, { value: 'TIME', label: 'TIME' }, { value: 'STRING', label: 'STRING' }]} value={newVariable.dataType} onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })} />
                 <Input type="text" value={newVariable.initialValue} onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })} placeholder="Initial value" />
@@ -1374,7 +1374,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               {showIoTagPicker && (
                 <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <h4 className="text-sm font-medium text-blue-700 mb-3">I/O Tag Binding</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Device</label>
                       <select

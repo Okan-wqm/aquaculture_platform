@@ -481,7 +481,7 @@ export const ConsumablesTab: React.FC = () => {
             {/* Basic Information */}
             <CollapsibleSection title="Basic Information" defaultOpen={true}>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                     <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -495,7 +495,7 @@ export const ConsumablesTab: React.FC = () => {
                     </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                     <FormField error={formData.category ? undefined : fieldErrors.category} className="mb-0">
@@ -521,7 +521,7 @@ export const ConsumablesTab: React.FC = () => {
                     <Select fullWidth options={[{ value: 'pcs', label: 'Pieces' }, { value: 'm', label: 'Meters' }, { value: 'kg', label: 'Kilograms' }, { value: 'L', label: 'Liters' }, { value: 'box', label: 'Box' }, { value: 'roll', label: 'Roll' }, { value: 'tank', label: 'Tank' }, { value: 'set', label: 'Set' }]} value={formData.unit} onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Brand</label>
                     <Input fullWidth type="text" value={formData.brand} onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))} />
@@ -555,7 +555,7 @@ export const ConsumablesTab: React.FC = () => {
 
             {/* Stock & Price */}
             <CollapsibleSection title="Stock & Price">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Current Stock</label>
                   <Input fullWidth type="number" min="0" step="0.01" value={formData.quantity} onChange={(e) =>
@@ -592,7 +592,7 @@ export const ConsumablesTab: React.FC = () => {
 
             {/* Storage Conditions */}
             <CollapsibleSection title="Storage Conditions">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Temperature (°C)

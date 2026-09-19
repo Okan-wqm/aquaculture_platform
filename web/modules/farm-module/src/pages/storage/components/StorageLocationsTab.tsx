@@ -255,7 +255,7 @@ export const StorageLocationsTab: React.FC = () => {
       >
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                 <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -269,7 +269,7 @@ export const StorageLocationsTab: React.FC = () => {
                 </FormField>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
                 <select
@@ -308,7 +308,7 @@ export const StorageLocationsTab: React.FC = () => {
                 </FormField>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capacity</label>
                 <Input fullWidth type="number" min="0" value={formData.capacity} onChange={(e) =>
@@ -325,7 +325,7 @@ export const StorageLocationsTab: React.FC = () => {
          } />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Temp Min (°C)</label>
                 <Input fullWidth type="number" step="0.1" value={formData.temperatureMin} onChange={(e) =>
@@ -345,7 +345,7 @@ export const StorageLocationsTab: React.FC = () => {
          } />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Humidity Min (%)</label>
                 <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.humidityMin} onChange={(e) =>

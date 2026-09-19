@@ -155,7 +155,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
             <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Cihaz</label>
               <Input fullWidth type="number" value={maxDevices} onChange={(e) => setMaxDevices(e.target.value)} placeholder="S\u0131n\u0131rs\u0131z" min="1" />
@@ -242,7 +242,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           </div>
 
           {/* Info */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <span className="text-gray-500 dark:text-gray-400 block text-xs">Max Cihaz</span>
               <span className="font-medium">{result.maxDevices ?? 'S\u0131n\u0131rs\u0131z'}</span>
@@ -252,7 +252,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               <span className="font-medium">{result.autoApprove ? 'Evet' : 'Hay\u0131r'}</span>
             </div>
             {result.expiresAt && (
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg col-span-2">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg sm:col-span-2">
                 <span className="text-gray-500 dark:text-gray-400 block text-xs">Ge\u00E7erlilik</span>
                 <span className="font-medium">{formatDate(result.expiresAt)}</span>
               </div>

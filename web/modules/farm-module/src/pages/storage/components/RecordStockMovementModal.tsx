@@ -378,7 +378,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           {/* Item Type — determines which item list is loaded */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -422,7 +422,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           </div>
 
           {/* Location fields — shown/hidden based on movement type */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {showFromLocation && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Location *</label>

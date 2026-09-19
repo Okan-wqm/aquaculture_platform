@@ -230,7 +230,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
 
       {/* Device Info */}
       <div className="p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Model:</span>
             <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
@@ -295,7 +295,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
         )}
 
         {/* Stats Summary */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
             <div className="text-lg font-semibold text-cyan-600">
               {device.sensorCount ?? 0}

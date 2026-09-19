@@ -393,7 +393,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         {quantity > 0 && destinationTankId && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Transfer</h4>
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               {/* Source Tank */}
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Source: {tank.tankName}</p>

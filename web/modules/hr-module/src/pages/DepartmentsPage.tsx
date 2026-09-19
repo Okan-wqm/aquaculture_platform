@@ -110,7 +110,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Brief description of the department" />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Budget Code

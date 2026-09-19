@@ -549,7 +549,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
       {/* Type */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Type</label>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
             <button
               key={t}
@@ -720,7 +720,7 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-blue-50 rounded-lg p-4 text-center">
           <Eye size={24} className="mx-auto text-blue-600 mb-2" />
           <div className="text-2xl font-bold text-blue-700">{announcement.viewCount}</div>

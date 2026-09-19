@@ -242,7 +242,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
           {warningCount > 0 ? `${warningCount} Uyari` : 'Normal'}
         </Badge>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {entries.map(([key, value]) => {
           const range = waterQualityRanges[key];
           const isWarning = range ? (value < range.min || value > range.max) : false;

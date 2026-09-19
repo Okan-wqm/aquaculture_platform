@@ -207,7 +207,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Item Type — determines which item list is loaded */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}

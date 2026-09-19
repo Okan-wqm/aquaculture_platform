@@ -291,7 +291,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
 
               {/* Settings row */}
               {config.enabled && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <div>
                     <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Interval</label>
                     <select

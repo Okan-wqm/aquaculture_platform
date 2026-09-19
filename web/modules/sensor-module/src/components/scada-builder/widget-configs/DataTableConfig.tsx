@@ -138,7 +138,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
                 {/* Width */}
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width (px)</label>
@@ -186,7 +186,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
       {/* Pagination */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Page Size</label>
             <select
@@ -237,7 +237,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       {/* Colors */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Header BG</label>
             <input

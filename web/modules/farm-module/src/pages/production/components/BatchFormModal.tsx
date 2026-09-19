@@ -398,7 +398,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {/* Basic Info Tab */}
           {activeTab === 'basic' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Name (optional) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch Name</label>
@@ -424,7 +424,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Supplier */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -474,7 +474,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Input Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -559,7 +559,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Arrival Method */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -612,7 +612,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Strain */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Strain</label>
@@ -636,7 +636,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Purchase Cost */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

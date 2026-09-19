@@ -563,7 +563,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         )}
 
         {/* Basic Fields */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Tag Adi *</label>
             <input
@@ -588,7 +588,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>I/O Tipi *</label>
             <select
@@ -620,7 +620,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
 
         {/* Module Address / Channel — immutable after creation (hardware binding) */}
         {!isEdit && (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Modul Adresi *</label>
               <input
@@ -672,7 +672,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
         {!isEdit && form.protocolMode === 'modbus' && (
           <div className="p-4 bg-blue-50 rounded-lg space-y-3">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className={labelCls}>Slave ID</label>
                 <input
@@ -724,7 +724,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
 
         {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
         {!isEdit && form.protocolMode === 'gpio' && (
-          <div className="grid grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
             <div>
               <label className={labelCls}>GPIO Pin</label>
               <input
@@ -764,7 +764,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         {isAnalog && (
           <div className="p-4 bg-purple-50 rounded-lg space-y-3">
             <p className="text-xs font-medium text-purple-700 uppercase">Analog Olceklendirme</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Raw Min</label>
                 <input type="number" step="any" className={inputCls} value={form.rawMin} onChange={(e) => set('rawMin', e.target.value)} />
@@ -792,7 +792,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
         <div className="p-4 bg-orange-50 rounded-lg space-y-3">
           <p className="text-xs font-medium text-orange-700 uppercase">Alarm Esikleri (ISA-18.2)</p>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
               <label className={labelCls}>HH</label>
               <input type="number" step="any" className={inputCls} value={form.alarmHH} onChange={(e) => set('alarmHH', e.target.value)} />
@@ -1870,7 +1870,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             {/* Connection Info */}
             <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Baglanti Bilgileri</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Baglanti Kalitesi</p>
                   <p className="font-medium text-gray-900 dark:text-gray-100">{device.connectionQuality != null ? `${device.connectionQuality}%` : '-'}</p>
@@ -1901,7 +1901,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             <FirmwareManagementCard device={device} refetch={refetch} />
 
             {/* Summary stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{device.sensorCount ?? 0}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Sensor</p>

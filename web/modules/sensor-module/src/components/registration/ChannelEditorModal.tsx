@@ -216,7 +216,7 @@ export function ChannelEditorModal({
                   <Textarea fullWidth value={formData.description || ''} onChange={(e) => handleChange('description', e.target.value)} rows={2} placeholder="Optional description for this channel" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label
                       htmlFor="channel-editor-data-type"
@@ -262,7 +262,7 @@ export function ChannelEditorModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Min Value
@@ -309,7 +309,7 @@ export function ChannelEditorModal({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
                     <span className="block text-xs text-gray-500 dark:text-gray-400">Durum</span>
                     <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -341,7 +341,7 @@ export function ChannelEditorModal({
                     </svg>
                     Warning Thresholds
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-yellow-700 mb-1">Low Warning</label>
                       <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.low ?? ''} onChange={(e) => handleAlertChange('warning', 'low', e.target.value)} placeholder="Below this = warning" />
@@ -361,7 +361,7 @@ export function ChannelEditorModal({
                     </svg>
                     Critical Thresholds
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-red-700 mb-1">Low Critical</label>
                       <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.low ?? ''} onChange={(e) => handleAlertChange('critical', 'low', e.target.value)} placeholder="Below this = critical" />
@@ -418,7 +418,7 @@ export function ChannelEditorModal({
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Widget Type
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {WIDGET_TYPE_OPTIONS.map(opt => (
                       <button
                         key={opt.value}
@@ -462,7 +462,7 @@ export function ChannelEditorModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Decimal Precision

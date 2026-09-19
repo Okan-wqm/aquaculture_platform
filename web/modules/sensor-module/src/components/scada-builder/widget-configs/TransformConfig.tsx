@@ -119,7 +119,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 {aspectLock ? 'Locked' : 'Lock'}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X</label>
                 <input
@@ -150,7 +150,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           </div>
 
           {/* Skew */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew X</label>
               <input
@@ -183,7 +183,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Origin</label>
             <div
-              className="inline-grid grid-cols-3 gap-1 p-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg"
+              className="inline-grid grid-cols-1 sm:grid-cols-3 gap-1 p-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg"
               role="radiogroup"
               aria-label="Transform origin"
             >

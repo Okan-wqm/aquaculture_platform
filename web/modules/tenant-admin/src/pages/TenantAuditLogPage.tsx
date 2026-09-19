@@ -91,7 +91,7 @@ const DetailsModal: React.FC<{
         <Button variant="secondary" type="button" onClick={onClose}>Close</Button>
       }
     >
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Timestamp</label>
           <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">

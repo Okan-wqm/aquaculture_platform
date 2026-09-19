@@ -261,7 +261,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
         />
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="flex items-center gap-2">
               <Megaphone className="w-4 h-4 text-gray-500 dark:text-gray-400" />

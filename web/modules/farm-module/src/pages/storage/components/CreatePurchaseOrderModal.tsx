@@ -238,7 +238,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           {/* Category */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat.value}
@@ -260,7 +260,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           </div>
 
           {/* Supplier */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
               <Input fullWidth type="text" required value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />

@@ -107,7 +107,7 @@ export function VfdChangeSetDetail({
       {/* Summary */}
       <div>
         <p className="text-sm text-gray-600 dark:text-gray-400">{cs.description || 'No description'}</p>
-        <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Status:</span>{' '}
             <span className="font-medium">{formatStatus(cs.status)}</span>

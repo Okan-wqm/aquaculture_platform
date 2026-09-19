@@ -85,7 +85,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
       </div>
 
       {/* Manufacturer and Model */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="manufacturer" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Manufacturer
@@ -115,7 +115,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
           Select where this device is installed. Site and Department are required.
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Site - Required */}
           <div>
             <label htmlFor="siteId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

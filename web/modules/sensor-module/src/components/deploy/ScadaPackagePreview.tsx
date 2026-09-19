@@ -24,7 +24,7 @@ export const ScadaPackagePreview: React.FC<ScadaPackagePreviewProps> = ({ packag
   const jsonSizeStr = formatSize(new Blob([JSON.stringify(packageData)]).size);
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
       <div className="p-2 bg-purple-50 rounded-lg text-center border border-purple-100">
         <p className="text-lg font-bold text-purple-700">{screenCount}</p>
         <p className="text-xs text-purple-600">Screens</p>

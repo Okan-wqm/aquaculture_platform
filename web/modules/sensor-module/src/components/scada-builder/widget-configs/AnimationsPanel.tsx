@@ -272,7 +272,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           </div>
 
           {/* Range */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Range Min</label>
               <input
@@ -314,7 +314,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* rotate — continuous rotation driven by tag threshold */}
           {anim.type === 'rotate' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Speed (ms)</label>
                 <input
@@ -352,7 +352,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   className={INPUT_CLASS}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color A</label>
                   <div className="flex items-center gap-1">
@@ -407,7 +407,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* fillLevel — tank/vessel fill visualization */}
           {anim.type === 'fillLevel' && (
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Min</label>
                   <input
@@ -427,7 +427,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Warning %</label>
                   <input
@@ -457,7 +457,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* move — translate widget position based on tag value */}
           {anim.type === 'move' && (
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To X</label>
                   <input
@@ -493,7 +493,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* valueMappedRotation — linear mapping from tag value range to angle range */}
           {anim.type === 'valueMappedRotation' && (
             <div className="space-y-2" data-testid="value-mapped-rotation-config">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Angle</label>
                   <input
@@ -543,7 +543,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* piston — vertical oscillation for pump/compressor symbols */}
           {anim.type === 'piston' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="piston-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="piston-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Distance (px)</label>
                 <input
@@ -616,7 +616,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* scale — tag value to scale factor mapping */}
           {anim.type === 'scale' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="scale-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="scale-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Scale</label>
                 <input
@@ -648,7 +648,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* opacity — gradual fade based on tag value range */}
           {anim.type === 'opacity' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="opacity-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="opacity-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Opacity</label>
                 <input

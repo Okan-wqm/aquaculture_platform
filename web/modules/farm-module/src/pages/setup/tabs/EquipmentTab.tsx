@@ -1109,7 +1109,7 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   General Information
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                     <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
@@ -1121,7 +1121,7 @@ export const EquipmentTab: React.FC = () => {
                 </div>
 
                 {/* Two-stage type selection */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                     <select
@@ -1161,7 +1161,7 @@ export const EquipmentTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status *</label>
                     <select
@@ -1214,7 +1214,7 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Location
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
                     <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
@@ -1401,7 +1401,7 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Details
                 </h4>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacturer</label>
                     <Input fullWidth type="text" value={formData.manufacturer} onChange={(e) =>
@@ -1419,7 +1419,7 @@ export const EquipmentTab: React.FC = () => {
            } />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Purchase Date</label>
                     <Input fullWidth type="date" value={formData.purchaseDate} onChange={(e) =>

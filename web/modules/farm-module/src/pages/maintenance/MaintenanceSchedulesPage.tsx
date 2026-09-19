@@ -488,7 +488,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Kategori"
               value={formData.category}
@@ -512,7 +512,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Başlangıç Tarihi"
               type="date"
@@ -527,7 +527,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Tahmini Süre (dk)"
               type="number"
@@ -556,7 +556,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={formData.instructions}
             onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-center">
               <input
                 type="checkbox"

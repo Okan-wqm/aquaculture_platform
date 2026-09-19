@@ -113,6 +113,25 @@ const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
  */
 const RAW_BUTTON = /<button\b/g;
 const RAW_FIELD = /<(?:input|select|textarea)\b/g;
+/**
+ * A class attribute that fixes `grid-cols-N` (N in 2–6 or 8–11) with no
+ * breakpoint variant (FE-HIGH-088): on a 375 px phone the N columns share the
+ * width and every cell wraps or overflows. Seven (a week) and twelve (a layout
+ * grid whose children set `col-span`) are intentional and not counted; the
+ * responsive shape is `grid-cols-1 sm:grid-cols-2 lg:grid-cols-N`. AquaMobil
+ * is phone-first by construction and is not counted.
+ */
+const CLASS_ATTRIBUTE = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
+const FIXED_GRID = /(?<![\w:-])grid-cols-(?:[2-6]|8|9|1[01])(?![\w-])/;
+const RESPONSIVE_GRID = /\b(?:sm|md|lg|xl|2xl):grid-cols-/;
+function fixedGrids(source: string): number {
+  let count = 0;
+  for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
+    const value = match[1] ?? match[2] ?? '';
+    if (FIXED_GRID.test(value) && !RESPONSIVE_GRID.test(value)) count += 1;
+  }
+  return count;
+}
 const MUTATION_WRAPPERS = ['web/modules/admin-panel/src/hooks/useAdminMutation.ts'];
 
 /** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
@@ -266,6 +285,7 @@ interface Allowlist {
   rawMutation: { entries: PackageCeiling[] };
   rawButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
+  fixedGrid: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
   darkSurface: { entries: PackageCeiling[] };
@@ -300,10 +320,11 @@ function expiryIso(value: string | Date): string {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
 }
 
-function countByPackage(files: string[], pattern: RegExp): Map<string, number> {
+function countByPackage(files: string[], pattern: RegExp | ((source: string) => number)): Map<string, number> {
   const counts = new Map<string, number>();
   for (const file of files) {
-    const hits = read(file).match(pattern)?.length ?? 0;
+    const source = read(file);
+    const hits = typeof pattern === 'function' ? pattern(source) : (source.match(pattern)?.length ?? 0);
     if (hits === 0) continue;
     const pkg = packageOf(file);
     counts.set(pkg, (counts.get(pkg) ?? 0) + hits);
@@ -470,6 +491,31 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.rawButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets grids fixed at N columns for every viewport per package (FE-HIGH-088)', () => {
+    const actual = countByPackage(
+      files.filter((file) => !file.startsWith('web/apps/')),
+      fixedGrids,
+    );
+    const ceilings = new Map(doc.fixedGrid.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} fixed grids, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} grids fixed at N columns with no breakpoint variant, ceiling ${entry.ceiling}. Give the grid a phone shape (grid-cols-1 sm:grid-cols-2 lg:grid-cols-N) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.fixedGrid.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

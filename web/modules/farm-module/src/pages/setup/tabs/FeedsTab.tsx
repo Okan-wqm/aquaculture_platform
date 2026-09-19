@@ -771,13 +771,13 @@ export const FeedsTab: React.FC = () => {
                       <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Feeding Curve</h4>
                       {feed.feedingCurve && feed.feedingCurve.length > 0 ? (
                         <div className="space-y-2">
-                          <div className="grid grid-cols-3 gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 border-b pb-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-medium text-gray-500 dark:text-gray-400 border-b pb-2">
                             <span>Weight (g)</span>
                             <span>Rate (%BW)</span>
                             <span>FCR</span>
                           </div>
                           {feed.feedingCurve.map((point, index) => (
-                            <div key={index} className="grid grid-cols-3 gap-2 text-sm">
+                            <div key={index} className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                               <span>{point.fishWeightG}</span>
                               <span>{point.feedingRatePercent}%</span>
                               <span>{point.fcr}</span>
@@ -843,7 +843,7 @@ export const FeedsTab: React.FC = () => {
           <div className="max-h-[70vh] overflow-y-auto">
             {/* Section 1: Basic Information */}
             <CollapsibleSection title="Basic Information" defaultOpen={true}>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Feed Name *</label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -924,7 +924,7 @@ export const FeedsTab: React.FC = () => {
 
             {/* Section 2: Pellet Information */}
             <CollapsibleSection title="Pellet Information">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Pellet Size Label
@@ -999,7 +999,7 @@ export const FeedsTab: React.FC = () => {
 
             {/* Section 3: Nutritional Declaration */}
             <CollapsibleSection title="Nutritional Declaration">
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Crude Protein (%)
@@ -1226,7 +1226,7 @@ export const FeedsTab: React.FC = () => {
 
             {/* Section 6: Environmental Impact */}
             <CollapsibleSection title="Environmental Impact">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     CO2-eq with LUC (kg CO2/kg)
@@ -1264,7 +1264,7 @@ export const FeedsTab: React.FC = () => {
                 {formData.documents.map((doc, index) => (
                   <div
                     key={index}
-                    className="grid grid-cols-4 gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg"
+                    className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg"
                   >
                     <div>
                       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Type</label>
@@ -1324,7 +1324,7 @@ export const FeedsTab: React.FC = () => {
 
             {/* Section 8: Pricing */}
             <CollapsibleSection title="Pricing">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Unit Price ({DEFAULT_CURRENCY})
@@ -1356,7 +1356,7 @@ export const FeedsTab: React.FC = () => {
 
             {/* Section 9: Storage Conditions */}
             <CollapsibleSection title="Storage Conditions">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Temperature (°C)

@@ -641,7 +641,7 @@ export const SuppliersTab: React.FC = () => {
               isOpen={openSections.basic}
               onToggle={() => toggleSection('basic')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -653,7 +653,7 @@ export const SuppliersTab: React.FC = () => {
                   <Input fullWidth type="text" value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type *</label>
                   <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
@@ -699,7 +699,7 @@ export const SuppliersTab: React.FC = () => {
               isOpen={openSections.contact}
               onToggle={() => toggleSection('contact')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
                   <Input fullWidth type="text" value={formData.contactPerson} onChange={(e) =>
@@ -711,7 +711,7 @@ export const SuppliersTab: React.FC = () => {
                   <Input fullWidth type="email" value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
                   <Input fullWidth type="tel" value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} />
@@ -733,7 +733,7 @@ export const SuppliersTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Street Address</label>
                 <Input fullWidth type="text" value={formData.street} onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))} placeholder="Street, Building, No." />
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">City</label>
                   <Input fullWidth type="text" value={formData.city} onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))} />

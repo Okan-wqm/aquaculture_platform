@@ -316,7 +316,7 @@ export const AutomationBindingPanel: React.FC = () => {
 
       {/* Summary */}
       {automationBindings.length > 0 && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="px-3 py-2 bg-green-50 border border-green-100 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
               <Check className="w-3 h-3 text-green-600" />

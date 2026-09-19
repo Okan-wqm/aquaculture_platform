@@ -152,7 +152,7 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             PLC Connection Settings
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="plc-ip-address" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">IP Address</label>
               <Input fullWidth id="plc-ip-address" type="text" value={plcConfig.targetPlcAddress || ''} onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })} placeholder="192.168.1.100" />

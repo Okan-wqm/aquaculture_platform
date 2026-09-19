@@ -212,7 +212,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
         <Input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
           Birim
           <Input value={engUnit} onChange={(e) => setEngUnit(e.target.value)} />
@@ -221,7 +221,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
         {numField('Eng Max', engMax, setEngMax)}
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {numField('Alarm LL', alarmLL, setAlarmLL)}
         {numField('Alarm L', alarmL, setAlarmL)}
         {numField('Alarm H', alarmH, setAlarmH)}
@@ -237,7 +237,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
           Bu tag&apos;i bir sensör kanalına bağlayın — gelen ölçümler bu tag&apos;in
           FQN&apos;i altında operatör ekranlarına canlı akar.
         </p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
             Sensör
             <select

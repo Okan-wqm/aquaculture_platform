@@ -43,7 +43,7 @@ export function VfdReviewStep({
         stepIndex={0}
         onEdit={onEdit}
       >
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ReviewItem label="Marka" value={brand?.name} />
           <ReviewItem label="Protokol" value={protocol ? VFD_PROTOCOL_NAMES[protocol] : undefined} />
         </div>
@@ -55,14 +55,14 @@ export function VfdReviewStep({
         stepIndex={2}
         onEdit={onEdit}
       >
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ReviewItem label="Cihaz Adı" value={basicInfo.name} required />
           <ReviewItem label="Model Serisi" value={modelSeries} />
           <ReviewItem label="Model Numarası" value={basicInfo.model} />
           <ReviewItem label="Seri Numarası" value={basicInfo.serialNumber} />
           <ReviewItem label="Konum" value={basicInfo.location} />
           {basicInfo.tags && basicInfo.tags.length > 0 && (
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <span className="text-gray-500 dark:text-gray-400 text-sm">Etiketler:</span>{' '}
               <div className="flex flex-wrap gap-1 mt-1">
                 {basicInfo.tags.map((tag) => (

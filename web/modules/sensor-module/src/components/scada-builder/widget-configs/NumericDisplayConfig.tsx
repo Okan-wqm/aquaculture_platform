@@ -24,7 +24,7 @@ export const NumericDisplayConfig: React.FC<WidgetConfigProps> = ({ config, onCh
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Temperature" />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
           <Input fullWidth type="text" value={config.unit || ''} onChange={(e) => onChange({ unit: e.target.value })} placeholder="°C" />

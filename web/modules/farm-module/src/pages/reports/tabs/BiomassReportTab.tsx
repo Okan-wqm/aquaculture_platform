@@ -314,7 +314,7 @@ interface BasicInfoStepProps {
 
 const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteName }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
         <Input fullWidth type="text" value={siteName} disabled />
@@ -1097,7 +1097,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
                     </svg></Button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Feed Name</label>
                   <input
@@ -1209,7 +1209,7 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-blue-800">Incoming</span>
@@ -1901,7 +1901,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       )}
 
       {/* Stats Cards — real persisted rows */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Reports</div>

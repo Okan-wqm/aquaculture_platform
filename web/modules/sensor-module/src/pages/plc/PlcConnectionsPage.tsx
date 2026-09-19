@@ -193,7 +193,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bağlantı Adı *</label>
             <Input fullWidth type="text" required minLength={2} maxLength={255} value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="PLC-Tank-01" />
@@ -246,7 +246,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                 </div>
               )}
             </div>
-            <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Guvenlik Modu</label>
                 <Select fullWidth options={[{ value: 'None', label: 'Yok' }, { value: 'Sign', label: 'Imzali' }, { value: 'SignAndEncrypt', label: 'Imzali & Sifreli' }]} value={form.securityMode} onChange={(e) => updateField('securityMode', e.target.value)} />
@@ -263,7 +263,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               </div>
             </div>
             {form.authMode === 'Username' && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kullanici Adi</label>
                   <Input fullWidth type="text" value={form.username} onChange={(e) => updateField('username', e.target.value)} />
@@ -367,7 +367,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         {/* Timing Settings */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Zamanlama</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yayinlama (ms)</label>
               <Input fullWidth type="number" min={100} max={60000} value={form.publishingIntervalMs} onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))} />
@@ -386,7 +386,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         {/* Node IDs */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">OPC UA Node ID&apos;leri</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Node</label>
               <Input className="font-mono" fullWidth type="text" value={form.parametersNodeId} onChange={(e) => updateField('parametersNodeId', e.target.value)} placeholder="ns=2;s=Parameters" />
@@ -426,7 +426,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                     <span className="text-sm text-gray-700 dark:text-gray-300">Otomatik Yeniden Baglan</span>
                   </label>
                   {form.autoReconnect && (
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maks Deneme (-1=sinirsiz)</label>
                         <Input fullWidth type="number" min={-1} max={1000} value={form.maxReconnectAttempts} onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))} />
@@ -447,7 +447,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               {/* Timeouts */}
               <div>
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Zaman Asimlari</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baglanti (ms)</label>
                     <Input fullWidth type="number" min={1000} max={60000} value={form.connectTimeoutMs} onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))} />

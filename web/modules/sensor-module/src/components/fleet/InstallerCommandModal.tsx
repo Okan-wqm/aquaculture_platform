@@ -115,7 +115,7 @@ export function InstallerCommandModal({
           <div className="p-6 space-y-6">
             {/* Device Info */}
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">Cihaz Kodu:</span>
                   <span className="ml-2 font-mono font-semibold text-gray-900 dark:text-gray-100">

@@ -82,7 +82,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <div>
                   <div className="text-xs text-gray-400 dark:text-gray-500">Quantity</div>
                   <div className="font-medium text-gray-700 dark:text-gray-300">

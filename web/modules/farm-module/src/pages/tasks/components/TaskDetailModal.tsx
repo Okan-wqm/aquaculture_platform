@@ -85,7 +85,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Atanan:</span>
             <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{task.assignedToName}</span>

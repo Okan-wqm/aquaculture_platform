@@ -117,7 +117,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         </div>
 
         {/* Quantity */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Initial Quantity <span className="text-red-500">*</span>
@@ -145,7 +145,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         )}
 
         {/* Source Type */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="sourceType" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Source Type
@@ -180,7 +180,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         </div>
 
         {/* Purchase Cost */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="purchaseCost" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Purchase Cost

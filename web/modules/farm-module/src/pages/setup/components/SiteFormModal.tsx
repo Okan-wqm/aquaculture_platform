@@ -412,7 +412,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <Textarea fullWidth id="site-description" value={formData.description} onChange={(e) => handleInputChange('description', e.target.value)} rows={3} placeholder="Brief description of the site..." />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="site-type"
@@ -458,7 +458,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="site-total-area"
@@ -506,7 +506,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
           {/* Location Tab */}
           {activeTab === 'location' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="site-country"
@@ -542,7 +542,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
          } placeholder="Street address..." />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <label
                     htmlFor="site-city"
@@ -756,7 +756,7 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 <Input fullWidth id="site-manager" type="text" value={formData.siteManager} onChange={(e) => handleInputChange('siteManager', e.target.value)} placeholder="Full name of site manager" />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="site-contact-email"

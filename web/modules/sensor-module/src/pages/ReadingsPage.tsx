@@ -549,7 +549,7 @@ const ReadingsPage: React.FC = () => {
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-cyan-50 rounded-lg">

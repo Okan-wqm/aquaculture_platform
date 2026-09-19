@@ -72,7 +72,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
           Which would you like to record {operationLabels[operation]} for?
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {hasProduction && (
             <Button variant="secondary" onClick={() => onSelect('production')}><div className="flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

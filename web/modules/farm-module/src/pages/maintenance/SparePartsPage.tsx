@@ -477,7 +477,7 @@ export const SparePartsPage: React.FC = () => {
         title={editingId ? 'Yedek Parça Düzenle' : 'Yeni Yedek Parça'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Parça Kodu"
               value={formData.code}
@@ -507,7 +507,7 @@ export const SparePartsPage: React.FC = () => {
             value={formData.manufacturer}
             onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
           />
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Input
               label="Miktar"
               type="number"
@@ -545,7 +545,7 @@ export const SparePartsPage: React.FC = () => {
               required
             />
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Input
               label="Birim"
               value={formData.unit}
@@ -572,7 +572,7 @@ export const SparePartsPage: React.FC = () => {
               ]}
             />
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Input
               label="Depo"
               value={formData.warehouseLocation}

@@ -249,7 +249,7 @@ export function ChildSensorFormModal({
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Data Type <span className="text-red-500">*</span>
@@ -298,7 +298,7 @@ export function ChildSensorFormModal({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Value</label>
                     <Input fullWidth type="number" step="any" value={formData.minValue ?? ''} onChange={(e) => handleChange('minValue', e.target.value ? parseFloat(e.target.value) : undefined)} />
@@ -326,7 +326,7 @@ export function ChildSensorFormModal({
                 </div>
 
                 {formData.calibrationEnabled && (
-                  <div className="grid grid-cols-2 gap-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Multiplier
@@ -341,7 +341,7 @@ export function ChildSensorFormModal({
                       <Input fullWidth type="number" step="any" value={formData.calibrationOffset} onChange={(e) => handleChange('calibrationOffset', parseFloat(e.target.value) || 0)} />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Added after multiplication</p>
                     </div>
-                    <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
+                    <div className="sm:col-span-2 text-sm text-gray-600 dark:text-gray-400">
                       Formula: <code className="bg-white dark:bg-gray-900 px-2 py-0.5 rounded">
                         calibrated = (raw × {formData.calibrationMultiplier}) + {formData.calibrationOffset}
                       </code>
@@ -354,11 +354,11 @@ export function ChildSensorFormModal({
               <div className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 border-b pb-2">Alert Thresholds</h3>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Warning */}
                   <div className="bg-yellow-50 p-4 rounded-lg">
                     <h4 className="text-sm font-medium text-yellow-800 mb-3">Warning</h4>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
                         <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.low ?? ''} onChange={(e) => handleAlertChange('warning', 'low', e.target.value)} />
@@ -373,7 +373,7 @@ export function ChildSensorFormModal({
                   {/* Critical */}
                   <div className="bg-red-50 p-4 rounded-lg">
                     <h4 className="text-sm font-medium text-red-800 mb-3">Critical</h4>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
                         <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.low ?? ''} onChange={(e) => handleAlertChange('critical', 'low', e.target.value)} />

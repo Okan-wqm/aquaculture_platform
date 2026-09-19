@@ -479,7 +479,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Mortality Rate (%) <span className="text-red-500">*</span>
@@ -648,7 +648,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Equipment Name <span className="text-red-500">*</span>
@@ -700,7 +700,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Injured Fish</label>
                 <Input fullWidth type="number" value={formData.injuredFishCount} onChange={(e) => handleChange('injuredFishCount', e.target.value)} placeholder="0" />
@@ -739,7 +739,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 <p className="mt-1 text-xs text-red-600">{errors.description}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Affected Fish Estimate <span className="text-red-500">*</span>

@@ -108,7 +108,7 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
               </div>
 
               {/* Day + Hours */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Day</label>
                   <select
@@ -162,7 +162,7 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
               </div>
 
               {/* Optional: Tag Name + Tag Value */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Tag Name (optional)</label>
                   <Input fullWidth type="text" value={entry.tagName ?? ''} onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })} placeholder="e.g. pump1.schedule" />

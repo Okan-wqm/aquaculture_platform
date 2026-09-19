@@ -462,7 +462,7 @@ const DeviceDetailPage: React.FC = () => {
           {/* Technical Details */}
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Teknik Bilgiler</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Üretici</p>
                 <p className="font-medium text-gray-900 dark:text-gray-100">{device.manufacturer || 'Belirtilmemiş'}</p>

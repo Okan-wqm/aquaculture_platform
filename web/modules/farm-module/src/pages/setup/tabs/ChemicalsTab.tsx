@@ -224,7 +224,7 @@ const SiteMultiSelect: React.FC<{
       {sites.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">No sites available</p>
       ) : (
-        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
           {sites.map((site) => (
             <label
               key={site.id}
@@ -830,7 +830,7 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('basic')}
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                     <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -844,7 +844,7 @@ export const ChemicalsTab: React.FC = () => {
                     </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                     <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
@@ -884,7 +884,7 @@ export const ChemicalsTab: React.FC = () => {
                     </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Manufacturer (Supplier)
@@ -941,7 +941,7 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('composition')}
               optional
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Active Ingredient
@@ -973,7 +973,7 @@ export const ChemicalsTab: React.FC = () => {
               optional
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Storage Requirements
@@ -999,7 +999,7 @@ export const ChemicalsTab: React.FC = () => {
            } />
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Min Temp (°C)</label>
                     <Input fullWidth type="number" step="0.1" value={formData.storageTempMin} onChange={(e) =>
@@ -1041,7 +1041,7 @@ export const ChemicalsTab: React.FC = () => {
            } />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Signal Word</label>
                     <Select fullWidth options={[{ value: '', label: 'None' }, { value: 'warning', label: 'Warning' }, { value: 'danger', label: 'Danger' }]} value={formData.signalWord} onChange={(e) =>
@@ -1065,7 +1065,7 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('usage')}
               optional
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Withdrawal Period (days)

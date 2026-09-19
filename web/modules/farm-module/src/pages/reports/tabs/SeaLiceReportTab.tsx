@@ -188,7 +188,7 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
   temperatureMeta,
 }) => (
   <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
         <Input fullWidth type="text" value={siteName} disabled />
@@ -596,7 +596,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
       {/* Threshold Reference */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h4 className="text-sm font-medium text-blue-800 mb-2">Norwegian Sea Lice Thresholds</h4>
-        <div className="grid grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div>
             <span className="text-blue-600">Alert Level:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.ALERT_LEVEL}</span>
@@ -736,7 +736,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Non-medicated type selection */}
                 {treatment.category === 'non_medicated' && (
                   <div>
@@ -810,7 +810,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 </div>
 
                 {/* Mattilsynet-specific fields */}
-                <div className="col-span-2 grid grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
+                <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-gray-700 mt-1">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -945,7 +945,7 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
         </div>
 
         {formData.sensitivityTest.performed && (
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Laboratory Name</label>
               <Input fullWidth type="text" value={formData.sensitivityTest.labName} onChange={(e) => updateSensitivityTest({ labName: e.target.value })} placeholder="e.g., PatoGen" />
@@ -1095,7 +1095,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       )}
 
       {/* Data Summary */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Water Temperature</h5>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formData.waterTemperature3m}°C</p>
@@ -1117,7 +1117,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
         <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
           Sea Lice Counts (per fish)
         </h5>
-        <div className="grid grid-cols-4 gap-4 text-center">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
           <div>
             <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formData.siteCounts.adultFemale.toFixed(2)}
@@ -1219,7 +1219,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                 <span className="w-2 h-2 bg-blue-400 rounded-full" />
                 <span className="font-medium text-gray-700 dark:text-gray-300">Sensitivity Test</span>
               </div>
-              <div className="ml-4 grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <div className="ml-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-400">
                 <div>Lab: {formData.sensitivityTest.labName || '-'}</div>
                 <div>Date: {formData.sensitivityTest.testDate || '-'}</div>
                 <div>

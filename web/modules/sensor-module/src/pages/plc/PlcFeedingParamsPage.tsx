@@ -174,7 +174,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {!parameter && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PLC Bağlantı *</label>
@@ -209,7 +209,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* Core Parameters */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Temel Parametreler</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Biyokutle (kg)</label>
               <Input fullWidth type="number" min={0} max={1000000} step={0.01} value={form.biomassKg} onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))} />
@@ -249,7 +249,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* Thresholds */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Eşik Değerleri</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Min (mg/L)</label>
               <Input fullWidth type="number" min={0} max={20} step={0.1} value={form.thresholds.oxygenMin} onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))} />
@@ -280,7 +280,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* VFD Settings */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">VFD Ayarları</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Min Hız (%)</label>
               <Input fullWidth type="number" min={0} max={100} value={form.vfdSettings.blowerMinSpeed} onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))} />

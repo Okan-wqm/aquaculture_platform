@@ -17,7 +17,7 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Flow Direction</label>
       <Select fullWidth options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} value={(config.flowDirection as string) || 'forward'} onChange={(e) => onChange({ flowDirection: e.target.value })} />
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pipe Color</label>
         <input type="color" value={(config.pipeColor as string) || colors.gray[400]}
@@ -31,7 +31,7 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
           className="w-full h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer" />
       </div>
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pipe Width</label>
         <Input fullWidth type="number" min={4} max={32} value={(config.pipeWidth as number) || 12} onChange={(e) => onChange({ pipeWidth: Number(e.target.value) })} />

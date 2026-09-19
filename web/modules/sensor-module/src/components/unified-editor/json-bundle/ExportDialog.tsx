@@ -156,7 +156,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
         <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Program
         </h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Code: </span>
             <span className="text-gray-200 font-mono">
@@ -179,7 +179,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       </div>
 
       {/* Statistics */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="bg-gray-800 rounded p-2 text-center">
           <div className="text-lg font-semibold text-gray-100">
             {variables.length}

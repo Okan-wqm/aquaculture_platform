@@ -197,7 +197,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           )}
 
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
                 <Input fullWidth type="number" value={(ev.params.width as number) ?? ''} onChange={(e) => updateEventParams(ev.id, { width: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder="px" min={100} />

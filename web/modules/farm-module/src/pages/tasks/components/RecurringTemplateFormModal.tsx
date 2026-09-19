@@ -148,7 +148,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           </div>
 
           {/* Category + Priority */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategori *</label>
               <select
@@ -184,7 +184,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           </div>
 
           {/* Frequency + Frequency Detail */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sıklık *</label>
               <select
@@ -235,7 +235,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           </div>
 
           {/* Location + Estimated Minutes */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Konum</label>
               <Input fullWidth type="text" value={formData.location} onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))} placeholder="Kafes 1, Tank 2..." />

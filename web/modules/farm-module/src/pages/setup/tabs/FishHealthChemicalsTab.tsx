@@ -490,7 +490,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -505,7 +505,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                   <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
@@ -540,7 +540,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Site {editing ? '' : '*'}
@@ -585,7 +585,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Composition */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Composition</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Active Ingredient</label>
                     <Input fullWidth type="text" value={formData.activeIngredient} onChange={(e) => updateField('activeIngredient', e.target.value)} />
@@ -615,7 +615,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Regulation */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Regulation</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Withdrawal Period (days)
@@ -647,7 +647,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Storage & status */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Storage &amp; Status</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Storage Requirements</label>
                     <select

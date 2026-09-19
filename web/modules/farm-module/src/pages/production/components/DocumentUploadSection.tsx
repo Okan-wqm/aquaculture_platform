@@ -289,7 +289,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
       {/* Add Document Form */}
       {showAddForm ? (
         <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Name <span className="text-red-500">*</span>

@@ -51,7 +51,7 @@ const ModuleDetailsModal: React.FC<{
       </div>
       <div>
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Features</h4>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {module.features.map((feature, idx) => (
             <div key={idx} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
               <CheckCircle className="w-4 h-4 text-green-500" />

@@ -153,7 +153,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
       <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Submissions</div>

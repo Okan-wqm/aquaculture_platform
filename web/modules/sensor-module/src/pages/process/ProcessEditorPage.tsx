@@ -35,7 +35,7 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import type { Edge } from '@xyflow/react';
-import { useAuth, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { useAuth, Spinner, Button, Input, DesktopOnlyNotice } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
@@ -431,6 +431,7 @@ const ProcessEditorPage: React.FC = () => {
 
   return (
     <div className="process-editor-container flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
+      <DesktopOnlyNotice tool="The process editor" />
       {/* Toolbar */}
       <div className="toolbar flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         {/* Left Section */}
@@ -524,7 +525,7 @@ const ProcessEditorPage: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-w-[64rem]">
         {/* Left Panel - Equipment */}
         <EquipmentPanel onDragStart={handleEquipmentDragStart} />
 

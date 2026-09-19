@@ -325,7 +325,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           <div className="p-6 overflow-y-auto max-h-[60vh]">
             {step === 'type' ? (
               /* Step 1: Widget Type Selection */
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {WIDGET_TYPES.map((type) => (
                   <button
                     key={type.type}
@@ -572,7 +572,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     </div>
 
                     {yAxisEnabled && (
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Min Value
@@ -597,7 +597,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                 )}
 
                 {/* Time Range */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Time Range

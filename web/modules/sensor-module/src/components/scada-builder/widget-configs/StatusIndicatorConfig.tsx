@@ -26,7 +26,7 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Pump Status" />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Active Color</label>
           <div className="flex gap-1">
@@ -60,7 +60,7 @@ export const StatusIndicatorConfig: React.FC<WidgetConfigProps> = ({ config, onC
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">ON Label</label>
           <Input fullWidth type="text" value={config.onLabel || ''} onChange={(e) => onChange({ onLabel: e.target.value })} placeholder="Running" />

@@ -637,7 +637,7 @@ export const SystemsTab: React.FC = () => {
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
               <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
@@ -652,7 +652,7 @@ export const SystemsTab: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type *</label>
               <select
@@ -702,7 +702,7 @@ export const SystemsTab: React.FC = () => {
             </FormField>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Department</label>
               <select
@@ -751,7 +751,7 @@ export const SystemsTab: React.FC = () => {
             <Textarea fullWidth value={formData.description} onChange={(e) => handleFormChange('description', e.target.value)} rows={3} placeholder="System description..." />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Total Volume (m³)

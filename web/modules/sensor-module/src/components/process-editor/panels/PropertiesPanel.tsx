@@ -515,7 +515,7 @@ export const PropertiesPanel: React.FC = () => {
           } />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
                     <Input fullWidth type="text" placeholder="°C" value={(selectedNode.data as SensorWidgetNodeData).unit || ''} onChange={(e) =>
@@ -532,7 +532,7 @@ export const PropertiesPanel: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Low Threshold (%)</label>
                     <Input fullWidth type="number" min="0" max="100" placeholder="25" value={(selectedNode.data as SensorWidgetNodeData).lowThreshold || ''} onChange={(e) =>

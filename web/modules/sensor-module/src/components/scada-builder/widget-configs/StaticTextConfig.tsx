@@ -29,7 +29,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Font Size & Weight */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
           <Input fullWidth type="number" min={8} max={72} value={config.fontSize ?? 14} onChange={(e) => onChange({ fontSize: Number(e.target.value) })} />
@@ -105,7 +105,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Border */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Width</label>
           <Input fullWidth type="number" min={0} max={5} value={config.borderWidth ?? 0} onChange={(e) => onChange({ borderWidth: Number(e.target.value) })} />

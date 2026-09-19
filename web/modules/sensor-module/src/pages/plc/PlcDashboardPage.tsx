@@ -154,7 +154,7 @@ const ConnectionCard: React.FC<{
 
       {/* Telemetry Readings */}
       {telem ? (
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           {telem.oxygen != null && (
             <div className="flex items-center gap-1.5">
               <Droplets className="h-4 w-4 text-blue-500" />
@@ -184,7 +184,7 @@ const ConnectionCard: React.FC<{
             </div>
           )}
           {telem.feedingInProgress && (
-            <div className="col-span-2 flex items-center gap-1.5 text-green-600">
+            <div className="sm:col-span-2 flex items-center gap-1.5 text-green-600">
               <Zap className="h-4 w-4" />
               <span className="font-medium">Besleme devam ediyor</span>
             </div>

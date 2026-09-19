@@ -162,7 +162,7 @@ export function TimeClockWidget({
             />
           </div>
 
-          <div className="mt-2 grid grid-cols-2 gap-4 text-sm">
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-500 dark:text-gray-400">Clock In</span>
               <p className="font-medium text-gray-900 dark:text-white">

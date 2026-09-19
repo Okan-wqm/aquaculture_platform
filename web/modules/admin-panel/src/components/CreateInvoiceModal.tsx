@@ -237,7 +237,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
           placeholder="Street address"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="invoice-city" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City *</label>
           <input
@@ -259,7 +259,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="invoice-postal-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Postal Code *</label>
           <input
@@ -292,7 +292,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
           placeholder="Service period or custom charge"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="invoice-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount *</label>
           <div className="relative">
@@ -334,7 +334,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="invoice-period-start" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Period Start</label>
           <input

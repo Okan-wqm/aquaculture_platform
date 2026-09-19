@@ -416,7 +416,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
         <h5 className="text-sm font-medium text-blue-800 mb-3">
           Interpolation Calculator (Test your matrix)
         </h5>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs text-blue-700 mb-1">Temperature (°C)</label>
             <Input fullWidth type="number" step="0.1" value={testTemp} onChange={e => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')} placeholder="e.g. 13" />

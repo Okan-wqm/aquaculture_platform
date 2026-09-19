@@ -783,7 +783,7 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.basic}
               onToggle={() => toggleSection('basic')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Common Name *</label>
                   <Input fullWidth type="text" required value={formData.commonName} onChange={(e) =>
@@ -799,7 +799,7 @@ export const SpeciesTab: React.FC = () => {
           } placeholder="e.g., Dicentrarchus labrax" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
                   <Input className="uppercase" fullWidth type="text" required value={formData.code} onChange={(e) =>
@@ -913,7 +913,7 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.classification}
               onToggle={() => toggleSection('classification')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                   <select
@@ -957,7 +957,7 @@ export const SpeciesTab: React.FC = () => {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Family</label>
                   <Input fullWidth type="text" value={formData.family} onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))} placeholder="e.g., Moronidae" />
@@ -1006,7 +1006,7 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Temperature (°C)
                 </label>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <Input fullWidth type="number" step="0.1" value={formData.tempMin} onChange={(e) =>
@@ -1040,7 +1040,7 @@ export const SpeciesTab: React.FC = () => {
               {/* pH */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">pH</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <Input fullWidth type="number" step="0.1" min="0" max="14" value={formData.phMin} onChange={(e) =>
@@ -1067,7 +1067,7 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Dissolved Oxygen (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <Input fullWidth type="number" step="0.1" min="0" value={formData.oxygenMin} onChange={(e) =>
@@ -1094,7 +1094,7 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Ammonia (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max Tolerable</label>
                     <Input fullWidth type="number" step="0.01" min="0" value={formData.ammoniaMax} onChange={(e) =>
@@ -1110,7 +1110,7 @@ export const SpeciesTab: React.FC = () => {
               {/* CO2 */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">CO2 (mg/L)</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
                     <Input fullWidth type="number" step="0.1" min="0" value={formData.co2Min} onChange={(e) =>
@@ -1137,7 +1137,7 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Light Regime (hours/day)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Light Hours</label>
                     <Input fullWidth type="number" step="0.5" min="0" max="24" value={formData.lightHours} onChange={(e) => {
@@ -1208,7 +1208,7 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.status}
               onToggle={() => toggleSection('status')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                   <select

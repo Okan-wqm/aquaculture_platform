@@ -439,7 +439,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
         {/* Total Summary Banner */}
         {totalEscaped > 0 && (
           <div className="bg-red-100 border border-red-300 rounded-md p-4">
-            <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
                 <div className="text-2xl font-bold text-red-700">
                   {totalEscaped.toLocaleString()}
@@ -470,7 +470,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
         {/* Escape Details - Species & Cause */}
         <div className="p-4 bg-red-50 rounded-md border border-red-200">
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Escape Details</h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                 Species <span className="text-red-500">*</span>
@@ -593,9 +593,9 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Tank/Unit Selection */}
-                    <div className="col-span-2">
+                    <div className="sm:col-span-2">
                       <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                         Cage/Tank <span className="text-red-500">*</span>
                       </label>
@@ -714,7 +714,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
         {/* Recovery Efforts */}
         <div className="p-4 bg-blue-50 rounded-md border border-blue-200">
           <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Recovery Efforts</h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Recaptured Count</label>
               <Input fullWidth type="number" value={formData.recapturedCount} onChange={(e) => handleChange('recapturedCount', e.target.value)} placeholder="0" />

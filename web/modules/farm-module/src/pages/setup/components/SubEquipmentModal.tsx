@@ -218,7 +218,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="sub-eq-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Name <span className="text-orange-500">*</span>
@@ -233,7 +233,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="sub-eq-manufacturer" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Manufacturer
@@ -248,7 +248,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="sub-eq-serial" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Serial number

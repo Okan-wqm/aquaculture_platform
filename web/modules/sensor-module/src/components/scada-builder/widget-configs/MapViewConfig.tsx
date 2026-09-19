@@ -184,7 +184,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               </div>
 
               {/* X / Y coordinates */}
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X (0-100)</label>
                   <input

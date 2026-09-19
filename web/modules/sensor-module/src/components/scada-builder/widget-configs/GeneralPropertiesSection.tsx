@@ -138,7 +138,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
       </div>
 
       {/* Position (col / row) */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label htmlFor={`widget-x-${widgetId}`} className={LABEL_CLASS}>
             X (col)
@@ -172,7 +172,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
       </div>
 
       {/* Size (w / h) */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label htmlFor={`widget-w-${widgetId}`} className={LABEL_CLASS}>
             W (cols)

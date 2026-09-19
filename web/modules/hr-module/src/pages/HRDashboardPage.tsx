@@ -340,9 +340,9 @@ export function HRDashboardPage() {
             <QuickAction
               title="Offshore Rotations"
               description="View and manage rotation schedules"
-              icon={<RefreshCw className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+              icon={<RefreshCw className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
               to="/hr/crew/rotations"
-              color="bg-warning-50 dark:bg-warning-900/30"
+              color="bg-accent-50 dark:bg-accent-900/30"
             />
           </div>
         </div>
@@ -395,9 +395,9 @@ export function HRDashboardPage() {
             <QuickAction
               title="Performance Reviews"
               description="Employee evaluations and feedback"
-              icon={<TrendingUp className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+              icon={<TrendingUp className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
               to="/hr/performance"
-              color="bg-warning-50 dark:bg-warning-900/30"
+              color="bg-accent-50 dark:bg-accent-900/30"
             />
             <QuickAction
               title="HR Analytics"

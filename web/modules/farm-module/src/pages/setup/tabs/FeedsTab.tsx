@@ -48,7 +48,7 @@ const typeColors: Record<string, string> = {
   BROODSTOCK: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   MEDICATED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   LARVAL: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  FRY: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  FRY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 

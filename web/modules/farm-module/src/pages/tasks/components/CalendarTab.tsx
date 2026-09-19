@@ -80,7 +80,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const getCategoryDot = (category: string) => {
     const colors: Record<string, string> = {
-      FEEDING: 'bg-warning-400',
+      FEEDING: 'bg-accent-400',
       WATER_QUALITY: 'bg-info-400',
       HEALTH_CHECK: 'bg-error-400',
       EQUIPMENT_MAINTENANCE: 'bg-gray-400',

@@ -384,7 +384,7 @@ const DiscountCodePage: React.FC = () => {
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
               Expired Codes
             </div>
-            <div className="mt-1 text-2xl font-bold text-warning-600 dark:text-warning-400">
+            <div className="mt-1 text-2xl font-bold text-accent-600 dark:text-accent-400">
               {stats.expiredCodes}
             </div>
           </Card>

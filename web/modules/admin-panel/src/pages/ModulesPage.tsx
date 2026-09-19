@@ -122,7 +122,7 @@ const ModulesPage: React.FC = () => {
     if (code.includes('ALERT') || code.includes('AUTO'))
       return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     if (code.includes('ANALYTICS') || code.includes('REPORT'))
-      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     if (code.includes('HR') || code.includes('EMPLOYEE'))
       return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';

@@ -65,7 +65,7 @@ const WIDGET_TYPES: WidgetConfig[] = [
 // Sensor type icons
 const getSensorIcon = (type?: string) => {
   const iconMap: Record<string, React.ReactNode> = {
-    TEMPERATURE: <Thermometer size={18} className="text-warning-500" />,
+    TEMPERATURE: <Thermometer size={18} className="text-accent-500" />,
     PH: <Gauge size={18} className="text-accent-500" />,
     DISSOLVED_OXYGEN: <Droplets size={18} className="text-info-500" />,
     SALINITY: <Activity size={18} className="text-info-500" />,

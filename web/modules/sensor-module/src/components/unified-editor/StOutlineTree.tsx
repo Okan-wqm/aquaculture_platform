@@ -54,8 +54,8 @@ const KIND_CONFIG: Record<OutlineNode['kind'], { icon: LucideIcon; color: string
   property: { icon: Variable, color: 'text-success-300' },
   varBlock: { icon: Braces, color: 'text-warning-400' },
   variable: { icon: Variable, color: 'text-success-400' },
-  type: { icon: Box, color: 'text-warning-400' },
-  struct: { icon: Layers, color: 'text-warning-300' },
+  type: { icon: Box, color: 'text-accent-400' },
+  struct: { icon: Layers, color: 'text-accent-300' },
   enum: { icon: List, color: 'text-accent-400' },
 };
 

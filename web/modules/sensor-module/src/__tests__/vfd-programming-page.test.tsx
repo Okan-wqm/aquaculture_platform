@@ -98,7 +98,9 @@ function makeParam(overrides: Partial<VfdParameterDefinition> = {}): VfdParamete
   };
 }
 
-function makeWritableParam(overrides: Partial<VfdParameterDefinition> = {}): VfdParameterDefinition {
+function makeWritableParam(
+  overrides: Partial<VfdParameterDefinition> = {},
+): VfdParameterDefinition {
   return makeParam({
     id: 'p-2',
     parameterName: 'P003',
@@ -155,9 +157,17 @@ function makeChangeSet(overrides: Partial<VfdChangeSet> = {}): VfdChangeSet {
     metadata: { riskLevel: VfdRiskLevel.MEDIUM },
     items: [
       {
-        id: 'item-1', changeSetId: 'cs-001', parameterDefinitionId: 'pd-1',
-        parameterName: 'P003', previousValue: 5.0, requestedValue: 8.0,
-        appliedValue: null, status: '', errorMessage: null, appliedAt: null, createdAt: '2026-03-27T10:30:00Z',
+        id: 'item-1',
+        changeSetId: 'cs-001',
+        parameterDefinitionId: 'pd-1',
+        parameterName: 'P003',
+        previousValue: 5.0,
+        requestedValue: 8.0,
+        appliedValue: null,
+        status: '',
+        errorMessage: null,
+        appliedAt: null,
+        createdAt: '2026-03-27T10:30:00Z',
       },
     ],
     createdAt: '2026-03-27T10:30:00Z',
@@ -175,9 +185,17 @@ function makeAppliedChangeSet(): VfdChangeSet {
     metadata: { riskLevel: VfdRiskLevel.CRITICAL },
     items: [
       {
-        id: 'item-4', changeSetId: 'cs-002', parameterDefinitionId: 'pd-7',
-        parameterName: 'P007', previousValue: 15.0, requestedValue: 12.0,
-        appliedValue: 12.0, status: 'SUCCESS', errorMessage: null, appliedAt: '2026-03-26T14:00:00Z', createdAt: '2026-03-26T09:00:00Z',
+        id: 'item-4',
+        changeSetId: 'cs-002',
+        parameterDefinitionId: 'pd-7',
+        parameterName: 'P007',
+        previousValue: 15.0,
+        requestedValue: 12.0,
+        appliedValue: 12.0,
+        status: 'SUCCESS',
+        errorMessage: null,
+        appliedAt: '2026-03-26T14:00:00Z',
+        createdAt: '2026-03-26T09:00:00Z',
       },
     ],
   });
@@ -189,9 +207,10 @@ function makeRule(overrides: Partial<VfdAutomationRule> = {}): VfdAutomationRule
     tenantId: 't1',
     name: 'Night Mode Speed Reduction',
     description: 'Reduce pump speed during night hours',
-    triggerCondition: { operator: 'AND', conditions: [
-      { field: 'temperature', operator: '>', value: 28, unit: 'degC' },
-    ]},
+    triggerCondition: {
+      operator: 'AND',
+      conditions: [{ field: 'temperature', operator: '>', value: 28, unit: 'degC' }],
+    },
     targetVfdDeviceIds: ['vfd-1', 'vfd-2'],
     parameterChanges: [{ parameterName: 'P005', newValue: 35 }],
     requiresApproval: true,
@@ -235,8 +254,14 @@ describe('VfdParameterBrowser', () => {
     makeParam(),
     makeWritableParam(),
     makeWritableParam({
-      id: 'p-3', parameterName: 'P005', displayName: 'Maximum Frequency',
-      group: 'Speed', unit: 'Hz', currentValue: 50, minValue: 0, maxValue: 599,
+      id: 'p-3',
+      parameterName: 'P005',
+      displayName: 'Maximum Frequency',
+      group: 'Speed',
+      unit: 'Hz',
+      currentValue: 50,
+      minValue: 0,
+      maxValue: 599,
       riskLevel: VfdRiskLevel.MEDIUM,
     }),
     makeAdvancedParam(),
@@ -283,7 +308,9 @@ describe('VfdParameterBrowser', () => {
   });
 
   it('inline value input respects min/max', async () => {
-    render(<VfdParameterBrowser definitions={[makeWritableParam()]} loading={false} error={null} />);
+    render(
+      <VfdParameterBrowser definitions={[makeWritableParam()]} loading={false} error={null} />,
+    );
     const input = screen.getByLabelText('New value for P003') as HTMLInputElement;
 
     // Type value below min
@@ -295,7 +322,9 @@ describe('VfdParameterBrowser', () => {
   });
 
   it('Add to Draft adds to store', async () => {
-    render(<VfdParameterBrowser definitions={[makeWritableParam()]} loading={false} error={null} />);
+    render(
+      <VfdParameterBrowser definitions={[makeWritableParam()]} loading={false} error={null} />,
+    );
 
     const input = screen.getByLabelText('New value for P003') as HTMLInputElement;
     await userEvent.clear(input);
@@ -330,11 +359,13 @@ describe('VfdParameterBrowser', () => {
 
     const lowBadge = screen.getByTestId('risk-badge-P001');
     expect(lowBadge.textContent).toContain('LOW');
-    expect(lowBadge.className).toContain('bg-green');
+    expect(lowBadge.dataset.severity).toBe('low');
+    expect(lowBadge.className).toContain('bg-info-100');
 
     const medBadge = screen.getByTestId('risk-badge-P005');
     expect(medBadge.textContent).toContain('MEDIUM');
-    expect(medBadge.className).toContain('bg-yellow');
+    expect(medBadge.dataset.severity).toBe('medium');
+    expect(medBadge.className).toContain('bg-warning-100');
   });
 
   it('shows loading state', () => {
@@ -505,13 +536,17 @@ describe('VfdAuditLogViewer', () => {
   const defaultLogs = [
     makeAuditLog(),
     makeAuditLog({
-      id: 'log-2', parameterName: 'P003',
-      previousValue: 5.0, newValue: 8.0,
+      id: 'log-2',
+      parameterName: 'P003',
+      previousValue: 5.0,
+      newValue: 8.0,
       metadata: { riskLevel: VfdRiskLevel.LOW },
     }),
     makeAuditLog({
-      id: 'log-3', parameterName: 'P001',
-      previousValue: 400, newValue: 380,
+      id: 'log-3',
+      parameterName: 'P001',
+      previousValue: 400,
+      newValue: 380,
       action: 'AUTOMATION_RULE',
       performedBy: 'automation',
       metadata: { riskLevel: VfdRiskLevel.HIGH },
@@ -587,10 +622,12 @@ describe('VfdAuditLogViewer', () => {
     );
 
     const medRisk = screen.getByTestId('risk-log-1');
-    expect(medRisk.className).toContain('bg-yellow');
+    expect(medRisk.dataset.severity).toBe('medium');
+    expect(medRisk.className).toContain('bg-warning-100');
 
     const highRisk = screen.getByTestId('risk-log-3');
-    expect(highRisk.className).toContain('bg-orange');
+    expect(highRisk.dataset.severity).toBe('high');
+    expect(highRisk.className).toContain('bg-accent-100');
   });
 
   it('shows empty state', () => {
@@ -657,8 +694,18 @@ describe('VfdDraftBar', () => {
 // ============================================================================
 
 const REAL_DEVICES = [
-  { id: '11111111-1111-4111-8111-111111111111', name: 'Pump drive', brand: 'Danfoss', model: 'FC302' },
-  { id: '22222222-2222-4222-8222-222222222222', name: 'Aerator drive', brand: 'ABB', model: 'ACS580' },
+  {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Pump drive',
+    brand: 'Danfoss',
+    model: 'FC302',
+  },
+  {
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'Aerator drive',
+    brand: 'ABB',
+    model: 'ACS580',
+  },
 ];
 
 /** Mutable so each case can present a loading / empty / populated tenant. */

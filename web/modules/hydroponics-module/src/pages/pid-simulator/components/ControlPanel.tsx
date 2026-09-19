@@ -321,9 +321,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               {state.baseTotalGrams.toFixed(1)}g / {baseML.toFixed(0)}mL
             </span>
           </div>
-          <div className="flex justify-between items-center bg-warning-50 dark:bg-warning-900/20 rounded px-2 py-1.5">
-            <span className="text-warning-700 dark:text-warning-300 font-semibold">Nutrient</span>
-            <span className="text-warning-600 dark:text-warning-400">
+          <div className="flex justify-between items-center bg-accent-50 dark:bg-accent-900/20 rounded px-2 py-1.5">
+            <span className="text-accent-700 dark:text-accent-300 font-semibold">Nutrient</span>
+            <span className="text-accent-600 dark:text-accent-400">
               {state.nutTotalML.toFixed(0)}mL
             </span>
           </div>
@@ -352,7 +352,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </button>
           <button
             onClick={() => onDisturbance('ecUp')}
-            className="px-2 py-1.5 text-xs bg-warning-50 dark:bg-warning-900/20 hover:bg-warning-100 dark:hover:bg-warning-900/50 text-warning-700 dark:text-warning-300 rounded border border-warning-200 dark:border-warning-800"
+            className="px-2 py-1.5 text-xs bg-accent-50 dark:bg-accent-900/20 hover:bg-accent-100 dark:hover:bg-accent-900/50 text-accent-700 dark:text-accent-300 rounded border border-accent-200 dark:border-accent-800"
             disabled={!running}
           >
             EC +0.3

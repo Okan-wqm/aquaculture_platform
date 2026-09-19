@@ -50,7 +50,7 @@ const EVENT_CHIP_COLOURS: Record<string, string> = {
   ALLOCATED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   TRANSFERRED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   MORTALITY: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  CULL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  CULL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FEEDING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   GROWTH_SAMPLE: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   HARVEST: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',

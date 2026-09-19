@@ -68,14 +68,14 @@ interface DataRow {
 
 const ALARM_SEVERITY_BG: Record<AlarmSeverity, string> = {
   critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  high: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  high: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   info: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
 };
 
 const ALARM_SEVERITY_DOT: Record<AlarmSeverity, string> = {
   critical: 'bg-error-500',
-  high: 'bg-warning-500',
+  high: 'bg-accent-500',
   warning: 'bg-warning-500',
   info: 'bg-info-500',
 };
@@ -555,7 +555,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-warning-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-accent-50 transition-colors"
                 >
                   <td className="px-2 py-1.5">
                     <span

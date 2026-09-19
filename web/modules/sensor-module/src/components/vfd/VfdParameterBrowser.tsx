@@ -7,13 +7,9 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Search, Lock, AlertTriangle, Shield, ChevronDown, Eye, Plus, Columns } from 'lucide-react';
-import {
-  VfdParameterDefinition,
-  VfdProgrammingParameterCategory,
-  VfdRiskLevel,
-} from '../../types/vfd.types';
+import { VfdParameterDefinition, VfdProgrammingParameterCategory } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
-import { Spinner, Button } from '@aquaculture/shared-ui';
+import { Spinner, Button, SeverityBadge } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -32,29 +28,6 @@ const CATEGORY_OPTIONS: { value: VfdProgrammingParameterCategory; label: string 
   { value: VfdProgrammingParameterCategory.DISPLAY, label: 'Display' },
   { value: VfdProgrammingParameterCategory.NETWORK, label: 'Network' },
 ];
-
-const RISK_COLORS: Record<VfdRiskLevel, { bg: string; text: string; dot: string }> = {
-  [VfdRiskLevel.LOW]: {
-    bg: 'bg-success-100 dark:bg-success-900/40',
-    text: 'text-success-800 dark:text-success-200',
-    dot: 'bg-success-500',
-  },
-  [VfdRiskLevel.MEDIUM]: {
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    text: 'text-warning-800 dark:text-warning-200',
-    dot: 'bg-warning-500',
-  },
-  [VfdRiskLevel.HIGH]: {
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    text: 'text-warning-800 dark:text-warning-200',
-    dot: 'bg-warning-500',
-  },
-  [VfdRiskLevel.CRITICAL]: {
-    bg: 'bg-error-100 dark:bg-error-900/40',
-    text: 'text-error-800 dark:text-error-200',
-    dot: 'bg-error-500',
-  },
-};
 
 // ============================================================================
 // Props
@@ -93,7 +66,6 @@ function ParameterCard({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const isReadOnly = !param.isWritable;
-  const riskStyle = RISK_COLORS[param.riskLevel] ?? RISK_COLORS[VfdRiskLevel.LOW];
   const currentVal = param.currentValue ?? param.defaultValue ?? 0;
 
   const handleInputChange = useCallback(
@@ -174,13 +146,14 @@ function ParameterCard({
             <span>Group: {param.group}</span>
           </div>
         </div>
-        <div
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${riskStyle.bg} ${riskStyle.text}`}
+        <SeverityBadge
+          severity={param.riskLevel}
+          label={param.riskLevel}
+          icon={
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+          }
           data-testid={`risk-badge-${param.parameterName}`}
-        >
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${riskStyle.dot}`} />
-          {param.riskLevel}
-        </div>
+        />
       </div>
 
       {!isReadOnly && (

@@ -195,7 +195,7 @@ export function useThresholdCheck(): UseThresholdCheckReturn {
     const classes = {
       normal: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
       elevated: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-      high: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+      high: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
       critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
       mass: 'bg-error-200 dark:bg-error-800/50 text-error-900 dark:text-error-100',
     };

@@ -239,7 +239,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
                 ? 'text-success-600 dark:text-success-400'
                 : record.isBelowPlan
                   ? 'text-error-600 dark:text-error-400'
-                  : 'text-warning-600 dark:text-warning-400'
+                  : 'text-accent-600 dark:text-accent-400'
             }`}
           >
             {Number(record.variancePercent) > 0 ? '+' : ''}

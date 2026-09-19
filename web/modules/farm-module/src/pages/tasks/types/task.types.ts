@@ -117,8 +117,8 @@ export interface TaskStats {
 export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string }> = {
   FEEDING: {
     label: 'Yemleme',
-    color: 'text-warning-800 dark:text-warning-200',
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
   },
   WATER_QUALITY: {
     label: 'Su Kalitesi',
@@ -176,8 +176,8 @@ export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: strin
   },
   HIGH: {
     label: 'Yüksek',
-    color: 'text-warning-800 dark:text-warning-200',
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
   },
   MEDIUM: {
     label: 'Orta',
@@ -245,8 +245,8 @@ export const FREQUENCY_CONFIG: Record<
   },
   MONTHLY: {
     label: 'Aylık',
-    color: 'text-warning-800 dark:text-warning-200',
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
   },
   CUSTOM: {
     label: 'Özel',
@@ -264,8 +264,8 @@ export const TRIGGER_CONFIG: Record<AutoRuleTrigger, { label: string; color: str
     },
     EXPIRY_NEAR: {
       label: 'Son Kullanma Yakın',
-      color: 'text-warning-800 dark:text-warning-200',
-      bg: 'bg-warning-100 dark:bg-warning-900/40',
+      color: 'text-accent-800 dark:text-accent-200',
+      bg: 'bg-accent-100 dark:bg-accent-900/40',
     },
     MAINTENANCE_DUE: {
       label: 'Bakım Zamanı',

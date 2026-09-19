@@ -156,7 +156,7 @@ export const AlarmSummaryBar = memo(
               criticalCount > 0
                 ? 'text-error-500 animate-pulse'
                 : highCount > 0
-                  ? 'text-warning-400'
+                  ? 'text-accent-400'
                   : warningCount > 0
                     ? 'text-warning-400'
                     : 'text-gray-500 dark:text-gray-400'

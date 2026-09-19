@@ -48,7 +48,7 @@ const statusColors: Record<string, string> = {
   [PaymentStatus.REFUNDED]:
     'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   [PaymentStatus.PARTIALLY_REFUNDED]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
 };
 
 const statusLabels: Record<string, string> = {

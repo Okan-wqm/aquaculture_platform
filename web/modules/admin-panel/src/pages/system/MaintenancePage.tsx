@@ -280,8 +280,7 @@ export const MaintenancePage: React.FC = () => {
       rolling_update: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
       database_migration:
         'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-      security_patch:
-        'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+      security_patch: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
     };
     return colors[type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };

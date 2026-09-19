@@ -77,7 +77,7 @@ const statusLabels: Record<HealthEventStatus, string> = {
 const severityColors: Record<HealthSeverity, string> = {
   minor: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   moderate: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  severe: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  severe: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
@@ -630,7 +630,7 @@ export const HealthEventsPage: React.FC = () => {
           )}
           {item.followUpRequired && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200"
               title="Follow-up Required"
             >
               F/U
@@ -784,12 +784,12 @@ export const HealthEventsPage: React.FC = () => {
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-warning-600 dark:text-warning-400" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
-                <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
                   {stats.critical}
                 </div>
               </div>

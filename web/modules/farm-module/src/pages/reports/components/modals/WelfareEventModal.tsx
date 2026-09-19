@@ -80,7 +80,7 @@ const eventTypeOptions: { value: WelfareEventType; label: string; description: s
 ];
 
 const severityOptions: { value: WelfareEventSeverity; label: string; color: string }[] = [
-  { value: 'high', label: 'High', color: 'text-warning-600 dark:text-warning-400' },
+  { value: 'high', label: 'High', color: 'text-accent-600 dark:text-accent-400' },
   { value: 'critical', label: 'Critical', color: 'text-error-600 dark:text-error-400' },
 ];
 
@@ -457,17 +457,17 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {/* Type-specific fields */}
         {formData.eventType === 'mortality_threshold' && (
-          <div className="space-y-4 p-4 bg-warning-50 dark:bg-warning-900/20 rounded-md border border-warning-200 dark:border-warning-800">
+          <div className="space-y-4 p-4 bg-accent-50 dark:bg-accent-900/20 rounded-md border border-accent-200 dark:border-accent-800">
             <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Mortality Data</h4>
 
             {/* Tip note */}
-            <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-warning-100">
-              <p className="text-xs text-warning-700 dark:text-warning-300">
+            <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-accent-100">
+              <p className="text-xs text-accent-700 dark:text-accent-300">
                 Tip: Check Tanks page for current mortality rates
               </p>
               {highMortalityTanks.length > 0 && (
                 <div className="mt-2">
-                  <p className="text-xs font-medium text-warning-800 dark:text-warning-200 mb-1">
+                  <p className="text-xs font-medium text-accent-800 dark:text-accent-200 mb-1">
                     Tanks with elevated mortality:
                   </p>
                   <div className="space-y-1">

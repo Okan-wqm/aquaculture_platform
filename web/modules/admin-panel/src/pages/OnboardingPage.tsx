@@ -225,7 +225,7 @@ export const OnboardingPage: React.FC = () => {
       case 'webinar':
         return <Users size={16} className="text-success-500" />;
       case 'interactive':
-        return <Play size={16} className="text-warning-500" />;
+        return <Play size={16} className="text-accent-500" />;
       default:
         return <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />;
     }

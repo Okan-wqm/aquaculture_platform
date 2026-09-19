@@ -44,7 +44,7 @@ export interface OperatorHeaderProps {
 
 const SEVERITY_BADGE: Record<AlarmSeverity, string> = {
   critical: 'bg-error-600 text-white',
-  high: 'bg-warning-500 text-white',
+  high: 'bg-accent-500 text-white',
   warning: 'bg-warning-500 text-black',
   info: 'bg-info-500 text-white',
 };

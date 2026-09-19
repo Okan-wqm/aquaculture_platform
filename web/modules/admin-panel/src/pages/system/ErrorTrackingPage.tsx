@@ -306,7 +306,7 @@ export const ErrorTrackingPage: React.FC = () => {
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Errors</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {formatCount(stats.unresolvedErrors)}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Unresolved</div>

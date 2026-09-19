@@ -44,7 +44,7 @@ const typeColors: Record<string, string> = {
   GROW_OUT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   BROODSTOCK: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  PROCESSING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PROCESSING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   STORAGE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   LABORATORY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
 };

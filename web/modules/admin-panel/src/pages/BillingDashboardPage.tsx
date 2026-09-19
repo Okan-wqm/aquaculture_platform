@@ -501,7 +501,7 @@ const BillingDashboardPage: React.FC = () => {
         <QuickStat
           title="Outstanding Invoices"
           value={`${metrics.outstandingInvoices} (${formatCurrency(metrics.outstandingAmount, true)})`}
-          valueColor="text-warning-600 dark:text-warning-400"
+          valueColor="text-accent-600 dark:text-accent-400"
           action={{ label: 'View all', href: '/admin/billing/invoices?status=pending' }}
         />
         <QuickStat

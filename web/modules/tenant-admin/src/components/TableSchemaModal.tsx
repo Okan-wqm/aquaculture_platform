@@ -41,7 +41,7 @@ const getTypeColor = (dataType: string): string => {
     return 'text-accent-500';
   }
   if (type.includes('bool')) {
-    return 'text-warning-500';
+    return 'text-accent-500';
   }
   if (type.includes('json') || type.includes('array')) {
     return 'text-accent-500';

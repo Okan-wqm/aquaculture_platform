@@ -497,7 +497,7 @@ const PlcAlarmsPage: React.FC = () => {
                         </span>
                       )}
                       {alarm.action && (
-                        <span className="text-warning-600 dark:text-warning-400">
+                        <span className="text-accent-600 dark:text-accent-400">
                           Islem: {alarm.action}
                         </span>
                       )}

@@ -272,7 +272,7 @@ const StepCard: React.FC<{
 /** Direction badge color */
 const directionBadge: Record<string, string> = {
   input: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-  output: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  output: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   inout: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
 };
 
@@ -391,7 +391,7 @@ const IoTagAnalysisPanel: React.FC<{
             <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
               {inputCount} Input
             </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
               {outputCount} Output
             </span>
             {inoutCount > 0 && (
@@ -1793,7 +1793,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <span className="px-1.5 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
                 {tagAnalysis.inputCount} Input
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
+              <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
                 {tagAnalysis.outputCount} Output
               </span>
               {tagAnalysis.inoutCount > 0 && (

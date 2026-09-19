@@ -248,7 +248,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
                 className={`text-2xl font-semibold ${
                   Math.abs(data.variancePercent) <= 10
                     ? 'text-success-600 dark:text-success-400'
-                    : 'text-warning-600 dark:text-warning-400'
+                    : 'text-accent-600 dark:text-accent-400'
                 }`}
               >
                 {data.variancePercent > 0 ? '+' : ''}

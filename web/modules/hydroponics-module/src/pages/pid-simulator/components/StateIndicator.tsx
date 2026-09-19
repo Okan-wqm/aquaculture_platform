@@ -20,9 +20,9 @@ const STATE_INFO: Record<
   },
   EC: {
     label: 'EC',
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    activeBg: 'bg-warning-500',
-    text: 'text-warning-500',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    activeBg: 'bg-accent-500',
+    text: 'text-accent-500',
   },
   EC_WAIT: {
     label: 'EC WAIT',

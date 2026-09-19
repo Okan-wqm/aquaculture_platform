@@ -147,7 +147,7 @@ function getThresholdStatus(adultFemale: number): {
     return {
       level: 'treatment',
       label: 'Treatment Required',
-      color: 'text-warning-700 dark:text-warning-300 bg-warning-100 dark:bg-warning-900/40',
+      color: 'text-accent-700 dark:text-accent-300 bg-accent-100 dark:bg-accent-900/40',
     };
   }
   if (adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL) {
@@ -394,12 +394,12 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
             thresholdStatus.level === 'critical'
               ? 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'
               : thresholdStatus.level === 'treatment'
-                ? 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
+                ? 'bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800'
                 : 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
           }`}
         >
           <div className="flex items-center">
-            <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
+            <TriangleAlert className="w-5 h-5 text-accent-500 mr-2" aria-hidden="true" />
             <span className="font-medium">{thresholdStatus.label}</span>
           </div>
           <p className="mt-1 text-sm">
@@ -441,7 +441,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               disabled={countsReadOnly}
               className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 ${
                 formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL
-                  ? 'border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20'
+                  ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/20'
                   : countsReadOnly
                     ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     : 'border-gray-300 dark:border-gray-600'
@@ -671,7 +671,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.ALERT_LEVEL}</span>
           </div>
           <div>
-            <span className="text-warning-600 dark:text-warning-400">Treatment Trigger:</span>
+            <span className="text-accent-600 dark:text-accent-400">Treatment Trigger:</span>
             <span className="ml-1 font-medium">&gt; {SEA_LICE_THRESHOLDS.TREATMENT_TRIGGER}</span>
           </div>
           <div>
@@ -1197,14 +1197,14 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Threshold Warning */}
       {formData.siteCounts.adultFemale >= SEA_LICE_THRESHOLDS.ALERT_LEVEL && (
-        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
           <div className="flex items-center">
-            <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
-            <span className="font-medium text-warning-800 dark:text-warning-200">
+            <TriangleAlert className="w-5 h-5 text-accent-500 mr-2" aria-hidden="true" />
+            <span className="font-medium text-accent-800 dark:text-accent-200">
               {thresholdStatus.label}
             </span>
           </div>
-          <p className="mt-1 text-sm text-warning-700 dark:text-warning-300">
+          <p className="mt-1 text-sm text-accent-700 dark:text-accent-300">
             This report indicates elevated lice levels that may require attention.
           </p>
         </div>
@@ -1226,7 +1226,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             Adult Female Lice
           </h5>
           <p
-            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-warning-600 dark:text-warning-400' : 'text-gray-900 dark:text-gray-100'}`}
+            className={`text-2xl font-bold ${thresholdStatus.level !== 'normal' ? 'text-accent-600 dark:text-accent-400' : 'text-gray-900 dark:text-gray-100'}`}
           >
             {formData.siteCounts.adultFemale.toFixed(2)}
           </p>
@@ -1295,7 +1295,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.treatmentEntries.map((t, i) => (
               <li key={i} className="text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="w-2 h-2 bg-warning-400 rounded-full flex-shrink-0" />
+                  <span className="w-2 h-2 bg-accent-400 rounded-full flex-shrink-0" />
                   <span className="font-medium text-gray-700 dark:text-gray-300">
                     {t.category === 'medicated'
                       ? `Medicated - ${getIngredientLabel(t.activeIngredient || '')}`

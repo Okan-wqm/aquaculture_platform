@@ -169,7 +169,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
     blue: 'bg-info-50 dark:bg-info-900/20 text-info-600 dark:text-info-400',
     green: 'bg-success-50 dark:bg-success-900/20 text-success-600 dark:text-success-400',
     purple: 'bg-accent-50 dark:bg-accent-900/20 text-accent-600 dark:text-accent-400',
-    orange: 'bg-warning-50 dark:bg-warning-900/20 text-warning-600 dark:text-warning-400',
+    orange: 'bg-accent-50 dark:bg-accent-900/20 text-accent-600 dark:text-accent-400',
     red: 'bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400',
     indigo: 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400',
   };
@@ -268,7 +268,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
           'bg-info-500',
           'bg-success-500',
           'bg-accent-500',
-          'bg-warning-500',
+          'bg-accent-500',
           'bg-accent-500',
         ];
         return (
@@ -747,7 +747,7 @@ const AnalyticsDashboardPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-warning-500 mr-2" />
+                  <span className="w-3 h-3 rounded-full bg-accent-500 mr-2" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Trial</span>
                 </div>
                 <span className="font-medium">

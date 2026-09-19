@@ -83,10 +83,10 @@ export const urgencyConfig: Record<
     priority: 4,
   },
   today: {
-    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
-    borderColor: 'border-warning-200 dark:border-warning-800',
-    iconColor: 'text-warning-600 dark:text-warning-400',
-    textColor: 'text-warning-700 dark:text-warning-300',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    iconColor: 'text-accent-600 dark:text-accent-400',
+    textColor: 'text-accent-700 dark:text-accent-300',
     label: 'Today',
     priority: 3,
   },
@@ -466,7 +466,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {todayCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
                 data-testid="today-count"
               >
                 {todayCount} Today

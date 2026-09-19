@@ -207,7 +207,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   id={`feed-${entry.key}`}
                   value={entry.feedId}
                   onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-warning-500 focus:ring-warning-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
                 >
                   <option value="">— Choose a feed —</option>
                   {feedList.data?.items.map((feed) => (
@@ -309,8 +309,8 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
         </div>
 
         {errors.length > 0 && (
-          <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-warning-600 dark:text-warning-400 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -326,7 +326,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || assign.isPending}
-            className="bg-warning-600 hover:bg-warning-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {assign.isPending ? 'Saving…' : 'Save feed assignment'}
           </Button>

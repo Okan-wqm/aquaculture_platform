@@ -402,7 +402,7 @@ export const TenantSupportPage: React.FC = () => {
       case 'critical':
         return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800';
       case 'high':
-        return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800';
+        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800';
       case 'medium':
         return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800';
       case 'low':
@@ -686,7 +686,7 @@ export const TenantSupportPage: React.FC = () => {
                           {getStatusLabel(ticket.status)}
                         </span>
                         {ticket.status === 'waiting_customer' && (
-                          <span className="px-2 py-0.5 text-xs rounded bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
+                          <span className="px-2 py-0.5 text-xs rounded bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
                             Action Required
                           </span>
                         )}

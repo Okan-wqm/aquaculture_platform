@@ -29,7 +29,7 @@ const performanceLabels: Record<string, { label: string; color: string }> = {
   },
   below_average: {
     label: 'Ortalamanin Alti',
-    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   },
   poor: {
     label: 'Zayif',

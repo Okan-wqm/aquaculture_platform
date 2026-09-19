@@ -141,7 +141,7 @@ const AlarmPanel = React.memo(() => {
                     alarm.severity === 'critical'
                       ? 'text-error-500'
                       : alarm.severity === 'high'
-                        ? 'text-warning-400'
+                        ? 'text-accent-400'
                         : alarm.severity === 'warning'
                           ? 'text-warning-400'
                           : 'text-info-400'

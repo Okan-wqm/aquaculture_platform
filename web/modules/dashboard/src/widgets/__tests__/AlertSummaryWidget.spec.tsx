@@ -528,7 +528,7 @@ describe('SeverityFilter', () => {
     const mediumBtn = screen.getByTestId('filter-medium');
 
     expect(criticalBtn).toHaveClass('bg-error-50');
-    expect(highBtn).toHaveClass('bg-warning-50');
+    expect(highBtn).toHaveClass('bg-accent-50');
     expect(mediumBtn).toHaveClass('bg-gray-100');
   });
 

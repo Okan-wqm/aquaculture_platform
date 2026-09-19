@@ -229,7 +229,7 @@ const ConnectionCard: React.FC<{
           )}
           {telem.temperature != null && (
             <div className="flex items-center gap-1.5">
-              <Thermometer className="h-4 w-4 text-warning-500" />
+              <Thermometer className="h-4 w-4 text-accent-500" />
               <span className="text-gray-600 dark:text-gray-400">Sicaklik:</span>
               <span className="font-medium">{telem.temperature.toFixed(1)} C</span>
             </div>

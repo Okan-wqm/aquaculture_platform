@@ -123,9 +123,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <button
           onClick={onCull}
           disabled={!selectedTankId}
-          className="flex-1 px-4 py-2.5 bg-warning-50 text-warning-700 rounded-lg hover:bg-warning-100
+          className="flex-1 px-4 py-2.5 bg-accent-50 text-accent-700 rounded-lg hover:bg-accent-100
                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
-                     transition-colors border border-warning-200 hover:border-warning-300"
+                     transition-colors border border-accent-200 hover:border-accent-300"
         >
           <Scissors className="w-4 h-4" aria-hidden="true" />
           Cull

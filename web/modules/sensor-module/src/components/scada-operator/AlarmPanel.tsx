@@ -154,7 +154,7 @@ const SeverityBadge: React.FC<{ severity: AlarmSeverity }> = ({ severity }) => {
 
 const STATUS_PILL: Record<string, string> = {
   active: 'text-error-700 bg-error-100 dark:bg-error-900/30 dark:text-error-300',
-  cleared: 'text-warning-700 bg-warning-100 dark:bg-warning-900/30 dark:text-warning-300',
+  cleared: 'text-accent-700 bg-accent-100 dark:bg-accent-900/30 dark:text-accent-300',
   acknowledged: 'text-success-700 bg-success-100 dark:bg-success-900/30 dark:text-success-300',
 };
 
@@ -365,7 +365,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-warning-500" />
+          <AlertTriangle className="h-5 w-5 text-accent-500" />
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">
             Alarm Management
           </h2>

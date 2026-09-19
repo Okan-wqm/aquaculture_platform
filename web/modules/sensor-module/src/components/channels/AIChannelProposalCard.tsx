@@ -61,7 +61,7 @@ const dataTypeBadgeColor: Record<string, string> = {
   number: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   boolean: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   string: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-  enum: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  enum: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
 };
 
 // ============================================================================

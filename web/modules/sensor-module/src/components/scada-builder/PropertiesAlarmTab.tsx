@@ -95,7 +95,7 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
                 rule.severity === 'critical'
                   ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
                   : rule.severity === 'high'
-                    ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
                     : rule.severity === 'warning'
                       ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
                       : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'

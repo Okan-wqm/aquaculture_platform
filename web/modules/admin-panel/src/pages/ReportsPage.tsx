@@ -336,7 +336,7 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
     Tenant: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
     Financial: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
     Usage: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-    System: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    System: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   };
 
   return (
@@ -656,7 +656,7 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('system_performance', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-warning-400 hover:bg-warning-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-accent-400 hover:bg-accent-50 transition-colors text-center"
           >
             <Sparkles
               className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"

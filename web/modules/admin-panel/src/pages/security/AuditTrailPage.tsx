@@ -232,7 +232,7 @@ const getActionColor = (action: AuditAction): string => {
     case 'logout':
       return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'permission_change':
-      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
     case 'export':
     case 'import':
       return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
@@ -770,8 +770,8 @@ export const AuditTrailPage: React.FC = () => {
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
-                <Bell className="w-5 h-5 text-warning-600 dark:text-warning-400" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Bell className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Alert Rules</p>

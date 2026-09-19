@@ -274,7 +274,7 @@ export function ReviewStep({
                   {/* Configuration summary */}
                   <div className="mt-2 ml-9 flex flex-wrap gap-1.5">
                     {sensor.calibrationEnabled && (
-                      <span className="px-1.5 py-0.5 bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 text-xs rounded">
+                      <span className="px-1.5 py-0.5 bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300 text-xs rounded">
                         Calibration: x{sensor.calibrationMultiplier} +{sensor.calibrationOffset}
                       </span>
                     )}

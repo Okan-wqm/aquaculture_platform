@@ -50,7 +50,7 @@ const CATEGORIES = [
 const categoryColors: Record<string, string> = {
   NET: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   ROPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  PPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PPE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   SPARE_PART: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   OXYGEN: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   PACKAGING: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',

@@ -106,7 +106,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
     if (variance <= 0) return { label: 'Good', color: 'text-success-500' };
     if (variance <= 10) return { label: 'Fair', color: 'text-warning-600 dark:text-warning-400' };
     if (variance <= 20)
-      return { label: 'Below Target', color: 'text-warning-600 dark:text-warning-400' };
+      return { label: 'Below Target', color: 'text-accent-600 dark:text-accent-400' };
     return { label: 'Poor', color: 'text-error-600 dark:text-error-400' };
   };
 
@@ -179,7 +179,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
                 ? 'text-success-600 dark:text-success-400'
                 : batch.variance > 10
                   ? 'text-error-600 dark:text-error-400'
-                  : 'text-warning-600 dark:text-warning-400'
+                  : 'text-accent-600 dark:text-accent-400'
             }`}
           >
             {batch.variance > 0 ? '+' : ''}

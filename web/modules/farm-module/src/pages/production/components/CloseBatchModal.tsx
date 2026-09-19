@@ -168,13 +168,13 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
               htmlFor="close-reason"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Close reason <span className="text-warning-500">*</span>
+              Close reason <span className="text-accent-500">*</span>
             </label>
             <select
               id="close-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value as BatchCloseReason)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-warning-500 focus:ring-warning-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
             >
               {REASON_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -244,8 +244,8 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
         )}
 
         {errors.length > 0 && (
-          <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-warning-600 dark:text-warning-400 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -264,7 +264,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             className={
               blocker && acknowledge
                 ? 'bg-error-600 hover:bg-error-700'
-                : 'bg-warning-600 hover:bg-warning-700'
+                : 'bg-accent-600 hover:bg-accent-700'
             }
           >
             {closeBatch.isPending

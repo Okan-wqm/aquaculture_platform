@@ -75,7 +75,7 @@ const typeColors: Record<string, string> = {
   RAS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   FLOW_THROUGH: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   POND: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  CAGE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  CAGE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   RACEWAY: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   HATCHERY: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   NURSERY: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',

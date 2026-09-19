@@ -369,7 +369,7 @@ const InvoicesPage: React.FC = () => {
     pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     sent: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
     paid: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-    partially_paid: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    partially_paid: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
     overdue: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
     void: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
     refunded: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
@@ -424,7 +424,7 @@ const InvoicesPage: React.FC = () => {
             {formatCurrency(invoice.amount, invoice.currency)}
           </div>
           {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
-            <div className="text-xs text-warning-600 dark:text-warning-400">
+            <div className="text-xs text-accent-600 dark:text-accent-400">
               Due: {formatCurrency(invoice.amountDue, invoice.currency)}
             </div>
           )}

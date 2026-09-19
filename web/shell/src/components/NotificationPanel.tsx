@@ -133,7 +133,7 @@ function getNotificationIndicator(data: NotificationData | null): {
     return { color: 'bg-accent-500', icon: 'hr' };
   if (type.includes('harvest') || type.includes('feeding') || type.includes('farm'))
     return { color: 'bg-success-500', icon: 'farm' };
-  if (type.includes('billing')) return { color: 'bg-warning-500', icon: 'billing' };
+  if (type.includes('billing')) return { color: 'bg-accent-500', icon: 'billing' };
   if (type.includes('system')) return { color: 'bg-gray-500', icon: 'system' };
 
   return { color: 'bg-info-500', icon: 'info' };

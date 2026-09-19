@@ -34,9 +34,9 @@ const statusColors: Record<string, { bg: string; border: string; text: string }>
     text: 'text-warning-700 dark:text-warning-300',
   },
   repair: {
-    bg: 'bg-warning-50 dark:bg-warning-900/20',
-    border: 'border-warning-400',
-    text: 'text-warning-700 dark:text-warning-300',
+    bg: 'bg-accent-50 dark:bg-accent-900/20',
+    border: 'border-accent-400',
+    text: 'text-accent-700 dark:text-accent-300',
   },
   out_of_service: {
     bg: 'bg-error-50 dark:bg-error-900/20',

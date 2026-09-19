@@ -222,7 +222,7 @@ export const JobQueuePage: React.FC = () => {
 
   const getPriorityLabel = (priority: number) => {
     if (priority >= 15) return { label: 'Critical', color: 'text-error-600 dark:text-error-400' };
-    if (priority >= 10) return { label: 'High', color: 'text-warning-600 dark:text-warning-400' };
+    if (priority >= 10) return { label: 'High', color: 'text-accent-600 dark:text-accent-400' };
     if (priority >= 5) return { label: 'Normal', color: 'text-gray-600 dark:text-gray-400' };
     return { label: 'Low', color: 'text-info-600 dark:text-info-400' };
   };

@@ -665,11 +665,11 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
             {formData.mortalityRates.overall.toFixed(2)}%
           </div>
         </div>
-        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
-          <div className="text-xs text-warning-600 dark:text-warning-400 font-medium">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+          <div className="text-xs text-accent-600 dark:text-accent-400 font-medium">
             Euthanized (avlivet)
           </div>
-          <div className="text-xl font-bold text-warning-700 dark:text-warning-300">
+          <div className="text-xl font-bold text-accent-700 dark:text-accent-300">
             {formatNumber(totalEuthanized)}
           </div>
         </div>
@@ -866,8 +866,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           Mortality Breakdown (Mattilsynet)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="text-center p-2 bg-warning-50 dark:bg-warning-900/20 rounded">
-            <div className="text-lg font-bold text-warning-700 dark:text-warning-300">
+          <div className="text-center p-2 bg-accent-50 dark:bg-accent-900/20 rounded">
+            <div className="text-lg font-bold text-accent-700 dark:text-accent-300">
               {formatNumber(totalEuthanized)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Euthanized (avlivet)</div>
@@ -944,7 +944,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <div className="col-span-1 text-right text-gray-500 dark:text-gray-400">
                     {unit.avgWeightG.toFixed(1)}
                   </div>
-                  <div className="col-span-1 text-right text-warning-600 dark:text-warning-400">
+                  <div className="col-span-1 text-right text-accent-600 dark:text-accent-400">
                     {mort?.euthanized || 0}
                   </div>
                   <div className="col-span-1 text-right text-error-600 dark:text-error-400">

@@ -41,7 +41,7 @@ import {
 const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
   const normalized = type.toLowerCase().replace(/-/g, '_');
   const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className="w-5 h-5 text-warning-500" />,
+    temperature: <Thermometer className="w-5 h-5 text-accent-500" />,
     dissolved_oxygen: <Droplets className="w-5 h-5 text-info-500" />,
     ph: <Gauge className="w-5 h-5 text-accent-500" />,
     salinity: <Activity className="w-5 h-5 text-info-500" />,

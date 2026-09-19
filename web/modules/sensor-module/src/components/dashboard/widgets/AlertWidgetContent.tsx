@@ -24,10 +24,10 @@ const severityConfig = {
   },
   CRITICAL: {
     icon: AlertCircle,
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    text: 'text-warning-800 dark:text-warning-200',
-    border: 'border-warning-300 dark:border-warning-700',
-    badge: 'bg-warning-500 text-white',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-800 dark:text-accent-200',
+    border: 'border-accent-300 dark:border-accent-700',
+    badge: 'bg-accent-500 text-white',
   },
   WARNING: {
     icon: AlertTriangle,

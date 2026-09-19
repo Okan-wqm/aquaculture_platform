@@ -304,7 +304,7 @@ const SubscriptionManagementPage: React.FC = () => {
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Churn Rate</div>
-            <div className="mt-1 text-2xl font-bold text-warning-600 dark:text-warning-400">
+            <div className="mt-1 text-2xl font-bold text-accent-600 dark:text-accent-400">
               {stats.churnRate.toFixed(1)}%
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">

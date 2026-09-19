@@ -28,10 +28,10 @@ const urgencyStyles = {
     icon: <AlertCircle className="h-5 w-5 text-error-600 dark:text-error-400" />,
   },
   high: {
-    bg: 'bg-warning-50 dark:bg-warning-900/20',
-    border: 'border-warning-200 dark:border-warning-800',
-    text: 'text-warning-800 dark:text-warning-200',
-    icon: <AlertTriangle className="h-5 w-5 text-warning-600 dark:text-warning-400" />,
+    bg: 'bg-accent-50 dark:bg-accent-900/20',
+    border: 'border-accent-200 dark:border-accent-800',
+    text: 'text-accent-800 dark:text-accent-200',
+    icon: <AlertTriangle className="h-5 w-5 text-accent-600 dark:text-accent-400" />,
   },
   medium: {
     bg: 'bg-warning-50 dark:bg-warning-900/20',

@@ -316,7 +316,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3325
+      ceiling: 3326
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

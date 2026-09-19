@@ -58,9 +58,9 @@ const METER_COLORS: Record<string, { bg: string; text: string; bar: string }> = 
     bar: 'bg-success-500',
   },
   [MeterType.ALERTS_SENT]: {
-    bg: 'bg-warning-100 dark:bg-warning-900/40',
-    text: 'text-warning-700 dark:text-warning-300',
-    bar: 'bg-warning-500',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-700 dark:text-accent-300',
+    bar: 'bg-accent-500',
   },
   [MeterType.DATA_STORAGE]: {
     bg: 'bg-accent-100 dark:bg-accent-900/40',
@@ -439,7 +439,7 @@ const Icons = {
     <ChartColumn className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
   ),
   Database: (
-    <DatabaseIcon className="w-6 h-6 text-warning-600 dark:text-warning-400" aria-hidden="true" />
+    <DatabaseIcon className="w-6 h-6 text-accent-600 dark:text-accent-400" aria-hidden="true" />
   ),
 };
 
@@ -614,7 +614,7 @@ const UsageDashboardPage: React.FC = () => {
           }
           subtitle="Current billing window"
           icon={Icons.Database}
-          iconBg="bg-warning-100 dark:bg-warning-900/40"
+          iconBg="bg-accent-100 dark:bg-accent-900/40"
         />
       </div>
 

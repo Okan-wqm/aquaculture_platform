@@ -13,6 +13,7 @@ import {
   type DataTableColumn,
   Spinner,
   Button,
+  SeverityBadge,
 } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
@@ -106,16 +107,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.Reac
     text: 'text-gray-500 dark:text-gray-400',
     icon: <Ban className="h-3 w-3" />,
   },
-};
-
-const RISK_BADGE: Record<string, string> = {
-  [VfdRiskLevel.LOW]:
-    'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-  [VfdRiskLevel.MEDIUM]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  [VfdRiskLevel.HIGH]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  [VfdRiskLevel.CRITICAL]: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
 };
 
 // ============================================================================
@@ -265,7 +256,6 @@ export function VfdChangeSetList({
         <div className="space-y-3">
           {filteredSets.map((cs) => {
             const style = STATUS_STYLES[cs.status] ?? STATUS_STYLES[VfdChangeSetStatus.DRAFT];
-            const riskClass = RISK_BADGE[computeMaxRisk(cs)] ?? RISK_BADGE[VfdRiskLevel.LOW];
             const isExpanded = expandedIds.has(cs.id);
 
             return (
@@ -294,11 +284,7 @@ export function VfdChangeSetList({
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                           {cs.description || `Change Set ${cs.id.slice(0, 8)}`}
                         </h4>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
-                        >
-                          {computeMaxRisk(cs)}
-                        </span>
+                        <SeverityBadge severity={computeMaxRisk(cs)} label={computeMaxRisk(cs)} />
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                         <span

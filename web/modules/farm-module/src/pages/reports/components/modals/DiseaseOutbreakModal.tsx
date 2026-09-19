@@ -98,7 +98,7 @@ const categoryDescriptions: Record<
     label: 'Liste C - Non-exotic Notifiable',
     urgency: 'IMMEDIATE REPORT REQUIRED',
     color:
-      'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
+      'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-800 dark:text-accent-200',
   },
   F: {
     label: 'Liste F - Other Notifiable',
@@ -139,7 +139,7 @@ const severityOptions: { value: FormData['severity']; label: string; color: stri
     value: 'severe',
     label: 'Severe',
     color:
-      'bg-warning-50 dark:bg-warning-900/20 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
+      'bg-accent-50 dark:bg-accent-900/20 border-accent-300 dark:border-accent-700 text-accent-800 dark:text-accent-200',
   },
   {
     value: 'critical',

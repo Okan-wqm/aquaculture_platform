@@ -127,7 +127,7 @@ const COLOR_CLASSES: Record<string, string> = {
   cyan: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
   blue: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
   green: 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-300',
-  orange: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-300',
+  orange: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
 };
 
 // ============================================================================

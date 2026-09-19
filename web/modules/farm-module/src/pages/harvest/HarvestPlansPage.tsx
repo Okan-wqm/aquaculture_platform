@@ -540,8 +540,8 @@ const STATUS_CONFIG: Record<
   },
   postponed: {
     label: 'Postponed',
-    color: 'text-warning-700 dark:text-warning-300',
-    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
+    color: 'text-accent-700 dark:text-accent-300',
+    bgColor: 'bg-accent-100 dark:bg-accent-900/40',
     icon: <Pause className="w-4 h-4" />,
   },
 };
@@ -551,7 +551,7 @@ const HARVEST_TYPE_CONFIG: Record<HarvestType, { label: string; color: string }>
   partial: { label: 'Partial Harvest', color: 'text-accent-600 dark:text-accent-400' },
   selective: { label: 'Selective', color: 'text-primary-600 dark:text-primary-400' },
   emergency: { label: 'Emergency', color: 'text-error-600 dark:text-error-400' },
-  thinning: { label: 'Thinning', color: 'text-warning-600 dark:text-warning-400' },
+  thinning: { label: 'Thinning', color: 'text-accent-600 dark:text-accent-400' },
 };
 
 const PRODUCT_FORM_LABELS: Record<ProductForm, string> = {
@@ -703,7 +703,7 @@ const PlanCard: React.FC<{
         label: 'Postpone',
         action: 'postpone',
         icon: <Pause className="w-4 h-4" />,
-        color: 'text-warning-600 dark:text-warning-400',
+        color: 'text-accent-600 dark:text-accent-400',
       });
       actions.push({
         label: 'Cancel',
@@ -2261,8 +2261,8 @@ const PostponeModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Postpone Harvest" size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-warning-50 dark:bg-warning-900/20 rounded-md p-3 mb-4">
-          <p className="text-sm text-warning-800 dark:text-warning-200">
+        <div className="bg-accent-50 dark:bg-accent-900/20 rounded-md p-3 mb-4">
+          <p className="text-sm text-accent-800 dark:text-accent-200">
             Postpone <strong>{plan.planCode}</strong> to a new date
           </p>
         </div>

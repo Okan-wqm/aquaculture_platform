@@ -308,7 +308,7 @@ const MessagingRetentionPage: React.FC = () => {
         <span
           className={
             p.expiredCount > 0
-              ? 'text-warning-600 dark:text-warning-400 font-medium'
+              ? 'text-accent-600 dark:text-accent-400 font-medium'
               : 'text-gray-400 dark:text-gray-500'
           }
         >

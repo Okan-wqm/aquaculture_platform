@@ -343,14 +343,14 @@ const AlertsPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-100 dark:border-warning-800 rounded-xl p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-100 dark:border-accent-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="w-8 h-8 text-warning-600 dark:text-warning-400" />
+            <AlertTriangle className="w-8 h-8 text-accent-600 dark:text-accent-400" />
             <div>
-              <p className="text-2xl font-bold text-warning-900 dark:text-warning-100">
+              <p className="text-2xl font-bold text-accent-900 dark:text-accent-100">
                 {stats.high}
               </p>
-              <p className="text-sm text-warning-600 dark:text-warning-400">Yüksek</p>
+              <p className="text-sm text-accent-600 dark:text-accent-400">Yüksek</p>
             </div>
           </div>
         </div>

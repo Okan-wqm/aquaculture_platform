@@ -28,7 +28,7 @@ const operationLabels: Record<OperationType, string> = {
 const operationIcons: Record<OperationType, React.ReactNode> = {
   mortality: <TriangleAlert className="w-6 h-6 text-error-500" aria-hidden="true" />,
   transfer: <ArrowLeftRight className="w-6 h-6 text-info-500" aria-hidden="true" />,
-  cull: <Scissors className="w-6 h-6 text-warning-500" aria-hidden="true" />,
+  cull: <Scissors className="w-6 h-6 text-accent-500" aria-hidden="true" />,
 };
 
 export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({

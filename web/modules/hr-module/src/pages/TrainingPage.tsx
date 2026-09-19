@@ -18,7 +18,7 @@ const TrainingPage: React.FC = () => {
   const categoryColors: Record<string, string> = {
     safety: 'bg-error-100 text-error-800 dark:bg-error-900/30 dark:text-error-400',
     technical: 'bg-info-100 text-info-800 dark:bg-info-900/30 dark:text-info-400',
-    compliance: 'bg-warning-100 text-warning-800 dark:bg-warning-900/30 dark:text-warning-400',
+    compliance: 'bg-accent-100 text-accent-800 dark:bg-accent-900/30 dark:text-accent-400',
     soft_skills: 'bg-accent-100 text-accent-800 dark:bg-accent-900/30 dark:text-accent-400',
   };
 

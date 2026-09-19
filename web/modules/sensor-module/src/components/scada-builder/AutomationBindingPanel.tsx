@@ -34,7 +34,7 @@ import type { AutomationBinding, VariableBinding } from '../../types/scada-packa
 const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) => {
   const colors = {
     INPUT: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-    OUTPUT: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    OUTPUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
     INOUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   };
   return (

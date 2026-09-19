@@ -891,8 +891,8 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         )}
 
         {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
-        <div className="p-4 bg-warning-50 dark:bg-warning-900/20 rounded-lg space-y-3">
-          <p className="text-xs font-medium text-warning-700 dark:text-warning-300 uppercase">
+        <div className="p-4 bg-accent-50 dark:bg-accent-900/20 rounded-lg space-y-3">
+          <p className="text-xs font-medium text-accent-700 dark:text-accent-300 uppercase">
             Alarm Esikleri (ISA-18.2)
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -1058,7 +1058,7 @@ const QualityDot: React.FC<{ quality?: string }> = ({ quality }) => {
 
 const alarmColorMap: Record<string, string> = {
   red: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
-  orange: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  orange: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   green: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
   gray: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
 };
@@ -1442,7 +1442,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
           <button
             onClick={handlePush}
             disabled={pushMutation.isPending || configs.length === 0}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg hover:bg-warning-100 dark:hover:bg-warning-900/50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg hover:bg-accent-100 dark:hover:bg-accent-900/50 transition-colors disabled:opacity-50"
           >
             {pushMutation.isPending ? (
               <Spinner size="sm" color="inherit" />
@@ -1777,9 +1777,9 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
 
       {/* Downgrade warning */}
       {selectedVersion && isDowngrade && (
-        <div className="mt-2 p-2 rounded-lg bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400 shrink-0" />
-          <span className="text-xs text-warning-800 dark:text-warning-200">
+        <div className="mt-2 p-2 rounded-lg bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-accent-600 dark:text-accent-400 shrink-0" />
+          <span className="text-xs text-accent-800 dark:text-accent-200">
             Downgrade: Daha eski bir surum secildi
           </span>
         </div>
@@ -1812,10 +1812,10 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           title={
             <span className="flex items-center gap-3">
               <span
-                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-warning-100 dark:bg-warning-900/40' : 'bg-info-100 dark:bg-info-900/40'}`}
+                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-accent-100 dark:bg-accent-900/40' : 'bg-info-100 dark:bg-info-900/40'}`}
               >
                 <Upload
-                  className={`w-5 h-5 ${isDowngrade ? 'text-warning-600 dark:text-warning-400' : 'text-info-600 dark:text-info-400'}`}
+                  className={`w-5 h-5 ${isDowngrade ? 'text-accent-600 dark:text-accent-400' : 'text-info-600 dark:text-info-400'}`}
                 />
               </span>
               <span>Firmware Güncelleme</span>
@@ -1833,7 +1833,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                 disabled={updateMutation.isPending}
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 flex items-center gap-2 ${
                   isDowngrade
-                    ? 'bg-warning-600 hover:bg-warning-700'
+                    ? 'bg-accent-600 hover:bg-accent-700'
                     : 'bg-info-600 hover:bg-info-700'
                 }`}
               >
@@ -1847,10 +1847,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
             <strong>{currentVersion || 'Bilinmiyor'}</strong> &rarr;{' '}
             <strong>{selectedVersion}</strong>
             {isDowngrade && (
-              <span className="text-warning-600 dark:text-warning-400 font-medium">
-                {' '}
-                (downgrade)
-              </span>
+              <span className="text-accent-600 dark:text-accent-400 font-medium"> (downgrade)</span>
             )}{' '}
             kurulacak. Devam edilsin mi?
           </p>
@@ -2225,7 +2222,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <MetricBar
                   label="Depolama"
                   value={device.storageUsage}
-                  icon={<HardDrive className="w-4 h-4 text-warning-500" />}
+                  icon={<HardDrive className="w-4 h-4 text-accent-500" />}
                 />
                 <MetricBar
                   label="Sicaklik"

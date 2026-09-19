@@ -100,9 +100,9 @@ export const severityConfig: Record<
     priority: 5,
   },
   high: {
-    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
-    borderColor: 'border-warning-200 dark:border-warning-800',
-    iconColor: 'text-warning-600 dark:text-warning-400',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    iconColor: 'text-accent-600 dark:text-accent-400',
     badgeVariant: 'warning',
     label: 'Yüksek',
     priority: 4,
@@ -355,7 +355,7 @@ export const AlertItemCard: React.FC<AlertItemCardProps> = ({
           </div>
 
           {alert.occurrenceCount > 1 && (
-            <span className="text-xs text-warning-600 dark:text-warning-400 mt-1 inline-block">
+            <span className="text-xs text-accent-600 dark:text-accent-400 mt-1 inline-block">
               {alert.occurrenceCount} kez tekrarlandı
             </span>
           )}

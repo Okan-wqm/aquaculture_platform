@@ -16,7 +16,7 @@ const IO_BADGE_COLORS: Record<IoType, string> = {
   [IoType.AI]: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
   [IoType.AO]: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   [IoType.DI]: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-  [IoType.DO]: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  [IoType.DO]: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
 };
 
 export const TagBrowser: React.FC<TagBrowserProps> = ({

@@ -33,7 +33,7 @@ export const getStatusColor = (status: ProgramStatus): string => {
       'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     [ProgramStatus.APPROVED]: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
     [ProgramStatus.DEPLOYING]:
-      'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+      'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
     [ProgramStatus.DEPLOYED]:
       'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     [ProgramStatus.ARCHIVED]: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',

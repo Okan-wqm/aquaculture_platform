@@ -25,7 +25,7 @@ export type BatchScopeAccent = 'red' | 'orange' | 'blue' | 'purple' | 'gray';
  */
 const ACCENT_FOCUS: Record<BatchScopeAccent, string> = {
   red: 'focus:border-error-500 focus:ring-error-500',
-  orange: 'focus:border-warning-500 focus:ring-warning-500',
+  orange: 'focus:border-accent-500 focus:ring-accent-500',
   blue: 'focus:border-info-500 focus:ring-info-500',
   purple: 'focus:border-accent-500 focus:ring-accent-500',
   gray: 'focus:border-gray-500 focus:ring-gray-500',

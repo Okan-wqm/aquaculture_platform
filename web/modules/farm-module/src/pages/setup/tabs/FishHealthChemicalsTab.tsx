@@ -66,7 +66,7 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
 
 const categoryColors: Record<string, string> = {
   [ChemicalType.ANTIPARASITIC]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   [ChemicalType.ANTIBIOTIC]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   [ChemicalType.ANTIFUNGAL]:
     'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',

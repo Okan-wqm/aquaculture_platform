@@ -354,10 +354,10 @@ const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; 
       badgeBg: 'bg-error-500',
     },
     orange: {
-      bg: 'bg-warning-50 dark:bg-warning-900/20',
-      hover: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
-      border: 'hover:border-warning-200 dark:hover:border-warning-700',
-      badgeBg: 'bg-warning-500',
+      bg: 'bg-accent-50 dark:bg-accent-900/20',
+      hover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
+      border: 'hover:border-accent-200 dark:hover:border-accent-700',
+      badgeBg: 'bg-accent-500',
     },
     yellow: {
       bg: 'bg-warning-50 dark:bg-warning-900/20',

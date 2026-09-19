@@ -45,10 +45,10 @@ const urgencyConfig: Record<
   },
   today: {
     label: 'Due today',
-    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
-    textColor: 'text-warning-700 dark:text-warning-300',
-    borderColor: 'border-warning-200 dark:border-warning-800',
-    icon: <Clock className="w-4 h-4 text-warning-500" aria-hidden="true" />,
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    textColor: 'text-accent-700 dark:text-accent-300',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    icon: <Clock className="w-4 h-4 text-accent-500" aria-hidden="true" />,
   },
   urgent: {
     label: 'Due soon',

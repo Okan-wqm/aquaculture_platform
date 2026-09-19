@@ -64,7 +64,7 @@ const quickActions: QuickAction[] = [
     label: 'Rapor Oluştur',
     description: 'Yeni rapor',
     path: '/reports/new',
-    color: 'bg-warning-500',
+    color: 'bg-accent-500',
     icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {

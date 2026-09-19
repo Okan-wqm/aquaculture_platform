@@ -207,7 +207,7 @@ export function ChildSensorsStep({
                         </span>
                       )}
                       {sensor.calibrationEnabled && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
                           Calibration: x{sensor.calibrationMultiplier} +{sensor.calibrationOffset}
                         </span>
                       )}

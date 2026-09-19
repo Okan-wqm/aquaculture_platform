@@ -42,10 +42,10 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
               <span className="inline-block w-2 h-2 rounded-full bg-info-500 mr-1.5 align-middle" />
             )}
             {isFinal && !isStart && (
-              <span className="inline-block w-2 h-2 rounded-full bg-warning-500 mr-1.5 align-middle" />
+              <span className="inline-block w-2 h-2 rounded-full bg-accent-500 mr-1.5 align-middle" />
             )}
             {!isStart && !isFinal && (
-              <span className="inline-block w-2 h-2 border border-warning-400 rounded-full mr-1.5 align-middle" />
+              <span className="inline-block w-2 h-2 border border-accent-400 rounded-full mr-1.5 align-middle" />
             )}
             {step.label}
           </>

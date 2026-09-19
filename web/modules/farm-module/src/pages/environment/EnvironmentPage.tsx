@@ -46,7 +46,7 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
   OUT_OF_COVERAGE:
     'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
   STALE:
-    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
   PROVIDER_UNAVAILABLE:
     'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
   CONFIGURATION_ERROR:
@@ -64,7 +64,7 @@ const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
   OUT_OF_COVERAGE:
     'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
   STALE:
-    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
   PROVIDER_UNAVAILABLE:
     'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
   CONFIGURATION_ERROR:

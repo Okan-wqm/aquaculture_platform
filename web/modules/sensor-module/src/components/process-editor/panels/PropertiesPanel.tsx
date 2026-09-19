@@ -941,7 +941,7 @@ export const PropertiesPanel: React.FC = () => {
                                 io.ioType === 'DI'
                                   ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
                                   : io.ioType === 'DO'
-                                    ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
                                     : io.ioType === 'AI'
                                       ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                                       : 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
@@ -1051,7 +1051,7 @@ export const PropertiesPanel: React.FC = () => {
                     className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
+                      <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
                         DO
                       </span>
                       <span className="text-sm text-gray-700 dark:text-gray-300">

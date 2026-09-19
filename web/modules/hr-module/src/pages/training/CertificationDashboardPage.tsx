@@ -92,7 +92,7 @@ const CERTIFICATION_CATEGORY_CONFIG: Record<
   },
   FOOD_HANDLING: {
     label: 'Food Handling',
-    color: 'bg-warning-100 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400',
+    color: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-400',
     icon: <Shield className="h-4 w-4" />,
   },
   ENVIRONMENTAL: {
@@ -522,8 +522,8 @@ export function CertificationDashboardPage() {
           title="Critical"
           value={expiringIn7Days}
           subtitle="Within 7 days"
-          icon={<AlertTriangle className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
-          color="bg-warning-50 dark:bg-warning-900/30"
+          icon={<AlertTriangle className="h-5 w-5 text-accent-600 dark:text-accent-400" />}
+          color="bg-accent-50 dark:bg-accent-900/30"
         />
         <StatCard
           title="Expired"

@@ -700,7 +700,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                         }
                         className={`
                                 block w-full rounded-md shadow-sm text-sm
-                                ${exceedsStock ? 'border-warning-400 ring-1 ring-warning-300' : 'border-gray-300 dark:border-gray-600'}
+                                ${exceedsStock ? 'border-accent-400 ring-1 ring-accent-300' : 'border-gray-300 dark:border-gray-600'}
                                 focus:ring-info-500 focus:border-info-500
                               `}
                         placeholder="Number escaped"
@@ -710,7 +710,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
                   {/* Validation warnings */}
                   {exceedsStock && (
-                    <div className="mt-2 p-2 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded text-xs text-warning-700 dark:text-warning-300">
+                    <div className="mt-2 p-2 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded text-xs text-accent-700 dark:text-accent-300">
                       Warning: Escape count exceeds original stock (
                       {unit.originalCount.toLocaleString()})
                     </div>

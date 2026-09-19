@@ -346,7 +346,7 @@ const getSeverityColor = (severity: EventSeverity): string => {
     case 'critical':
       return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800';
     case 'high':
-      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200 border-accent-200 dark:border-accent-800';
     case 'medium':
       return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-200 dark:border-warning-800';
     case 'low':
@@ -361,7 +361,7 @@ const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
     case 'critical':
       return <XCircle className="w-4 h-4 text-error-600 dark:text-error-400" />;
     case 'high':
-      return <AlertCircle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
+      return <AlertCircle className="w-4 h-4 text-accent-600 dark:text-accent-400" />;
     case 'medium':
       return <AlertTriangle className="w-4 h-4 text-warning-600 dark:text-warning-400" />;
     case 'low':
@@ -890,8 +890,8 @@ export const SecurityDashboardPage: React.FC = () => {
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
-                  <Target className="w-5 h-5 text-warning-600 dark:text-warning-400" />
+                <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                  <Target className="w-5 h-5 text-accent-600 dark:text-accent-400" />
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Open Incidents</p>

@@ -213,9 +213,9 @@ const EmployeeDetailPage: React.FC = () => {
             )}
             <Link
               to={`/hr/performance?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-warning-200 hover:bg-warning-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-warning-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-accent-200 hover:bg-accent-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-accent-800"
             >
-              <Award className="w-8 h-8 text-warning-600 dark:text-warning-400 mb-2" />
+              <Award className="w-8 h-8 text-accent-600 dark:text-accent-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Performance</span>
             </Link>
             <Link

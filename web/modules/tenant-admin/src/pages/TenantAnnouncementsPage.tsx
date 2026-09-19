@@ -304,14 +304,14 @@ export const TenantAnnouncementsPage: React.FC = () => {
               {unreadCount}
             </div>
           </div>
-          <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3">
+          <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-3">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-warning-500" />
-              <span className="text-sm text-warning-600 dark:text-warning-400">
+              <AlertCircle className="w-4 h-4 text-accent-500" />
+              <span className="text-sm text-accent-600 dark:text-accent-400">
                 Pending Acknowledgment
               </span>
             </div>
-            <div className="text-xl font-semibold text-warning-700 dark:text-warning-300 mt-1">
+            <div className="text-xl font-semibold text-accent-700 dark:text-accent-300 mt-1">
               {pendingAckCount}
             </div>
           </div>
@@ -425,7 +425,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                           </span>
                         )}
                         {announcement.requiresAcknowledgment && !announcement.isAcknowledged && (
-                          <span className="px-1.5 py-0.5 text-xs font-medium bg-warning-500 text-white rounded">
+                          <span className="px-1.5 py-0.5 text-xs font-medium bg-accent-500 text-white rounded">
                             ACK REQUIRED
                           </span>
                         )}
@@ -548,7 +548,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm text-warning-700 dark:text-warning-300">
+                    <div className="flex items-center gap-2 text-sm text-accent-700 dark:text-accent-300">
                       <AlertCircle size={16} />
                       <span>This announcement requires your acknowledgment</span>
                     </div>

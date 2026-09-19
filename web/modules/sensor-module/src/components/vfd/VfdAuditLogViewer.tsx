@@ -8,21 +8,17 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, AlertTriangle, History, Filter } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
-import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  SeverityBadge,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
 // ============================================================================
-
-const RISK_COLORS: Record<string, string> = {
-  [VfdRiskLevel.LOW]:
-    'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-  [VfdRiskLevel.MEDIUM]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  [VfdRiskLevel.HIGH]:
-    'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-  [VfdRiskLevel.CRITICAL]: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
-};
 
 // ============================================================================
 // Props
@@ -103,17 +99,7 @@ export function VfdAuditLogViewer({
       header: 'Risk',
       render: (_value, log) => {
         const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
-        const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
-        return (
-          <>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
-              data-testid={`risk-${log.id}`}
-            >
-              {risk}
-            </span>
-          </>
-        );
+        return <SeverityBadge severity={risk} label={risk} data-testid={`risk-${log.id}`} />;
       },
     },
   ];

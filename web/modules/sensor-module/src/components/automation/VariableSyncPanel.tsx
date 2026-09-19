@@ -193,8 +193,8 @@ const StatusBadge: React.FC<{ status: SyncStatus }> = ({ status }) => {
       label: 'Synced',
     },
     changed: {
-      bg: 'bg-warning-50 dark:bg-warning-900/20',
-      text: 'text-warning-700 dark:text-warning-300',
+      bg: 'bg-accent-50 dark:bg-accent-900/20',
+      text: 'text-accent-700 dark:text-accent-300',
       label: 'Changed',
     },
   };
@@ -385,9 +385,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
             <span className="text-warning-600 dark:text-warning-400">In DB, not in code</span>
           )}
           {item.status === 'changed' && item.changes && (
-            <span className="text-warning-600 dark:text-warning-400">
-              {item.changes.join('; ')}
-            </span>
+            <span className="text-accent-600 dark:text-accent-400">{item.changes.join('; ')}</span>
           )}
           {item.status === 'synced' && (
             <span className="text-success-600 dark:text-success-400">
@@ -470,7 +468,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
             </span>
           )}
           {changedCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
               <RefreshCw className="h-3 w-3" />
               {changedCount} changed
             </span>
@@ -581,7 +579,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
               : item.status === 'orphaned'
                 ? 'bg-warning-50/50 dark:bg-warning-900/20/50'
                 : item.status === 'changed'
-                  ? 'bg-warning-50/50 dark:bg-warning-900/20/50'
+                  ? 'bg-accent-50/50 dark:bg-accent-900/20/50'
                   : ''
           }
         />

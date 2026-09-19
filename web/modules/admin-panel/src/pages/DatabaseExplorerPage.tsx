@@ -570,10 +570,10 @@ const DatabaseExplorerPage: React.FC = () => {
           return {
             key: col.columnName,
             header: col.columnName,
-            className: isSensitive ? 'text-warning-600 dark:text-warning-400' : undefined,
+            className: isSensitive ? 'text-accent-600 dark:text-accent-400' : undefined,
             headerRender: (
               <span
-                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-warning-50 dark:bg-warning-900/20 px-1' : ''}`}
+                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-accent-50 dark:bg-accent-900/20 px-1' : ''}`}
                 title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
               >
                 {col.columnName}
@@ -581,7 +581,7 @@ const DatabaseExplorerPage: React.FC = () => {
                   <Clipboard className="w-3 h-3 text-warning-500" aria-hidden="true" />
                 )}
                 {isSensitive && (
-                  <Lock className="w-3 h-3 text-warning-500" aria-label="Hassas veri - Maskeli" />
+                  <Lock className="w-3 h-3 text-accent-500" aria-label="Hassas veri - Maskeli" />
                 )}
               </span>
             ),
@@ -589,13 +589,13 @@ const DatabaseExplorerPage: React.FC = () => {
               const valueIsMasked = isMaskedValue(value);
               return (
                 <span
-                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-warning-50 dark:bg-warning-900/20 px-1' : ''}`}
+                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-accent-50 dark:bg-accent-900/20 px-1' : ''}`}
                   title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(value)}
                 >
                   {value === null ? (
                     <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
                   ) : valueIsMasked ? (
-                    <span className="flex items-center gap-1 text-warning-600 dark:text-warning-400 font-mono">
+                    <span className="flex items-center gap-1 text-accent-600 dark:text-accent-400 font-mono">
                       <Lock className="w-3 h-3" aria-hidden="true" />
                       {MASKED_VALUE}
                     </span>

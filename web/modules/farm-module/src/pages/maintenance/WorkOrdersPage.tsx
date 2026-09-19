@@ -51,7 +51,7 @@ const statusColors: Record<WorkOrderStatus, string> = {
   APPROVED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   SCHEDULED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
   IN_PROGRESS: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
-  ON_HOLD: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  ON_HOLD: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   VERIFIED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   CANCELLED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
@@ -60,7 +60,7 @@ const statusColors: Record<WorkOrderStatus, string> = {
 const priorityColors: Record<WorkOrderPriority, string> = {
   LOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   MEDIUM: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  HIGH: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  HIGH: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   CRITICAL: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
@@ -214,9 +214,9 @@ function getAvailableActions(status: WorkOrderStatus): WorkflowActionDef[] {
       actions.push({
         action: 'hold',
         label: 'Beklet',
-        color: 'text-warning-700 dark:text-warning-300',
-        bgColor: 'bg-warning-50 dark:bg-warning-900/20',
-        hoverColor: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
+        color: 'text-accent-700 dark:text-accent-300',
+        bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+        hoverColor: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
         needsReason: true,
         confirmMessage: 'Bu iş emrini beklemeye almak istediğinizden emin misiniz?',
       });
@@ -1127,7 +1127,7 @@ export const WorkOrdersPage: React.FC = () => {
                 confirmAction?.actionDef.action === 'cancel'
                   ? 'bg-error-600 hover:bg-error-700'
                   : confirmAction?.actionDef.action === 'hold'
-                    ? 'bg-warning-600 hover:bg-warning-700'
+                    ? 'bg-accent-600 hover:bg-accent-700'
                     : ''
               }
             >

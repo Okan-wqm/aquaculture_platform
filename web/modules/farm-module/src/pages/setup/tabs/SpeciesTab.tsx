@@ -582,7 +582,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.temperature && (
                       <div className="flex items-center">
-                        <ChartColumn className="w-4 h-4 mr-2 text-warning-500" aria-hidden="true" />
+                        <ChartColumn className="w-4 h-4 mr-2 text-accent-500" aria-hidden="true" />
                         <span>
                           Temp: {species.optimalConditions.temperature.min}-
                           {species.optimalConditions.temperature.max}°C

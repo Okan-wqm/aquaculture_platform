@@ -1046,12 +1046,12 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       )}
 
       {/* Total Summary */}
-      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-warning-800 dark:text-warning-200">
+          <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
             Total Feed Consumption
           </span>
-          <span className="text-2xl font-bold text-warning-700 dark:text-warning-300">
+          <span className="text-2xl font-bold text-accent-700 dark:text-accent-300">
             {formatWeight(formData.feedConsumption.totalKg)}
           </span>
         </div>
@@ -1435,7 +1435,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Mortality</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {formatWeight(formData.feedConsumption.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Feed Used</div>
@@ -1540,7 +1540,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             {formData.feedConsumption.byFeedType.map((f, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-warning-50 dark:bg-warning-900/20 rounded p-2"
+                className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
               >
                 <div>
                   <span className="text-gray-700 dark:text-gray-300">
@@ -1552,7 +1552,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     </span>
                   )}
                 </div>
-                <span className="font-medium text-warning-700 dark:text-warning-300">
+                <span className="font-medium text-accent-700 dark:text-accent-300">
                   {formatWeight(f.quantityKg)}
                 </span>
               </div>

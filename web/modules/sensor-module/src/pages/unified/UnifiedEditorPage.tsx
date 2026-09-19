@@ -105,7 +105,7 @@ const LiveTagsPanel: React.FC = () => {
 
   const IO_TYPE_COLOR: Record<string, string> = {
     AI: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
-    AO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    AO: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
     DI: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     DO: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
     CALC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',

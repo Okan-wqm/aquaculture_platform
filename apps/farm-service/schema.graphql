@@ -3167,6 +3167,10 @@ type EffectiveUnitTemperature {
   sensorId: ID
 }
 
+type EnvironmentMonitoringStatusResponse {
+  enabled: Boolean!
+}
+
 type EnvironmentCoverageScopeResponse {
   provider: EnvironmentProvider!
   metric: EnvironmentMetric
@@ -5799,6 +5803,7 @@ type Query {
   waterQualityChartBySystem(systemId: ID!, fromDate: DateTime!, toDate: DateTime!): [WaterQualityMeasurement!]!
   waterQualityStatisticsBySystem(systemId: ID!, days: Int! = 7): WaterQualityStatistics!
   effectiveUnitTemperatures(unitIds: [ID!]!): [EffectiveUnitTemperature!]!
+  environmentMonitoringStatus: EnvironmentMonitoringStatusResponse!
   siteEnvironmentCurrent(siteId: ID!): SiteEnvironmentValuesResponse!
   siteEnvironmentHistory(input: SiteEnvironmentHistoryInput!): SiteEnvironmentValuesResponse!
   siteEnvironmentForecast(input: SiteEnvironmentForecastInput!): SiteEnvironmentValuesResponse!

@@ -261,6 +261,13 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.forecast.mortalityNone': 'Ölüm projeksiyonu: yok (muhafazakâr)',
   'feedingV2.forecast.empty': 'Bu kapsamda öngörülen yem tüketimi yok.',
   'feedingV2.forecast.noUnits': 'Bu kapsamda aktif protokollü ünite yok.',
+
+  // ── Çevre izleme (farm-module) ──
+  'environment.monitoring.checkingAvailability': 'Çevre izleme kullanılabilirliği denetleniyor…',
+  'environment.monitoring.availabilityUnknown': 'Çevre izleme kullanılabilirliği belirlenemedi.',
+  'environment.monitoring.disabledTitle': 'Bu dağıtımda çevre izleme etkin değil',
+  'environment.monitoring.disabledDescription':
+    'Platform operatörü çevre izleme açılışını henüz devreye almadı. Kafes sahaleriniz ve konumları etkilenmez; hava durumu, Copernicus Marine model değerleri ve Sentinel-2 sahneleri etkinleştirildiğinde burada görünecek.',
   'feedingV2.forecast.noTransition': 'Ufuk içinde yem geçişi yok',
   'feedingV2.forecast.transitionLabel': '{days} gün sonra {code}',
   'feedingV2.forecast.stockoutBadge': '{code} {days} gün içinde tükeniyor',

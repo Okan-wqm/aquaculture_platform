@@ -261,6 +261,15 @@ export const en = {
   'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
   'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
   'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',
+
+  // ── Environment monitoring (farm-module) ──
+  'environment.monitoring.checkingAvailability': 'Checking environmental monitoring availability…',
+  'environment.monitoring.availabilityUnknown':
+    'Environmental monitoring availability could not be determined.',
+  'environment.monitoring.disabledTitle':
+    'Environmental monitoring is not enabled for this deployment',
+  'environment.monitoring.disabledDescription':
+    'The platform operator has not switched on the environmental monitoring rollout yet. Your sea-cage sites and their locations are unaffected; weather, Copernicus Marine model values and Sentinel-2 scenes will appear here once it is enabled.',
   'feedingV2.forecast.noTransition': 'No feed transition within horizon',
   'feedingV2.forecast.transitionLabel': '{code} in {days}d',
   'feedingV2.forecast.stockoutBadge': '{code} runs out in {days}d',

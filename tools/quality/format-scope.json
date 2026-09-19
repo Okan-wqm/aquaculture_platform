@@ -8078,6 +8078,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/marine-provider-credential.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/commands/create-configuration.command.ts",
       "prettier_managed": true
     },
@@ -8144,6 +8150,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/dto/marine-provider-credential.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/entities/configuration.entity.ts",
       "prettier_managed": true
     },
@@ -8151,6 +8163,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/graphql-principal.ts",
       "prettier_managed": true
     },
     {
@@ -8211,6 +8229,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/marine-provider-credential.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -19071,6 +19095,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/weather/__tests__/environment-read.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/weather/__tests__/environment-resolver-gate.contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -36646,6 +36676,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-18-environment-monitoring-enablement-surface.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -50248,6 +50284,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/format-merge-base.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/format-scope-derived-scalars.spec.ts",
       "prettier_managed": true
     },
@@ -50507,6 +50549,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/coverage-report-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-merge-base.mjs",
       "prettier_managed": true
     },
     {
@@ -52760,6 +52808,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/__tests__/ProviderCredentialsTab.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/ProviderCredentialsTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantMultiSelect.tsx",
       "prettier_managed": true
     },
@@ -52767,6 +52827,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantSelect.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/marine-provider-credential-operations.ts",
       "prettier_managed": true
     },
     {
@@ -52845,6 +52911,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/useFilters.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useMarineProviderCredential.ts",
       "prettier_managed": true
     },
     {
@@ -62609,7 +62681,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "37117f0a52b7f70fe7c40b35ded6a1b2865e10898c0e219a21677dd78ded1675",
+      "content_sha256": "02d09b01578bdcb4be6329c109b4f25684fa040e8262a4a0283a92708459f60d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

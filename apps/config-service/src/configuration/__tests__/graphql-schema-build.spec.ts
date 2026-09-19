@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 
 import { ConfigurationResolver } from '../configuration.resolver';
 import { Configuration } from '../entities/configuration.entity';
+import { MarineProviderCredentialResolver } from '../marine-provider-credential.resolver';
 
 /**
  * GraphQL schema-build smoke gate (INFRA-HIGH-009).
@@ -29,10 +30,16 @@ describe('config-service GraphQL schema build', () => {
     // loads every decorated class, which is exactly where the union
     // reflection died. orphanedTypes forces the same full processing
     // here AND pins the entity into the built schema for assertion.
-    const schema = await factory.create([ConfigurationResolver], {
+    const schema = await factory.create([ConfigurationResolver, MarineProviderCredentialResolver], {
       orphanedTypes: [Configuration],
     });
 
     expect(schema.getType('Configuration')).toBeDefined();
+    // The provider-credential surface's nullable `Int | null` / `Date | null`
+    // status fields are the exact reflection shape this gate exists for.
+    expect(schema.getType('MarineProviderCredentialStatusDto')).toBeDefined();
+    expect(schema.getType('MarineProviderCredentialProvider')).toBeDefined();
+    expect(schema.getQueryType()?.getFields()['marineProviderCredentialStatus']).toBeDefined();
+    expect(schema.getMutationType()?.getFields()['setMarineProviderCdseCredential']).toBeDefined();
   });
 });

@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-contracts';
 /**
  * Deffeyes Diagram Data Generator
  * Ported from Python PlotCanvas.tanolustur()
@@ -62,16 +63,16 @@ const PH_ISOLINE_VALUES = rangeValues(
 /** Color palette for pH isolines */
 function phIsolineColor(pH: number): string {
   // Gradient from red (low pH) through green (neutral) to purple (high pH)
-  if (pH < 6.0) return '#dc2626';      // red
-  if (pH < 6.5) return '#ef4444';      // light red
-  if (pH < 7.0) return '#f97316';      // orange
-  if (pH < 7.5) return '#eab308';      // yellow
-  if (pH < 8.0) return '#22c55e';      // green
-  if (pH < 8.5) return '#06b6d4';      // cyan
-  if (pH < 9.0) return '#3b82f6';      // blue
-  if (pH < 9.5) return '#6366f1';      // indigo
-  if (pH < 10.0) return '#a855f7';     // purple
-  return '#7c3aed';                      // deep purple
+  if (pH < 6.0) return colors.error[600];      // red
+  if (pH < 6.5) return colors.error[500];      // light red
+  if (pH < 7.0) return colors.accent[500];      // orange
+  if (pH < 7.5) return colors.warning[500];      // yellow
+  if (pH < 8.0) return colors.success[500];      // green
+  if (pH < 8.5) return colors.info[300];      // cyan
+  if (pH < 9.0) return colors.info[500];      // blue
+  if (pH < 9.5) return colors.primary[500];      // indigo
+  if (pH < 10.0) return colors.accent[300];     // purple
+  return colors.accent[700];                      // deep purple
 }
 
 /**
@@ -440,7 +441,7 @@ export function generateCalciteIsopleth(
   const ksp = calcKspCalcite(tempC, S);
   const points = generateOmegaIsopleth(tempC, S, caMolKg, ksp, maxDIC);
   if (points.length < 2) return null;
-  return { label: 'Ω-Calcite = 1', color: '#2563eb', points };
+  return { label: 'Ω-Calcite = 1', color: colors.info[600], points };
 }
 
 /**
@@ -457,7 +458,7 @@ export function generateAragoniteIsopleth(
   const ksp = calcKspAragonite(tempC, S);
   const points = generateOmegaIsopleth(tempC, S, caMolKg, ksp, maxDIC);
   if (points.length < 2) return null;
-  return { label: 'Ω-Aragonite = 1', color: '#d946ef', points };
+  return { label: 'Ω-Aragonite = 1', color: colors.accent[200], points };
 }
 
 // ============================================================================

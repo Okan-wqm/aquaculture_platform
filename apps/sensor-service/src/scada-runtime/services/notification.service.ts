@@ -22,7 +22,7 @@
 import * as http from 'http';
 import * as https from 'https';
 
-import { emailRows, renderEmail, type EmailTone } from '@aquaculture/shared-contracts';
+import { emailRows, renderEmail, SEVERITY_TONE } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
@@ -32,18 +32,6 @@ import type { AlarmInstance, NotificationConfig, AlarmSeverity } from '../scada-
 /* ------------------------------------------------------------------ */
 /*  Nodemailer / http — loaded lazily to keep startup fast              */
 /* ------------------------------------------------------------------ */
-
-/**
- * The band an alarm mail takes, on the product's severity ladder
- * (FE-HIGH-085): critical red, high coral, warning amber, info blue. Total over
- * the union, so a new severity is a compile error rather than a grey mail.
- */
-const ALARM_SEVERITY_TONE: Readonly<Record<AlarmSeverity, EmailTone>> = {
-  critical: 'error',
-  high: 'accent',
-  warning: 'warning',
-  info: 'info',
-};
 
 /* ------------------------------------------------------------------ */
 /*  Internal types                                                      */
@@ -261,7 +249,7 @@ export class NotificationService implements OnModuleDestroy {
     const html = renderEmail({
       title: `${alarm.severity.toUpperCase()} Alarm`,
       subtitle: alarm.ruleName,
-      tone: ALARM_SEVERITY_TONE[alarm.severity],
+      tone: SEVERITY_TONE[alarm.severity],
       preheader: alarm.message,
       body: emailRows([
         { label: 'Message', value: alarm.message },

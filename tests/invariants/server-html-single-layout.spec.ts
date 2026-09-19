@@ -44,6 +44,31 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 /** The one module allowed to write a document opener. */
 const LAYOUT_MODULE = 'libs/shared-contracts/src/design/email-layout.ts';
 
+/** The modules that declare the colours; everything else reads them. */
+const TOKEN_MODULES = new Set([
+  'libs/shared-contracts/src/design/color-tokens.ts',
+  'libs/shared-contracts/src/design/email-layout.ts',
+  'libs/shared-contracts/src/design/severity.ts',
+]);
+
+/**
+ * The one file that keeps its own colours, and why.
+ *
+ * `libs/node-components` is a PUBLISHED, buildable package: its output is the
+ * UMD bundle `sens-api-gateway/static/aquaculture-nodes.umd.js`, checked in and
+ * embedded in the Rust binary with `include_bytes!`. Nx's boundary rule refuses
+ * a buildable library importing the source-only token lib, and with no gate
+ * rebuilding that bundle, a source change would leave the edge panel drawing
+ * the previous colours. Its nine values are also ISA-5.1 P&ID line conventions
+ * — process black, electrical red, pneumatic blue, hydraulic green, instrument
+ * orange, data violet, capillary grey, steam orange, drain cyan — which a
+ * plant engineer reads, not brand choices.
+ *
+ * Tracked under FE-MEDIUM-093: closing it needs the bundle regenerated from
+ * source by a gate, not another import.
+ */
+const PUBLISHED_BUNDLE_SOURCES = new Set(['libs/node-components/src/config/connectionTypes.ts']);
+
 /** Server-side source: the trees that must not carry a private e-mail shell. */
 const SCANNED_TREES = ['apps', 'libs', 'platform'];
 
@@ -125,22 +150,24 @@ describe('INVARIANT (FE-MEDIUM-093): one HTML layout for every server-rendered d
     }
   });
 
-  it('a file that emits markup carries no hex colour', () => {
+  it('no server-side file writes a colour of its own', () => {
     const offenders: string[] = [];
 
     for (const rel of files) {
-      if (rel === LAYOUT_MODULE) continue;
-      const code = codeOf(rel);
-      if (countOf(code, MARKUP_TAG) === 0) continue;
-      const hexes = countOf(code, RAW_HEX);
+      if (TOKEN_MODULES.has(rel) || PUBLISHED_BUNDLE_SOURCES.has(rel)) continue;
+      const hexes = countOf(codeOf(rel), RAW_HEX);
       if (hexes > 0) offenders.push(`${rel} (${hexes})`);
     }
 
     if (offenders.length > 0) {
       throw new Error(
-        `A colour written next to markup is a second palette. Take it from\n` +
-          `\`colors\` in @aquaculture/shared-contracts, or pass a tone to the\n` +
-          `layout block. Offenders:\n` +
+        `A colour written in a service is a second palette: it is a value the\n` +
+          `customer sees — a chart series, a role badge, a parameter's line, an\n` +
+          `alarm band — and it stops following the product the moment the token\n` +
+          `changes. Take it from \`colors\`, \`chartPalette\` or \`severityColor\`\n` +
+          `in @aquaculture/shared-contracts. If it is an example inside a\n` +
+          `validation message, write the shape (#rrggbb) rather than a value.\n` +
+          `Offenders:\n` +
           offenders.map((o) => `  ${o}`).join('\n'),
       );
     }

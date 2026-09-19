@@ -72,6 +72,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './design/color-tokens',
       // The one HTML e-mail layout, painted from those tokens.
       './design/email-layout',
+      // The product's severity ladder, so an incident is the same colour in the
+      // mail, the alert list and the SCADA banner.
+      './design/severity',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

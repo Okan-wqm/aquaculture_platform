@@ -5,7 +5,7 @@ import {
   emailRows,
   emailToneColor,
   renderEmail,
-  type EmailTone,
+  SEVERITY_TONE,
 } from '@aquaculture/shared-contracts';
 
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
@@ -49,21 +49,6 @@ export interface NotificationTemplate {
   shortTemplate?: string;
   isDefault?: boolean;
 }
-
-/**
- * The band a severity paints the notification with — the product's severity
- * ladder (FE-HIGH-085): critical red, high coral, medium and warning amber,
- * low blue, informational grey. The colours themselves come from the design
- * tokens, so an incident mail cannot drift from the incident list.
- */
-const SEVERITY_TONE: Readonly<Record<AlertSeverity, EmailTone>> = {
-  [AlertSeverity.CRITICAL]: 'error',
-  [AlertSeverity.HIGH]: 'accent',
-  [AlertSeverity.MEDIUM]: 'warning',
-  [AlertSeverity.WARNING]: 'warning',
-  [AlertSeverity.LOW]: 'info',
-  [AlertSeverity.INFO]: 'neutral',
-};
 
 /**
  * Built-in templates

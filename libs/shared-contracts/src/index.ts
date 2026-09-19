@@ -23,8 +23,12 @@
 // both stacks: the browser reads it through `theme.ts`, the HTML e-mail
 // builders read it directly, so a customer's first sight of the product is
 // painted in the product's colours rather than each service's private hex list.
-export { colors, chartPalette, chartChrome } from './design/color-tokens';
+export { colors, chartPalette, chartChrome, colorTokenEntries } from './design/color-tokens';
 export type { ColorTokens } from './design/color-tokens';
+
+// The product's severity ladder and the colour each step is painted with.
+export { SEVERITY_TONE, severityColor } from './design/severity';
+export type { SeverityLevel } from './design/severity';
 
 // The one HTML e-mail layout every service renders through (FE-MEDIUM-093).
 export {

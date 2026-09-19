@@ -44818,6 +44818,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared-contracts/src/design/severity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared-contracts/src/enums/messaging-media-mime.ts",
       "prettier_managed": true
     },
@@ -49671,6 +49677,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/design/generate-edge-theme.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/tsconfig.json",
       "prettier_managed": true
     },
     {

@@ -174,13 +174,13 @@ function getStatusInfo(status: string): { label: string; bgClass: string; textCl
     case 'online':
       return { label: 'Çevrimiçi', bgClass: 'bg-green-100', textClass: 'text-green-800', icon: <Wifi className="w-3 h-3" /> };
     case 'offline':
-      return { label: 'Çevrimdışı', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <WifiOff className="w-3 h-3" /> };
+      return { label: 'Çevrimdışı', bgClass: 'bg-gray-100 dark:bg-gray-800', textClass: 'text-gray-800 dark:text-gray-200', icon: <WifiOff className="w-3 h-3" /> };
     case 'error':
       return { label: 'Hata', bgClass: 'bg-red-100', textClass: 'text-red-800', icon: <AlertCircle className="w-3 h-3" /> };
     case 'maintenance':
       return { label: 'Bakımda', bgClass: 'bg-yellow-100', textClass: 'text-yellow-800', icon: <Settings className="w-3 h-3" /> };
     default:
-      return { label: status || 'Bilinmiyor', bgClass: 'bg-gray-100', textClass: 'text-gray-800', icon: <Wifi className="w-3 h-3" /> };
+      return { label: status || 'Bilinmiyor', bgClass: 'bg-gray-100 dark:bg-gray-800', textClass: 'text-gray-800 dark:text-gray-200', icon: <Wifi className="w-3 h-3" /> };
   }
 }
 
@@ -346,9 +346,9 @@ const DeviceDetailPage: React.FC = () => {
         leading={
           <Link
             to="/sensor/devices"
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+            <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           </Link>
         }
         actions={
@@ -356,7 +356,7 @@ const DeviceDetailPage: React.FC = () => {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               Yenile
@@ -373,13 +373,13 @@ const DeviceDetailPage: React.FC = () => {
       />
 
       {/* Tab Bar (L1: Turkish labels) */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setActiveTab('overview')}
           className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'overview'
               ? 'text-cyan-600 border-cyan-600'
-              : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+              : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           <Activity className="w-4 h-4" />
@@ -390,7 +390,7 @@ const DeviceDetailPage: React.FC = () => {
           className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'channels'
               ? 'text-cyan-600 border-cyan-600'
-              : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+              : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -406,13 +406,13 @@ const DeviceDetailPage: React.FC = () => {
       {activeTab === 'overview' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Device Info Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
           <div className="flex flex-col items-center text-center">
             <div className="w-20 h-20 rounded-full bg-cyan-100 flex items-center justify-center mb-4">
               <Cpu className="w-10 h-10 text-cyan-600" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">{device.name}</h2>
-            <p className="text-gray-500">{device.model || device.type}</p>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{device.name}</h2>
+            <p className="text-gray-500 dark:text-gray-400">{device.model || device.type}</p>
             {/* H5: Use full class strings */}
             <span className={`mt-2 px-3 py-1 ${statusInfo.bgClass} ${statusInfo.textClass} rounded-full text-sm font-medium inline-flex items-center gap-1`}>
               {statusInfo.icon}
@@ -421,42 +421,42 @@ const DeviceDetailPage: React.FC = () => {
           </div>
 
           <div className="mt-6 space-y-4">
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
-              <span className="text-gray-500">Site/Departman</span>
-              <span className="font-medium text-gray-900 flex items-center gap-1">
+            <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+              <span className="text-gray-500 dark:text-gray-400">Site/Departman</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
                 {device.siteId || device.departmentId || 'Belirtilmemiş'}
               </span>
             </div>
             {device.connectionStatus?.batteryLevel !== undefined && (
-              <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                <span className="text-gray-500">Pil</span>
-                <span className="font-medium text-gray-900 flex items-center gap-1">
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">Pil</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
                   <Battery className="w-4 h-4" />
                   {device.connectionStatus.batteryLevel}%
                 </span>
               </div>
             )}
             {device.connectionStatus?.signalStrength !== undefined && (
-              <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                <span className="text-gray-500">Sinyal</span>
-                <span className="font-medium text-gray-900 flex items-center gap-1">
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">Sinyal</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
                   <Signal className="w-4 h-4" />
                   {device.connectionStatus.signalStrength}%
                 </span>
               </div>
             )}
             {device.connectionStatus?.latencyMs !== undefined && (
-              <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                <span className="text-gray-500">Gecikme</span>
-                <span className="font-medium text-gray-900">
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">Gecikme</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">
                   {device.connectionStatus.latencyMs}ms
                 </span>
               </div>
             )}
             <div className="flex items-center justify-between py-2">
-              <span className="text-gray-500">Son Görülme</span>
-              <span className="font-medium text-gray-900 flex items-center gap-1">
+              <span className="text-gray-500 dark:text-gray-400">Son Görülme</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
                 <Clock className="w-4 h-4" />
                 {formatRelativeTime(lastSeenDate)}
               </span>
@@ -467,48 +467,48 @@ const DeviceDetailPage: React.FC = () => {
         {/* Details & Actions */}
         <div className="lg:col-span-2 space-y-6">
           {/* Technical Details */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Teknik Bilgiler</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Teknik Bilgiler</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Üretici</p>
-                <p className="font-medium text-gray-900">{device.manufacturer || 'Belirtilmemiş'}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Üretici</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.manufacturer || 'Belirtilmemiş'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Model</p>
-                <p className="font-medium text-gray-900">{device.model || 'Belirtilmemiş'}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Model</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.model || 'Belirtilmemiş'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Firmware</p>
-                <p className="font-medium text-gray-900">{device.firmwareVersion || 'Bilinmiyor'}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Firmware</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.firmwareVersion || 'Bilinmiyor'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Sensor Tipi</p>
-                <p className="font-medium text-gray-900">{device.type}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Sensor Tipi</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.type}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Seri Numarasi</p>
-                <p className="font-medium text-gray-900">{device.serialNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Seri Numarasi</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.serialNumber}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Son Kalibrasyon</p>
-                <p className="font-medium text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Son Kalibrasyon</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">
                   {device.lastCalibratedAt
                     ? new Date(device.lastCalibratedAt).toLocaleDateString('tr-TR')
                     : 'Yapılmadı'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Kayit Durumu</p>
-                <p className="font-medium text-gray-900">{device.registrationStatus}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Kayit Durumu</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">{device.registrationStatus}</p>
               </div>
             </div>
           </div>
 
           {/* Recent Readings */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Son Okumalar</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Son Okumalar</h3>
               <Link
                 to={`/sensor/readings?device=${deviceId}`}
                 className="text-sm text-cyan-600 hover:text-cyan-700"
@@ -521,18 +521,18 @@ const DeviceDetailPage: React.FC = () => {
                 readings.map((reading) => (
                   <div
                     key={reading.timestamp}
-                    className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
                   >
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
                       {new Date(reading.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    <span className="font-medium text-gray-900">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
                       {(getReadingValueForType(reading.readings, device.type) ?? 0).toFixed(2)} {unit}
                     </span>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-center py-4">Henuz okuma verisi yok</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">Henuz okuma verisi yok</p>
               )}
             </div>
           </div>
@@ -541,37 +541,37 @@ const DeviceDetailPage: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Link
               to={`/sensor/calibration?device=${deviceId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-green-200 hover:bg-green-50 transition-all"
+              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-green-200 hover:bg-green-50 transition-all"
             >
               <Settings className="w-8 h-8 text-green-600 mb-2" />
-              <span className="text-sm font-medium text-gray-900">Kalibre Et</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Kalibre Et</span>
             </Link>
             <Link
               to={`/sensor/readings?device=${deviceId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-all"
+              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-blue-200 hover:bg-blue-50 transition-all"
             >
               <Activity className="w-8 h-8 text-blue-600 mb-2" />
-              <span className="text-sm font-medium text-gray-900">Veriler</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Veriler</span>
             </Link>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all disabled:opacity-50"
+              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-cyan-200 hover:bg-cyan-50 transition-all disabled:opacity-50"
             >
               <RefreshCw className={`w-8 h-8 text-cyan-600 mb-2 ${refreshing ? 'animate-spin' : ''}`} />
-              <span className="text-sm font-medium text-gray-900">Yenile</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Yenile</span>
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-red-200 hover:bg-red-50 transition-all disabled:opacity-50"
+              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-red-200 hover:bg-red-50 transition-all disabled:opacity-50"
             >
               {deleting ? (
                 <Spinner size="lg" className="mb-2" />
               ) : (
                 <Trash2 className="w-8 h-8 text-red-600 mb-2" />
               )}
-              <span className="text-sm font-medium text-gray-900">Kaldir</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Kaldir</span>
             </button>
           </div>
 

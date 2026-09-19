@@ -71,12 +71,12 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
     permissions.showRoles.length > 0 || permissions.enableRoles.length > 0;
 
   return (
-    <div className="border-t border-gray-100 pt-2 mt-3" data-testid="permissions-section">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2 mt-3" data-testid="permissions-section">
       {/* Collapsible header -- matches TransformConfig chevron pattern */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
         aria-expanded={open}
         aria-label="Permissions settings"
         data-testid="permissions-toggle"
@@ -101,9 +101,9 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
         <div className="space-y-4 mt-2" data-testid="permissions-content">
           {/* Visibility roles */}
           <div>
-            <p className="text-xs font-medium text-gray-600 mb-1">Who can see this widget?</p>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Who can see this widget?</p>
             {permissions.showRoles.length === 0 && (
-              <p className="text-[10px] text-gray-400 italic mb-1">Visible to all roles</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 italic mb-1">Visible to all roles</p>
             )}
             <div className="space-y-1">
               {AVAILABLE_ROLES.map((role) => (
@@ -115,7 +115,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
                     className="text-cyan-600 rounded focus:ring-cyan-500"
                     data-testid={`show-role-${role.id}`}
                   />
-                  <span className="text-xs text-gray-700">{role.label}</span>
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{role.label}</span>
                 </label>
               ))}
             </div>
@@ -123,9 +123,9 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
 
           {/* Interaction roles */}
           <div>
-            <p className="text-xs font-medium text-gray-600 mb-1">Who can interact with this widget?</p>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Who can interact with this widget?</p>
             {permissions.enableRoles.length === 0 && (
-              <p className="text-[10px] text-gray-400 italic mb-1">Enabled for all roles</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 italic mb-1">Enabled for all roles</p>
             )}
             <div className="space-y-1">
               {AVAILABLE_ROLES.map((role) => (
@@ -137,7 +137,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
                     className="text-cyan-600 rounded focus:ring-cyan-500"
                     data-testid={`enable-role-${role.id}`}
                   />
-                  <span className="text-xs text-gray-700">{role.label}</span>
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{role.label}</span>
                 </label>
               ))}
             </div>
@@ -148,7 +148,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
             <button
               type="button"
               onClick={handleReset}
-              className="w-full py-1.5 text-xs text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition-colors"
+              className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
               data-testid="permissions-reset"
             >
               Clear All Restrictions

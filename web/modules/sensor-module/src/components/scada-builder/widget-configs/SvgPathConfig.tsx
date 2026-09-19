@@ -32,7 +32,7 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 /** Default triangle path used when resetting to defaults */
 const DEFAULT_TRIANGLE_POINTS: PathPoint[] = [
@@ -64,16 +64,16 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Path</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Path</div>
 
       {/* Closed path toggle */}
       <div>
-        <label className="flex items-center gap-2 text-xs text-gray-500">
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <input
             type="checkbox"
             checked={closed}
             onChange={(e) => onChange({ closed: e.target.checked })}
-            className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
             aria-label="Close path"
           />
           Closed path (connects last point to first)
@@ -82,11 +82,11 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
       {/* Point count (read-only) */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Points</label>
-        <div className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-600">
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Points</label>
+        <div className="px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400">
           {points.length} point{points.length !== 1 ? 's' : ''}
         </div>
-        <p className="text-[10px] text-gray-400 mt-0.5">
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
           Edit points by dragging handles directly on the canvas.
         </p>
       </div>
@@ -94,20 +94,20 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       {/* Fill -- only meaningful when closed */}
       {closed && (
         <div>
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Fill</div>
+          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Fill</div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Fill</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill</label>
               <input
                 type="color"
                 value={(config.fill as string) || themeColors.info[500]}
                 onChange={(e) => onChange({ fill: e.target.value })}
-                className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
+                className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
                 aria-label="Fill color"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Fill Opacity</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Opacity</label>
               <input
                 type="range"
                 min={0}
@@ -118,7 +118,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
                 className="w-full"
                 aria-label="Fill opacity"
               />
-              <div className="text-xs text-gray-400 text-right">
+              <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
                 {Math.round(((config.fillOpacity as number) ?? 0.3) * 100)}%
               </div>
             </div>
@@ -163,7 +163,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       <button
         type="button"
         onClick={handleResetPath}
-        className="w-full py-1.5 text-xs text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition-colors"
+        className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
         aria-label="Reset path to default"
       >
         Reset to Default Triangle

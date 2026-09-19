@@ -372,9 +372,9 @@ export const WidgetPalette: React.FC = () => {
   };
 
   return (
-    <div className="w-56 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+    <div className="w-56 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col overflow-hidden">
+      <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Widget Palette
         </h3>
       </div>
@@ -383,13 +383,13 @@ export const WidgetPalette: React.FC = () => {
           <div key={category.name}>
             <button
               onClick={() => toggleCategory(category.name)}
-              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border-b border-gray-100"
+              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700"
             >
               <span>{category.name}</span>
               {expandedCategories.has(category.name) ? (
-                <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
               ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
               )}
             </button>
             {expandedCategories.has(category.name) && (
@@ -406,13 +406,13 @@ export const WidgetPalette: React.FC = () => {
                       key={widget.defaultConfig?.equipmentSubType as string || widget.type}
                       draggable
                       onDragStart={(e) => handleDragStart(e, widget)}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-gray-200 bg-white hover:border-cyan-400 hover:bg-cyan-50 cursor-grab active:cursor-grabbing transition-colors group"
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-400 hover:bg-cyan-50 cursor-grab active:cursor-grabbing transition-colors group"
                     >
-                      <GripVertical className="w-3 h-3 text-gray-500 group-hover:text-cyan-400 flex-shrink-0" />
-                      <span className="text-gray-600 flex-shrink-0">{widget.icon}</span>
-                      <span className="text-xs text-gray-700 truncate flex-1">{widget.label}</span>
+                      <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-cyan-400 flex-shrink-0" />
+                      <span className="text-gray-600 dark:text-gray-400 flex-shrink-0">{widget.icon}</span>
+                      <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{widget.label}</span>
                       {pw > 0 && (
-                        <span className="text-[10px] text-gray-500 flex-shrink-0">
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400 flex-shrink-0">
                           {pw}x{ph}
                         </span>
                       )}

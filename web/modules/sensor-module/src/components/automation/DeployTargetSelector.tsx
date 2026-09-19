@@ -72,29 +72,29 @@ const plcModelOptions = [
 const colorStyles: Record<string, { active: string; inactive: string; icon: string; iconInactive: string; badge: string; badgeInactive: string; dot: string }> = {
   indigo: {
     active: 'border-indigo-500 bg-indigo-50',
-    inactive: 'border-gray-200 hover:border-gray-300',
+    inactive: 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
     icon: 'text-indigo-600',
-    iconInactive: 'text-gray-500',
+    iconInactive: 'text-gray-500 dark:text-gray-400',
     badge: 'bg-indigo-100 text-indigo-700',
-    badgeInactive: 'bg-gray-100 text-gray-500',
+    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
     dot: 'bg-indigo-500',
   },
   emerald: {
     active: 'border-emerald-500 bg-emerald-50',
-    inactive: 'border-gray-200 hover:border-gray-300',
+    inactive: 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
     icon: 'text-emerald-600',
-    iconInactive: 'text-gray-500',
+    iconInactive: 'text-gray-500 dark:text-gray-400',
     badge: 'bg-emerald-100 text-emerald-700',
-    badgeInactive: 'bg-gray-100 text-gray-500',
+    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
     dot: 'bg-emerald-500',
   },
   amber: {
     active: 'border-amber-500 bg-amber-50',
-    inactive: 'border-gray-200 hover:border-gray-300',
+    inactive: 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500',
     icon: 'text-amber-600',
-    iconInactive: 'text-gray-500',
+    iconInactive: 'text-gray-500 dark:text-gray-400',
     badge: 'bg-amber-100 text-amber-700',
-    badgeInactive: 'bg-gray-100 text-gray-500',
+    badgeInactive: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
     dot: 'bg-amber-500',
   },
 };
@@ -133,10 +133,10 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
                   {target.sublabel}
                 </span>
               </div>
-              <h4 className={`font-medium ${isActive ? 'text-gray-900' : 'text-gray-700'}`}>
+              <h4 className={`font-medium ${isActive ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}`}>
                 {target.label}
               </h4>
-              <p className="text-xs text-gray-500 mt-1">{target.description}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{target.description}</p>
               {isActive && (
                 <div className={`absolute top-2 right-2 w-2 h-2 rounded-full ${styles.dot}`} />
               )}
@@ -147,41 +147,41 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
 
       {/* PLC Configuration */}
       {showPlcConfig && (
-        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h4 className="text-sm font-medium text-gray-700 mb-3">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             PLC Connection Settings
           </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="plc-ip-address" className="block text-xs text-gray-500 mb-1">IP Address</label>
+              <label htmlFor="plc-ip-address" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">IP Address</label>
               <input
                 id="plc-ip-address"
                 type="text"
                 value={plcConfig.targetPlcAddress || ''}
                 onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcAddress: e.target.value })}
                 placeholder="192.168.1.100"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
             <div>
-              <label htmlFor="plc-port" className="block text-xs text-gray-500 mb-1">Port</label>
+              <label htmlFor="plc-port" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Port</label>
               <input
                 id="plc-port"
                 type="number"
                 value={plcConfig.targetPlcPort || ''}
                 onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcPort: parseInt(e.target.value) || undefined })}
                 placeholder={value === DeployTarget.CODESYS_PLC ? '1217' : '502'}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
             {value === DeployTarget.CODESYS_PLC && (
               <div>
-                <label htmlFor="plc-model" className="block text-xs text-gray-500 mb-1">PLC Model</label>
+                <label htmlFor="plc-model" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">PLC Model</label>
                 <select
                   id="plc-model"
                   value={plcConfig.targetPlcModel || ''}
                   onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcModel: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
                 >
                   <option value="">Select...</option>
                   {plcModelOptions.map((opt) => (
@@ -191,13 +191,13 @@ const DeployTargetSelector: React.FC<DeployTargetSelectorProps> = ({
               </div>
             )}
             <div>
-              <label htmlFor="plc-protocol" className="block text-xs text-gray-500 mb-1">Protocol</label>
+              <label htmlFor="plc-protocol" className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Protocol</label>
               <select
                 id="plc-protocol"
                 aria-label="PLC communication protocol"
                 value={plcConfig.targetPlcProtocol || ''}
                 onChange={(e) => onPlcConfigChange({ ...plcConfig, targetPlcProtocol: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               >
                 <option value="">Select...</option>
                 {(value === DeployTarget.CODESYS_PLC

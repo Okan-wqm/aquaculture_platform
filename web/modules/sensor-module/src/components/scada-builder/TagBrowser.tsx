@@ -141,20 +141,20 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold rounded ${IO_BADGE_COLORS[tag.ioType]}`}>
           {tag.ioType}
         </span>
-        <span className="flex-1 truncate font-medium text-gray-800">{tag.name}</span>
-        {tag.unit && <span className="text-xs text-gray-500">{tag.unit}</span>}
-        <span className="text-[10px] text-gray-500 shrink-0">CH{tag.channel}</span>
+        <span className="flex-1 truncate font-medium text-gray-800 dark:text-gray-200">{tag.name}</span>
+        {tag.unit && <span className="text-xs text-gray-500 dark:text-gray-400">{tag.unit}</span>}
+        <span className="text-[10px] text-gray-500 dark:text-gray-400 shrink-0">CH{tag.channel}</span>
       </button>
     );
   };
 
   const renderDropdownContent = () => {
     if (!deviceId) {
-      return <div className="px-3 py-4 text-sm text-gray-500 text-center">Select a target device first</div>;
+      return <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">Select a target device first</div>;
     }
     if (loading) {
       return (
-        <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-500">
+        <div className="px-3 py-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Spinner size="sm" color="inherit" />
           Loading...
         </div>
@@ -165,14 +165,14 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     }
     if (filteredGroups.length === 0) {
       return (
-        <div className="px-3 py-4 text-sm text-gray-500 text-center">
+        <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
           {search ? 'No results found' : 'No tags found for this device'}
         </div>
       );
     }
     return filteredGroups.map((group) => (
       <div key={group.ioType}>
-        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-50 sticky top-0">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 sticky top-0">
           {group.label}
         </div>
         {group.tags.map(renderTagItem)}
@@ -207,7 +207,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
       <div className="relative flex">
         <div className="relative flex-1">
           {open && (
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 dark:text-gray-400 pointer-events-none" />
           )}
           <input
             ref={inputRef}
@@ -217,7 +217,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             onFocus={() => setOpen(true)}
             onKeyDown={handleInputKeyDown}
             placeholder={open ? 'Search...' : multiple && selectedTags.length > 0 ? 'Add tag...' : placeholder}
-            className={`w-full py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 ${
+            className={`w-full py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 ${
               open ? 'pl-8 pr-3' : 'pl-3 pr-8'
             }`}
           />
@@ -225,7 +225,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         <button
           type="button"
           onClick={handleToggle}
-          className="absolute right-0 top-0 h-full px-2.5 text-gray-500 hover:text-gray-600 transition-colors"
+          className="absolute right-0 top-0 h-full px-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
         >
           <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
@@ -233,7 +233,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto">
           {renderDropdownContent()}
         </div>
       )}

@@ -203,13 +203,13 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
     <div className="flex flex-col h-full gap-1">
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse" role="table" aria-label="Tag data">
-          <thead className="sticky top-0 bg-gray-50 z-10">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
             <tr>
               {(['label', 'value', 'quality', 'timestamp'] as const).map((key) => (
                 <th
                   key={key}
                   scope="col"
-                  className="px-2 py-1.5 text-left font-semibold text-gray-600 border-b border-gray-200 cursor-pointer select-none whitespace-nowrap hover:bg-gray-100 transition-colors"
+                  className="px-2 py-1.5 text-left font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 cursor-pointer select-none whitespace-nowrap hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   onClick={() => handleHeaderClick(key)}
                   aria-sort={
                     sortCol === key
@@ -232,7 +232,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
           <tbody>
             {pageRows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="text-center py-6 text-gray-400">
+                <td colSpan={4} className="text-center py-6 text-gray-400 dark:text-gray-500">
                   No data
                 </td>
               </tr>
@@ -240,12 +240,12 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
               pageRows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 hover:bg-blue-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-blue-50 transition-colors"
                 >
-                  <td className="px-2 py-1.5 font-medium text-gray-800 truncate max-w-[100px]">
+                  <td className="px-2 py-1.5 font-medium text-gray-800 dark:text-gray-200 truncate max-w-[100px]">
                     {String(row.cells['label'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900">
+                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
@@ -261,7 +261,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
                       {String(row.cells['quality'] ?? 'good')}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">
+                  <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {row.cells['timestamp']
                       ? new Date(Number(row.cells['timestamp'])).toLocaleTimeString()
                       : '--'}
@@ -353,22 +353,22 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
     <div className="flex flex-col h-full gap-2">
       {/* Date range controls */}
       <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
-        <label className="flex items-center gap-1 text-gray-600">
+        <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>From</span>
           <input
             type="datetime-local"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+            className="border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
         </label>
-        <label className="flex items-center gap-1 text-gray-600">
+        <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>To</span>
           <input
             type="datetime-local"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+            className="border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
         </label>
         <button
@@ -384,13 +384,13 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse" role="table" aria-label="Historical data">
-          <thead className="sticky top-0 bg-gray-50 z-10">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
             <tr>
               {(['tagId', 'timestamp', 'value'] as const).map((key) => (
                 <th
                   key={key}
                   scope="col"
-                  className="px-2 py-1.5 text-left font-semibold text-gray-600 border-b border-gray-200 cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                  className="px-2 py-1.5 text-left font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   onClick={() => handleHeaderClick(key)}
                   aria-sort={
                     sortCol === key
@@ -409,26 +409,26 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={3} className="text-center py-6 text-gray-400">
+                <td colSpan={3} className="text-center py-6 text-gray-400 dark:text-gray-500">
                   Loading...
                 </td>
               </tr>
             ) : pageRows.length === 0 ? (
               <tr>
-                <td colSpan={3} className="text-center py-6 text-gray-400">
+                <td colSpan={3} className="text-center py-6 text-gray-400 dark:text-gray-500">
                   No history. Adjust range and fetch.
                 </td>
               </tr>
             ) : (
               pageRows.map((row) => (
-                <tr key={row.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-                  <td className="px-2 py-1.5 text-gray-600 font-mono text-[10px] truncate max-w-[80px]">
+                <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-blue-50 transition-colors">
+                  <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 font-mono text-[10px] truncate max-w-[80px]">
                     {String(row.cells['tagId'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">
+                  <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {new Date(Number(row.cells['timestamp'])).toLocaleString()}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900">
+                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 3)}
                   </td>
                 </tr>
@@ -532,7 +532,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
 
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse" role="table" aria-label="Active alarms">
-          <thead className="sticky top-0 bg-gray-50 z-10">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800 z-10">
             <tr>
               {headers.map(({ key, label }) => (
                 <th
@@ -540,8 +540,8 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                   scope="col"
                   onClick={() => key !== '_ack' && handleHeaderClick(key)}
                   className={[
-                    'px-2 py-1.5 text-left font-semibold text-gray-600 border-b border-gray-200 whitespace-nowrap',
-                    key !== '_ack' ? 'cursor-pointer hover:bg-gray-100 transition-colors' : '',
+                    'px-2 py-1.5 text-left font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap',
+                    key !== '_ack' ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors' : '',
                   ].join(' ')}
                   aria-sort={
                     key !== '_ack' && sortCol === key
@@ -563,12 +563,12 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
             {pageRows.map((row) => {
               const alarm = alarmForRow(row.id);
               const severity = row.cells['severity'] as AlarmSeverity;
-              const bgClass = ALARM_SEVERITY_BG[severity] ?? 'bg-gray-100 text-gray-700';
+              const bgClass = ALARM_SEVERITY_BG[severity] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
               const dotClass = ALARM_SEVERITY_DOT[severity] ?? 'bg-gray-500';
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 hover:bg-orange-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-orange-50 transition-colors"
                 >
                   <td className="px-2 py-1.5">
                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${bgClass}`}>
@@ -576,24 +576,24 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                       {severity}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5 font-medium text-gray-800 truncate max-w-[120px]">
+                  <td className="px-2 py-1.5 font-medium text-gray-800 dark:text-gray-200 truncate max-w-[120px]">
                     {String(row.cells['ruleName'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 text-gray-600 truncate max-w-[160px]">
+                  <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 truncate max-w-[160px]">
                     {String(row.cells['message'] ?? '--')}
                   </td>
-                  <td className="px-2 py-1.5 font-mono text-gray-900">
+                  <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-gray-100">
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
                     <span className={`text-[10px] uppercase font-medium ${
                       row.cells['status'] === 'active' ? 'text-red-600' :
-                      row.cells['status'] === 'acknowledged' ? 'text-green-600' : 'text-gray-500'
+                      row.cells['status'] === 'acknowledged' ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
                     }`}>
                       {String(row.cells['status'] ?? '--')}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5 text-gray-500 whitespace-nowrap">
+                  <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {row.cells['onTime']
                       ? new Date(Number(row.cells['onTime'])).toLocaleTimeString()
                       : '--'}
@@ -637,7 +637,7 @@ const Paginator = memo<{
   onPageChange: (p: number) => void;
 }>(({ page, totalPages, onPageChange }) => (
   <div
-    className="flex items-center justify-center gap-2 py-1 border-t border-gray-100"
+    className="flex items-center justify-center gap-2 py-1 border-t border-gray-100 dark:border-gray-700"
     role="navigation"
     aria-label="Table pagination"
   >
@@ -646,11 +646,11 @@ const Paginator = memo<{
       disabled={page === 0}
       onClick={() => onPageChange(page - 1)}
       aria-label="Previous page"
-      className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 transition-colors"
+      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
     >
       <ChevronLeft className="w-3 h-3" />
     </button>
-    <span className="text-xs text-gray-600">
+    <span className="text-xs text-gray-600 dark:text-gray-400">
       {page + 1} / {totalPages}
     </span>
     <button
@@ -658,7 +658,7 @@ const Paginator = memo<{
       disabled={page >= totalPages - 1}
       onClick={() => onPageChange(page + 1)}
       aria-label="Next page"
-      className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 transition-colors"
+      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
     >
       <ChevronRight className="w-3 h-3" />
     </button>
@@ -693,15 +693,15 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-white border border-gray-200 rounded overflow-hidden"
+      className="w-full h-full flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded overflow-hidden"
       aria-label={title || 'Data table'}
       role="region"
       style={{ opacity: isEnabled ? 1 : 0.6, pointerEvents: isEnabled ? 'auto' : 'none' }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50 gap-2 flex-shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 gap-2 flex-shrink-0">
         {title && (
-          <span className="text-xs font-semibold text-gray-700 truncate">{title}</span>
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{title}</span>
         )}
         <div className="flex items-center gap-0.5 ml-auto" role="tablist" aria-label="Table mode">
           {modes.map((m) => (
@@ -715,7 +715,7 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
                 'px-2 py-0.5 text-[10px] font-medium rounded capitalize transition-colors',
                 activeMode === m
                   ? 'bg-blue-500 text-white'
-                  : 'text-gray-500 hover:bg-gray-200',
+                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600',
               ].join(' ')}
             >
               {m === 'alarms' ? (

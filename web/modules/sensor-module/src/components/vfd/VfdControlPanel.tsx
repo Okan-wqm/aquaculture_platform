@@ -75,13 +75,13 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
     ready: 'bg-blue-100 text-blue-800 border-blue-200',
     fault: 'bg-red-100 text-red-800 border-red-200',
     warning: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    stopped: 'bg-gray-100 text-gray-700 border-gray-200',
+    stopped: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <Zap className="w-5 h-5 text-indigo-500" />
           VFD Durumu
         </h3>
@@ -93,7 +93,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           </span>
           {/* The age of the DATA, not of the browser's poll loop. */}
           <span
-            className={`text-xs ${readingIsStale ? 'text-amber-600' : 'text-gray-500'}`}
+            className={`text-xs ${readingIsStale ? 'text-amber-600' : 'text-gray-500 dark:text-gray-400'}`}
             data-testid="vfd-reading-age"
           >
             {readingAgeMs === undefined ? 'Okuma yok' : `Okuma: ${formatAge(readingAgeMs)}`}
@@ -112,60 +112,60 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
       {params && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {params.outputFrequency != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Frekans</p>
-              <p className="font-semibold text-gray-900">{params.outputFrequency.toFixed(1)} Hz</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Frekans</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{params.outputFrequency.toFixed(1)} Hz</p>
             </div>
           )}
           {params.motorSpeed != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Motor Hızı</p>
-              <p className="font-semibold text-gray-900">{Math.round(params.motorSpeed)} RPM</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Motor Hızı</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{Math.round(params.motorSpeed)} RPM</p>
             </div>
           )}
           {params.motorCurrent != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Akim</p>
-              <p className="font-semibold text-gray-900">{params.motorCurrent.toFixed(2)} A</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Akim</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{params.motorCurrent.toFixed(2)} A</p>
             </div>
           )}
           {params.outputPower != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Güç</p>
-              <p className="font-semibold text-gray-900">{params.outputPower.toFixed(2)} kW</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Güç</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{params.outputPower.toFixed(2)} kW</p>
             </div>
           )}
           {params.driveTemperature != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Sürücü Sıcaklığı</p>
-              <p className="font-semibold text-gray-900">{params.driveTemperature.toFixed(1)} °C</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Sürücü Sıcaklığı</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{params.driveTemperature.toFixed(1)} °C</p>
             </div>
           )}
           {params.motorVoltage != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Gerilim</p>
-              <p className="font-semibold text-gray-900">{params.motorVoltage.toFixed(1)} V</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Gerilim</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{params.motorVoltage.toFixed(1)} V</p>
             </div>
           )}
           {params.energyConsumption != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Enerji</p>
-              <p className="font-semibold text-gray-900">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Enerji</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
                 {params.energyConsumption.toFixed(2)} kWh
               </p>
             </div>
           )}
           {params.runningHours != null && (
-            <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">Çalışma Saati</p>
-              <p className="font-semibold text-gray-900">{Math.round(params.runningHours)} h</p>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Çalışma Saati</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{Math.round(params.runningHours)} h</p>
             </div>
           )}
         </div>
       )}
 
       {!reading && !readingError && (
-        <p className="text-sm text-gray-400 mb-4">VFD okuma verisi bekleniyor...</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">VFD okuma verisi bekleniyor...</p>
       )}
 
       {!commandsEnabled && (
@@ -178,7 +178,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
       )}
 
       {/* Command Buttons */}
-      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100">
+      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
         <button
           onClick={start}
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'running'}

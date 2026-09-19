@@ -34,7 +34,7 @@ interface SvgFilterEditorProps {
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 /** Human-readable labels for filter types */
 const FILTER_LABELS: Record<SvgFilterType, string> = {
@@ -115,11 +115,11 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
   );
 
   return (
-    <div className="border-t border-gray-100 pt-2">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
         aria-expanded={open}
         aria-label="Filter settings"
       >
@@ -138,7 +138,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
         <div className="space-y-3 mt-2">
           {/* Filter type selector */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Effect</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Effect</label>
             <select
               value={filter.type}
               onChange={(e) => handleTypeChange(e.target.value as SvgFilterType)}
@@ -157,7 +157,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           {/* Blur controls */}
           {filter.type === 'blur' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                 Blur Radius ({filter.blurRadius ?? 4}px)
               </label>
               <input
@@ -178,7 +178,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           {filter.type === 'dropShadow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                   Blur ({filter.blurRadius ?? 4}px)
                 </label>
                 <input
@@ -195,7 +195,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Offset X</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Offset X</label>
                   <input
                     type="number"
                     min={-20}
@@ -209,7 +209,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Offset Y</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Offset Y</label>
                   <input
                     type="number"
                     min={-20}
@@ -236,7 +236,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           {filter.type === 'glow' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                   Intensity ({filter.blurRadius ?? 6}px)
                 </label>
                 <input

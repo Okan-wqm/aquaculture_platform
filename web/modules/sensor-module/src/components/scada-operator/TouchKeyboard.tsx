@@ -352,7 +352,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700">
             <div className="flex items-center gap-2 min-w-0">
               {label && (
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider truncate">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider truncate">
                   {label}
                 </span>
               )}
@@ -368,7 +368,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
+                className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
                 aria-label="Close keyboard"
               >
                 <X size={14} />
@@ -400,7 +400,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
 
           {/* Mode indicator */}
           <div className="flex items-center justify-between px-3 py-1 border-t border-gray-700">
-            <span className="text-[9px] text-gray-500 uppercase tracking-wider">
+            <span className="text-[9px] text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               {mode === 'numeric' ? 'Numeric' : 'Text'}
             </span>
             {shifted && mode === 'text' && (

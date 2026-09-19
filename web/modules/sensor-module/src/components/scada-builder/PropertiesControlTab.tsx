@@ -80,12 +80,12 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
 
   return (
     <div className="space-y-4">
-      <h4 className="text-sm font-medium text-gray-700">Security Levels</h4>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Security Levels</h4>
 
       {(['none', 'confirm', 'pin'] as const).map((level) => (
         <div key={level} className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-600 capitalize">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 capitalize">
               {level === 'none' ? 'No Security' : level === 'confirm' ? 'Confirmation Required' : 'PIN Required'}
             </label>
             <button
@@ -102,7 +102,7 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
                 value={tag}
                 onChange={(e) => updateTagInLevel(level, i, e.target.value)}
                 placeholder="tag.name"
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
               <button
                 onClick={() => removeTagFromLevel(level, i)}
@@ -117,22 +117,22 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
       ))}
 
       {/* Emergency Stop Config */}
-      <div className="pt-3 border-t border-gray-200 space-y-2">
-        <h5 className="text-xs font-medium text-gray-600">Emergency Stop</h5>
+      <div className="pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2">
+        <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400">Emergency Stop</h5>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Hold Duration (ms)</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Hold Duration (ms)</label>
           <input
             type="number"
             min={500}
             step={100}
             value={emergencyStop.holdDuration}
             onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, holdDuration: Number(e.target.value) })}
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-gray-500">Affected Tags</label>
+            <label className="text-xs text-gray-500 dark:text-gray-400">Affected Tags</label>
             <button onClick={addAffectedTag} className="text-xs text-cyan-600 hover:text-cyan-700">
               + Add
             </button>
@@ -144,7 +144,7 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
                 value={tag}
                 onChange={(e) => updateAffectedTag(i, e.target.value)}
                 placeholder="tag.name"
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
               <button
                 onClick={() => removeAffectedTag(i)}
@@ -164,7 +164,7 @@ export const PropertiesControlTab: React.FC<PropertiesControlTabProps> = ({
             onChange={(e) => onEmergencyStopChange?.({ ...emergencyStop, resetRequiresPin: e.target.checked })}
             className="text-cyan-600 rounded focus:ring-cyan-500"
           />
-          <label htmlFor="resetRequiresPin" className="text-xs text-gray-700">
+          <label htmlFor="resetRequiresPin" className="text-xs text-gray-700 dark:text-gray-300">
             PIN required for reset
           </label>
         </div>

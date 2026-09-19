@@ -181,7 +181,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
   const footer = (
     <div className="flex w-full items-center justify-between">
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-gray-500 dark:text-gray-400">
         {rawJson && (
           <span>
             Bundle size: {formatFileSize(new TextEncoder().encode(rawJson).length)}
@@ -191,7 +191,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       <div className="flex items-center gap-2">
         <button
           onClick={handleClose}
-          className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-200 rounded"
+          className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 rounded"
         >
           Cancel
         </button>
@@ -245,13 +245,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           >
             <FileJson
               className={`w-10 h-10 mx-auto mb-3 ${
-                dragOver ? 'text-blue-400' : 'text-gray-500'
+                dragOver ? 'text-blue-400' : 'text-gray-500 dark:text-gray-400'
               }`}
             />
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Drag & drop a .json file here
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               or click to browse (max 1MB)
             </p>
             <input
@@ -266,13 +266,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           {/* Paste from Clipboard */}
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px bg-gray-700" />
-            <span className="text-xs text-gray-500">or</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">or</span>
             <div className="flex-1 h-px bg-gray-700" />
           </div>
 
           <button
             onClick={handlePaste}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-sm text-gray-500"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400"
           >
             <Clipboard className="w-4 h-4" />
             Paste from Clipboard
@@ -284,7 +284,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
       {stage === 'validating' && (
         <div className="flex flex-col items-center py-8 gap-3">
           <Spinner size="lg" />
-          <p className="text-sm text-gray-500">Validating bundle...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Validating bundle...</p>
         </div>
       )}
 
@@ -316,7 +316,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
           <button
             onClick={reset}
-            className="w-full px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-500 rounded"
+            className="w-full px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded"
           >
             Try Again
           </button>
@@ -348,30 +348,30 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
 
           {/* Program Preview */}
           <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-            <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Program Details
             </h3>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <span className="text-gray-500">Code: </span>
+                <span className="text-gray-500 dark:text-gray-400">Code: </span>
                 <span className="text-gray-200 font-mono">
                   {result.bundle.program.programCode}
                 </span>
               </div>
               <div>
-                <span className="text-gray-500">Name: </span>
+                <span className="text-gray-500 dark:text-gray-400">Name: </span>
                 <span className="text-gray-200">
                   {result.bundle.program.programName}
                 </span>
               </div>
               <div>
-                <span className="text-gray-500">Type: </span>
+                <span className="text-gray-500 dark:text-gray-400">Type: </span>
                 <span className="text-blue-300">
                   {result.bundle.program.programType}
                 </span>
               </div>
               <div>
-                <span className="text-gray-500">Mode: </span>
+                <span className="text-gray-500 dark:text-gray-400">Mode: </span>
                 <span className="text-blue-300">
                   {result.bundle.program.executionMode}
                 </span>
@@ -403,10 +403,10 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           {/* Code Preview */}
           {result.bundle.program.structuredTextCode && (
             <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-              <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Code Preview
               </h3>
-              <pre className="text-xs text-gray-500 font-mono bg-gray-950 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">
+              <pre className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-gray-950 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">
                 {result.bundle.program.structuredTextCode.slice(0, 500)}
                 {result.bundle.program.structuredTextCode.length > 500 &&
                   '\n...'}
@@ -415,7 +415,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           )}
 
           {/* Export Info */}
-          <div className="text-xs text-gray-500 flex items-center gap-4">
+          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-4">
             <span>
               Exported: {new Date(result.bundle.exportedAt).toLocaleString()}
             </span>
@@ -460,7 +460,7 @@ const StatBox: React.FC<{ label: string; value: string | number }> = ({
 }) => (
   <div className="bg-gray-800 rounded p-2 text-center">
     <div className="text-lg font-semibold text-gray-100">{value}</div>
-    <div className="text-xs text-gray-500">{label}</div>
+    <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
   </div>
 );
 

@@ -290,8 +290,8 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
   if (!hasCode) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Code className="h-4 w-4" />
           <span>
             Variables will be automatically detected when ST code is written.
@@ -305,8 +305,8 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
   if (detectedVars.length === 0 && parseErrors.length === 0) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Code className="h-4 w-4" />
           <span>
             No variable declarations found in ST code. Define variables by adding a VAR block.
@@ -441,19 +441,19 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
   ];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          <ChevronRight className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
         )}
         <Zap className="h-4 w-4 text-indigo-500 flex-shrink-0" />
-        <span className="text-sm font-medium text-gray-700">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           Variables Detected from Code
         </span>
 
@@ -483,7 +483,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
               In Sync
             </span>
           )}
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {detectedVars.length} variables
           </span>
         </div>

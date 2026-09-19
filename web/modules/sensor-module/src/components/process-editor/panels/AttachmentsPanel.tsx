@@ -72,7 +72,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
     return (
       <div className={`flex flex-col items-center justify-center h-full ${className}`}>
         <Spinner size="lg" className="mb-3" />
-        <p className="text-sm text-gray-500">Loading equipment...</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading equipment...</p>
       </div>
     );
   }
@@ -97,16 +97,16 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
   const categoryEntries = Object.entries(groupedEquipment);
 
   return (
-    <div className={`flex flex-col h-full bg-white ${className}`}>
+    <div className={`flex flex-col h-full bg-white dark:bg-gray-900 ${className}`}>
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900">Equipment</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">Equipment</h3>
           <div className="flex items-center gap-2">
             <span className="text-xs text-cyan-600 bg-cyan-50 px-2 py-1 rounded-full">
               {linkedCount} linked
             </span>
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+            <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
               {unlinkedCount} available
             </span>
           </div>
@@ -114,13 +114,13 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
 
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search equipment..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
           />
         </div>
 
@@ -129,14 +129,14 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
           <div className="flex gap-2 mt-2">
             <button
               onClick={expandAll}
-              className="text-xs text-gray-500 hover:text-cyan-600 transition-colors"
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-cyan-600 transition-colors"
             >
               Expand All
             </button>
-            <span className="text-gray-500">|</span>
+            <span className="text-gray-500 dark:text-gray-400">|</span>
             <button
               onClick={collapseAll}
-              className="text-xs text-gray-500 hover:text-cyan-600 transition-colors"
+              className="text-xs text-gray-500 dark:text-gray-400 hover:text-cyan-600 transition-colors"
             >
               Collapse All
             </button>
@@ -147,12 +147,12 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
       {/* Equipment List */}
       <div className="flex-1 overflow-y-auto p-2">
         {categoryEntries.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <Package className="w-12 h-12 mx-auto mb-2 text-gray-500" />
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+            <Package className="w-12 h-12 mx-auto mb-2 text-gray-500 dark:text-gray-400" />
             <p className="text-sm">
               {searchTerm ? 'No matching equipment found' : 'No visible equipment found'}
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Enable "Show in Sensor Module" in equipment settings
             </p>
           </div>
@@ -166,12 +166,12 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                 {/* Category Header */}
                 <button
                   onClick={() => toggleCategory(category)}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
                 >
                   {isExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                    <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                    <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   )}
                   <span className="flex-1 text-left">{getCategoryLabel(category)}</span>
                   {linkedInCategory > 0 && (
@@ -179,7 +179,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                       {linkedInCategory}
                     </span>
                   )}
-                  <span className="text-xs text-gray-500">{equipmentList.length}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{equipmentList.length}</span>
                 </button>
 
                 {/* Equipment Items */}
@@ -196,7 +196,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                           className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-lg transition-colors ${
                             equipment.isLinked
                               ? 'bg-cyan-50 border border-cyan-200 hover:bg-cyan-100 cursor-pointer'
-                              : 'hover:bg-gray-50 border border-transparent cursor-default opacity-75'
+                              : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent cursor-default opacity-75'
                           }`}
                           title={
                             equipment.isLinked
@@ -204,15 +204,15 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                               : 'Select a node and link equipment via Properties panel'
                           }
                         >
-                          <Icon size={20} className="text-gray-600 flex-shrink-0" />
+                          <Icon size={20} className="text-gray-600 dark:text-gray-400 flex-shrink-0" />
                           <div className="flex-1 min-w-0 text-left">
-                            <p className="font-medium text-gray-900 truncate">{equipment.name}</p>
-                            <p className="text-xs text-gray-500 truncate">{equipment.code}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{equipment.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
                           </div>
                           {equipment.isLinked ? (
                             <Check className="w-4 h-4 text-cyan-600 flex-shrink-0" />
                           ) : (
-                            <Link2 className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <Link2 className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                           )}
                         </button>
                       );
@@ -226,8 +226,8 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-gray-200 bg-gray-50">
-        <p className="text-xs text-gray-500 text-center">
+      <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
           {linkedCount > 0
             ? 'Click on linked equipment to highlight on canvas'
             : 'Select a node and link equipment via Properties panel'}

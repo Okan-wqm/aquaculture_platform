@@ -64,7 +64,7 @@ const SECTION_META: SectionMeta[] = [
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 interface FieldProps {
   variable: FuxaExportVariable;
@@ -113,9 +113,9 @@ const BooleanField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => (
       type="checkbox"
       checked={Boolean(value)}
       onChange={(e) => onUpdate(variable.id, e.target.checked)}
-      className="w-4 h-4 text-cyan-600 border-gray-300 rounded focus:ring-cyan-500"
+      className="w-4 h-4 text-cyan-600 border-gray-300 dark:border-gray-600 rounded focus:ring-cyan-500"
     />
-    <span className="text-sm text-gray-700">{variable.label}</span>
+    <span className="text-sm text-gray-700 dark:text-gray-300">{variable.label}</span>
   </label>
 );
 
@@ -140,14 +140,14 @@ const ColorField: React.FC<FieldProps> = ({ variable, value, onUpdate }) => {
           const alpha = strVal.length > 7 ? strVal.slice(7) : '';
           onUpdate(variable.id, e.target.value + alpha);
         }}
-        className="w-8 h-8 rounded cursor-pointer border border-gray-300"
+        className="w-8 h-8 rounded cursor-pointer border border-gray-300 dark:border-gray-600"
         aria-label={variable.label}
       />
       <input
         type="text"
         value={strVal}
         onChange={(e) => onUpdate(variable.id, e.target.value)}
-        className="flex-1 px-2 py-1 text-xs font-mono border border-gray-300 rounded focus:ring-1 focus:ring-cyan-500"
+        className="flex-1 px-2 py-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-cyan-500"
         data-testid={`fuxa-field-${variable.id}`}
       />
     </div>
@@ -212,7 +212,7 @@ export const FuxaAutoConfigPanel: React.FC<FuxaAutoConfigPanelProps> = ({
 
   if (variables.length === 0) {
     return (
-      <div className="px-3 py-4 text-center text-xs text-gray-500">
+      <div className="px-3 py-4 text-center text-xs text-gray-500 dark:text-gray-400">
         This FUXA widget has no configurable variables.
       </div>
     );
@@ -227,21 +227,21 @@ export const FuxaAutoConfigPanel: React.FC<FuxaAutoConfigPanelProps> = ({
         const isOpen = expanded.has(section.key);
 
         return (
-          <div key={section.key} className="border border-gray-200 rounded-lg overflow-hidden">
+          <div key={section.key} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             {/* Section header -- click to collapse/expand */}
             <button
               onClick={() => toggleSection(section.key)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               aria-expanded={isOpen}
               data-testid={`fuxa-section-${section.key}`}
             >
               {isOpen
-                ? <ChevronDown className="w-3 h-3 text-gray-500" />
-                : <ChevronRight className="w-3 h-3 text-gray-500" />
+                ? <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                : <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
               }
               {section.icon}
               <span>{section.label}</span>
-              <span className="ml-auto text-[10px] text-gray-400 font-normal">
+              <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 font-normal">
                 {vars.length}
               </span>
             </button>
@@ -265,7 +265,7 @@ export const FuxaAutoConfigPanel: React.FC<FuxaAutoConfigPanelProps> = ({
 
                   return (
                     <div key={v.id}>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         {v.label}
                       </label>
                       <FieldComponent

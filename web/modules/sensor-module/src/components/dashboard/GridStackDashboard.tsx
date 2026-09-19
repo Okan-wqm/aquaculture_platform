@@ -88,7 +88,7 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
       return <ProcessViewWidgetContent config={config} />;
     default:
       return (
-        <div className="flex items-center justify-center h-full text-gray-500">
+        <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
           Unknown widget type
         </div>
       );
@@ -142,7 +142,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
         <>
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             Cancel
           </button>
@@ -153,7 +153,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
               flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
               ${name.trim() && !saving
                 ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-gray-300 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }
             `}
           >
@@ -165,7 +165,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
     >
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Layout Name
           </label>
           <input
@@ -173,12 +173,12 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter dashboard name"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description (Optional)
           </label>
           <textarea
@@ -186,7 +186,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Layout description"
             rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
           />
         </div>
 
@@ -195,9 +195,9 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
             type="checkbox"
             checked={setAsDefault}
             onChange={(e) => setSetAsDefault(e.target.checked)}
-            className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
+            className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 dark:border-gray-600 rounded"
           />
-          <span className="text-sm text-gray-700">Set as default</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Set as default</span>
         </label>
       </div>
     </Modal>
@@ -518,7 +518,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
     return (
       <div className="flex items-center justify-center h-full">
         <Spinner size="lg" />
-        <span className="ml-2 text-gray-600">Loading dashboard...</span>
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Loading dashboard...</span>
       </div>
     );
   }
@@ -540,34 +540,34 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
+      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-3">
           {/* Layout Selector */}
           <div className="relative" ref={layoutDropdownRef}>
             <button
               onClick={() => setShowLayoutDropdown(!showLayoutDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {currentLayout?.name || 'Select Layout'}
               </span>
               {currentLayout?.isDefault && (
                 <Star size={14} className="text-yellow-500 fill-current" />
               )}
-              <ChevronDown size={16} className="text-gray-500" />
+              <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
             </button>
 
             {/* Dropdown */}
             {showLayoutDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                <div className="p-2 border-b border-gray-100">
-                  <span className="text-xs font-medium text-gray-500 uppercase">
+              <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Saved Layouts
                   </span>
                 </div>
                 <div className="max-h-64 overflow-y-auto">
                   {layouts.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500 text-sm">
+                    <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
                       No saved layouts yet
                     </div>
                   ) : (
@@ -575,7 +575,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                       <div
                         key={layout.id}
                         className={`
-                          flex items-center justify-between px-3 py-2 hover:bg-gray-50
+                          flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800
                           ${currentLayout?.id === layout.id ? 'bg-cyan-50' : ''}
                         `}
                       >
@@ -583,7 +583,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           onClick={() => handleLayoutSelect(layout.id)}
                           className="flex-1 text-left"
                         >
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {layout.name}
                           </span>
                           {layout.isDefault && (
@@ -593,7 +593,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                             />
                           )}
                           {layout.isSystemDefault && (
-                            <span className="text-xs text-gray-500 ml-1">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
                               (System)
                             </span>
                           )}
@@ -602,7 +602,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           {!layout.isDefault && !layout.isSystemDefault && (
                             <button
                               onClick={() => handleSetAsDefault(layout.id)}
-                              className="p-1 text-gray-500 hover:text-yellow-500"
+                              className="p-1 text-gray-500 dark:text-gray-400 hover:text-yellow-500"
                               title="Set as default"
                             >
                               <Star size={14} />
@@ -611,7 +611,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                           {!layout.isSystemDefault && (
                             <button
                               onClick={() => handleDeleteLayout(layout.id)}
-                              className="p-1 text-gray-500 hover:text-red-500"
+                              className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-500"
                               title="Delete"
                             >
                               <Trash2 size={14} />
@@ -622,7 +622,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     ))
                   )}
                 </div>
-                <div className="p-2 border-t border-gray-100">
+                <div className="p-2 border-t border-gray-100 dark:border-gray-700">
                   <button
                     onClick={() => {
                       setSaveAsNew(true);
@@ -639,7 +639,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
             )}
           </div>
 
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
             {localWidgets.length} widget
             {hasUnsavedChanges && (
               <span className="text-amber-600 ml-2">(unsaved)</span>
@@ -653,7 +653,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                 processBackground.processId
                   ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               <GitFork size={16} />
@@ -668,9 +668,9 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
             {/* Process Dropdown */}
             {showProcessDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                <div className="p-2 border-b border-gray-100">
-                  <span className="text-xs font-medium text-gray-500 uppercase">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Process Background
                   </span>
                 </div>
@@ -681,7 +681,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                       setShowProcessDropdown(false);
                       setHasUnsavedChanges(true);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
                       !processBackground.processId ? 'bg-cyan-50 text-cyan-700' : ''
                     }`}
                   >
@@ -695,7 +695,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                         setShowProcessDropdown(false);
                         setHasUnsavedChanges(true);
                       }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
                         processBackground.processId === process.id ? 'bg-cyan-50 text-cyan-700' : ''
                       }`}
                     >
@@ -703,7 +703,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     </button>
                   ))}
                   {activeProcesses.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-gray-500">
+                    <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                       No processes available
                     </div>
                   )}
@@ -714,8 +714,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
           {/* Opacity Slider (only shown when process background is selected and in edit mode) */}
           {processBackground.processId && isEditMode && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
-              <span className="text-xs text-gray-500">Opacity:</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Opacity:</span>
               <input
                 type="range"
                 min="0.1"
@@ -731,7 +731,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 }}
                 className="w-20 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
               />
-              <span className="text-xs text-gray-600 w-8">
+              <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
                 {Math.round(processBackground.opacity * 100)}%
               </span>
             </div>
@@ -748,7 +748,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 }));
                 setHasUnsavedChanges(true);
               }}
-              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors"
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
               title="Reset background position"
             >
               <RotateCcw size={16} />
@@ -783,7 +783,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                   setSaveAsNew(true);
                   setShowSaveModal(true);
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <Copy size={16} />
                 Save As
@@ -797,7 +797,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     setHasUnsavedChanges(false);
                   }
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <Eye size={16} />
                 Cancel
@@ -806,7 +806,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           ) : (
             <button
               onClick={() => setIsEditMode(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <Edit2 size={16} />
               Edit
@@ -816,7 +816,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       </div>
 
       {/* Grid Container */}
-      <div className="flex-1 overflow-hidden relative bg-gray-50">
+      <div className="flex-1 overflow-hidden relative bg-gray-50 dark:bg-gray-800">
         {/* Process Background Layer */}
         {processBackground.processId && (
           <div
@@ -844,7 +844,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         {/* Scrollable Grid Area */}
         <div className="h-full overflow-auto p-4 relative" style={{ zIndex: 1 }}>
           {localWidgets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
               <div className="text-center">
                 <Settings size={48} className="mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium mb-2">Dashboard Empty</p>
@@ -875,24 +875,24 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 gs-w={widget.gridPosition.w}
                 gs-h={widget.gridPosition.h}
               >
-                <div className="grid-stack-item-content bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                   {/* Widget Header */}
-                  <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200 cursor-move">
-                    <span className="text-sm font-medium text-gray-700 truncate">
+                  <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 cursor-move">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
                       {widget.title}
                     </span>
                     {isEditMode && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => handleEditWidget(widget)}
-                          className="p-1 text-gray-500 hover:text-gray-600 rounded"
+                          className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
                           title="Edit"
                         >
                           <Settings size={14} />
                         </button>
                         <button
                           onClick={() => handleRemoveWidget(widget.id)}
-                          className="p-1 text-gray-500 hover:text-red-600 rounded"
+                          className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-600 rounded"
                           title="Remove"
                         >
                           <Trash2 size={14} />

@@ -18,7 +18,7 @@ const severityConfig = {
   EMERGENCY: { icon: Zap, bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', badge: 'bg-red-600 text-white' },
   CRITICAL: { icon: AlertCircle, bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300', badge: 'bg-orange-500 text-white' },
   WARNING: { icon: AlertTriangle, bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', badge: 'bg-yellow-500 text-white' },
-  OFFLINE: { icon: WifiOff, bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', badge: 'bg-gray-600 text-white' },
+  OFFLINE: { icon: WifiOff, bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-800 dark:text-gray-200', border: 'border-gray-300 dark:border-gray-600', badge: 'bg-gray-600 text-white' },
   INFO: { icon: Info, bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', badge: 'bg-blue-500 text-white' },
 };
 
@@ -88,10 +88,10 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
 
   if (alerts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
         <CheckCircle size={32} className="mb-2 text-green-500" />
         <span className="text-sm font-medium">No Active Alerts</span>
-        <span className="text-xs text-gray-400 mt-1">All systems normal</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">All systems normal</span>
       </div>
     );
   }
@@ -101,8 +101,8 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
       {/* Alert count header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <Bell size={14} className="text-gray-500" />
-          <span className="text-xs font-medium text-gray-600">
+          <Bell size={14} className="text-gray-500 dark:text-gray-400" />
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
             {alerts.length} active alert{alerts.length !== 1 ? 's' : ''}
           </span>
         </div>
@@ -129,7 +129,7 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
                 <p className={`text-xs ${sev.text} mt-0.5 truncate`}>
                   {alert.message}
                 </p>
-                <span className="text-[10px] text-gray-500">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
                   {formatTimeAgo(alert.timestamp)}
                 </span>
               </div>

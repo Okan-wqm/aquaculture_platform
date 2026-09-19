@@ -71,7 +71,7 @@ const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> 
 
   return (
     <div data-testid="openurl-config">
-      <label className="block text-xs text-gray-500 mb-1">URL (https:// only)</label>
+      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">URL (https:// only)</label>
       <input
         type="url"
         value={url}
@@ -80,7 +80,7 @@ const OpenUrlConfig: React.FC<{ url: string; onChange: (url: string) => void }> 
         className={`w-full px-2 py-1.5 text-xs border rounded-lg focus:ring-2 focus:border-cyan-500 ${
           !isValid
             ? 'border-red-300 focus:ring-red-500 bg-red-50'
-            : 'border-gray-300 focus:ring-cyan-500'
+            : 'border-gray-300 dark:border-gray-600 focus:ring-cyan-500'
         }`}
         data-testid="openurl-input"
       />
@@ -133,7 +133,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">Events</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Events</h4>
         <button
           onClick={addEvent}
           className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
@@ -144,13 +144,13 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
       </div>
 
       {events.length === 0 && (
-        <p className="text-xs text-gray-500 py-4 text-center">No events configured.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">No events configured.</p>
       )}
 
       {events.map((ev) => (
-        <div key={ev.id} className="p-3 bg-gray-50 rounded-lg space-y-2 border border-gray-100">
+        <div key={ev.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-medium text-gray-400 uppercase">Event</span>
+            <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase">Event</span>
             <button
               onClick={() => removeEvent(ev.id)}
               className="text-red-400 hover:text-red-600"
@@ -161,11 +161,11 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
 
           {/* Trigger */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Trigger</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Trigger</label>
             <select
               value={ev.trigger}
               onChange={(e) => updateEvent(ev.id, { trigger: e.target.value as EventTrigger })}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             >
               {TRIGGERS.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -175,11 +175,11 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
 
           {/* Action */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Action</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Action</label>
             <select
               value={ev.action}
               onChange={(e) => handleActionChange(ev.id, e.target.value as EventAction)}
-              className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             >
               {ACTIONS.map((a) => (
                 <option key={a} value={a}>{ACTION_LABELS[a]}</option>
@@ -190,11 +190,11 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {/* Conditional fields based on action */}
           {(ev.action === 'navigate' || ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Target Screen</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Screen</label>
               <select
                 value={(ev.params.targetScreenId as string) || ''}
                 onChange={(e) => updateEventParams(ev.id, { targetScreenId: e.target.value || undefined })}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               >
                 <option value="">Select screen...</option>
                 {screens.map((screen) => (
@@ -209,25 +209,25 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Width</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Width</label>
                 <input
                   type="number"
                   value={(ev.params.width as number) ?? ''}
                   onChange={(e) => updateEventParams(ev.id, { width: e.target.value === '' ? undefined : Number(e.target.value) })}
                   placeholder="px"
                   min={100}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Height</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Height</label>
                 <input
                   type="number"
                   value={(ev.params.height as number) ?? ''}
                   onChange={(e) => updateEventParams(ev.id, { height: e.target.value === '' ? undefined : Number(e.target.value) })}
                   placeholder="px"
                   min={100}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
               </div>
             </div>
@@ -237,7 +237,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {(ev.action === 'openCard' || ev.action === 'openDialog') && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] text-gray-500">Variable Mapping</label>
+                <label className="text-[10px] text-gray-500 dark:text-gray-400">Variable Mapping</label>
                 <button
                   onClick={() => {
                     const existing = (ev.params.variableMap ?? {}) as Record<string, string>;
@@ -264,9 +264,9 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
                       updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
                     }}
                     placeholder="placeholder_tag"
-                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                    className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
                   />
-                  <span className="text-[10px] text-gray-400">{'\u2192'}</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">{'\u2192'}</span>
                   <input
                     type="text"
                     value={realTag}
@@ -277,7 +277,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
                       updateEvent(ev.id, { params: { ...ev.params, variableMap: map } });
                     }}
                     placeholder="real_tag"
-                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                    className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
                   />
                   <button
                     onClick={() => {
@@ -298,7 +298,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {ev.action === 'setValue' && (
             <>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Target Tag</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Tag</label>
                 <TagBrowser
                   deviceId={deviceId ?? null}
                   value={(ev.params.targetTag as string) || ''}
@@ -307,13 +307,13 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Value</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
                 <input
                   type="text"
                   value={ev.params.value != null ? String(ev.params.value) : ''}
                   onChange={(e) => updateEventParams(ev.id, { value: e.target.value })}
                   placeholder="Value to set"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
               </div>
             </>
@@ -321,7 +321,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
 
           {ev.action === 'toggleValue' && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Toggle Tag</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Toggle Tag</label>
               <TagBrowser
                 deviceId={deviceId ?? null}
                 value={(ev.params.toggleTag as string) || ''}
@@ -335,12 +335,12 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
              The script executes via the ScriptExecutor sandbox when the event fires. */}
           {ev.action === 'runScript' && (
             <div data-testid="runscript-config">
-              <label className="block text-xs text-gray-500 mb-1">Script</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Script</label>
               {scripts.length > 0 ? (
                 <select
                   value={(ev.params.scriptId as string) || ''}
                   onChange={(e) => updateEventParams(ev.id, { scriptId: e.target.value || undefined })}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   data-testid="runscript-select"
                 >
                   <option value="">Select script...</option>
@@ -373,29 +373,29 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
           {ev.action === 'setProperty' && (
             <div className="space-y-2" data-testid="setproperty-config">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Target Widget ID</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Widget ID</label>
                 <input
                   type="text"
                   value={(ev.params.targetWidgetId as string) || ''}
                   onChange={(e) => updateEventParams(ev.id, { targetWidgetId: e.target.value || undefined })}
                   placeholder="widget-uuid-here"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
                   data-testid="target-widget-id-input"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Property Path</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Property Path</label>
                 <input
                   type="text"
                   value={(ev.params.propertyPath as string) || ''}
                   onChange={(e) => updateEventParams(ev.id, { propertyPath: e.target.value || undefined })}
                   placeholder="fill, config.opacity, etc."
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
                   data-testid="property-path-input"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Value</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Value</label>
                 <input
                   type="text"
                   value={ev.params.propertyValue != null ? String(ev.params.propertyValue) : ''}
@@ -409,7 +409,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
                     updateEventParams(ev.id, { propertyValue: parsed });
                   }}
                   placeholder="Value (auto-detects type)"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   data-testid="property-value-input"
                 />
               </div>
@@ -418,7 +418,7 @@ export const EventsPanel: React.FC<EventsPanelProps> = ({ events, onChange, devi
 
           {/* closeDialog: Closes the topmost overlay — no parameters needed. */}
           {ev.action === 'closeDialog' && (
-            <div className="px-2 py-2 text-[10px] text-gray-500 bg-gray-100 rounded-lg" data-testid="closedialog-config">
+            <div className="px-2 py-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg" data-testid="closedialog-config">
               Closes the topmost popup card or modal dialog. No additional configuration needed.
             </div>
           )}

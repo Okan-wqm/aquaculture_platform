@@ -121,7 +121,7 @@ const TypeIcon: React.FC<{ type: string; className?: string }> = ({ type, classN
     power: <Activity className={`${className} text-violet-500`} />,
   };
 
-  return <>{icons[normalizedType] || <Activity className={`${className} text-gray-500`} />}</>;
+  return <>{icons[normalizedType] || <Activity className={`${className} text-gray-500 dark:text-gray-400`} />}</>;
 };
 
 const StatusBadge: React.FC<{ status: 'normal' | 'warning' | 'critical' }> = ({ status }) => {
@@ -143,7 +143,7 @@ const StatusBadge: React.FC<{ status: 'normal' | 'warning' | 'critical' }> = ({ 
 const TrendIcon: React.FC<{ trend?: 'up' | 'down' | 'stable' }> = ({ trend }) => {
   if (trend === 'up') return <TrendingUp className="w-3 h-3 text-green-500" />;
   if (trend === 'down') return <TrendingDown className="w-3 h-3 text-red-500" />;
-  return <Minus className="w-3 h-3 text-gray-500" />;
+  return <Minus className="w-3 h-3 text-gray-500 dark:text-gray-400" />;
 };
 
 // Mock readings for demo (will be replaced with real-time data)
@@ -209,7 +209,7 @@ const DeviceGroupCard: React.FC<{
         return (
           <div className="flex items-center gap-2">
             <TypeIcon type={type} />
-            <span className="font-medium text-gray-900">{child.name}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{child.name}</span>
           </div>
         );
       },
@@ -231,7 +231,7 @@ const DeviceGroupCard: React.FC<{
       key: 'dataPath',
       header: 'Data Path',
       render: (_value, child) => (
-        <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
+        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
           {child.dataPath || '-'}
         </code>
       ),
@@ -245,11 +245,11 @@ const DeviceGroupCard: React.FC<{
         return (
           <>
             {reading ? (
-              <span className="font-semibold text-gray-900">
-                {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
+                {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 dark:text-gray-400 font-normal">{reading.unit}</span>
               </span>
             ) : (
-              <span className="text-gray-500">-</span>
+              <span className="text-gray-500 dark:text-gray-400">-</span>
             )}
           </>
         );
@@ -279,7 +279,7 @@ const DeviceGroupCard: React.FC<{
             {reading ? (
               <StatusBadge status={reading.status} />
             ) : (
-              <span className="text-gray-500 text-sm">Veri yok</span>
+              <span className="text-gray-500 dark:text-gray-400 text-sm">Veri yok</span>
             )}
           </>
         );
@@ -288,17 +288,17 @@ const DeviceGroupCard: React.FC<{
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Device Header */}
       <div
-        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <button className="p-1 hover:bg-gray-100 rounded">
+        <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
           {isExpanded ? (
-            <ChevronDown className="w-5 h-5 text-gray-500" />
+            <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           ) : (
-            <ChevronRight className="w-5 h-5 text-gray-500" />
+            <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           )}
         </button>
 
@@ -308,28 +308,28 @@ const DeviceGroupCard: React.FC<{
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900 truncate">{parent.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{parent.name}</h3>
             {isConnected ? (
               <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
                 <Wifi className="w-3 h-3" />
                 Bağlı
               </span>
             ) : (
-              <span className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
                 <WifiOff className="w-3 h-3" />
                 Çevrimdışı
               </span>
             )}
           </div>
           {mqttTopic && (
-            <p className="text-sm text-gray-500 font-mono truncate mt-0.5">
+            <p className="text-sm text-gray-500 dark:text-gray-400 font-mono truncate mt-0.5">
               <Radio className="w-3 h-3 inline mr-1" />
               {mqttTopic}
             </p>
           )}
         </div>
 
-        <div className="flex items-center gap-4 text-sm text-gray-500">
+        <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <Activity className="w-4 h-4" />
             {children.length} kanal
@@ -346,7 +346,7 @@ const DeviceGroupCard: React.FC<{
       {/* Data Channels Table */}
       {isExpanded && children.length > 0 && (
         <>
-        <div className="border-t border-gray-100 p-4">
+        <div className="border-t border-gray-100 dark:border-gray-700 p-4">
           <MultiParameterTrendCard
             sensorId={parent.id}
             channels={children.map((child) => ({
@@ -356,7 +356,7 @@ const DeviceGroupCard: React.FC<{
             }))}
           />
         </div>
-        <div className="border-t border-gray-100">
+        <div className="border-t border-gray-100 dark:border-gray-700">
           <DataTable<RegisteredSensor>
             data={children}
             columns={registeredSensorColumns}
@@ -372,7 +372,7 @@ const DeviceGroupCard: React.FC<{
 
       {/* Empty Children State */}
       {isExpanded && children.length === 0 && (
-        <div className="border-t border-gray-100 p-8 text-center text-gray-500">
+        <div className="border-t border-gray-100 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
           <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p>Bu cihazda henüz veri kanalı tanımlanmamış</p>
         </div>
@@ -391,32 +391,32 @@ const StandaloneSensorCard: React.FC<{
   const isConnected = sensor.connectionStatus?.isConnected ?? false;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
       <div className="flex items-center gap-4">
-        <div className="p-2 bg-gray-50 rounded-lg">
+        <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <TypeIcon type={type} className="w-6 h-6" />
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900">{sensor.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{sensor.name}</h3>
             {isConnected ? (
               <Wifi className="w-4 h-4 text-green-500" />
             ) : (
-              <WifiOff className="w-4 h-4 text-gray-500" />
+              <WifiOff className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             )}
           </div>
-          <p className="text-sm text-gray-500">{typeName}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{typeName}</p>
         </div>
         <div className="text-right">
           {reading ? (
             <>
-              <p className="text-xl font-bold text-gray-900">
-                {(reading.value ?? 0).toFixed(2)} <span className="text-sm font-normal text-gray-500">{reading.unit}</span>
+              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                {(reading.value ?? 0).toFixed(2)} <span className="text-sm font-normal text-gray-500 dark:text-gray-400">{reading.unit}</span>
               </p>
               <StatusBadge status={reading.status} />
             </>
           ) : (
-            <p className="text-gray-500">Veri yok</p>
+            <p className="text-gray-500 dark:text-gray-400">Veri yok</p>
           )}
         </div>
       </div>
@@ -531,7 +531,7 @@ const ReadingsPage: React.FC = () => {
             <button
               onClick={() => refetch()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Yenile
@@ -539,7 +539,7 @@ const ReadingsPage: React.FC = () => {
             <button
               onClick={() => setIsAutoRefresh(!isAutoRefresh)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                isAutoRefresh ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                isAutoRefresh ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }`}
             >
               <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
@@ -555,58 +555,58 @@ const ReadingsPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-cyan-50 rounded-lg">
               <Server className="w-5 h-5 text-cyan-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.parentCount}</p>
-              <p className="text-sm text-gray-500">Cihaz</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.parentCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Cihaz</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-50 rounded-lg">
               <Activity className="w-5 h-5 text-blue-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.channelCount}</p>
-              <p className="text-sm text-gray-500">Veri Kanalı</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.channelCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Veri Kanalı</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-50 rounded-lg">
               <Wifi className="w-5 h-5 text-green-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.onlineCount}</p>
-              <p className="text-sm text-gray-500">Çevrimiçi</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.onlineCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Çevrimiçi</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-yellow-50 rounded-lg">
               <AlertCircle className="w-5 h-5 text-yellow-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.warningCount}</p>
-              <p className="text-sm text-gray-500">Uyarı</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.warningCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Uyarı</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-50 rounded-lg">
               <AlertCircle className="w-5 h-5 text-red-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.criticalCount}</p>
-              <p className="text-sm text-gray-500">Kritik</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.criticalCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Kritik</p>
             </div>
           </div>
         </div>
@@ -630,15 +630,15 @@ const ReadingsPage: React.FC = () => {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4">
           {/* Type Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
+            <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             >
               <option value="all">Tüm Tipler</option>
               <option value="temperature">Sıcaklık</option>
@@ -659,11 +659,11 @@ const ReadingsPage: React.FC = () => {
 
           {/* Period Filter */}
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-gray-500" />
+            <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             >
               <option value="1h">Son 1 Saat</option>
               <option value="6h">Son 6 Saat</option>
@@ -677,7 +677,7 @@ const ReadingsPage: React.FC = () => {
 
       {/* Loading State */}
       {loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
           <Spinner size="lg" color="inherit" className="mb-3" />
           <p>Sensörler yükleniyor...</p>
         </div>
@@ -685,7 +685,7 @@ const ReadingsPage: React.FC = () => {
 
       {/* Empty State */}
       {!loading && filteredGroups.groups.length === 0 && filteredGroups.orphans.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
           <Activity className="w-12 h-12 mb-3 opacity-50" />
           <p className="text-lg font-medium">
             {selectedType === 'all' ? 'Henüz cihaz kaydedilmemiş' : 'Bu tipte veri kanalı bulunamadı'}
@@ -715,7 +715,7 @@ const ReadingsPage: React.FC = () => {
       {/* Standalone Sensors */}
       {!loading && filteredGroups.orphans.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Bağımsız Sensörler</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Bağımsız Sensörler</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredGroups.orphans.map((sensor) => (
               <StandaloneSensorCard

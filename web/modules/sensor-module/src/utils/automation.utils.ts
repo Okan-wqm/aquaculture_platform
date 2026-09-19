@@ -28,12 +28,12 @@ export enum ProgramType {
 
 export const getStatusColor = (status: ProgramStatus): string => {
   const colors: Record<ProgramStatus, string> = {
-    [ProgramStatus.DRAFT]: 'bg-gray-100 text-gray-700',
+    [ProgramStatus.DRAFT]: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
     [ProgramStatus.PENDING_REVIEW]: 'bg-yellow-100 text-yellow-700',
     [ProgramStatus.APPROVED]: 'bg-blue-100 text-blue-700',
     [ProgramStatus.DEPLOYING]: 'bg-orange-100 text-orange-700',
     [ProgramStatus.DEPLOYED]: 'bg-green-100 text-green-700',
-    [ProgramStatus.ARCHIVED]: 'bg-gray-100 text-gray-500',
+    [ProgramStatus.ARCHIVED]: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
   };
   return colors[status] || colors[ProgramStatus.DRAFT];
 };

@@ -29,7 +29,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error}
       </div>
     );
@@ -37,7 +37,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
 
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         No data
       </div>
     );
@@ -65,7 +65,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
               className={`${status.color} rounded-full mr-2`}
               fill="currentColor"
             />
-            <span className="text-sm font-medium text-gray-900">
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
               {reading.sensorName}
             </span>
           </div>
@@ -78,10 +78,10 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
       align: 'right',
       render: (_value, reading) => (
         <>
-          <span className="text-sm font-bold text-gray-900">
+          <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
             {reading.value.toFixed(config.settings?.decimalPlaces ?? 1)}
           </span>
-          <span className="text-xs text-gray-500 ml-1">
+          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
             {reading.unit}
           </span>
         </>
@@ -147,9 +147,9 @@ function getStatusBgClass(status: string): string {
     case 'critical':
       return 'bg-red-100 text-red-800';
     case 'offline':
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
 }
 

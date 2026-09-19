@@ -44,7 +44,7 @@ const SEVERITY_CONFIG: Record<
   error: { icon: XCircle, color: 'text-red-400', textColor: 'text-red-300', label: 'Errors' },
   warning: { icon: AlertTriangle, color: 'text-yellow-400', textColor: 'text-yellow-300', label: 'Warnings' },
   info: { icon: Info, color: 'text-blue-400', textColor: 'text-blue-300', label: 'Info' },
-  hint: { icon: Lightbulb, color: 'text-gray-500', textColor: 'text-gray-500', label: 'Hints' },
+  hint: { icon: Lightbulb, color: 'text-gray-500 dark:text-gray-400', textColor: 'text-gray-500 dark:text-gray-400', label: 'Hints' },
 };
 
 type SortKey = 'severity' | 'line';
@@ -108,11 +108,11 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
         className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-750 text-xs flex-shrink-0 w-full text-left"
       >
         {isExpanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
-          <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronUp className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         )}
-        <span className="text-gray-500 font-medium">PROBLEMS</span>
+        <span className="text-gray-500 dark:text-gray-400 font-medium">PROBLEMS</span>
 
         {counts.error > 0 && (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-900/50 text-red-300">
@@ -147,7 +147,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
                   className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${
                     active
                       ? `${cfg.color} bg-gray-800`
-                      : 'text-gray-600 hover:text-gray-500'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300'
                   }`}
                   title={`Toggle ${cfg.label}`}
                 >
@@ -161,7 +161,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
 
             <button
               onClick={toggleSort}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-gray-500 hover:text-gray-500 hover:bg-gray-800"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-800"
               title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}
             >
               <ArrowUpDown className="w-3 h-3" />
@@ -172,7 +172,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
           {/* Diagnostics list */}
           <div className="flex-1 overflow-y-auto min-h-0">
             {filtered.length === 0 && (
-              <div className="px-3 py-4 text-xs text-gray-600 text-center">
+              <div className="px-3 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
                 No problems found
               </div>
             )}
@@ -187,16 +187,16 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
                   className="w-full text-left px-3 py-1 text-xs hover:bg-gray-800 flex items-center gap-2 border-b border-gray-800/50"
                 >
                   <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${cfg.color}`} />
-                  <span className="text-gray-500 w-16 flex-shrink-0 truncate font-mono">
+                  <span className="text-gray-500 dark:text-gray-400 w-16 flex-shrink-0 truncate font-mono">
                     {diag.code}
                   </span>
-                  <span className="text-gray-500 w-12 flex-shrink-0 text-right tabular-nums">
+                  <span className="text-gray-500 dark:text-gray-400 w-12 flex-shrink-0 text-right tabular-nums">
                     Ln {diag.range.startLine}
                   </span>
                   <span className={`flex-1 min-w-0 truncate ${cfg.textColor}`}>
                     {diag.message}
                   </span>
-                  <span className="text-gray-600 text-[10px] flex-shrink-0">
+                  <span className="text-gray-600 dark:text-gray-400 text-[10px] flex-shrink-0">
                     {diag.source}
                   </span>
                 </button>

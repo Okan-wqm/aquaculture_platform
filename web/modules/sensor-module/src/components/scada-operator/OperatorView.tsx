@@ -156,7 +156,7 @@ export interface OperatorWidgetProps {
 const FallbackWidget = memo<Pick<OperatorWidgetProps, 'config' | 'width' | 'height'>>(
   ({ config, width, height }) => (
     <div
-      className="flex items-center justify-center bg-gray-800/60 border border-dashed border-gray-600 rounded text-[10px] text-gray-500 overflow-hidden"
+      className="flex items-center justify-center bg-gray-800/60 border border-dashed border-gray-600 rounded text-[10px] text-gray-500 dark:text-gray-400 overflow-hidden"
       style={{ width, height }}
       title={`Unknown widget type: ${String(config.widgetType ?? '')}`}
       aria-label={`Unregistered widget: ${String(config.widgetType ?? 'unknown')}`}
@@ -358,7 +358,7 @@ export const OperatorView = memo<OperatorViewProps>(
             aria-live="polite"
             aria-label="Loading screen"
           >
-            <div className="flex flex-col items-center gap-2 text-gray-500">
+            <div className="flex flex-col items-center gap-2 text-gray-500 dark:text-gray-400">
               <Spinner size="md" />
               <span className="text-xs">{screen.name}</span>
             </div>

@@ -60,7 +60,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   if (!timestamp) return null;
   const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
   const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
-  return <span className="text-xs text-gray-500">{label}</span>;
+  return <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>;
 };
 
 export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
@@ -78,7 +78,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error}
       </div>
     );
@@ -141,7 +141,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (finalChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         No historical data
       </div>
     );
@@ -226,7 +226,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
       </div>
       {/* Last update time — only TimeSinceUpdate re-renders every second (PERF-004) */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-700">
           <Clock size={10} />
           <span>Last update: </span>
           <TimeSinceUpdate timestamp={latestTimestamp} />

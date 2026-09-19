@@ -64,15 +64,15 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
         {/* Content */}
         <div className="p-4 space-y-4">
           {/* Equipment Preview */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Icon size={32} className="text-gray-700" />
+          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+              <Icon size={32} className="text-gray-700 dark:text-gray-300" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 truncate">{equipment.name}</p>
-              <p className="text-sm text-gray-500 truncate">{equipment.code}</p>
+              <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{equipment.name}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
               {equipment.equipmentType && (
-                <p className="text-xs text-gray-500 truncate capitalize">
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate capitalize">
                   {equipment.equipmentType.name}
                 </p>
               )}
@@ -82,7 +82,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
                 ? 'bg-green-100 text-green-700'
                 : equipment.status === 'maintenance'
                 ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 text-gray-700'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
             }`}>
               {equipment.status}
             </span>
@@ -92,7 +92,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
           <div>
             <label
               htmlFor="equipment-name"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               Node Name
             </label>
@@ -102,21 +102,21 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
               placeholder="Edit equipment name..."
               autoFocus
             />
-            <p className="text-xs text-gray-500 mt-1.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
               This name will be displayed on the canvas. You can edit it later.
             </p>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
           >
             Cancel
           </button>

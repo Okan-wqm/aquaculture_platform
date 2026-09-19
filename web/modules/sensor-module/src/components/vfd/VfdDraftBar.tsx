@@ -44,7 +44,7 @@ export function VfdDraftBar() {
           <button
             type="button"
             onClick={clearDraft}
-            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
             aria-label="Clear all draft changes"
           >
             <Trash2 className="h-3.5 w-3.5" /> Clear

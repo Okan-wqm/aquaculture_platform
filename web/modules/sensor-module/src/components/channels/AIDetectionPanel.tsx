@@ -210,7 +210,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <Sparkles className="w-5 h-5 text-purple-600" />
-        <h3 className="text-lg font-semibold text-gray-900">AI Kanal Tespiti</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">AI Kanal Tespiti</h3>
       </div>
 
       {/* Success state */}
@@ -244,13 +244,13 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
 
       {/* M3: Inline edit form */}
       {editingProposalId && (
-        <div className="bg-white border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
-          <p className="text-sm font-medium text-gray-900">Kanal etiketini düzenleyin</p>
+        <div className="bg-white dark:bg-gray-900 border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Kanal etiketini düzenleyin</p>
           <input
             type="text"
             value={editLabel}
             onChange={(e) => setEditLabel(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
             autoFocus
           />
           <div className="flex items-center gap-2">
@@ -263,7 +263,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
             </button>
             <button
               onClick={handleEditCancel}
-              className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-xs font-medium"
+              className="px-3 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-medium"
             >
               İptal
             </button>
@@ -274,7 +274,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {/* Input area (show when no proposals and not all processed) */}
       {!allProcessed && allChannels.length === 0 && !detecting && !loadingPending && (
         <div className="space-y-3">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Sensor verilerinizi JSON formatinda yapistirin veya ornek verileri kullanin.
             AI, veri kanallarini otomatik olarak tespit edecektir.
           </p>
@@ -286,7 +286,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
               setParseError(null);
             }}
             placeholder='{"temperature": 24.5, "ph": 7.2, "dissolved_oxygen": 6.8}'
-            className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
           />
 
           {parseError && (
@@ -305,7 +305,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
 
             <button
               onClick={handleUseSampleData}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium"
             >
               <FileJson className="w-4 h-4" />
               Son Verileri Kullan
@@ -329,7 +329,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
         <div className="space-y-4">
           {/* Bulk actions (M1: disabled during bulk processing) */}
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               {allChannels.length} kanal tespit edildi
             </p>
             <div className="flex items-center gap-2">

@@ -66,12 +66,12 @@ const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, o
   const range = maxVal - minVal || 1;
 
   return (
-    <div className="h-40 bg-white border-t border-gray-200 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
+    <div className="h-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex flex-col">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-cyan-600" />
-          <span className="text-xs font-semibold text-gray-700">Trend - {deviceCode}</span>
-          <span className="text-xs text-gray-400">(son 1 saat)</span>
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Trend - {deviceCode}</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">(son 1 saat)</span>
         </div>
         <div className="flex items-center gap-2">
           {error && (
@@ -82,12 +82,12 @@ const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, o
           )}
           <button
             onClick={refetch}
-            className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+            className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             title="Yenile"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
+          <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -100,7 +100,7 @@ const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, o
           </div>
         )}
         {!loading && allPoints.length === 0 && !error && (
-          <p className="text-xs text-gray-400 text-center mt-4">Trend verisi bulunamadi</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-4">Trend verisi bulunamadi</p>
         )}
         {allPoints.length > 0 && (
           <div className="flex items-end gap-px h-full w-full overflow-hidden">
@@ -188,29 +188,29 @@ const SensorScadaPage: React.FC = () => {
   const lastUpdateTime = lastUpdate?.toLocaleTimeString('tr-TR') ?? '-';
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100 dark:bg-gray-800">
       {/* Compact Header Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
+      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-3">
           <ProcessSelector />
-          <div className="h-6 w-px bg-gray-200" />
+          <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
           <button
             onClick={() => setIsLiveMode(!isLiveMode)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium text-xs transition-colors ${
               isLiveMode
                 ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             {isLiveMode ? <><Play className="w-3.5 h-3.5" />Canlı</> : <><Pause className="w-3.5 h-3.5" />Durduruldu</>}
           </button>
-          <div className="h-6 w-px bg-gray-200" />
-          <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
+          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1"><Server className="w-3.5 h-3.5 text-cyan-600" />{stats.parentCount} cihaz</span>
             <span className="flex items-center gap-1"><Activity className="w-3.5 h-3.5 text-blue-600" />{stats.channelCount} kanal</span>
             <span className="flex items-center gap-1"><Wifi className="w-3.5 h-3.5 text-green-600" />{stats.onlineCount} çevrimiçi</span>
           </div>
-          <div className="flex items-center gap-1 text-xs text-gray-500">
+          <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
             <Clock className="w-3 h-3" />
             {lastUpdateTime}
           </div>
@@ -219,7 +219,7 @@ const SensorScadaPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setProcesses([]); refetchProcesses(); }}
-            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
             title="Yenile"
           >
             <RefreshCw className={`w-4 h-4 ${processesLoading ? 'animate-spin' : ''}`} />
@@ -229,13 +229,13 @@ const SensorScadaPage: React.FC = () => {
               onClick={() => setIsTrendOpen((prev) => !prev)}
               title="Trend Goruntule"
               className={`p-1.5 rounded-md transition-colors ${
-                isTrendOpen ? 'bg-cyan-100 text-cyan-700' : 'text-gray-500 hover:bg-gray-100'
+                isTrendOpen ? 'bg-cyan-100 text-cyan-700' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
               <TrendingUp className="w-4 h-4" />
             </button>
           )}
-          <Link to="/sensor/widgets" className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors" title="Widget Dashboard">
+          <Link to="/sensor/widgets" className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors" title="Widget Dashboard">
             <LayoutGrid className="w-4 h-4" />
           </Link>
           <Link
@@ -253,13 +253,13 @@ const SensorScadaPage: React.FC = () => {
         {/* SCADA Viewer */}
         <div className="flex-1 relative">
           {!isLegacyScadaViewerEnabled() ? (
-            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+            <div className="w-full h-full flex items-center justify-center bg-gray-50 dark:bg-gray-800">
               <div className="text-center max-w-md">
-                <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-700 mb-2">
+                <Layers className="w-16 h-16 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Bu görünüm emekliye ayrıldı
                 </h2>
-                <p className="text-gray-500 mb-6">
+                <p className="text-gray-500 dark:text-gray-400 mb-6">
                   Eski iframe SCADA görüntüleyici kaldırılıyor. HMI tasarımı ve canlı
                   çalışma için SCADA Paketleri&apos;ni kullanın.
                 </p>
@@ -275,13 +275,13 @@ const SensorScadaPage: React.FC = () => {
           ) : selectedProcess ? (
             <ScadaViewer className="w-full h-full" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+            <div className="w-full h-full flex items-center justify-center bg-gray-50 dark:bg-gray-800">
               <div className="text-center max-w-md">
-                <Layers className="w-16 h-16 text-gray-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-gray-700 mb-2">
+                <Layers className="w-16 h-16 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Proses Seçin veya Oluşturun
                 </h2>
-                <p className="text-gray-500 mb-6">
+                <p className="text-gray-500 dark:text-gray-400 mb-6">
                   SCADA görünümü için bir proses seçin veya yeni bir proses oluşturun.
                   Prosesler, ekipman düzenini ve sensör bağlantılarını içerir.
                 </p>
@@ -302,7 +302,7 @@ const SensorScadaPage: React.FC = () => {
 
         {/* Sensor Panel (slides in when equipment selected) */}
         {isPanelOpen && (
-          <div className="w-80 border-l border-gray-200 bg-white overflow-y-auto">
+          <div className="w-80 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
             <SensorPanel />
           </div>
         )}
@@ -321,7 +321,7 @@ const SensorScadaPage: React.FC = () => {
       )}
 
       {/* Minimal Status Bar */}
-      <div className="flex items-center justify-between px-4 py-1 bg-white border-t border-gray-200 text-[11px] text-gray-500">
+      <div className="flex items-center justify-between px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 text-[11px] text-gray-500 dark:text-gray-400">
         <span>{selectedProcess ? selectedProcess.nodes.length : 0} ekipman · {stats.channelCount} sensör</span>
         <span className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${isLiveMode ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />

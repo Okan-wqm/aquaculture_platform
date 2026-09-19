@@ -114,13 +114,13 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
         className={`
           flex items-center gap-1 py-1.5 px-2 text-xs cursor-pointer select-none
           transition-colors group
-          ${isActive ? 'bg-cyan-50 text-cyan-600' : 'text-gray-700 hover:bg-gray-50'}
+          ${isActive ? 'bg-cyan-50 text-cyan-600' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
           ${isDragOver ? 'ring-1 ring-inset ring-cyan-400 bg-cyan-50/50' : ''}
         `}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
         {/* Drag grip */}
-        <GripVertical className="w-3 h-3 text-gray-500 opacity-0 group-hover:opacity-100 flex-shrink-0 cursor-grab" />
+        <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 flex-shrink-0 cursor-grab" />
 
         {/* Expand/collapse chevron */}
         {hasChildren ? (
@@ -132,9 +132,9 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
             className="flex-shrink-0 p-0 border-none bg-transparent cursor-pointer"
           >
             {isExpanded ? (
-              <ChevronDown className="w-3 h-3 text-gray-500" />
+              <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-gray-500" />
+              <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
             )}
           </button>
         ) : (
@@ -157,7 +157,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
             autoFocus
-            className="flex-1 min-w-0 px-1 py-0 text-xs border border-cyan-400 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
+            className="flex-1 min-w-0 px-1 py-0 text-xs border border-cyan-400 rounded bg-white dark:bg-gray-900 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
           />
         ) : (
           <span className="truncate flex-1 min-w-0">{screen.name}</span>
@@ -424,16 +424,16 @@ export const SceneTreePanel: React.FC = () => {
   const isLastScreen = screens.length <= 1;
 
   return (
-    <div className="w-full h-full flex flex-col bg-white select-none">
+    <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900 select-none">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-2 border-b border-gray-200">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-          <FolderTree className="w-3.5 h-3.5 text-gray-500" />
+      <div className="flex items-center justify-between px-2 py-2 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
+          <FolderTree className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           <span>Scene Tree</span>
         </div>
         <button
           onClick={handleAddRootScreen}
-          className="flex items-center justify-center w-5 h-5 rounded text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+          className="flex items-center justify-center w-5 h-5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           title="Add root screen"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -470,9 +470,9 @@ export const SceneTreePanel: React.FC = () => {
           onDragLeave={handleDragLeave}
           onDrop={handleDropOnRoot}
           className={`
-            mx-2 mt-1 py-2 border border-dashed rounded text-center text-[10px] text-gray-500
+            mx-2 mt-1 py-2 border border-dashed rounded text-center text-[10px] text-gray-500 dark:text-gray-400
             transition-colors
-            ${dragOverId === '__root__' ? 'border-cyan-400 bg-cyan-50/50 text-cyan-500' : 'border-gray-200'}
+            ${dragOverId === '__root__' ? 'border-cyan-400 bg-cyan-50/50 text-cyan-500' : 'border-gray-200 dark:border-gray-700'}
           `}
         >
           Move to root
@@ -480,10 +480,10 @@ export const SceneTreePanel: React.FC = () => {
       </div>
 
       {/* Import button at bottom */}
-      <div className="border-t border-gray-200 px-2 py-1.5">
+      <div className="border-t border-gray-200 dark:border-gray-700 px-2 py-1.5">
         <button
           onClick={handleImportScreen}
-          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 rounded transition-colors"
+          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors"
           title="Import screen from JSON file"
         >
           <Upload className="w-3.5 h-3.5" />
@@ -504,41 +504,41 @@ export const SceneTreePanel: React.FC = () => {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
             onClick={() => handleAddChildScreen(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Add Child Screen
           </button>
           <button
             onClick={() => handleRenameStart(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Rename
           </button>
           <button
             onClick={() => handleDuplicate(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Duplicate
           </button>
           <button
             onClick={() => handleExportScreen(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <Download className="w-3 h-3" />
             Export Screen
           </button>
-          <hr className="my-1 border-gray-200" />
+          <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => handleDelete(contextMenu.screenId)}
             disabled={isLastScreen}
             className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs ${
               isLastScreen
-                ? 'text-gray-500 cursor-not-allowed'
+                ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
                 : 'text-red-600 hover:bg-red-50'
             }`}
           >

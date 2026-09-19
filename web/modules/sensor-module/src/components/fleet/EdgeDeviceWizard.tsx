@@ -128,8 +128,8 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         closeOnOverlayClick={!isCreating}
         title={
           <span className="flex items-center gap-3">
-            <span className="p-2 bg-gray-100 rounded-lg">
-              <Server className="w-6 h-6 text-gray-700" />
+            <span className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <Server className="w-6 h-6 text-gray-700 dark:text-gray-300" />
             </span>
             <span>Yeni Edge Controller Kaydet</span>
           </span>
@@ -140,7 +140,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
           <div className="flex w-full items-center justify-between">
             <button
               onClick={handleClose}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500 transition-colors"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500 transition-colors"
             >
               İptal
             </button>
@@ -181,13 +181,13 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
 
         {/* Device Model */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Cihaz Modeli
           </label>
           <select
             value={formData.deviceModel}
             onChange={handleInputChange('deviceModel')}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-900"
           >
             <option value="">Model seçin (opsiyonel)...</option>
             {DEVICE_MODELS.map((model) => (
@@ -201,7 +201,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         {/* Device Name & Serial Number */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Cihaz Adı
             </label>
             <input
@@ -209,31 +209,31 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
               value={formData.deviceName}
               onChange={handleInputChange('deviceName')}
               placeholder="Bodrum RAS Controller"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             />
-            <p className="mt-1 text-xs text-gray-500">Opsiyonel - otomatik oluşturulur</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Opsiyonel - otomatik oluşturulur</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Seri Numarasi</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Seri Numarasi</label>
             <input
               type="text"
               value={formData.serialNumber}
               onChange={handleInputChange('serialNumber')}
               placeholder="123456789"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             />
           </div>
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama (Opsiyonel)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama (Opsiyonel)</label>
           <textarea
             value={formData.description}
             onChange={handleInputChange('description')}
             placeholder="Ana RAS sistemini kontrol eden edge controller..."
             rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-none"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-none"
           />
         </div>
       </Modal>

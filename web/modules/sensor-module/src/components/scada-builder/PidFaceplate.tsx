@@ -179,7 +179,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
           {/* Equipment name */}
           <span className="truncate">{equipmentLabel}</span>
           {/* Type badge */}
-          <span className="text-[10px] uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium shrink-0">
+          <span className="text-[10px] uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded font-medium shrink-0">
             {widget.widgetType}
           </span>
         </span>
@@ -188,7 +188,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
         <>
           <button
             type="button"
-            className="px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-4 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Zap size={14} />
             Properties
@@ -207,7 +207,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
         {/* Two-column layout: SVG preview + Properties */}
         <div className="flex gap-4">
           {/* Left column: Equipment SVG preview */}
-          <div className="w-[140px] h-[140px] shrink-0 border border-gray-200 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden">
+          <div className="w-[140px] h-[140px] shrink-0 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
             <WidgetRenderer
               widgetType={widget.widgetType}
               config={config}
@@ -219,7 +219,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
 
           {/* Right column: Properties table */}
           <div className="flex-1 min-w-0">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Activity size={12} />
               Properties
             </h3>
@@ -227,10 +227,10 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
               {propertyRows.map((row, idx) => (
                 <div
                   key={row.label}
-                  className={`flex items-center gap-3 py-1 px-2 ${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
+                  className={`flex items-center gap-3 py-1 px-2 ${idx % 2 === 0 ? 'bg-gray-50 dark:bg-gray-800' : 'bg-white dark:bg-gray-900'}`}
                 >
-                  <dt className="text-gray-500 font-medium whitespace-nowrap">{row.label}</dt>
-                  <dd className="flex items-center gap-1.5 text-gray-900">
+                  <dt className="text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">{row.label}</dt>
+                  <dd className="flex items-center gap-1.5 text-gray-900 dark:text-gray-100">
                     {row.color && (
                       <span
                         className="inline-block w-2 h-2 rounded-full shrink-0"
@@ -248,7 +248,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
         {/* ── Connection Points Section ─────────────────────────── */}
         {connectionPoints.length > 0 && (
           <div>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <CircleDot size={12} />
               Connection Points
             </h3>

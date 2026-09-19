@@ -30,8 +30,8 @@ export function VfdReviewStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Kayıt Onayı</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Kayıt Onayı</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Aşağıdaki bilgileri gözden geçirin ve VFD cihazınızı kaydetmek için onaylayın.
         </p>
       </div>
@@ -62,7 +62,7 @@ export function VfdReviewStep({
           <ReviewItem label="Konum" value={basicInfo.location} />
           {basicInfo.tags && basicInfo.tags.length > 0 && (
             <div className="col-span-2">
-              <span className="text-gray-500 text-sm">Etiketler:</span>{' '}
+              <span className="text-gray-500 dark:text-gray-400 text-sm">Etiketler:</span>{' '}
               <div className="flex flex-wrap gap-1 mt-1">
                 {basicInfo.tags.map((tag) => (
                   <span
@@ -77,9 +77,9 @@ export function VfdReviewStep({
           )}
         </div>
         {basicInfo.notes && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <span className="text-gray-500 text-sm">Notlar:</span>
-            <p className="mt-1 text-sm text-gray-700">{basicInfo.notes}</p>
+          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+            <span className="text-gray-500 dark:text-gray-400 text-sm">Notlar:</span>
+            <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{basicInfo.notes}</p>
           </div>
         )}
       </ReviewSection>
@@ -115,7 +115,7 @@ export function VfdReviewStep({
                 <div>
                   <span className="font-medium text-green-700">Bağlantı Başarılı</span>
                   {connectionTestResult.latencyMs && (
-                    <span className="text-sm text-gray-500 ml-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                       ({connectionTestResult.latencyMs}ms)
                     </span>
                   )}
@@ -135,7 +135,7 @@ export function VfdReviewStep({
                 <div>
                   <span className="font-medium text-red-700">Bağlantı Başarısız</span>
                   {connectionTestResult.error && (
-                    <span className="text-sm text-gray-500 block">{connectionTestResult.error}</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block">{connectionTestResult.error}</span>
                   )}
                 </div>
               </>
@@ -154,7 +154,7 @@ export function VfdReviewStep({
             </div>
             <div>
               <span className="font-medium text-yellow-700">Test Yapılmadı</span>
-              <span className="text-sm text-gray-500 block">
+              <span className="text-sm text-gray-500 dark:text-gray-400 block">
                 Bağlantı testi atlandı. Cihaz kayıt sonrası test edilebilir.
               </span>
             </div>
@@ -178,13 +178,13 @@ export function VfdReviewStep({
             </div>
           </div>
           <div className="ml-4 flex-1">
-            <h4 className="text-lg font-semibold text-gray-900">Kayda Hazır</h4>
-            <p className="mt-1 text-sm text-gray-600">
+            <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Kayda Hazır</h4>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
               <strong>{basicInfo.name}</strong> adlı <strong>{brand?.name}</strong> VFD cihazı{' '}
               <strong>{protocol ? VFD_PROTOCOL_NAMES[protocol] : ''}</strong> protokolü ile
               kaydedilecektir.
             </p>
-            <div className="mt-3 flex items-center text-sm text-gray-500">
+            <div className="mt-3 flex items-center text-sm text-gray-500 dark:text-gray-400">
               <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path
                   fillRule="evenodd"
@@ -211,9 +211,9 @@ interface ReviewSectionProps {
 
 function ReviewSection({ title, stepIndex, onEdit, children }: ReviewSectionProps) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-        <h4 className="font-medium text-gray-900">{title}</h4>
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <h4 className="font-medium text-gray-900 dark:text-gray-100">{title}</h4>
         <button
           onClick={() => onEdit(stepIndex)}
           className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
@@ -243,11 +243,11 @@ interface ReviewItemProps {
 function ReviewItem({ label, value, required }: ReviewItemProps) {
   return (
     <div>
-      <span className="text-gray-500 text-sm">{label}:</span>{' '}
+      <span className="text-gray-500 dark:text-gray-400 text-sm">{label}:</span>{' '}
       {value ? (
-        <span className="font-medium text-gray-900">{value}</span>
+        <span className="font-medium text-gray-900 dark:text-gray-100">{value}</span>
       ) : (
-        <span className={`text-sm ${required ? 'text-red-500' : 'text-gray-500'}`}>
+        <span className={`text-sm ${required ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
           {required ? 'Gerekli' : 'Belirtilmedi'}
         </span>
       )}
@@ -306,8 +306,8 @@ function renderProtocolConfig(protocol: VfdProtocol, config: Partial<VfdProtocol
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
       {filteredConfig.map(([key, value]) => (
         <div key={key}>
-          <span className="text-gray-500 text-sm">{labels[key] || key}:</span>{' '}
-          <span className="font-medium text-gray-900">
+          <span className="text-gray-500 dark:text-gray-400 text-sm">{labels[key] || key}:</span>{' '}
+          <span className="font-medium text-gray-900 dark:text-gray-100">
             {typeof value === 'boolean' ? (value ? 'Evet' : 'Hayır') : String(value)}
           </span>
         </div>

@@ -64,23 +64,23 @@ export const WidgetSearchPanel: React.FC = () => {
   );
 
   return (
-    <div className="w-64 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+    <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
       {/* Search Input */}
       <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         <input
           type="text"
           placeholder="Search widgets..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
+          className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
         />
       </div>
 
       {/* Results List */}
       <div className="max-h-64 overflow-y-auto">
         {results.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-gray-500 text-center">
+          <div className="px-3 py-4 text-xs text-gray-500 dark:text-gray-400 text-center">
             No matching widgets found
           </div>
         ) : (
@@ -93,22 +93,22 @@ export const WidgetSearchPanel: React.FC = () => {
               <div
                 key={`${item.screenId}-${item.widgetId}`}
                 onClick={() => handleResultClick(item.screenId, item.widgetId)}
-                className={`flex items-start gap-2 px-3 py-2 text-xs hover:bg-gray-50 cursor-pointer border-b border-gray-50 ${
+                className={`flex items-start gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 ${
                   isActive ? 'bg-cyan-50' : ''
                 }`}
               >
-                <Box className="w-3.5 h-3.5 text-gray-500 mt-0.5 shrink-0" />
+                <Box className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 mt-0.5 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-gray-500 font-mono text-[10px]">
+                    <span className="text-gray-500 dark:text-gray-400 font-mono text-[10px]">
                       {item.widgetType}
                     </span>
-                    <span className="text-gray-900 font-medium truncate">
+                    <span className="text-gray-900 dark:text-gray-100 font-medium truncate">
                       {item.label}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 mt-0.5">
-                    <span className="text-gray-500">[{item.screenName}]</span>
+                    <span className="text-gray-500 dark:text-gray-400">[{item.screenName}]</span>
                     {item.tag && (
                       <span className="text-cyan-600 font-mono text-[10px]">
                         tag:{item.tag}
@@ -123,7 +123,7 @@ export const WidgetSearchPanel: React.FC = () => {
       </div>
 
       {/* Stats Footer */}
-      <div className="px-3 py-1.5 text-[10px] text-gray-500 border-t border-gray-200">
+      <div className="px-3 py-1.5 text-[10px] text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
         {totalWidgets} widget{totalWidgets !== 1 ? 's' : ''}, {screens.length} screen{screens.length !== 1 ? 's' : ''}
       </div>
     </div>

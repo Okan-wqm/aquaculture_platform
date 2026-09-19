@@ -106,8 +106,13 @@ const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl|text-lg)\b[^"]
  * as their own literal.
  */
 const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
-/** A surface painted light: the one class that has to change for a dark theme to exist. `.bg-white` is a selector (a query for such a surface), not a surface. */
-const LIGHT_SURFACE = /(?<!\.)\b(?:bg-white|bg-gray-50|bg-gray-100)\b/;
+/**
+ * A surface painted light: the one class that has to change for a dark theme
+ * to exist. `.bg-white` is a selector (a query for such a surface), not a
+ * surface; `after:bg-white` paints generated content (a toggle's knob, white
+ * in both themes), not the element.
+ */
+const LIGHT_SURFACE = /(?<![.\w-])(?<!after:)(?<!before:)(?:bg-white|bg-gray-50|bg-gray-100)\b/;
 /** Every light gray/white class the strict form pairs (surfaces, text, borders, dividers, placeholders). */
 const LIGHT_CLASS = /\b(?:bg-white|(?:bg|text|border|divide|placeholder)-gray-\d{2,3})\b/;
 /** theme.css keys `dark:` on the shell's attribute — the one definition every entry imports. */

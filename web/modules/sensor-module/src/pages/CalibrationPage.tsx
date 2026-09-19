@@ -120,8 +120,8 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       header: 'Kanal',
       render: (_value, channel) => (
         <div>
-          <span className="font-medium text-gray-900">{channel.displayLabel}</span>
-          <p className="text-xs text-gray-500 font-mono">{channel.channelKey}</p>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{channel.displayLabel}</span>
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{channel.channelKey}</p>
         </div>
       ),
     },
@@ -129,7 +129,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       key: 'unit',
       header: 'Birim',
       align: 'center',
-      render: (_value, channel) => <span className="text-gray-500">{channel.unit || channel.unitSymbol || '-'}</span>,
+      render: (_value, channel) => <span className="text-gray-500 dark:text-gray-400">{channel.unit || channel.unitSymbol || '-'}</span>,
     },
     {
       key: 'status',
@@ -150,7 +150,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
               onChange={(e) => patchDraft({ calibrationEnabled: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="relative w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+            <div className="relative w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
           </label>
         ) : (
           <span
@@ -174,7 +174,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         ) : (
-          <span className="text-sm text-gray-700 font-mono">{channel.calibrationMultiplier}</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationMultiplier}</span>
         ),
     },
     {
@@ -192,7 +192,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         ) : (
-          <span className="text-sm text-gray-700 font-mono">{channel.calibrationOffset}</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationOffset}</span>
         ),
     },
     {
@@ -216,7 +216,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             className="w-20 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         ) : (
-          <span className="text-sm text-gray-700 font-mono">{channel.calibrationIntervalDays ?? '-'}</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationIntervalDays ?? '-'}</span>
         ),
     },
     {
@@ -224,7 +224,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       header: 'Son Kalibrasyon',
       align: 'center',
       render: (_value, channel) => (
-        <span className="text-gray-500">
+        <span className="text-gray-500 dark:text-gray-400">
           {channel.lastCalibratedAt ? new Date(channel.lastCalibratedAt).toLocaleDateString('tr-TR') : '-'}
         </span>
       ),
@@ -238,13 +238,13 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
         return channel.nextCalibrationDue ? (
           <span
             className={`text-sm ${
-              status === 'overdue' ? 'text-red-600 font-medium' : status === 'due' ? 'text-yellow-600 font-medium' : 'text-gray-500'
+              status === 'overdue' ? 'text-red-600 font-medium' : status === 'due' ? 'text-yellow-600 font-medium' : 'text-gray-500 dark:text-gray-400'
             }`}
           >
             {new Date(channel.nextCalibrationDue).toLocaleDateString('tr-TR')}
           </span>
         ) : (
-          <span className="text-sm text-gray-500">-</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
         );
       },
     },
@@ -266,7 +266,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
             <button
               onClick={cancelEdit}
               disabled={savingId === channel.id}
-              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               title="İptal"
             >
               <X className="w-4 h-4" />
@@ -276,7 +276,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
           <button
             onClick={() => startEdit(channel)}
             disabled={updating}
-            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
             title="Düzenle"
           >
             <Edit className="w-4 h-4" />
@@ -286,14 +286,14 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+      <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <Gauge className="w-5 h-5 text-cyan-500" />
-        <h3 className="font-semibold text-gray-900">
-          Sensor: <span className="font-mono text-sm text-gray-600">{sensorId.slice(0, 8)}...</span>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          Sensor: <span className="font-mono text-sm text-gray-600 dark:text-gray-400">{sensorId.slice(0, 8)}...</span>
         </h3>
-        <span className="text-sm text-gray-500">({channels.length} kanal)</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">({channels.length} kanal)</span>
       </div>
 
       <DataTable<CalibrationChannel>
@@ -342,7 +342,7 @@ const CalibrationPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
           <Spinner size="lg" block className="mb-3" />
-          <p className="text-gray-500">Kalibrasyon verileri yükleniyor...</p>
+          <p className="text-gray-500 dark:text-gray-400">Kalibrasyon verileri yükleniyor...</p>
         </div>
       </div>
     );
@@ -377,7 +377,7 @@ const CalibrationPage: React.FC = () => {
           <button
             onClick={refetch}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Yenile
@@ -387,12 +387,12 @@ const CalibrationPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <Activity className="w-7 h-7 text-gray-500" />
+            <Activity className="w-7 h-7 text-gray-500 dark:text-gray-400" />
             <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-              <p className="text-sm text-gray-500">Toplam Kanal</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Kanal</p>
             </div>
           </div>
         </div>
@@ -423,12 +423,12 @@ const CalibrationPage: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <AlertCircle className="w-7 h-7 text-gray-500" />
+            <AlertCircle className="w-7 h-7 text-gray-500 dark:text-gray-400" />
             <div>
-              <p className="text-2xl font-bold text-gray-700">{stats.neverCalibrated}</p>
-              <p className="text-sm text-gray-500">Hiç Kalibre Edilmemiş</p>
+              <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{stats.neverCalibrated}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Hiç Kalibre Edilmemiş</p>
             </div>
           </div>
         </div>
@@ -459,10 +459,10 @@ const CalibrationPage: React.FC = () => {
 
       {/* Empty State */}
       {sensorIds.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Gauge className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Kalibre Edilecek Kanal Yok</h3>
-          <p className="text-gray-500 text-sm">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Gauge className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Kalibre Edilecek Kanal Yok</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Kalibrasyon ayarlarını düzenlemek için önce sensör kaydedip veri kanalları oluşturmanız gerekiyor.
           </p>
         </div>
@@ -481,9 +481,9 @@ const CalibrationPage: React.FC = () => {
 
       {/* Saving indicator */}
       {updating && (
-        <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
           <Spinner size="md" />
-          <span className="text-sm text-gray-700">Kaydediliyor...</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Kaydediliyor...</span>
         </div>
       )}
     </div>

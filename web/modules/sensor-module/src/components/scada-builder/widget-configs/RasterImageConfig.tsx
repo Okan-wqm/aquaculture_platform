@@ -23,7 +23,7 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 /** Allowed MIME types for raster image upload */
 const ALLOWED_MIME_TYPES = new Set([
@@ -111,7 +111,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Image</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Image</div>
 
       {/* Image preview */}
       {imageSrc && (
@@ -119,7 +119,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           <img
             src={imageSrc}
             alt={(config.altText as string) || (config.alt as string) || 'Widget image'}
-            className="w-full h-24 object-contain rounded-lg border border-gray-200 bg-gray-50"
+            className="w-full h-24 object-contain rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
           />
           <button
             type="button"
@@ -175,7 +175,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Object fit */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Object Fit</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Object Fit</label>
         <select
           value={(config.objectFit as string) || 'contain'}
           onChange={(e) => onChange({ objectFit: e.target.value })}
@@ -192,7 +192,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Alt text (accessibility) */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Alt Text</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alt Text</label>
         <input
           type="text"
           value={(config.altText as string) || (config.alt as string) || ''}
@@ -205,7 +205,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Border radius */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Border Radius</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Radius</label>
         <input
           type="number"
           min={0}
@@ -219,7 +219,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Opacity */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Opacity</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Opacity</label>
         <input
           type="range"
           min={0}
@@ -230,7 +230,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           className="w-full"
           aria-label="Image opacity"
         />
-        <div className="text-xs text-gray-400 text-right">
+        <div className="text-xs text-gray-400 dark:text-gray-500 text-right">
           {Math.round(((config.opacity as number) ?? 1) * 100)}%
         </div>
       </div>

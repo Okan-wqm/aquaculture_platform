@@ -126,27 +126,27 @@ function ParameterCard({
   return (
     <div
       className={`rounded-lg border p-4 transition-colors ${
-        isDraft ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 bg-white'
+        isDraft ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
       }`}
       data-testid={`param-card-${param.parameterName}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-semibold text-gray-900">
+            <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">
               {param.parameterName}
             </span>
-            <span className="text-sm text-gray-600">{param.displayName || param.description}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">{param.displayName || param.description}</span>
             {isReadOnly && (
               <span
-                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400"
                 data-testid={`readonly-badge-${param.parameterName}`}
               >
                 <Lock className="h-3 w-3" /> Read Only
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
             <span>Current: {currentVal}{param.unit ? ` ${param.unit}` : ''}</span>
             {param.minValue !== null && param.maxValue !== null && (
               <span>Range: {param.minValue}-{param.maxValue}{param.unit ? ` ${param.unit}` : ''}</span>
@@ -180,7 +180,7 @@ function ParameterCard({
             className={`w-32 rounded-md border px-3 py-1.5 text-sm ${
               validationError
                 ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500'
+                : 'border-gray-300 dark:border-gray-600 focus:border-indigo-500 focus:ring-indigo-500'
             }`}
             aria-label={`New value for ${param.parameterName}`}
             aria-invalid={!!validationError}
@@ -204,7 +204,7 @@ function ParameterCard({
 
       {compareMode && isDraft && draftValue !== undefined && (
         <div className="mt-2 flex items-center gap-4 rounded bg-indigo-100 px-3 py-1.5 text-xs">
-          <span className="text-gray-600">Current: {currentVal}{param.unit ? ` ${param.unit}` : ''}</span>
+          <span className="text-gray-600 dark:text-gray-400">Current: {currentVal}{param.unit ? ` ${param.unit}` : ''}</span>
           <span className="font-bold text-indigo-700">New: {draftValue}{param.unit ? ` ${param.unit}` : ''}</span>
         </div>
       )}
@@ -300,34 +300,34 @@ export function VfdParameterBrowser({
     <div className="flex gap-4" data-testid="vfd-parameter-browser">
       {/* Sidebar: Group Filters */}
       <aside className="hidden w-48 shrink-0 lg:block">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           Groups
         </h3>
         <div className="space-y-1">
           {groups.map((group) => (
             <label
               key={group}
-              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <input
                 type="checkbox"
                 checked={selectedGroups.has(group)}
                 onChange={() => handleGroupToggle(group)}
-                className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"
+                className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600"
               />
-              <span className="text-gray-700">{group}</span>
+              <span className="text-gray-700 dark:text-gray-300">{group}</span>
             </label>
           ))}
         </div>
 
         <div className="mt-4 border-t pt-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Category
           </h3>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm"
             aria-label="Filter by category"
           >
             <option value="">All Categories</option>
@@ -345,10 +345,10 @@ export function VfdParameterBrowser({
               type="checkbox"
               checked={showAdvancedParams}
               onChange={toggleAdvancedParams}
-              className="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"
+              className="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-indigo-600"
             />
-            <Eye className="h-3.5 w-3.5 text-gray-500" />
-            <span className="text-gray-700">Advanced</span>
+            <Eye className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
+            <span className="text-gray-700 dark:text-gray-300">Advanced</span>
           </label>
         </div>
       </aside>
@@ -358,13 +358,13 @@ export function VfdParameterBrowser({
         {/* Toolbar */}
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
               placeholder="Search parameters..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:ring-indigo-500"
               aria-label="Search parameters"
             />
           </div>
@@ -374,7 +374,7 @@ export function VfdParameterBrowser({
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-gray-300 px-2 py-2 text-sm"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-2 text-sm"
               aria-label="Filter by category"
             >
               <option value="">All</option>
@@ -392,7 +392,7 @@ export function VfdParameterBrowser({
             className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium ${
               compareMode
                 ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
             aria-pressed={compareMode}
           >
@@ -404,14 +404,14 @@ export function VfdParameterBrowser({
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Spinner size="md" />
-            <span className="ml-2 text-sm text-gray-500">Loading parameters...</span>
+            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading parameters...</span>
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-12 text-center">
             <Shield className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-            <p className="text-sm text-gray-500">No parameters found</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No parameters found</p>
             {searchQuery && (
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                 Try adjusting your search or filters
               </p>
             )}
@@ -434,7 +434,7 @@ export function VfdParameterBrowser({
           </div>
         )}
 
-        <div className="mt-3 text-xs text-gray-400">
+        <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">
           Showing {filtered.length} of {definitions.length} parameters
         </div>
       </div>

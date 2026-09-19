@@ -105,10 +105,10 @@ export function MultiParameterTrendCard({
   const hasAnyData = Object.values(series).some((points) => points.length > 0);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-gray-900">{title ?? 'Parametre Trendleri'}</h4>
-        {loading && <span className="text-xs text-gray-400">Yükleniyor…</span>}
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title ?? 'Parametre Trendleri'}</h4>
+        {loading && <span className="text-xs text-gray-400 dark:text-gray-500">Yükleniyor…</span>}
       </div>
       {error ? (
         <p className="text-sm text-red-600" role="alert">
@@ -117,7 +117,7 @@ export function MultiParameterTrendCard({
       ) : hasAnyData ? (
         <TrendChart mode="custom" lines={lines} customData={customData} className="h-64" />
       ) : (
-        <p className="text-sm text-gray-500 py-8 text-center">Seçilen aralıkta trend verisi yok.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">Seçilen aralıkta trend verisi yok.</p>
       )}
     </div>
   );

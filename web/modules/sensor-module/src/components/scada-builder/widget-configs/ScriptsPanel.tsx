@@ -103,8 +103,8 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
     <div className="space-y-3" data-testid="scripts-panel">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-          <Code2 className="w-4 h-4 text-gray-500" />
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+          <Code2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           Scripts
         </h4>
         <button
@@ -119,7 +119,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
 
       {/* Empty state */}
       {scripts.length === 0 && (
-        <p className="text-xs text-gray-500 py-4 text-center">
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">
           No scripts configured. Scripts enable custom logic via a sandboxed executor.
         </p>
       )}
@@ -131,21 +131,21 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
         return (
           <div
             key={script.id}
-            className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden"
+            className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 overflow-hidden"
             data-testid={`script-card-${script.id}`}
           >
             {/* Collapsed header -- always visible */}
             <button
               onClick={() => toggleExpanded(script.id)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               data-testid={`script-toggle-${script.id}`}
             >
               {isExpanded ? (
-                <ChevronDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <ChevronDown className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
               )}
-              <span className="text-xs font-medium text-gray-700 truncate flex-1">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
                 {script.name || 'Unnamed Script'}
               </span>
               <span
@@ -165,7 +165,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
 
             {/* Expanded body -- editor + trigger config */}
             {isExpanded && (
-              <div className="px-3 pb-3 space-y-3 border-t border-gray-200 pt-3">
+              <div className="px-3 pb-3 space-y-3 border-t border-gray-200 dark:border-gray-700 pt-3">
                 <ScriptTriggerConfig
                   trigger={getTrigger(script)}
                   triggerTag={script.triggerTag}

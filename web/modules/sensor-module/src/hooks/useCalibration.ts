@@ -131,7 +131,7 @@ export function getStatusColor(status: CalibrationStatus): string {
     case 'calibrated': return 'text-green-600 bg-green-50 border-green-200';
     case 'due': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
     case 'overdue': return 'text-red-600 bg-red-50 border-red-200';
-    case 'never': return 'text-gray-500 bg-gray-50 border-gray-200';
+    case 'never': return 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
   }
 }
 

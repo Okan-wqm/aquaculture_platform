@@ -135,7 +135,7 @@ const ScreenTabBar: React.FC = () => {
   const isLastScreen = screens.length <= 1;
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-100 border-b border-gray-200 overflow-x-auto">
+    <div className="flex items-center gap-1 px-2 py-1.5 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
       {screens.map((screen) => {
         const isActive = screen.id === activeScreenId;
 
@@ -152,7 +152,7 @@ const ScreenTabBar: React.FC = () => {
                 if (e.key === 'Escape') setRenamingId(null);
               }}
               autoFocus
-              className="px-2 py-1 text-xs border border-cyan-400 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-cyan-500 w-28"
+              className="px-2 py-1 text-xs border border-cyan-400 rounded bg-white dark:bg-gray-900 focus:outline-hidden focus:ring-1 focus:ring-cyan-500 w-28"
             />
           );
         }
@@ -191,8 +191,8 @@ const ScreenTabBar: React.FC = () => {
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
               isActive
-                ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                : 'text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm border border-gray-200 dark:border-gray-700'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-100'
             }`}
             style={{
               opacity: draggedTabId === screen.id ? 0.5 : 1,
@@ -220,7 +220,7 @@ const ScreenTabBar: React.FC = () => {
             }
             setShowAddDropdown(!showAddDropdown);
           }}
-          className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-700 dark:hover:text-gray-100 transition-colors"
           aria-label="Add Screen"
           title="Add Screen"
         >
@@ -231,8 +231,8 @@ const ScreenTabBar: React.FC = () => {
           disabled={isLastScreen}
           className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
             isLastScreen
-              ? 'text-gray-500 cursor-not-allowed'
-              : 'text-gray-500 hover:bg-red-100 hover:text-red-600'
+              ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-red-100 hover:text-red-600'
           }`}
           aria-label="Delete Screen"
           title="Delete Screen"
@@ -242,14 +242,14 @@ const ScreenTabBar: React.FC = () => {
 
         {showAddDropdown && (
           <div
-            className="fixed w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+            className="fixed w-44 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50"
             style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
           >
             {SCREEN_TYPE_OPTIONS.map((opt) => (
               <button
                 key={opt.type}
                 onClick={() => handleAddScreen(opt.type)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {opt.icon}
                 {opt.label}
@@ -263,7 +263,7 @@ const ScreenTabBar: React.FC = () => {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 w-44"
+          className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
@@ -271,29 +271,29 @@ const ScreenTabBar: React.FC = () => {
               const screen = screens.find((s) => s.id === contextMenu.screenId);
               if (screen) handleRenameStart(screen);
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Rename
           </button>
           <button
             onClick={() => handleDuplicate(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Duplicate
           </button>
           <button
             onClick={() => handleSetDefault(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Set as Default
           </button>
-          <hr className="my-1 border-gray-200" />
+          <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => void handleDelete(contextMenu.screenId)}
             disabled={isLastScreen}
             className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${
               isLastScreen
-                ? 'text-gray-500 cursor-not-allowed'
+                ? 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
                 : 'text-red-600 hover:bg-red-50'
             }`}
           >

@@ -37,14 +37,14 @@ function CategoryCard({
       className={`p-4 border-2 rounded-lg text-left transition-all ${
         isSelected
           ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex items-center space-x-3">
         <span className="text-2xl">{iconMap[category]}</span>
         <div>
-          <h3 className="font-semibold text-gray-900">{title}</h3>
-          <p className="text-sm text-gray-500">{description}</p>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
           <span className="text-xs text-blue-600">{count} protocols</span>
         </div>
       </div>
@@ -68,18 +68,18 @@ function ProtocolCard({
       className={`p-4 border-2 rounded-lg text-left transition-all w-full ${
         isSelected
           ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex justify-between items-start">
         <div>
-          <h4 className="font-medium text-gray-900">{protocol.displayName}</h4>
-          <p className="text-sm text-gray-500 mt-1 line-clamp-2">{protocol.description}</p>
+          <h4 className="font-medium text-gray-900 dark:text-gray-100">{protocol.displayName}</h4>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{protocol.description}</p>
           <div className="flex flex-wrap gap-1 mt-2">
-            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+            <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
               {protocol.subcategory}
             </span>
-            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+            <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
               {protocol.connectionType}
             </span>
           </div>
@@ -148,7 +148,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner size="lg" />
-        <span className="ml-3 text-gray-600">Loading protocols...</span>
+        <span className="ml-3 text-gray-600 dark:text-gray-400">Loading protocols...</span>
       </div>
     );
   }
@@ -170,13 +170,13 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
           placeholder="Search protocols..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
       {/* Category cards */}
       <div>
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Filter by Category</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Filter by Category</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Object.entries(ProtocolCategory).map(([key, value]) => (
             <CategoryCard
@@ -195,12 +195,12 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
       {/* Protocol list */}
       <div>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-sm font-medium text-gray-700">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {selectedCategory
               ? `${categoryInfo[selectedCategory].title} Protocols`
               : 'All Protocols'}
           </h3>
-          <span className="text-sm text-gray-500">{filteredProtocols.length} protocols</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{filteredProtocols.length} protocols</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto p-1">
@@ -215,7 +215,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
         </div>
 
         {filteredProtocols.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             No protocols found matching your criteria.
           </div>
         )}

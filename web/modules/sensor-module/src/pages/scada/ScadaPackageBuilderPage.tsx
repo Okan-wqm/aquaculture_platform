@@ -333,17 +333,17 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Loading state
   if (loadingPackage && routePackageId && routePackageId !== 'new') {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
+      <div className="flex items-center justify-center h-screen bg-gray-100 dark:bg-gray-800">
         <div className="text-center">
           <Spinner size="lg" block />
-          <p className="mt-2 text-sm text-gray-500">Loading package...</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading package...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
       {/* Toolbar */}
       <ScadaBuilderToolbar
         packageName={packageName}

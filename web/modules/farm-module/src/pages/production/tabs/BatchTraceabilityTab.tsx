@@ -12,7 +12,7 @@
  * button hands the same data to the pure HTML builder and a hidden-iframe
  * print (batchTraceabilityReportExport.ts).
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import React, { useMemo } from 'react';
 
 import type { Batch } from '../../../hooks/useBatches';
@@ -99,6 +99,81 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
   const { summary, residencies, feedTotals } = traceability;
 
+  type FeedRow = (typeof feedTotals)[number];
+  const feedRowColumns: DataTableColumn<FeedRow>[] = [
+    {
+      key: 'feed',
+      header: 'Feed',
+      render: (_value, feed) => feed.feedName ?? '—',
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, feed) => feed.feedCode ?? '—',
+    },
+    {
+      key: 'totalKg',
+      header: 'Total (kg)',
+      render: (_value, feed) => formatDecimal(feed.totalKg),
+    },
+    {
+      key: 'totalCost',
+      header: 'Total Cost',
+      render: (_value, feed) => formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2),
+    }
+  ];
+
+  type ResidencyRow = (typeof residencies)[number];
+  const residencyRowColumns: DataTableColumn<ResidencyRow>[] = [
+    {
+      key: 'tank',
+      header: 'Tank',
+      render: (_value, residency) => (
+        <>
+          <div className="font-medium text-gray-900">
+            {residency.tankName ?? '—'}
+            {residency.isCurrent && (
+              <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                current
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-500">{residency.tankCode ?? '—'}</div>
+        </>
+      ),
+    },
+    {
+      key: 'period',
+      header: 'Period',
+      render: (_value, residency) => formatResidencyPeriod(residency),
+    },
+    {
+      key: 'days',
+      header: 'Days',
+      render: (_value, residency) => formatDecimal(residency.durationDays, 0),
+    },
+    {
+      key: 'qtyAtEntry',
+      header: 'Qty at Entry',
+      render: (_value, residency) => formatQuantity(residency.quantityAtEntry),
+    },
+    {
+      key: 'avgWeightAtEntryG',
+      header: 'Avg Weight at Entry (g)',
+      render: (_value, residency) => formatDecimal(residency.avgWeightAtEntryG),
+    },
+    {
+      key: 'waterTempCMinAvgMax',
+      header: 'Water Temp °C (min / avg / max)',
+      render: (_value, residency) => formatWaterTemperature(residency.water),
+    },
+    {
+      key: 'feedKg',
+      header: 'Feed (kg)',
+      render: (_value, residency) => formatDecimal(residency.feedTotalKg),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <SummaryHeader traceability={traceability} />
@@ -140,103 +215,31 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
           Every tank this batch stayed in, with water temperature and feed
           consumption aggregated per stay.
         </p>
-        <div className="mt-3 bg-white border border-gray-200 rounded-lg overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <HeaderCell>Tank</HeaderCell>
-                <HeaderCell>Period</HeaderCell>
-                <HeaderCell>Days</HeaderCell>
-                <HeaderCell>Qty at Entry</HeaderCell>
-                <HeaderCell>Avg Weight at Entry (g)</HeaderCell>
-                <HeaderCell>Water Temp °C (min / avg / max)</HeaderCell>
-                <HeaderCell>Feed (kg)</HeaderCell>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {residencies.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-3 py-4 text-center text-gray-500">
-                    No tank residencies recorded.
-                  </td>
-                </tr>
-              ) : (
-                residencies.map((residency) => (
-                  <tr key={`${residency.tankId}-${residency.movedAt}`}>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-gray-900">
-                        {residency.tankName ?? '—'}
-                        {residency.isCurrent && (
-                          <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                            current
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500">{residency.tankCode ?? '—'}</div>
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatResidencyPeriod(residency)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.durationDays, 0)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatQuantity(residency.quantityAtEntry)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.avgWeightAtEntryG)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatWaterTemperature(residency.water)}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(residency.feedTotalKg)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ResidencyRow>
+          data={residencies}
+          columns={residencyRowColumns}
+          keyExtractor={(residency) => `${residency.tankId}-${residency.movedAt}`}
+          emptyMessage="No tank residencies recorded."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       </section>
 
       {/* Feed totals */}
       <section>
         <h3 className="text-lg font-semibold text-gray-900">Feed totals</h3>
-        <div className="mt-3 bg-white border border-gray-200 rounded-lg overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <HeaderCell>Feed</HeaderCell>
-                <HeaderCell>Code</HeaderCell>
-                <HeaderCell>Total (kg)</HeaderCell>
-                <HeaderCell>Total Cost</HeaderCell>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {feedTotals.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
-                    No feed consumption recorded.
-                  </td>
-                </tr>
-              ) : (
-                feedTotals.map((feed) => (
-                  <tr key={feed.feedId}>
-                    <td className="px-3 py-2 font-medium text-gray-900">
-                      {feed.feedName ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">{feed.feedCode ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700">{formatDecimal(feed.totalKg)}</td>
-                    <td className="px-3 py-2 text-gray-700">
-                      {formatDecimal(feed.totalCostDecimal != null ? parseMoney(feed.totalCostDecimal) : null, 2)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<FeedRow>
+          data={feedTotals}
+          columns={feedRowColumns}
+          keyExtractor={(feed) => feed.feedId}
+          emptyMessage="No feed consumption recorded."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       </section>
 
       {/* Events timeline */}
@@ -326,10 +329,5 @@ const KpiCard: React.FC<{ label: string; value: string }> = ({ label, value }) =
   </div>
 );
 
-const HeaderCell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">
-    {children}
-  </th>
-);
 
 export default BatchTraceabilityTab;

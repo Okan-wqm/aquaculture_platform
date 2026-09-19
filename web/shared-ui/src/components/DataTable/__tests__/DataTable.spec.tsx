@@ -164,3 +164,36 @@ describe('DataTable — header slot', () => {
   });
 });
 
+describe('DataTable — controlled expansion', () => {
+  it('opens the rows the page names and needs no chevron column', () => {
+    const { rerender } = render(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        expandable
+        expandToggle={false}
+        expandedRowIds={[]}
+        renderExpandedRow={(row) => <p>details of {row.name}</p>}
+      />,
+    );
+    expect(screen.queryByText('details of Ada')).toBeNull();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(1);
+
+    rerender(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        expandable
+        expandToggle={false}
+        expandedRowIds={['1']}
+        renderExpandedRow={(row) => <p>details of {row.name}</p>}
+      />,
+    );
+    expect(screen.getByText('details of Ada')).toBeTruthy();
+  });
+});
+

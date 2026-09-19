@@ -276,7 +276,26 @@ thresholds — keep one draft per group instead (one row edits at a time, the
 draft lives beside the list), so their row components fold into columns;
 the task list's checkboxes become `DataTable` selection, the generic stock
 tab's column config becomes columns, the storage drill-down follows.
-sensor 15 → 13, farm 17 → 14. **Owner:** okan · **Expiry:** 2027-06-30.
+sensor 15 → 13, farm 17 → 14. Batch 19: the
+water-analysis parameter rows (their row component goes), the finance
+category and ledger tabs (header arrays), the actuation-policy reference
+(a `DataTable` over a const) and the stock-solution fertilizer list (its
+tank `rowSpan` becomes a badge on each group's first row). admin-panel
+1 → 0, hydroponics 2 → 0, farm 14 → 12. Batch 20: the grids
+whose columns come from data — the tanks page (its column pickers), the
+water-chemistry history (parameter configs), the SCADA translations
+matrix (one column per language), the CSV import preview (its header
+row) — plus the tag watch (its mixed-type comparator stays behind
+`onSort`), the variable sync comparison, the auto-detect results (one
+`DataTable` per source group under a collapsible header) and the
+automation editor's variable list, and the batch traceability ledgers
+(their header-cell component spelled out). sensor 13 → 7, farm 12 → 7.
+Batch 21: `DataTable` expansion can be controlled (`expandedRowIds`,
+`onExpandedChange`, and `expandToggle={false}` when a cell of the page is
+the toggle), so the protocol bands — a row plus its meal-schedule editor
+under it — and the meal board (one list per day plan, its columns a
+factory over the plan) render through it. farm 7 → 5. **Owner:** okan ·
+**Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -289,8 +308,11 @@ sensor 15 → 13, farm 17 → 14. **Owner:** okan · **Expiry:** 2027-06-30.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 33 remain after batch 18 (admin-panel 1,
-  hr 3, hydroponics 2, sensor 13, farm 14).
+- Raw `<table>` → `DataTable`: 15 remain after batch 21 (hr 3, sensor 7,
+  farm 5): SCADA runtime grids and dark operator panels (they wait on the
+  dark `DataTable` theme), the two feeding matrix editors (editable
+  header cells, add/remove rows and columns — a spreadsheet, not a list),
+  three report-export HTML strings, two calendar grids and a print document.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

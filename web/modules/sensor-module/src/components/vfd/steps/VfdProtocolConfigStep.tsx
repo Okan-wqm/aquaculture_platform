@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Input, Select } from '@aquaculture/shared-ui';
 import {
   VfdProtocol,
   VfdBrand,
@@ -114,26 +115,13 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Seri Port <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={values.serialPort || ''}
-              onChange={(e) => onChange('serialPort', e.target.value)}
-              placeholder="COM1 veya /dev/ttyUSB0"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={values.serialPort || ''} onChange={(e) => onChange('serialPort', e.target.value)} placeholder="COM1 veya /dev/ttyUSB0" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Slave ID <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={1}
-              max={247}
-              value={values.slaveId || 1}
-              onChange={(e) => onChange('slaveId', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={247} value={values.slaveId || 1} onChange={(e) => onChange('slaveId', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -170,15 +158,7 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parity</label>
-            <select
-              value={values.parity || 'none'}
-              onChange={(e) => onChange('parity', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="none">None</option>
-              <option value="even">Even</option>
-              <option value="odd">Odd</option>
-            </select>
+            <Select fullWidth options={[{ value: 'none', label: 'None' }, { value: 'even', label: 'Even' }, { value: 'odd', label: 'Odd' }]} value={values.parity || 'none'} onChange={(e) => onChange('parity', e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stop Bits</label>
@@ -200,25 +180,11 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (ms)</label>
-            <input
-              type="number"
-              min={100}
-              max={10000}
-              value={values.timeout || 1000}
-              onChange={(e) => onChange('timeout', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={100} max={10000} value={values.timeout || 1000} onChange={(e) => onChange('timeout', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Retry Count</label>
-            <input
-              type="number"
-              min={0}
-              max={10}
-              value={values.retryCount || 3}
-              onChange={(e) => onChange('retryCount', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={10} value={values.retryCount || 3} onChange={(e) => onChange('retryCount', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -242,24 +208,11 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Adresi <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={values.host || ''}
-              onChange={(e) => onChange('host', e.target.value)}
-              placeholder="192.168.1.100"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={values.host || ''} onChange={(e) => onChange('host', e.target.value)} placeholder="192.168.1.100" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
-            <input
-              type="number"
-              min={1}
-              max={65535}
-              value={values.port || 502}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={65535} value={values.port || 502} onChange={(e) => onChange('port', parseInt(e.target.value))} />
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -267,14 +220,7 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Unit ID <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={1}
-              max={247}
-              value={values.unitId || 1}
-              onChange={(e) => onChange('unitId', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={247} value={values.unitId || 1} onChange={(e) => onChange('unitId', parseInt(e.target.value))} />
           </div>
           <div className="flex items-center pt-6">
             <input
@@ -298,27 +244,13 @@ function ModbusTcpFields({ values, onChange }: ModbusTcpFieldsProps) {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Bağlantı Timeout (ms)
             </label>
-            <input
-              type="number"
-              min={1000}
-              max={30000}
-              value={values.connectionTimeout || 5000}
-              onChange={(e) => onChange('connectionTimeout', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1000} max={30000} value={values.connectionTimeout || 5000} onChange={(e) => onChange('connectionTimeout', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Yanıt Timeout (ms)
             </label>
-            <input
-              type="number"
-              min={500}
-              max={10000}
-              value={values.responseTimeout || 3000}
-              onChange={(e) => onChange('responseTimeout', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={500} max={10000} value={values.responseTimeout || 3000} onChange={(e) => onChange('responseTimeout', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -337,45 +269,21 @@ function ProfinetFields({ values, onChange }: { values: Record<string, unknown>;
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Device Name <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.deviceName as string) || ''}
-              onChange={(e) => onChange('deviceName', e.target.value)}
-              placeholder="vfd-device-01"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.deviceName as string) || ''} onChange={(e) => onChange('deviceName', e.target.value)} placeholder="vfd-device-01" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Adresi <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.ipAddress as string) || ''}
-              onChange={(e) => onChange('ipAddress', e.target.value)}
-              placeholder="192.168.1.100"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.ipAddress as string) || ''} onChange={(e) => onChange('ipAddress', e.target.value)} placeholder="192.168.1.100" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subnet Mask</label>
-            <input
-              type="text"
-              value={(values.subnetMask as string) || '255.255.255.0'}
-              onChange={(e) => onChange('subnetMask', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.subnetMask as string) || '255.255.255.0'} onChange={(e) => onChange('subnetMask', e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Update Rate (ms)</label>
-            <input
-              type="number"
-              min={1}
-              max={512}
-              value={(values.updateRate as number) || 32}
-              onChange={(e) => onChange('updateRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={512} value={(values.updateRate as number) || 32} onChange={(e) => onChange('updateRate', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -394,45 +302,19 @@ function EthernetIpFields({ values, onChange }: { values: Record<string, unknown
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Adresi <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.host as string) || ''}
-              onChange={(e) => onChange('host', e.target.value)}
-              placeholder="192.168.1.100"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.host as string) || ''} onChange={(e) => onChange('host', e.target.value)} placeholder="192.168.1.100" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
-            <input
-              type="number"
-              value={(values.port as number) || 44818}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" value={(values.port as number) || 44818} onChange={(e) => onChange('port', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">RPI (ms)</label>
-            <input
-              type="number"
-              min={2}
-              max={3200}
-              value={(values.rpi as number) || 10}
-              onChange={(e) => onChange('rpi', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={2} max={3200} value={(values.rpi as number) || 10} onChange={(e) => onChange('rpi', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Connection Type</label>
-            <select
-              value={(values.connectionType as string) || 'exclusive'}
-              onChange={(e) => onChange('connectionType', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="exclusive">Exclusive Owner</option>
-              <option value="inputOnly">Input Only</option>
-              <option value="listenOnly">Listen Only</option>
-            </select>
+            <Select fullWidth options={[{ value: 'exclusive', label: 'Exclusive Owner' }, { value: 'inputOnly', label: 'Input Only' }, { value: 'listenOnly', label: 'Listen Only' }]} value={(values.connectionType as string) || 'exclusive'} onChange={(e) => onChange('connectionType', e.target.value)} />
           </div>
         </div>
       </fieldset>
@@ -451,14 +333,7 @@ function CanopenFields({ values, onChange }: { values: Record<string, unknown>; 
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Node ID <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={1}
-              max={127}
-              value={(values.nodeId as number) || 1}
-              onChange={(e) => onChange('nodeId', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={127} value={(values.nodeId as number) || 1} onChange={(e) => onChange('nodeId', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Baud Rate</label>
@@ -481,24 +356,11 @@ function CanopenFields({ values, onChange }: { values: Record<string, unknown>; 
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               CAN Interface <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.interface as string) || ''}
-              onChange={(e) => onChange('interface', e.target.value)}
-              placeholder="can0"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.interface as string) || ''} onChange={(e) => onChange('interface', e.target.value)} placeholder="can0" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Heartbeat Time (ms)</label>
-            <input
-              type="number"
-              min={0}
-              max={65535}
-              value={(values.heartbeatProducerTime as number) || 1000}
-              onChange={(e) => onChange('heartbeatProducerTime', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={65535} value={(values.heartbeatProducerTime as number) || 1000} onChange={(e) => onChange('heartbeatProducerTime', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -517,44 +379,21 @@ function BacnetIpFields({ values, onChange }: { values: Record<string, unknown>;
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               IP Adresi <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.ipAddress as string) || ''}
-              onChange={(e) => onChange('ipAddress', e.target.value)}
-              placeholder="192.168.1.100"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.ipAddress as string) || ''} onChange={(e) => onChange('ipAddress', e.target.value)} placeholder="192.168.1.100" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
-            <input
-              type="number"
-              value={(values.port as number) || 47808}
-              onChange={(e) => onChange('port', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" value={(values.port as number) || 47808} onChange={(e) => onChange('port', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Device Instance <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={0}
-              max={4194303}
-              value={(values.deviceInstance as number) || 0}
-              onChange={(e) => onChange('deviceInstance', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={4194303} value={(values.deviceInstance as number) || 0} onChange={(e) => onChange('deviceInstance', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max APDU Length</label>
-            <input
-              type="number"
-              value={(values.maxApduLength as number) || 1476}
-              onChange={(e) => onChange('maxApduLength', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" value={(values.maxApduLength as number) || 1476} onChange={(e) => onChange('maxApduLength', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -573,14 +412,7 @@ function ProfibusDpFields({ values, onChange }: { values: Record<string, unknown
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Station Address <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={1}
-              max={126}
-              value={(values.stationAddress as number) || 1}
-              onChange={(e) => onChange('stationAddress', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={1} max={126} value={(values.stationAddress as number) || 1} onChange={(e) => onChange('stationAddress', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Baud Rate</label>
@@ -602,14 +434,7 @@ function ProfibusDpFields({ values, onChange }: { values: Record<string, unknown
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Master Address</label>
-            <input
-              type="number"
-              min={0}
-              max={125}
-              value={(values.masterAddress as number) || 0}
-              onChange={(e) => onChange('masterAddress', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={125} value={(values.masterAddress as number) || 0} onChange={(e) => onChange('masterAddress', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>
@@ -628,13 +453,7 @@ function BacnetMstpFields({ values, onChange }: { values: Record<string, unknown
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Seri Port <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={(values.serialPort as string) || ''}
-              onChange={(e) => onChange('serialPort', e.target.value)}
-              placeholder="COM1 veya /dev/ttyUSB0"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="text" value={(values.serialPort as string) || ''} onChange={(e) => onChange('serialPort', e.target.value)} placeholder="COM1 veya /dev/ttyUSB0" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Baud Rate</label>
@@ -655,27 +474,13 @@ function BacnetMstpFields({ values, onChange }: { values: Record<string, unknown
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               MAC Address <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={0}
-              max={127}
-              value={(values.macAddress as number) || 1}
-              onChange={(e) => onChange('macAddress', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={127} value={(values.macAddress as number) || 1} onChange={(e) => onChange('macAddress', parseInt(e.target.value))} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Device Instance <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              min={0}
-              max={4194303}
-              value={(values.deviceInstance as number) || 0}
-              onChange={(e) => onChange('deviceInstance', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            <Input fullWidth type="number" min={0} max={4194303} value={(values.deviceInstance as number) || 0} onChange={(e) => onChange('deviceInstance', parseInt(e.target.value))} />
           </div>
         </div>
       </fieldset>

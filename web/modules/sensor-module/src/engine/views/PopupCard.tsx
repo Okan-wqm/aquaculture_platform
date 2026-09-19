@@ -10,7 +10,7 @@ import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
 import ScadaViewport from './ScadaViewport';
 import type { OverlayEntry } from './types';
-import { colors, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 interface PopupCardProps {
   overlay: OverlayEntry;
@@ -97,9 +97,7 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
         <span style={{ fontWeight: 600, fontSize: 14, color: colors.neutral[900] }}>
           {screenName}
         </span>
-        <button
-          onClick={handleClose}
-          style={{
+        <Button variant="ghost" iconOnly onClick={handleClose} style={{
             background: 'none',
             border: 'none',
             cursor: 'pointer',
@@ -109,11 +107,7 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
             justifyContent: 'center',
             borderRadius: 6,
             color: colors.gray[400],
-          }}
-          aria-label="Close overlay"
-        >
-          <X size={16} />
-        </button>
+          }} aria-label="Close overlay"><X size={16} /></Button>
       </div>
 
       {/* Content */}

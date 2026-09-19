@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -174,7 +174,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-5">
         {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {!parameter && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PLC Bağlantı *</label>
@@ -193,69 +193,34 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Adı *</label>
-            <input
-              type="text"
-              required
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              placeholder="Tank-01 Yaz Parametreleri"
-            />
+            <Input fullWidth type="text" required value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="Tank-01 Yaz Parametreleri" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Versiyon</label>
-            <input
-              type="text"
-              value={form.version}
-              onChange={(e) => updateField('version', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
+            <Input fullWidth type="text" value={form.version} onChange={(e) => updateField('version', e.target.value)} />
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-          <textarea
-            value={form.description}
-            onChange={(e) => updateField('description', e.target.value)}
-            rows={2}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-          />
+          <Textarea fullWidth value={form.description} onChange={(e) => updateField('description', e.target.value)} rows={2} />
         </div>
 
         {/* Core Parameters */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Temel Parametreler</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Biyokutle (kg)</label>
-              <input
-                type="number"
-                min={0} max={1000000} step={0.01}
-                value={form.biomassKg}
-                onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={0} max={1000000} step={0.01} value={form.biomassKg} onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">FCR</label>
-              <input
-                type="number"
-                min={0.1} max={10} step={0.01}
-                value={form.fcr}
-                onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={0.1} max={10} step={0.01} value={form.fcr} onChange={(e) => updateField('fcr', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gunluk Hedef (kg)</label>
-              <input
-                type="number"
-                min={0} max={100000} step={0.01}
-                value={form.targetDailyFeedKg}
-                onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
+              <Input fullWidth type="number" min={0} max={100000} step={0.01} value={form.targetDailyFeedKg} onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))} />
             </div>
           </div>
         </div>
@@ -264,56 +229,18 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme Programı</h3>
-            <button
-              type="button"
-              onClick={addScheduleEntry}
-              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-            >
-              <Plus className="h-3 w-3" />
-              Ekle
-            </button>
+            <Button variant="ghost" size="xs" leftIcon={<Plus className="h-3 w-3" />} type="button" onClick={addScheduleEntry}>Ekle</Button>
           </div>
           <div className="space-y-2">
             {form.schedule.map((entry, i) => (
               <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-gray-50 dark:bg-gray-800">
-                <input
-                  type="time"
-                  value={entry.time}
-                  onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
-                  className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-                />
-                <input
-                  type="number"
-                  min={0} step={0.1}
-                  value={entry.amountKg}
-                  onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
-                  className="w-20 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-                  placeholder="kg"
-                />
+                <Input type="time" value={entry.time} onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)} />
+                <Input type="number" min={0} step={0.1} value={entry.amountKg} onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))} placeholder="kg" />
                 <span className="text-xs text-gray-400 dark:text-gray-500">kg</span>
-                <input
-                  type="text"
-                  value={entry.feedType || ''}
-                  onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
-                  className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-                  placeholder="Yem tipi"
-                />
-                <input
-                  type="number"
-                  min={0} max={3600}
-                  value={entry.durationSeconds || 0}
-                  onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
-                  className="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-                  placeholder="sn"
-                />
+                <Input type="text" value={entry.feedType || ''} onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)} placeholder="Yem tipi" />
+                <Input type="number" min={0} max={3600} value={entry.durationSeconds || 0} onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))} placeholder="sn" />
                 <span className="text-xs text-gray-400 dark:text-gray-500">sn</span>
-                <button
-                  type="button"
-                  onClick={() => removeScheduleEntry(i)}
-                  className="text-red-400 hover:text-red-600"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Close" type="button" onClick={() => removeScheduleEntry(i)}><X className="h-4 w-4" /></Button>
               </div>
             ))}
           </div>
@@ -322,54 +249,30 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* Thresholds */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Eşik Değerleri</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Min (mg/L)</label>
-              <input type="number" min={0} max={20} step={0.1}
-                value={form.thresholds.oxygenMin}
-                onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={20} step={0.1} value={form.thresholds.oxygenMin} onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Kritik (mg/L)</label>
-              <input type="number" min={0} max={20} step={0.1}
-                value={form.thresholds.oxygenCritical}
-                onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={20} step={0.1} value={form.thresholds.oxygenCritical} onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Max (C)</label>
-              <input type="number" min={0} max={50} step={0.1}
-                value={form.thresholds.tempMax}
-                onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={50} step={0.1} value={form.thresholds.tempMax} onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Kritik (C)</label>
-              <input type="number" min={0} max={50} step={0.1}
-                value={form.thresholds.tempCritical}
-                onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={50} step={0.1} value={form.thresholds.tempCritical} onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Min</label>
-              <input type="number" min={0} max={14} step={0.1}
-                value={form.thresholds.phMin || 0}
-                onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={14} step={0.1} value={form.thresholds.phMin || 0} onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Max</label>
-              <input type="number" min={0} max={14} step={0.1}
-                value={form.thresholds.phMax || 0}
-                onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={14} step={0.1} value={form.thresholds.phMax || 0} onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))} />
             </div>
           </div>
         </div>
@@ -377,59 +280,31 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* VFD Settings */}
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">VFD Ayarları</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Min Hız (%)</label>
-              <input type="number" min={0} max={100}
-                value={form.vfdSettings.blowerMinSpeed}
-                onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={100} value={form.vfdSettings.blowerMinSpeed} onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Max Hız (%)</label>
-              <input type="number" min={0} max={100}
-                value={form.vfdSettings.blowerMaxSpeed}
-                onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={100} value={form.vfdSettings.blowerMaxSpeed} onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Min Hız (%)</label>
-              <input type="number" min={0} max={100}
-                value={form.vfdSettings.doserMinSpeed}
-                onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={100} value={form.vfdSettings.doserMinSpeed} onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Max Hız (%)</label>
-              <input type="number" min={0} max={100}
-                value={form.vfdSettings.doserMaxSpeed}
-                onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
-              />
+              <Input fullWidth type="number" min={0} max={100} value={form.vfdSettings.doserMaxSpeed} onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))} />
             </div>
           </div>
         </div>
 
         {/* Submit */}
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            İptal
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isLoading && <Spinner size="sm" color="inherit" />}
-            {parameter ? 'Güncelle' : 'Oluştur'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>İptal</Button>
+          <Button variant="primary" type="submit" disabled={isLoading}>{isLoading && <Spinner size="sm" color="inherit" />}
+            {parameter ? 'Güncelle' : 'Oluştur'}</Button>
         </div>
       </form>
     </Modal>
@@ -597,53 +472,17 @@ const PlcFeedingParamsPage: React.FC = () => {
       align: 'right',
       render: (_value, param) => (
         <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
-          <button
-            onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
-            className="rounded p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="More actions" onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}><MoreVertical className="h-4 w-4" /></Button>
           {menuOpenId === param.id && (
             <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
-              <button
-                onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Edit className="h-4 w-4" />
-                Düzenle
-              </button>
-              <button
-                onClick={() => handleSendToPlc(param.id, param.name)}
-                disabled={param.status === 'ACTIVE'}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Send className="h-4 w-4" />
-                PLC&apos;ye Gönder
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Edit className="h-4 w-4" />} onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}>Düzenle</Button>
+              <Button variant="ghost" size="sm" leftIcon={<Send className="h-4 w-4" />} onClick={() => handleSendToPlc(param.id, param.name)} disabled={param.status === 'ACTIVE'}>PLC&apos;ye Gönder</Button>
               {param.status !== 'ACTIVE' && (
-                <button
-                  onClick={() => handleActivate(param.id)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                >
-                  <PlayCircle className="h-4 w-4" />
-                  Etkinleştir
-                </button>
+                <Button variant="ghost" size="sm" leftIcon={<PlayCircle className="h-4 w-4" />} onClick={() => handleActivate(param.id)}>Etkinleştir</Button>
               )}
-              <button
-                onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Copy className="h-4 w-4" />
-                Klonla
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}>Klonla</Button>
               <div className="border-t my-1" />
-              <button
-                onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                Sil
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Trash2 className="h-4 w-4" />} onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}>Sil</Button>
             </div>
           )}
         </div>
@@ -659,19 +498,8 @@ const PlcFeedingParamsPage: React.FC = () => {
         description="Besleme parametre setlerini yönetin ve PLC&apos;ye gönderin"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => { setEditingParam(null); setShowForm(true); }}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Yeni Parametre
-            </button>
+            <Button variant="secondary" size="sm" iconOnly aria-label="Refresh" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { setEditingParam(null); setShowForm(true); }}>Yeni Parametre</Button>
           </div>
         }
         className="mb-6"
@@ -689,18 +517,7 @@ const PlcFeedingParamsPage: React.FC = () => {
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        >
-          <option value="">Tüm Durumlar</option>
-          <option value="DRAFT">Taslak</option>
-          <option value="ACTIVE">Aktif</option>
-          <option value="SENT">Gönderildi</option>
-          <option value="PENDING">Bekliyor</option>
-          <option value="ERROR">Hata</option>
-        </select>
+        <Select options={[{ value: '', label: 'Tüm Durumlar' }, { value: 'DRAFT', label: 'Taslak' }, { value: 'ACTIVE', label: 'Aktif' }, { value: 'SENT', label: 'Gönderildi' }, { value: 'PENDING', label: 'Bekliyor' }, { value: 'ERROR', label: 'Hata' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')} />
         <select
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
@@ -733,13 +550,7 @@ const PlcFeedingParamsPage: React.FC = () => {
           <BarChart3 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme parametresi yok</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">İlk besleme parametre setinizi oluşturun.</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Parametre
-          </button>
+          <Button variant="primary" className="mt-4" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowForm(true)}>Yeni Parametre</Button>
         </div>
       )}
 
@@ -767,31 +578,14 @@ const PlcFeedingParamsPage: React.FC = () => {
           bodyClassName="p-6"
           footer={
             <>
-              <button
-                type="button"
-                onClick={closeCloneDialog}
-                className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                İptal
-              </button>
-              <button
-                onClick={handleClone}
-                disabled={mutations.clone.isPending}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {mutations.clone.isPending && <Spinner size="sm" color="inherit" />}
-                Klonla
-              </button>
+              <Button variant="secondary" className="flex-1" type="button" onClick={closeCloneDialog}>İptal</Button>
+              <Button variant="primary" className="flex-1 justify-center" onClick={handleClone} disabled={mutations.clone.isPending}>{mutations.clone.isPending && <Spinner size="sm" color="inherit" />}
+                Klonla</Button>
             </>
           }
         >
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
-          <input
-            type="text"
-            value={cloneName}
-            onChange={(e) => setCloneName(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-          />
+          <Input fullWidth type="text" value={cloneName} onChange={(e) => setCloneName(e.target.value)} />
         </Modal>
       )}
 

@@ -1,4 +1,4 @@
-import { useI18n } from '@aquaculture/shared-ui';
+import { Switch, useI18n } from '@aquaculture/shared-ui';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import React from 'react';
 
@@ -50,18 +50,14 @@ const AiConsentSwitch: React.FC<AiConsentSwitchProps> = ({ enabled = true }) => 
           </span>
         </div>
       )}
-      <label className="flex cursor-pointer items-center gap-2.5">
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={settings.userAiConsent}
-          checked={settings.userAiConsent}
-          disabled={isPending}
-          onChange={(e) => updateConsent(e.target.checked)}
-        />
-        <span className="text-[13.5px] text-sd-ink">{t('messaging.ai.consentLabel')}</span>
-      </label>
-      <span className="text-xs text-sd-ink-muted">{t('messaging.ai.consentHint')}</span>
+      <Switch
+        size="sm"
+        label={t('messaging.ai.consentLabel')}
+        description={t('messaging.ai.consentHint')}
+        checked={settings.userAiConsent}
+        disabled={isPending}
+        onChange={(e) => updateConsent(e.target.checked)}
+      />
     </div>
   );
 };

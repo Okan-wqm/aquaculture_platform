@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Send, RefreshCw, AlertCircle } from 'lucide-react';
-import { Drawer, useAuth } from '@aquaculture/shared-ui';
+import { Drawer, Select, useAuth, useI18n } from '@aquaculture/shared-ui';
 import {
   AI_GENERAL_ASSISTANT_PICKER_ENTRY,
   AI_PERSONA_CATALOGUE,
@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<AiAssistantStatus, string> = {
   offline: 'Offline',
 };
 
-/** The `<select>` value for "no persona pinned" (the tenant default). */
+/** The picker value for "no persona pinned" (the tenant default). */
 const DEFAULT_PERSONA_VALUE = '';
 
 /**
@@ -36,6 +36,7 @@ const DEFAULT_PERSONA_VALUE = '';
 const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) => {
   const { hasPermission } = useAuth();
   const { messages, status, persona, setPersona, sendMessage, reset } = useAiAssistantSocket(open);
+  const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -115,26 +116,21 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       </div>
       {/* Persona picker — switching starts a new conversation. */}
       <div className="border-b border-gray-100 px-4 py-2">
-        <label htmlFor="ai-assistant-persona" className="sr-only">
-          Assistant
-        </label>
-        <select
+        <Select
           id="ai-assistant-persona"
+          label={t('header.aiAssistantPersona')}
+          size="sm"
           value={persona ?? DEFAULT_PERSONA_VALUE}
           onChange={(e) =>
             setPersona(e.target.value === DEFAULT_PERSONA_VALUE ? null : e.target.value)
           }
           disabled={status === 'thinking'}
-          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-sm text-gray-800 dark:text-gray-200 focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-        >
-          <option value={DEFAULT_PERSONA_VALUE}>{AI_GENERAL_ASSISTANT_PICKER_ENTRY.name}</option>
-          {permittedPersonas.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-gray-400">{selected.description}</p>
+          options={[
+            { value: DEFAULT_PERSONA_VALUE, label: AI_GENERAL_ASSISTANT_PICKER_ENTRY.name },
+            ...permittedPersonas.map((entry) => ({ value: entry.id, label: entry.name })),
+          ]}
+          helperText={selected.description}
+        />
       </div>
 
       {/* Messages */}

@@ -14,7 +14,13 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // The controls under test are the real shared-ui primitives (FE-HIGH-079);
+  // role and name queries read what Button / Input / Select / Textarea render.
+  Button: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Button,
+  Input: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Input,
+  Select: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Select,
+  Textarea: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Textarea,
   graphqlClient: { request: vi.fn() },
   useTenantQuery: vi.fn(),
   useAuth: vi.fn(),

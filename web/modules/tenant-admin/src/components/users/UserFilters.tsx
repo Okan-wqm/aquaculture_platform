@@ -1,4 +1,5 @@
 import React from 'react';
+import { Select } from '@aquaculture/shared-ui';
 import { Search } from 'lucide-react';
 
 export interface UserFiltersProps {
@@ -34,26 +35,26 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
           />
         </div>
-        <select
+        <Select
+          options={[
+            { value: 'all', label: 'All Roles' },
+            { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
+            { value: 'MODULE_MANAGER', label: 'Module Manager' },
+            { value: 'MODULE_USER', label: 'Module User' },
+          ]}
           value={currentFilters.role}
           onChange={(e) => onRoleChange(e.target.value)}
-          className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-        >
-          <option value="all">All Roles</option>
-          <option value="TENANT_ADMIN">Tenant Admin</option>
-          <option value="MODULE_MANAGER">Module Manager</option>
-          <option value="MODULE_USER">Module User</option>
-        </select>
-        <select
+        />
+        <Select
+          options={[
+            { value: 'all', label: 'All Status' },
+            { value: 'active', label: 'Active' },
+            { value: 'inactive', label: 'Inactive' },
+            { value: 'pending', label: 'Pending' },
+          ]}
           value={currentFilters.status}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-        >
-          <option value="all">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="pending">Pending</option>
-        </select>
+        />
       </div>
     </div>
   );

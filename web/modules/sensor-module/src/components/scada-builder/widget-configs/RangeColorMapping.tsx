@@ -14,7 +14,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { ColorRange } from '../../../engine/animation/types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 export type { ColorRange } from '../../../engine/animation/types';
 
@@ -99,7 +99,9 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
 
   const updateRange = useCallback(
     (index: number, field: keyof ColorRange, value: string | number) => {
-      const updated = ranges.map((r, i) => (i === index ? { ...r, [field]: value } : r));
+      const updated = ranges.map((r, i) =>
+        i === index ? { ...r, [field]: value } : r,
+      );
       // Re-sort by min value whenever min changes to maintain visual order
       if (field === 'min') {
         updated.sort((a, b) => a.min - b.min);
@@ -201,25 +203,10 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
             )}
             {/* Label (optional) */}
             {showLabel && (
-              <input
-                type="text"
-                value={range.label || ''}
-                onChange={(e) => updateRange(idx, 'label', e.target.value)}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Label"
-                aria-label="Range label"
-              />
+              <Input type="text" value={range.label || ''} onChange={(e) => updateRange(idx, 'label', e.target.value)} placeholder="Label" aria-label="Range label" />
             )}
             {/* Remove */}
-            <button
-              type="button"
-              onClick={() => removeRange(idx)}
-              className="text-red-400 hover:text-red-600 transition-colors p-0.5"
-              aria-label="Remove range"
-              data-testid="remove-range-btn"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" iconOnly type="button" onClick={() => removeRange(idx)} aria-label="Remove range" data-testid="remove-range-btn"><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
         );
       })}

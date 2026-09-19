@@ -1,32 +1,33 @@
-import { memo } from 'react';
+/**
+ * RoleBadge — a platform role on the shared-ui Badge scale (FE-HIGH-079):
+ * the four roles stay distinguishable (error / info / outline / neutral)
+ * without a private colour map.
+ */
+import React, { memo } from 'react';
 import { Shield } from 'lucide-react';
+import { Badge } from '@aquaculture/shared-ui';
 
 export interface RoleBadgeProps {
   role: string;
 }
 
-const roleConfig: Record<string, { bg: string; text: string; label: string }> = {
-  SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
-  TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
-  MODULE_MANAGER: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Module Manager' },
-  MODULE_USER: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', label: 'Module User' },
+type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
+
+const ROLE: Record<string, { variant: BadgeVariant; label: string }> = {
+  SUPER_ADMIN: { variant: 'error', label: 'Super Admin' },
+  TENANT_ADMIN: { variant: 'info', label: 'Tenant Admin' },
+  MODULE_MANAGER: { variant: 'outline', label: 'Module Manager' },
+  MODULE_USER: { variant: 'default', label: 'Module User' },
 };
+const UNKNOWN = { variant: 'default' as BadgeVariant, label: 'Unknown' };
 
-const defaultConfig = { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', label: 'Unknown' };
-
-/**
- * Renders a role name with appropriate color badge.
- */
 export const RoleBadge = memo<RoleBadgeProps>(({ role }) => {
-  const config = roleConfig[role] ?? defaultConfig;
-
+  const config = ROLE[role] ?? UNKNOWN;
   return (
-    <span
-      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
-      <Shield className="w-3 h-3 mr-1" />
+    <Badge variant={config.variant} size="sm" className="gap-1">
+      <Shield className="w-3 h-3" aria-hidden="true" />
       {config.label}
-    </span>
+    </Badge>
   );
 });
 

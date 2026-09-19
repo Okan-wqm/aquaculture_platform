@@ -17,7 +17,7 @@
 
 import React, { memo, useState, useMemo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -60,17 +60,14 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
  * across re-renders. Uses column index as seed offset to produce
  * varied but repeatable values.
  */
-function generateDemoRows(
-  columns: ColumnDef[],
-  pageSize: number,
-): Record<string, string | number>[] {
+function generateDemoRows(columns: ColumnDef[], pageSize: number): Record<string, string | number>[] {
   const rows: Record<string, string | number>[] = [];
   for (let r = 0; r < pageSize; r++) {
     const row: Record<string, string | number> = {};
     columns.forEach((col, ci) => {
       // Produce numeric-looking demo values with slight variance
       const base = 20 + ci * 10;
-      const value = base + ((r * 3.7 + ci * 2.3) % 30);
+      const value = base + (r * 3.7 + ci * 2.3) % 30;
       row[col.tagName || `col_${ci}`] = Number(value.toFixed(2));
     });
     rows.push(row);
@@ -131,7 +128,12 @@ function evaluateRowColor(
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
+const DataTableRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  width,
+  height,
+  isEditing,
+}) => {
   const columns = (config.columns ?? []) as ColumnDef[];
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
@@ -148,20 +150,13 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
 
   // In edit mode, generate demo rows. In runtime, rows would come from TagValueBus.
   const allRows = useMemo(
-    () =>
-      isEditing
-        ? generateDemoRows(columns, Math.min(pageSize * 3, 100))
-        : generateDemoRows(columns, pageSize),
+    () => (isEditing ? generateDemoRows(columns, Math.min(pageSize * 3, 100)) : generateDemoRows(columns, pageSize)),
     [columns, pageSize, isEditing],
   );
 
   // Sort rows if a sort column is active
   const sortedRows = useMemo(() => {
-    if (
-      sortState.direction === null ||
-      sortState.columnIndex < 0 ||
-      sortState.columnIndex >= columns.length
-    ) {
+    if (sortState.direction === null || sortState.columnIndex < 0 || sortState.columnIndex >= columns.length) {
       return allRows;
     }
     const col = columns[sortState.columnIndex];
@@ -169,10 +164,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
     return [...allRows].sort((a, b) => {
       const va = a[key] ?? 0;
       const vb = b[key] ?? 0;
-      const cmp =
-        typeof va === 'number' && typeof vb === 'number'
-          ? va - vb
-          : String(va).localeCompare(String(vb));
+      const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
       return sortState.direction === 'desc' ? -cmp : cmp;
     });
   }, [allRows, sortState, columns]);
@@ -182,21 +174,17 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
   const safeCurrentPage = Math.min(currentPage, totalPages - 1);
   const pageRows = sortedRows.slice(safeCurrentPage * pageSize, (safeCurrentPage + 1) * pageSize);
 
-  const handleSort = useCallback(
-    (colIndex: number) => {
-      const col = columns[colIndex];
-      if (!col?.sortable) return;
-      setSortState((prev) => {
-        if (prev.columnIndex === colIndex) {
-          const nextDir: SortDirection =
-            prev.direction === 'asc' ? 'desc' : prev.direction === 'desc' ? null : 'asc';
-          return { columnIndex: colIndex, direction: nextDir };
-        }
-        return { columnIndex: colIndex, direction: 'asc' };
-      });
-    },
-    [columns],
-  );
+  const handleSort = useCallback((colIndex: number) => {
+    const col = columns[colIndex];
+    if (!col?.sortable) return;
+    setSortState((prev) => {
+      if (prev.columnIndex === colIndex) {
+        const nextDir: SortDirection = prev.direction === 'asc' ? 'desc' : prev.direction === 'desc' ? null : 'asc';
+        return { columnIndex: colIndex, direction: nextDir };
+      }
+      return { columnIndex: colIndex, direction: 'asc' };
+    });
+  }, [columns]);
 
   // Empty state
   if (columns.length === 0) {
@@ -350,10 +338,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
             Page {safeCurrentPage + 1} of {totalPages}
           </span>
           <div className="flex gap-1">
-            <button
-              onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))}
-              disabled={safeCurrentPage === 0}
-              style={{
+            <Button variant="ghost" onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))} disabled={safeCurrentPage === 0} style={{
                 padding: '2px 8px',
                 border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
@@ -361,31 +346,16 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
                 cursor: safeCurrentPage === 0 ? 'not-allowed' : 'pointer',
                 color: safeCurrentPage === 0 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
-              }}
-              data-testid="page-prev"
-            >
-              Prev
-            </button>
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages - 1, safeCurrentPage + 1))}
-              disabled={safeCurrentPage >= totalPages - 1}
-              style={{
+              }} data-testid="page-prev">Prev</Button>
+            <Button variant="ghost" onClick={() => setCurrentPage(Math.min(totalPages - 1, safeCurrentPage + 1))} disabled={safeCurrentPage >= totalPages - 1} style={{
                 padding: '2px 8px',
                 border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
-                background:
-                  safeCurrentPage >= totalPages - 1 ? themeColors.neutral[100] : themeColors.white,
+                background: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[100] : themeColors.white,
                 cursor: safeCurrentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
-                color:
-                  safeCurrentPage >= totalPages - 1
-                    ? themeColors.neutral[400]
-                    : themeColors.neutral[700],
+                color: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
-              }}
-              data-testid="page-next"
-            >
-              Next
-            </button>
+              }} data-testid="page-next">Next</Button>
           </div>
         </div>
       )}

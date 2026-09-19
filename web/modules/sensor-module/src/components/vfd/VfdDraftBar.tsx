@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { FileText, Trash2, ArrowRight } from 'lucide-react';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 
@@ -41,22 +42,8 @@ export function VfdDraftBar() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={clearDraft}
-            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-            aria-label="Clear all draft changes"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Clear
-          </button>
-          <button
-            type="button"
-            onClick={openCreateDialog}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-            aria-label="Review and create change set"
-          >
-            Review & Create Change Set <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+          <Button variant="secondary" size="xs" leftIcon={<Trash2 className="h-3.5 w-3.5" />} type="button" onClick={clearDraft} aria-label="Clear all draft changes">Clear</Button>
+          <Button variant="primary" size="xs" rightIcon={<ArrowRight className="h-3.5 w-3.5" />} type="button" onClick={openCreateDialog} aria-label="Review and create change set">Review & Create Change Set</Button>
         </div>
       </div>
     </div>

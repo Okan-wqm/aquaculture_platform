@@ -20,7 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -250,23 +250,10 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             <span className="text-xs text-green-700 truncate">
               {svgFileName || 'fuxa-widget.svg'}
             </span>
-            <button
-              onClick={handleRemove}
-              className="text-red-400 hover:text-red-600 ml-2"
-              data-testid="fuxa-remove-svg"
-            >
-              <Trash2 size={14} />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Delete" className="ml-2" onClick={handleRemove} data-testid="fuxa-remove-svg"><Trash2 size={14} /></Button>
           </div>
         ) : (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:border-cyan-400 hover:text-cyan-600 transition-colors"
-            data-testid="fuxa-upload-btn"
-          >
-            <Upload size={14} />
-            Upload FUXA SVG
-          </button>
+          <Button variant="secondary" size="xs" className="justify-center" leftIcon={<Upload size={14} />} onClick={() => fileInputRef.current?.click()} data-testid="fuxa-upload-btn">Upload FUXA SVG</Button>
         )}
         <input
           ref={fileInputRef}
@@ -328,14 +315,7 @@ export const FuxaWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">State Rules</label>
-            <button
-              onClick={handleAddRule}
-              className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-              data-testid="fuxa-add-rule"
-            >
-              <Plus size={12} />
-              Add Rule
-            </button>
+            <Button variant="ghost" size="xs" leftIcon={<Plus size={12} />} onClick={handleAddRule} data-testid="fuxa-add-rule">Add Rule</Button>
           </div>
           {stateRules.map((rule, idx) => (
             <StateRuleRow
@@ -443,14 +423,7 @@ const VariableInput: React.FC<VariableInputProps> = ({
       {renderInput()}
       {/* Per-variable tag binding */}
       <div className="mt-1.5">
-        <input
-          type="text"
-          value={tagBinding}
-          onChange={(e) => onTagChange(variable.id, e.target.value)}
-          placeholder="Bind to tag..."
-          className="w-full px-2 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
-          data-testid={`fuxa-var-tag-${variable.id}`}
-        />
+        <Input fullWidth type="text" value={tagBinding} onChange={(e) => onTagChange(variable.id, e.target.value)} placeholder="Bind to tag..." data-testid={`fuxa-var-tag-${variable.id}`} />
       </div>
     </div>
   );
@@ -488,13 +461,7 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       </select>
 
       {/* Value */}
-      <input
-        type="text"
-        value={valueDisplay}
-        onChange={(e) => onChange(index, 'value', e.target.value)}
-        className="w-20 px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-cyan-500"
-        placeholder={rule.condition === 'between' ? '0,100' : '0'}
-      />
+      <Input type="text" value={valueDisplay} onChange={(e) => onChange(index, 'value', e.target.value)} placeholder={rule.condition === 'between' ? '0,100' : '0'} />
 
       {/* Arrow */}
       <span className="text-xs text-gray-400 dark:text-gray-500">{'\u2192'}</span>
@@ -513,12 +480,7 @@ const StateRuleRow: React.FC<StateRuleRowProps> = ({ rule, index, onChange, onRe
       </select>
 
       {/* Remove */}
-      <button
-        onClick={() => onRemove(index)}
-        className="text-red-400 hover:text-red-600 ml-auto"
-      >
-        <X size={12} />
-      </button>
+      <Button variant="ghost" iconOnly aria-label="Close" onClick={() => onRemove(index)}><X size={12} /></Button>
     </div>
   );
 };

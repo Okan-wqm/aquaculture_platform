@@ -1,6 +1,6 @@
 import React from 'react';
 import { useScadaPackageStore } from '../../../store/scada';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Input, Select } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -40,25 +40,26 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
+        <Input
+          fullWidth
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Go to Screen"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Display Style</label>
-        <select
+        <Select
+          fullWidth
+          options={[
+            { value: 'card', label: 'Card' },
+            { value: 'button', label: 'Button' },
+            { value: 'minimal', label: 'Minimal' },
+          ]}
           value={config.style || 'card'}
           onChange={(e) => onChange({ style: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="card">Card</option>
-          <option value="button">Button</option>
-          <option value="minimal">Minimal</option>
-        </select>
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
@@ -69,26 +70,26 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             onChange={(e) => onChange({ color: e.target.value })}
             className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
           />
-          <input
+          <Input
             type="text"
             value={config.color || colors.primary[400]}
             onChange={(e) => onChange({ color: e.target.value })}
             placeholder={colors.primary[400]}
-            className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Icon</label>
-        <select
+        <Select
+          fullWidth
+          options={[
+            { value: 'ArrowRight', label: 'Arrow (ArrowRight)' },
+            { value: 'ExternalLink', label: 'External Link (ExternalLink)' },
+            { value: 'Monitor', label: 'Screen (Monitor)' },
+          ]}
           value={config.icon || 'ArrowRight'}
           onChange={(e) => onChange({ icon: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="ArrowRight">Arrow (ArrowRight)</option>
-          <option value="ExternalLink">External Link (ExternalLink)</option>
-          <option value="Monitor">Screen (Monitor)</option>
-        </select>
+        />
       </div>
     </div>
   );

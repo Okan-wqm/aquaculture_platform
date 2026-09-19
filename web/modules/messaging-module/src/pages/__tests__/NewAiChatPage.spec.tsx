@@ -9,8 +9,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { routeGraphql } from '../../test-utils/mockGraphqlClient';
-import { requestMock } from '../../test-utils/sharedUiMock';
+import { routeGraphql } from '../../__tests__/mockGraphqlClient';
+import { requestMock } from '../../__tests__/sharedUiMock';
 import type { AiPersona } from '../../types/messaging';
 import NewAiChatPage from '../NewAiChatPage';
 
@@ -19,7 +19,7 @@ const { session } = vi.hoisted(() => ({
 }));
 
 vi.mock('@aquaculture/shared-ui', async () =>
-  (await import('../../test-utils/sharedUiMock')).createSharedUiMock({
+  (await import('../../__tests__/sharedUiMock')).createSharedUiMock({
     hasPermission: (permission) => session.hasPermission(permission),
   }),
 );
@@ -90,7 +90,9 @@ describe('NewAiChatPage', () => {
 
     expect(await screen.findByRole('radio', { name: 'General AI Assistant' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Production Specialist (Expert)' })).not.toBeChecked();
-    expect(screen.getByText('Batch performance & growth · Finance summaries')).toBeVisible();
+    // The capability line rides the option's description beside the server's
+    // persona description.
+    expect(screen.getByText(/Batch performance & growth · Finance summaries/)).toBeVisible();
   });
 
   it('keeps creation disabled until the user has consented, then creates with the chosen id', async () => {

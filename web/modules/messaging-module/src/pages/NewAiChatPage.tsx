@@ -1,4 +1,4 @@
-import { useAuth, useI18n } from '@aquaculture/shared-ui';
+import { Button, RadioGroup, useAuth, useI18n } from '@aquaculture/shared-ui';
 import { ArrowLeft, Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -46,13 +46,16 @@ const NewAiChatPage: React.FC = () => {
   return (
     <div className="sd-page max-w-[560px]">
       <div className="sd-pagehead">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => navigate('/messaging')}
-          className="sd-back mb-2 inline-flex items-center gap-1.5"
+          className="sd-back mb-2"
+          leftIcon={<ArrowLeft size={16} />}
           aria-label={t('messaging.backToChannels')}
         >
-          <ArrowLeft size={16} /> {t('messaging.backToChannels')}
-        </button>
+          {t('messaging.backToChannels')}
+        </Button>
         <span className="sd-eyebrow">{t('messaging.title')}</span>
         <h1 className="sd-page-title">{t('messaging.ai.newTitle')}</h1>
         <span className="sd-page-sub">{t('messaging.ai.newSubtitle')}</span>
@@ -88,41 +91,22 @@ const NewAiChatPage: React.FC = () => {
           )}
 
           {(personas?.length ?? 0) > 0 && (
-            <fieldset className="sd-card sd-card--flush m-0 border-0 p-0">
-              <legend className="px-4 py-3 text-[11.5px] font-bold uppercase tracking-[0.09em] text-sd-teal-deep">
-                {t('messaging.ai.personasLabel')}
-              </legend>
-              {personas?.map((persona) => {
-                const value = personaValue(persona);
-                const active = value === selected;
-                return (
-                  <label
-                    key={value}
-                    className={`sd-chan-row flex cursor-pointer items-start gap-3${active ? ' sd-chan-row--active' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="ai-persona"
-                      value={value}
-                      checked={active}
-                      onChange={() => setSelected(value)}
-                      aria-label={persona.name}
-                      className="mt-1"
-                    />
-                    <span className="sd-chan-icon sd-chan-icon--ai">
-                      <Sparkles size={19} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="sd-chan-title">{persona.name}</span>
-                      <span className="sd-chan-preview mt-0.5 block">{persona.description}</span>
-                      <span className="mt-1 block text-xs text-sd-ink-muted">
-                        {persona.capabilities.join(' · ')}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </fieldset>
+            <div className="sd-card sd-card--flush p-4">
+              <RadioGroup
+                name="ai-persona"
+                label={t('messaging.ai.personasLabel')}
+                vertical
+                value={selected}
+                onChange={setSelected}
+                options={(personas ?? []).map((persona) => ({
+                  value: personaValue(persona),
+                  label: persona.name,
+                  description: [persona.description, persona.capabilities.join(' · ')]
+                    .filter((part) => part.length > 0)
+                    .join(' — '),
+                }))}
+              />
+            </div>
           )}
 
           {createChannel.isError && (
@@ -135,18 +119,15 @@ const NewAiChatPage: React.FC = () => {
           )}
 
           <div className="mt-4 flex justify-end">
-            <button
+            <Button
               onClick={handleCreate}
               disabled={!canCreate}
-              className="sd-send inline-flex items-center gap-2 px-3.5 py-2"
+              isLoading={createChannel.isPending}
+              leftIcon={<Sparkles size={15} />}
+              className="sd-send"
             >
-              {createChannel.isPending ? (
-                <RefreshCw size={15} className="animate-spin" />
-              ) : (
-                <Sparkles size={15} />
-              )}
               {t('messaging.ai.createButton')}
-            </button>
+            </Button>
           </div>
         </>
       )}

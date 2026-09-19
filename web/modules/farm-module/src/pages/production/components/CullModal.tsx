@@ -3,7 +3,7 @@
  * Records fish culling in a tank with reason and biomass calculation
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import { TankBatch, CullReason, CullReasonLabels } from '../types/batch.types';
 import { useRecordCull } from '../../../hooks/useBatches';
 import { BatchScopeSelector } from './BatchScopeSelector';
@@ -181,16 +181,7 @@ export const CullModal: React.FC<CullModalProps> = ({
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Culled Fish Count <span className="text-orange-500">*</span>
             </label>
-            <input
-              type="number"
-              id="quantity"
-              min="1"
-              max={availableQuantity}
-              value={quantity || ''}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Enter number of culled fish"
-            />
+            <Input fullWidth type="number" id="quantity" min="1" max={availableQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of culled fish" />
           </div>
 
           {/* Average Weight */}
@@ -198,16 +189,7 @@ export const CullModal: React.FC<CullModalProps> = ({
             <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Average Weight (g)
             </label>
-            <input
-              type="number"
-              id="avgWeight"
-              min="0"
-              step="0.1"
-              value={avgWeightG || ''}
-              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Enter average weight"
-            />
+            <Input fullWidth type="number" id="avgWeight" min="0" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)} placeholder="Enter average weight" />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Default: {scopedAvgWeightG.toFixed(1)} g ({isCombined ? 'batch' : 'tank'} average)
             </p>
@@ -249,14 +231,7 @@ export const CullModal: React.FC<CullModalProps> = ({
             <label htmlFor="culledAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Cull Date
             </label>
-            <input
-              type="date"
-              id="culledAt"
-              value={culledAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setCulledAt(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth type="date" id="culledAt" value={culledAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setCulledAt(e.target.value)} />
           </div>
 
           {/* Notes */}
@@ -264,15 +239,7 @@ export const CullModal: React.FC<CullModalProps> = ({
             <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Why were the fish culled? <span className="text-orange-500">*</span>
             </label>
-            <textarea
-              id="notes"
-              rows={3}
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Describe the reason for culling..."
-            />
+            <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe the reason for culling..." />
           </div>
         </div>
 
@@ -280,7 +247,7 @@ export const CullModal: React.FC<CullModalProps> = ({
         {quantity > 0 && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Operation</h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Before</p>
                 <div className="space-y-1">

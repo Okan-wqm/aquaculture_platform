@@ -9,6 +9,8 @@
  */
 
 import React, { useCallback, useId, useRef } from 'react';
+
+import { useI18n } from '../../i18n';
 import { createPortal } from 'react-dom';
 
 import { dialogThemeAttributes, useDialogBehavior, type DialogTheme } from '../Modal/useDialogBehavior';
@@ -127,7 +129,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   showCloseButton = true,
-  closeLabel = 'Kapat',
+  closeLabel: closeLabelProp,
   ariaLabel,
   theme = 'auto',
   footer,
@@ -135,6 +137,8 @@ export const Drawer: React.FC<DrawerProps> = ({
   className = '',
   bodyClassName = 'flex-1 min-h-0 overflow-y-auto p-4',
 }) => {
+  const { t } = useI18n();
+  const closeLabel = closeLabelProp ?? t('common.close');
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -147,7 +151,7 @@ export const Drawer: React.FC<DrawerProps> = ({
         onClose();
       }
     },
-    [closeOnOverlayClick, onClose],
+    [closeOnOverlayClick, onClose]
   );
 
   if (!isOpen) return null;
@@ -198,19 +202,8 @@ export const Drawer: React.FC<DrawerProps> = ({
                 className="shrink-0 p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
                 aria-label={closeLabel}
               >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             )}
@@ -228,7 +221,7 @@ export const Drawer: React.FC<DrawerProps> = ({
         )}
       </div>
     </div>,
-    document.body,
+    document.body
   );
 };
 

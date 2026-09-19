@@ -6,7 +6,7 @@
  * Includes an overwrite checkbox to control whether existing params are replaced.
  */
 import React, { useState } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { useParameterTemplates, ParameterTemplate } from '../../../hooks/useParameterConfigs';
 
 // ============================================================================
@@ -151,21 +151,8 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
 
       {/* Footer */}
       <div className="flex justify-end space-x-3 pt-4 border-t">
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleApply}
-          disabled={!selectedId || isSubmitting}
-          className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isSubmitting ? 'Applying...' : 'Apply Template'}
-        </button>
+        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="button" onClick={handleApply} disabled={!selectedId || isSubmitting}>{isSubmitting ? 'Applying...' : 'Apply Template'}</Button>
       </div>
     </Modal>
   );

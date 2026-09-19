@@ -1,18 +1,19 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
-import { ReactNode, type ReactElement } from 'react';
+import { ReactNode, useCallback, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-// WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
-// classes with dark: variants that use Konsta's internal surface tokens (iOS grouped grey,
-// Material near-black). These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
-// to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
+// WHY: the layout paints its own surface (gray-50 / gray-950) so pages never
+// inherit a component library's grouped-background tokens.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
+import { PullToRefreshIndicator } from '@/components/ui/PullToRefreshIndicator';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
 
 
@@ -59,6 +60,16 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   // from useMessageSocket. The hook polls every 60s as a fallback safety net
   // but is primarily updated in real-time via Socket.IO events.
   const { unreadCount: messageUnreadCount } = useUnreadCount();
+
+  // FE-MEDIUM-091: one pull-to-refresh for every screen. Pulling down from the
+  // top refetches every active query — whatever the page shows — instead of
+  // each page wiring its own touch handlers (or, on most pages, none).
+  const queryClient = useQueryClient();
+  const refetchActiveQueries = useCallback(
+    () => queryClient.refetchQueries({ type: 'active' }),
+    [queryClient],
+  );
+  const pull = usePullToRefresh({ onRefresh: refetchActiveQueries, enabled: isOnline });
 
   /**
    * Bottom tab navigation — 5 tabs: Home, Operations, Tasks, Messages, Account.
@@ -156,8 +167,13 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">{children}</div>
+      {/* Main Content — `pb-nav-gap` is the one clearance for the fixed tab
+          bar (no page carries a spacer); the touch handlers are the app's
+          pull-to-refresh. */}
+      <div className="flex-1 overflow-auto overscroll-contain pb-nav-gap" {...pull.handlers}>
+        <PullToRefreshIndicator pullDistance={pull.pullDistance} armed={pull.armed} isRefreshing={pull.isRefreshing} />
+        {children}
+      </div>
 
       {/* WHY: Bottom tab bar with backdrop-blur creates a modern iOS/Android-style navigation.
           Safe area padding (pb-safe) ensures the tab bar sits above the home indicator on notch devices. */}

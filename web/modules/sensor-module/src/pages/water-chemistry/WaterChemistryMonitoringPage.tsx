@@ -7,6 +7,7 @@
  * Cards + system tabs each persist in localStorage.
  */
 import { type FC, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 import WcCanvas from './canvas/WcCanvas';
 import WcCardConfigDrawer from './canvas/WcCardConfigDrawer';
@@ -52,18 +53,9 @@ const WaterChemistryMonitoringPage: FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={handleAdd}
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">
-            ＋ Add chart
-          </button>
-          <button type="button" onClick={handleAddSystem}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">
-            ＋ Add system
-          </button>
-          <button type="button" onClick={resetDemo}
-            className="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
-            Reset demo
-          </button>
+          <Button variant="primary" size="sm" type="button" onClick={handleAdd}>＋ Add chart</Button>
+          <Button variant="primary" size="sm" type="button" onClick={handleAddSystem}>＋ Add system</Button>
+          <Button variant="secondary" size="sm" type="button" onClick={resetDemo}>Reset demo</Button>
         </div>
       </div>
 

@@ -68,7 +68,7 @@ export function NotificationsPage(): JSX.Element {
   };
 
   return (
-    <div className="h-full min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="h-screen-nav flex flex-col bg-gray-50 dark:bg-gray-950">
       {/* Header */}
       <PageHeader
         tone="amber"
@@ -129,7 +129,7 @@ export function NotificationsPage(): JSX.Element {
             getKey={(notification) => notification.id}
             estimateSize={() => 96}
             gapPx={8}
-            className="flex-1 min-h-0 pb-24"
+            className="flex-1 min-h-0"
             renderItem={(notification) => (
               <button
                 onClick={() => {

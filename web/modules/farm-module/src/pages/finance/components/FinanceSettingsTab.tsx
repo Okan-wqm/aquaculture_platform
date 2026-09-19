@@ -7,7 +7,7 @@
  * Mutation is TENANT_ADMIN-only on the backend; the form surfaces the
  * authorisation error for non-admins.
  */
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, Button } from '@aquaculture/shared-ui';
 import React, { useEffect, useState } from 'react';
 
 import { useFinanceSettings, useUpdateFinanceSettings } from '../../../hooks/useFinance';
@@ -115,13 +115,7 @@ export const FinanceSettingsTab: React.FC = () => {
 
         {canUpdateSettings && (
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <button
-              type="submit"
-              disabled={updateSettings.isPending || settingsQuery.isLoading}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              {updateSettings.isPending ? 'Saving…' : 'Save settings'}
-            </button>
+            <Button variant="primary" type="submit" disabled={updateSettings.isPending || settingsQuery.isLoading}>{updateSettings.isPending ? 'Saving…' : 'Save settings'}</Button>
           </div>
         )}
       </form>

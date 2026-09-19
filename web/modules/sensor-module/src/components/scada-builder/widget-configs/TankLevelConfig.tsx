@@ -1,4 +1,5 @@
 import React from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
@@ -21,42 +22,42 @@ export const TankLevelConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
+        <Input
+          fullWidth
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Tank Level"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <input
+          <Input
+            fullWidth
             type="number"
             value={config.min ?? 0}
             onChange={(e) => onChange({ min: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <input
+          <Input
+            fullWidth
             type="number"
             value={config.max ?? 100}
             onChange={(e) => onChange({ max: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-        <input
+        <Input
+          fullWidth
           type="text"
           value={config.unit || ''}
           onChange={(e) => onChange({ unit: e.target.value })}
           placeholder="L"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
     </div>

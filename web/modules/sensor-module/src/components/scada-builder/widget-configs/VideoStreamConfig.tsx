@@ -1,4 +1,5 @@
 import React from 'react';
+import { Input } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -26,13 +27,7 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Stream URL */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream URL</label>
-        <input
-          type="text"
-          value={streamUrl}
-          onChange={(e) => onChange({ streamUrl: e.target.value })}
-          placeholder="http://192.168.1.100/mjpg/video.mjpg"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={streamUrl} onChange={(e) => onChange({ streamUrl: e.target.value })} placeholder="http://192.168.1.100/mjpg/video.mjpg" />
       </div>
 
       {/* Stream Mode */}
@@ -53,27 +48,14 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {streamMode === 'image' && (
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Refresh Interval (seconds)</label>
-          <input
-            type="number"
-            min={1}
-            max={300}
-            value={refreshInterval}
-            onChange={(e) => onChange({ refreshInterval: Math.max(1, Number(e.target.value)) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" min={1} max={300} value={refreshInterval} onChange={(e) => onChange({ refreshInterval: Math.max(1, Number(e.target.value)) })} />
         </div>
       )}
 
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={label}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Camera 1"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={label} onChange={(e) => onChange({ label: e.target.value })} placeholder="Camera 1" />
       </div>
 
       {/* Show Controls (HLS mode only) */}

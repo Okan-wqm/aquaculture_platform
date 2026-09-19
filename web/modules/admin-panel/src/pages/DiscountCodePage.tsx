@@ -504,7 +504,7 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Discount Type & Value */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Discount Type
@@ -542,7 +542,7 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Applies To & Duration */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Applies To
@@ -582,7 +582,7 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Validity Period */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Valid From
@@ -606,7 +606,7 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Max Redemptions */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Max Total Uses
@@ -644,7 +644,7 @@ const DiscountCodePage: React.FC = () => {
             </div>
 
             {/* Campaign Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Campaign ID

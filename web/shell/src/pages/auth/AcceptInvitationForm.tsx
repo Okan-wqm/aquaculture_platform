@@ -164,7 +164,7 @@ const AcceptInvitationForm: React.FC = () => {
         <p className="text-center -mt-4 mb-4 text-sm text-[var(--surface-label-fg)]">{invitationData.email}</p>
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             surface="glass"
             label={t('invitation.firstName')}

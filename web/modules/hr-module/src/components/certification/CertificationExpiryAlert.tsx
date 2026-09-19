@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AlertTriangle, AlertCircle, Clock, RefreshCw, ChevronRight } from 'lucide-react';
-import { cn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Spinner, Button } from '@aquaculture/shared-ui';
 import { useExpiringCertifications, useExpiredCertifications } from '../../hooks';
 import { getCertificationUrgency, CERTIFICATION_CATEGORY_CONFIG } from '../../types';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
@@ -129,12 +129,7 @@ export function CertificationExpiryAlert({
           </span>
         </div>
         {onViewAll && totalCount > maxItems && (
-          <button
-            onClick={onViewAll}
-            className="flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-          >
-            View All <ChevronRight className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" rightIcon={<ChevronRight className="h-4 w-4" />} onClick={onViewAll}>View All</Button>
         )}
       </div>
 

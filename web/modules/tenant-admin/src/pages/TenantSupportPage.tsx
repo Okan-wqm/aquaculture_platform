@@ -35,7 +35,7 @@ import {
   HelpCircle,
   FileText,
 } from 'lucide-react';
-import { Modal, useAuthContext, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
@@ -156,20 +156,8 @@ const NewTicketModal: React.FC<{
       bodyClassName=""
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form="create-ticket-form"
-            className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-          >
-            Create Ticket
-          </button>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="create-ticket-form">Create Ticket</Button>
         </>
       }
     >
@@ -178,52 +166,26 @@ const NewTicketModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Subject
           </label>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Brief description of your issue"
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            required
-          />
+          <Input fullWidth type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Brief description of your issue" required />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Category
           </label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as TicketCategory)}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
-          >
-            <option value="technical">Technical Issue</option>
-            <option value="billing">Billing</option>
-            <option value="feature_request">Feature Request</option>
-            <option value="bug">Bug Report</option>
-            <option value="general">General Question</option>
-          </select>
+          <Select fullWidth options={[{ value: 'technical', label: 'Technical Issue' }, { value: 'billing', label: 'Billing' }, { value: 'feature_request', label: 'Feature Request' }, { value: 'bug', label: 'Bug Report' }, { value: 'general', label: 'General Question' }]} value={category} onChange={(e) => setCategory(e.target.value as TicketCategory)} />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description
           </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Please provide as much detail as possible..."
-            rows={5}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 resize-none focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            required
-          />
+          <Textarea className="resize-none" fullWidth value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Please provide as much detail as possible..." rows={5} required />
         </div>
 
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Paperclip className="w-4 h-4" />
-          <button type="button" className="text-green-600 hover:underline">
-            Attach files
-          </button>
+          <Button variant="ghost" type="button">Attach files</Button>
         </div>
       </form>
     </Modal>
@@ -254,21 +216,8 @@ const RatingModal: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-          >
-            Skip
-          </button>
-          <button
-            type="button"
-            onClick={() => rating > 0 && onSubmit(rating)}
-            disabled={rating === 0}
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-50"
-          >
-            Submit
-          </button>
+          <Button variant="ghost" className="flex-1" type="button" onClick={onClose}>Skip</Button>
+          <Button variant="primary" className="flex-1" type="button" onClick={() => rating > 0 && onSubmit(rating)} disabled={rating === 0}>Submit</Button>
         </>
       }
     >
@@ -277,21 +226,13 @@ const RatingModal: React.FC<{
       </div>
       <div className="flex items-center justify-center gap-2">
         {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            onMouseEnter={() => setHoveredRating(star)}
-            onMouseLeave={() => setHoveredRating(0)}
-            onClick={() => setRating(star)}
-            className="p-1"
-          >
-            <Star
+          <Button variant="ghost" size="sm" iconOnly aria-label="Rate" key={star} onMouseEnter={() => setHoveredRating(star)} onMouseLeave={() => setHoveredRating(0)} onClick={() => setRating(star)}><Star
               className={`w-8 h-8 ${
                 star <= (hoveredRating || rating)
                   ? 'text-yellow-400 fill-yellow-400'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
-            />
-          </button>
+            /></Button>
         ))}
       </div>
     </Modal>
@@ -530,27 +471,19 @@ export const TenantSupportPage: React.FC = () => {
           title="Support"
           description="Get help from our support team"
           actions={
-            <button
-              onClick={() => { setNewTicketOpen(true); setActionError(null); }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              New Ticket
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => { setNewTicketOpen(true); setActionError(null); }}>New Ticket</Button>
           }
         />
         {actionError && (
           <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {actionError}
-            <button onClick={() => setActionError(null)} className="ml-auto text-red-500 hover:text-red-700">
-              <X className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Close" onClick={() => setActionError(null)}><X className="w-4 h-4" /></Button>
           </div>
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-5 gap-3 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
             <div className="text-sm text-gray-500 dark:text-gray-400">Total Tickets</div>
             <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>
@@ -615,18 +548,7 @@ export const TenantSupportPage: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-              >
-                <option value="all">All Status</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting_customer">Needs Response</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
+              <Select options={[{ value: 'all', label: 'All Status' }, { value: 'open', label: 'Open' }, { value: 'in_progress', label: 'In Progress' }, { value: 'waiting_customer', label: 'Needs Response' }, { value: 'resolved', label: 'Resolved' }, { value: 'closed', label: 'Closed' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')} />
             </div>
           </div>
 
@@ -734,12 +656,7 @@ export const TenantSupportPage: React.FC = () => {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedTicketId(null)}
-                  className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <X size={20} />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Close" onClick={() => setSelectedTicketId(null)}><X size={20} /></Button>
               </div>
 
               {/* Tags */}
@@ -837,24 +754,10 @@ export const TenantSupportPage: React.FC = () => {
             {selectedTicket.status !== 'closed' && selectedTicket.status !== 'resolved' && (
               <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-end gap-3">
-                  <textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Write a reply..."
-                    rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
+                  <Textarea className="resize-none" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a reply..." rows={3} />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                      <Paperclip size={20} />
-                    </button>
-                    <button
-                      onClick={handleAddComment}
-                      disabled={!newComment.trim() || addCommentMutation.isPending}
-                      className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Send size={20} />
-                    </button>
+                    <Button variant="ghost" iconOnly aria-label="Attach file"><Paperclip size={20} /></Button>
+                    <Button variant="primary" iconOnly aria-label="Send" onClick={handleAddComment} disabled={!newComment.trim() || addCommentMutation.isPending}><Send size={20} /></Button>
                   </div>
                 </div>
               </div>

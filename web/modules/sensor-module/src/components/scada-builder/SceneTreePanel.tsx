@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { useClickOutside, Button, Input } from '@aquaculture/shared-ui';
 import {
   LayoutDashboard,
   Workflow,
@@ -124,19 +124,14 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
 
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <button
-            onClick={(e) => {
+          <Button variant="secondary" className="flex-shrink-0" onClick={(e) => {
               e.stopPropagation();
               onToggleExpand(screen.id);
-            }}
-            className="flex-shrink-0 p-0 border-none bg-transparent cursor-pointer"
-          >
-            {isExpanded ? (
+            }}>{isExpanded ? (
               <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
             ) : (
               <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-            )}
-          </button>
+            )}</Button>
         ) : (
           <span className="w-3 flex-shrink-0" />
         )}
@@ -146,19 +141,10 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
 
         {/* Name or rename input */}
         {isRenaming ? (
-          <input
-            type="text"
-            value={renameValue}
-            onChange={(e) => onRenameChange(e.target.value)}
-            onBlur={() => onRenameSubmit(screen.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onRenameSubmit(screen.id);
-              if (e.key === 'Escape') onRenameCancel();
-            }}
-            onClick={(e) => e.stopPropagation()}
-            autoFocus
-            className="flex-1 min-w-0 px-1 py-0 text-xs border border-cyan-400 rounded bg-white dark:bg-gray-900 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
-          />
+          <Input type="text" value={renameValue} onChange={(e) => onRenameChange(e.target.value)} onBlur={() => onRenameSubmit(screen.id)} onKeyDown={(e) => {
+       if (e.key === 'Enter') onRenameSubmit(screen.id);
+       if (e.key === 'Escape') onRenameCancel();
+      }} onClick={(e) => e.stopPropagation()} autoFocus />
         ) : (
           <span className="truncate flex-1 min-w-0">{screen.name}</span>
         )}
@@ -431,13 +417,7 @@ export const SceneTreePanel: React.FC = () => {
           <FolderTree className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           <span>Scene Tree</span>
         </div>
-        <button
-          onClick={handleAddRootScreen}
-          className="flex items-center justify-center w-5 h-5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          title="Add root screen"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" iconOnly aria-label="Add root screen" className="justify-center w-5 h-5" onClick={handleAddRootScreen} title="Add root screen"><Plus className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Tree content */}
@@ -481,14 +461,7 @@ export const SceneTreePanel: React.FC = () => {
 
       {/* Import button at bottom */}
       <div className="border-t border-gray-200 dark:border-gray-700 px-2 py-1.5">
-        <button
-          onClick={handleImportScreen}
-          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors"
-          title="Import screen from JSON file"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          Import Screen
-        </button>
+        <Button variant="ghost" size="xs" className="justify-center" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={handleImportScreen} title="Import screen from JSON file">Import Screen</Button>
       </div>
 
       {/* Hidden file input for import */}
@@ -507,31 +480,10 @@ export const SceneTreePanel: React.FC = () => {
           className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            onClick={() => handleAddChildScreen(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Add Child Screen
-          </button>
-          <button
-            onClick={() => handleRenameStart(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Rename
-          </button>
-          <button
-            onClick={() => handleDuplicate(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Duplicate
-          </button>
-          <button
-            onClick={() => handleExportScreen(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            <Download className="w-3 h-3" />
-            Export Screen
-          </button>
+          <Button variant="ghost" size="xs" onClick={() => handleAddChildScreen(contextMenu.screenId)}>Add Child Screen</Button>
+          <Button variant="ghost" size="xs" onClick={() => handleRenameStart(contextMenu.screenId)}>Rename</Button>
+          <Button variant="ghost" size="xs" onClick={() => handleDuplicate(contextMenu.screenId)}>Duplicate</Button>
+          <Button variant="ghost" size="xs" leftIcon={<Download className="w-3 h-3" />} onClick={() => handleExportScreen(contextMenu.screenId)}>Export Screen</Button>
           <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => handleDelete(contextMenu.screenId)}

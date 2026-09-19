@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, chartChrome, colors, formatNumber } from '@aquaculture/shared-ui';
+import { Card, Badge, chartChrome, colors, formatNumber, Button } from '@aquaculture/shared-ui';
 import {
   LineChart,
   Line,
@@ -85,13 +85,7 @@ const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, 
     <div className="text-center py-4">
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
       <p className="text-xs text-red-500 mb-2">Veri yuklenemedi</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-xs text-primary-600 font-medium hover:underline"
-      >
-        Tekrar Dene
-      </button>
+      <Button variant="ghost" size="xs" type="button" onClick={onRetry}>Tekrar Dene</Button>
     </div>
   </Card>
 );
@@ -248,7 +242,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
           {warningCount > 0 ? `${warningCount} Uyari` : 'Normal'}
         </Badge>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {entries.map(([key, value]) => {
           const range = waterQualityRanges[key];
           const isWarning = range ? (value < range.min || value > range.max) : false;
@@ -307,13 +301,7 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Aktif Gorevler</h3>
         {/* BUG-M3: replaced <span> fake link with an accessible <button> */}
-        <button
-          type="button"
-          className="text-xs text-primary-600 font-medium hover:underline"
-          onClick={() => { /* TODO: navigate to /tasks */ }}
-        >
-          Tumunu Gor
-        </button>
+        <Button variant="ghost" size="xs" type="button" onClick={() => { /* TODO: navigate to /tasks */ }}>Tumunu Gor</Button>
       </div>
       <div className="space-y-3">
         {displayTasks.map((task) => (

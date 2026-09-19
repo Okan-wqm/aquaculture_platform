@@ -6,9 +6,9 @@
  * the factory and re-export the seams you assert on:
  *
  *   vi.mock('@aquaculture/shared-ui', async () =>
- *     (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
+ *     (await import('../../__tests__/sharedUiMock')).createSharedUiMock(),
  *   );
- *   import { requestMock, TEST_TENANT_ID } from '../../test-utils/sharedUiMock';
+ *   import { requestMock, TEST_TENANT_ID } from '../../__tests__/sharedUiMock';
  *
  * WHY the factory replaces more than useAuth/graphqlClient: module hooks built
  * on `useTenantQuery`/`useTenantMutation` read shared-ui's INTERNAL AuthContext,

@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button } from '@aquaculture/shared-ui';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -111,11 +111,9 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
           padding: '0 8px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 10, fontWeight: 600,
         }}>
           <span>{label}</span>
-          <button onClick={toggleFullscreen} type="button" style={{
+          <Button variant="ghost" onClick={toggleFullscreen} type="button" style={{
             background: 'none', border: 'none', color: colors.neutral[400], cursor: 'pointer', fontSize: 10,
-          }}>
-            {isFullscreen ? '\u229E' : '\u229F'}
-          </button>
+          }}>{isFullscreen ? '\u229E' : '\u229F'}</Button>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { ArrowLeft, ChevronDown, Send, Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -414,16 +414,17 @@ const ChatRoomPage: React.FC = () => {
             </div>
           )}
           {unseenCount > 0 && (
-            <button
+            <Button
               type="button"
+              size="sm"
               data-testid="new-messages-pill"
               aria-live="polite"
               onClick={jumpToLatest}
-              className="mx-auto mb-2 flex cursor-pointer items-center gap-1 rounded-full border-0 bg-sd-teal-deep px-3 py-1 text-xs font-semibold text-sd-mint-paper"
+              leftIcon={<ChevronDown size={13} aria-hidden />}
+              className="mx-auto mb-2 flex rounded-full bg-sd-teal-deep text-sd-mint-paper"
             >
-              <ChevronDown size={13} aria-hidden />
               {t('messaging.newMessages', { count: unseenCount })}
-            </button>
+            </Button>
           )}
           <div className="sd-composer">
             <textarea

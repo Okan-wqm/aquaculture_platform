@@ -5,7 +5,7 @@
  * Follows the SensorRegistrationWizard pattern from sensor-module
  */
 import React, { useState, useCallback, ReactNode } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { WizardStepIndicator, WizardStep } from './WizardStepIndicator';
 
 // ============================================================================
@@ -209,11 +209,7 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
                 <div className="ml-3">
                   <p className="text-sm text-red-700">{displayError}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={clearErrors}
-                  className="ml-auto text-red-400 hover:text-red-600"
-                >
+                <Button variant="ghost" type="button" onClick={clearErrors}>
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path
                       fillRule="evenodd"
@@ -221,7 +217,7 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
                       clipRule="evenodd"
                     />
                   </svg>
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -233,34 +229,30 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
           {/* Left side - Back/Cancel */}
-          <button
+          <Button
+            variant="secondary"
             type="button"
             onClick={currentStep === 0 ? handleClose : prevStep}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
           >
             {currentStep === 0 ? 'Cancel' : 'Back'}
-          </button>
+          </Button>
 
           {/* Right side - Skip/Next/Submit */}
           <div className="flex items-center space-x-3">
             {/* Skip button for optional steps */}
             {currentStepData?.optional && !isLastStep && (
-              <button
-                type="button"
-                onClick={nextStep}
-                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100"
-              >
+              <Button variant="ghost" type="button" onClick={nextStep}>
                 Skip
-              </button>
+              </Button>
             )}
 
             {/* Next/Submit button */}
             {isLastStep ? (
-              <button
+              <Button
+                variant="primary"
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting || !canProceed}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <span className="flex items-center">
@@ -270,16 +262,11 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
                 ) : (
                   submitButtonText
                 )}
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
-                onClick={nextStep}
-                disabled={!canProceed}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <Button variant="primary" type="button" onClick={nextStep} disabled={!canProceed}>
                 Next
-              </button>
+              </Button>
             )}
           </div>
         </div>

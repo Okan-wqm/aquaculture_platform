@@ -10,7 +10,7 @@ import {
   type GrowthAnalysis,
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -104,7 +104,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
       {/* Body */}
       <div className="px-4 py-4">
         {/* Metrics Grid */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Mevcut Agirlik</p>
             <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.currentAvgWeightG.toFixed(1)} g</p>
@@ -151,7 +151,7 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         </div>
 
         {/* Additional Stats */}
-        <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Biomass</p>
             <p className="font-medium">{metrics.currentBiomassKg.toFixed(0)} kg</p>
@@ -257,7 +257,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
       </div>
 
       {/* Summary row */}
-      <div className="mt-4 grid grid-cols-4 gap-4 text-center text-sm border-t pt-3">
+      <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4 text-center text-sm border-t pt-3">
         <div>
           <p className="text-xs text-gray-500 dark:text-gray-400">Toplam Olcum</p>
           <p className="font-medium">{sortedHistory.length}</p>
@@ -458,14 +458,10 @@ export const GrowthTab: React.FC = () => {
             ))}
           </select>
 
-          <button
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="primary"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Ornekleme Ekle
-          </button>
+            Ornekleme Ekle</Button>
         </div>
       </div>
 
@@ -621,7 +617,7 @@ const BatchAnalysisCardWrapper: React.FC<{ batchId: string }> = ({ batchId }) =>
         <div className="animate-pulse space-y-3">
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
-          <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
             <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
           </div>

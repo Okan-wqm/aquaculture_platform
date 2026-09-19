@@ -8,7 +8,7 @@ import { SCADA_VIEWER_CANVAS_URL } from '../../canvas-contract';
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
 import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 // Strip HTML tags from a string to prevent stored XSS via canvas node rendering
 function stripHtml(value: unknown): unknown {
@@ -197,28 +197,10 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       {/* Controls panel */}
       <div className="absolute bottom-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-1 z-20">
         <div className="flex items-center gap-1">
-          <button
-            onClick={handleZoomIn}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Yakınlaştır"
-          >
-            <ZoomIn size={18} className="text-gray-600 dark:text-gray-400" />
-          </button>
-          <button
-            onClick={handleZoomOut}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Uzaklaştır"
-          >
-            <ZoomOut size={18} className="text-gray-600 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Yakınlaştır" onClick={handleZoomIn} title="Yakınlaştır"><ZoomIn size={18} className="text-gray-600 dark:text-gray-400" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Uzaklaştır" onClick={handleZoomOut} title="Uzaklaştır"><ZoomOut size={18} className="text-gray-600 dark:text-gray-400" /></Button>
           <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
-          <button
-            onClick={handleFitView}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            title="Sığdır"
-          >
-            <Maximize2 size={18} className="text-gray-600 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Sığdır" onClick={handleFitView} title="Sığdır"><Maximize2 size={18} className="text-gray-600 dark:text-gray-400" /></Button>
         </div>
       </div>
     </div>

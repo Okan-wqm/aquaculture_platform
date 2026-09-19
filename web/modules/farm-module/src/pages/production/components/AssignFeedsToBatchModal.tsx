@@ -19,7 +19,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 
 import {
   BatchFeedAssignment,
@@ -238,17 +238,9 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Min (g)
                 </label>
-                <input
-                  id={`min-${entry.key}`}
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={entry.minWeightG || ''}
-                  onChange={(e) =>
-                    setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)
-                  }
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-                />
+                <Input fullWidth id={`min-${entry.key}`} type="number" min={0} step="0.1" value={entry.minWeightG || ''} onChange={(e) =>
+          setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)
+         } />
               </div>
 
               <div className="col-span-2">
@@ -258,17 +250,9 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Max (g)
                 </label>
-                <input
-                  id={`max-${entry.key}`}
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={entry.maxWeightG || ''}
-                  onChange={(e) =>
-                    setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)
-                  }
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-                />
+                <Input fullWidth id={`max-${entry.key}`} type="number" min={0} step="0.1" value={entry.maxWeightG || ''} onChange={(e) =>
+          setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)
+         } />
               </div>
 
               <div className="col-span-2">
@@ -278,54 +262,25 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Priority
                 </label>
-                <input
-                  id={`prio-${entry.key}`}
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={entry.priority || ''}
-                  onChange={(e) =>
-                    setField(idx, 'priority', parseInt(e.target.value, 10) || 1)
-                  }
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-                />
+                <Input fullWidth id={`prio-${entry.key}`} type="number" min={1} max={100} value={entry.priority || ''} onChange={(e) =>
+          setField(idx, 'priority', parseInt(e.target.value, 10) || 1)
+         } />
               </div>
 
               <div className="col-span-1 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => removeRow(idx)}
-                  disabled={entries.length <= 1}
-                  className="text-sm text-red-600 hover:text-red-800 disabled:text-gray-400 dark:disabled:text-gray-500"
-                  aria-label={`Remove row ${idx + 1}`}
-                >
-                  ✕
-                </button>
+                <Button variant="ghost" type="button" onClick={() => removeRow(idx)} disabled={entries.length <= 1} aria-label={`Remove row ${idx + 1}`}>✕</Button>
               </div>
             </div>
           ))}
 
-          <button
-            type="button"
-            onClick={addRow}
-            className="text-sm text-orange-600 hover:text-orange-800 font-medium"
-          >
-            + Add another range
-          </button>
+          <Button variant="ghost" type="button" onClick={addRow}>+ Add another range</Button>
         </div>
 
         <div>
           <label htmlFor="feed-assign-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes (optional)
           </label>
-          <textarea
-            id="feed-assign-notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-          />
+          <Textarea fullWidth id="feed-assign-notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
         {errors.length > 0 && (

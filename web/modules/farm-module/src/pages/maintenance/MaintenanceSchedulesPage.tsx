@@ -349,45 +349,19 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={() => handleOpenEdit(item)}
-            className="text-indigo-600 hover:text-indigo-900"
-          >
-            Düzenle
-          </button>
+          <Button variant="ghost" onClick={() => handleOpenEdit(item)}>Düzenle</Button>
           {item.status === 'ACTIVE' && (
-            <button
-              onClick={() => handlePause(item.id)}
-              className="text-yellow-600 hover:text-yellow-900"
-            >
-              Duraklat
-            </button>
+            <Button variant="ghost" onClick={() => handlePause(item.id)}>Duraklat</Button>
           )}
           {item.status === 'PAUSED' && (
-            <button
-              onClick={() => handleResume(item.id)}
-              className="text-green-600 hover:text-green-900"
-            >
-              Devam Et
-            </button>
+            <Button variant="ghost" onClick={() => handleResume(item.id)}>Devam Et</Button>
           )}
           <GenerateWorkOrderButton schedule={item} />
           <UpdateMeterReadingButton schedule={item} />
           {canCompleteMaintenance && item.status === 'ACTIVE' && (
-            <button
-              onClick={() => setCompletingSchedule(item)}
-              className="text-emerald-700 hover:text-emerald-900"
-              title="Bu plan döngüsünü kapat (sayaç + notlar)"
-            >
-              Bakımı Kapat
-            </button>
+            <Button variant="ghost" onClick={() => setCompletingSchedule(item)} title="Bu plan döngüsünü kapat (sayaç + notlar)">Bakımı Kapat</Button>
           )}
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Sil
-          </button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Sil</Button>
         </div>
       ),
     }
@@ -514,7 +488,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Kategori"
               value={formData.category}
@@ -538,7 +512,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Başlangıç Tarihi"
               type="date"
@@ -553,7 +527,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Tahmini Süre (dk)"
               type="number"
@@ -582,7 +556,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={formData.instructions}
             onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-center">
               <input
                 type="checkbox"

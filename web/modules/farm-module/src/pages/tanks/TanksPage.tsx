@@ -50,7 +50,7 @@ import {
   useCleanerFishBatches,
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
-import { DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // STATUS COLORS
@@ -1022,77 +1022,43 @@ export const TanksPage: React.FC = () => {
 
               <div className="h-6 w-px bg-gray-300" />
 
-              <button
-                onClick={handleMortalityClick}
-                disabled={!selectedTankId}
-                className="p-1.5 text-red-600 hover:bg-red-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Record Mortality"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="ghost" size="sm" onClick={handleMortalityClick} disabled={!selectedTankId} title="Record Mortality"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
                   />
-                </svg>
-              </button>
+                </svg></Button>
 
-              <button
-                onClick={handleTransferClick}
-                disabled={!selectedTankId}
-                className="p-1.5 text-blue-600 hover:bg-blue-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Transfer Fish"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="ghost" size="sm" onClick={handleTransferClick} disabled={!selectedTankId} title="Transfer Fish"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
                   />
-                </svg>
-              </button>
+                </svg></Button>
 
-              <button
-                onClick={handleCullClick}
-                disabled={!selectedTankId || !selectedTank?.batchNumber}
-                className="p-1.5 text-orange-600 hover:bg-orange-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Record Cull"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="ghost" size="sm" onClick={handleCullClick} disabled={!selectedTankId || !selectedTank?.batchNumber} title="Record Cull"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
                   />
-                </svg>
-              </button>
+                </svg></Button>
 
-              <button
-                onClick={handleGradingClick}
-                disabled={!selectedTankId || !selectedTank?.batchNumber}
-                className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Grade Fish"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="ghost" size="sm" onClick={handleGradingClick} disabled={!selectedTankId || !selectedTank?.batchNumber} title="Grade Fish"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
                     d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2"
                   />
-                </svg>
-              </button>
+                </svg></Button>
 
-              <button
-                onClick={handleWaterTempClick}
-                disabled={!selectedTankId}
-                className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Record Water Temperature"
-              >
-                {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
+              <Button variant="ghost" size="sm" onClick={handleWaterTempClick} disabled={!selectedTankId} title="Record Water Temperature">{/* Water-drop icon — records the manual water temperature the feed-rate uses */}
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
@@ -1100,17 +1066,11 @@ export const TanksPage: React.FC = () => {
                     strokeWidth={2}
                     d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"
                   />
-                </svg>
-              </button>
+                </svg></Button>
 
               <div className="h-6 w-px bg-gray-300" />
 
-              <button
-                onClick={() => setShowBatchModal(true)}
-                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
-                title="New Batch"
-              >
-                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="primary" size="sm" onClick={() => setShowBatchModal(true)} title="New Batch"><svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1118,8 +1078,7 @@ export const TanksPage: React.FC = () => {
                     d="M12 4v16m8-8H4"
                   />
                 </svg>
-                New Batch
-              </button>
+                New Batch</Button>
             </div>
           </>
         }
@@ -1153,44 +1112,13 @@ export const TanksPage: React.FC = () => {
         </div>
 
         {/* Category Filter */}
-        <select
-          value={filters.category}
-          onChange={(e) => handleFilterChange('category', e.target.value)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="all">All Categories</option>
-          <option value="TANK">Tanks</option>
-          <option value="POND">Ponds</option>
-          <option value="CAGE">Cages</option>
-        </select>
+        <Select options={[{ value: 'all', label: 'All Categories' }, { value: 'TANK', label: 'Tanks' }, { value: 'POND', label: 'Ponds' }, { value: 'CAGE', label: 'Cages' }]} value={filters.category} onChange={(e) => handleFilterChange('category', e.target.value)} />
 
         {/* Status Filter */}
-        <select
-          value={filters.status}
-          onChange={(e) => handleFilterChange('status', e.target.value)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="all">All Status</option>
-          <option value="ACTIVE">Active</option>
-          <option value="OPERATIONAL">Operational</option>
-          <option value="PREPARING">Preparing</option>
-          <option value="MAINTENANCE">Maintenance</option>
-          <option value="FALLOW">Fallow</option>
-          <option value="CLEANING">Cleaning</option>
-          <option value="HARVESTING">Harvesting</option>
-          <option value="QUARANTINE">Quarantine</option>
-        </select>
+        <Select options={[{ value: 'all', label: 'All Status' }, { value: 'ACTIVE', label: 'Active' }, { value: 'OPERATIONAL', label: 'Operational' }, { value: 'PREPARING', label: 'Preparing' }, { value: 'MAINTENANCE', label: 'Maintenance' }, { value: 'FALLOW', label: 'Fallow' }, { value: 'CLEANING', label: 'Cleaning' }, { value: 'HARVESTING', label: 'Harvesting' }, { value: 'QUARANTINE', label: 'Quarantine' }]} value={filters.status} onChange={(e) => handleFilterChange('status', e.target.value)} />
 
         {/* Has Batch Filter */}
-        <select
-          value={filters.hasBatch}
-          onChange={(e) => handleFilterChange('hasBatch', e.target.value)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="all">All</option>
-          <option value="yes">With Batch</option>
-          <option value="no">Empty</option>
-        </select>
+        <Select options={[{ value: 'all', label: 'All' }, { value: 'yes', label: 'With Batch' }, { value: 'no', label: 'Empty' }]} value={filters.hasBatch} onChange={(e) => handleFilterChange('hasBatch', e.target.value)} />
 
         {/* Column Visibility Menu */}
         {activeTab === 'production' ? (
@@ -1214,20 +1142,14 @@ export const TanksPage: React.FC = () => {
         ) : null}
 
         {/* Refresh Button */}
-        <button
-          onClick={() => refetch()}
-          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-          title="Refresh"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <Button variant="ghost" onClick={() => refetch()} title="Refresh"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
-          </svg>
-        </button>
+          </svg></Button>
       </div>
 
       {/* Tabs */}
@@ -1289,11 +1211,7 @@ export const TanksPage: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowCreateBatchModal(true)}
-                className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 flex items-center gap-1.5"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <Button variant="primary" size="sm" onClick={() => setShowCreateBatchModal(true)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1301,14 +1219,8 @@ export const TanksPage: React.FC = () => {
                     d="M12 4v16m8-8H4"
                   />
                 </svg>
-                Create Batch
-              </button>
-              <button
-                onClick={() => setShowDeployModal(true)}
-                disabled={activeCfBatches.length === 0}
-                className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                Create Batch</Button>
+              <Button variant="primary" size="sm" onClick={() => setShowDeployModal(true)} disabled={activeCfBatches.length === 0}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1316,8 +1228,7 @@ export const TanksPage: React.FC = () => {
                     d="M17 8l4 4m0 0l-4 4m4-4H3"
                   />
                 </svg>
-                Deploy to Tank
-              </button>
+                Deploy to Tank</Button>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">

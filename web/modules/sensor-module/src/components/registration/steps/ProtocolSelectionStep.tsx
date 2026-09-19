@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useProtocols, useCategoryInfo, useCategoryStats } from '../../../hooks/useProtocols';
 import { ProtocolInfo, ProtocolCategory } from '../../../types/registration.types';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Input } from '@aquaculture/shared-ui';
 
 interface ProtocolSelectionStepProps {
   selectedProtocol: string | null;
@@ -165,13 +165,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
     <div className="space-y-6">
       {/* Search */}
       <div>
-        <input
-          type="text"
-          placeholder="Search protocols..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-        />
+        <Input fullWidth type="text" placeholder="Search protocols..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
       </div>
 
       {/* Category cards */}

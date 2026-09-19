@@ -9,7 +9,7 @@
  * prescription requirement) ride in the chemical's `usageProtocol`.
  */
 import React, { useState } from 'react';
-import { Modal, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { FormField, Modal, useToast, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 
 import {
   useChemicalList,
@@ -161,6 +161,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<Chemical | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chemical | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -192,6 +194,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const openCreate = (): void => {
     setEditing(null);
     setFormData(emptyForm);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -235,18 +238,16 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!formData.name || !formData.code) {
-      toast({ title: 'Missing fields', description: 'Name and code are required.', variant: 'error' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Missing fields', description: 'Please select a category.', variant: 'error' });
-      return;
-    }
-    if (!editing && !formData.siteId) {
-      toast({ title: 'Missing fields', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    // `type` is read into a const so the empty-string check below narrows it
+    // to ChemicalType for the input objects.
+    const { type } = formData;
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!type) errors.type = 'Please select a category.';
+    if (!editing && !formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0 || !type) return;
 
     setIsSaving(true);
     try {
@@ -255,7 +256,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           id: editing.id,
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
           activeIngredient: formData.activeIngredient || undefined,
@@ -270,7 +271,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
         const input: CreateChemicalInput = {
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           siteId: formData.siteId,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
@@ -290,6 +291,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       setIsModalOpen(false);
       setEditing(null);
       setFormData(emptyForm);
+      setFieldErrors({});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const isDuplicate =
@@ -395,12 +397,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
-            Edit
-          </button>
-          <button onClick={() => setDeleteTarget(item)} className="text-red-600 hover:text-red-900">
-            Delete
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>Edit</Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(item)}>Delete</Button>
         </>
       ),
     }
@@ -446,15 +444,10 @@ export const FishHealthChemicalsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          Add Therapeutic Substance
-        </button>
+          Add Therapeutic Substance</Button>
       </div>
 
       {/* Table */}
@@ -497,32 +490,25 @@ export const FishHealthChemicalsTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="max-h-[70vh] overflow-y-auto">
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
+                  <Input fullWidth type="text" required value={formData.name} onChange={(e) => updateField('name', e.target.value)} />
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.code}
-                    onChange={(e) => updateField('code', e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
+                  <Input fullWidth type="text" required value={formData.code} onChange={(e) => updateField('code', e.target.value)} />
+                  </FormField>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
                   <select
                     required
                     value={formData.type}
@@ -536,6 +522,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
@@ -553,19 +540,15 @@ export const FishHealthChemicalsTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Site {editing ? '' : '*'}
                   </label>
                   {editing ? (
-                    <input
-                      type="text"
-                      disabled
-                      value={getSiteName(formData.siteId)}
-                      className="mt-1 block w-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-md py-2 px-3 text-gray-500 dark:text-gray-400"
-                    />
+                    <Input fullWidth type="text" disabled value={getSiteName(formData.siteId)} />
                   ) : (
+                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                     <select
                       required
                       value={formData.siteId}
@@ -579,6 +562,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   )}
                 </div>
                 <div>
@@ -601,25 +585,14 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Composition */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Composition</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Active Ingredient</label>
-                    <input
-                      type="text"
-                      value={formData.activeIngredient}
-                      onChange={(e) => updateField('activeIngredient', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.activeIngredient} onChange={(e) => updateField('activeIngredient', e.target.value)} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Concentration</label>
-                    <input
-                      type="text"
-                      value={formData.concentration}
-                      onChange={(e) => updateField('concentration', e.target.value)}
-                      placeholder="e.g., 10%, 50mg/L"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.concentration} onChange={(e) => updateField('concentration', e.target.value)} placeholder="e.g., 10%, 50mg/L" />
                   </div>
                 </div>
                 <div className="mt-4">
@@ -642,20 +615,14 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Regulation */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Regulation</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Withdrawal Period (days)
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.withdrawalPeriodDays}
-                      onChange={(e) =>
-                        updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" min="0" value={formData.withdrawalPeriodDays} onChange={(e) =>
+            updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
+           } />
                   </div>
                   <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2">
@@ -674,19 +641,13 @@ export const FishHealthChemicalsTab: React.FC = () => {
               {/* Target conditions */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Target Conditions</h4>
-                <input
-                  type="text"
-                  value={formData.targetConditionsText}
-                  onChange={(e) => updateField('targetConditionsText', e.target.value)}
-                  placeholder="Comma separated, e.g.: Sea lice, Furunculosis"
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Input fullWidth type="text" value={formData.targetConditionsText} onChange={(e) => updateField('targetConditionsText', e.target.value)} placeholder="Comma separated, e.g.: Sea lice, Furunculosis" />
               </div>
 
               {/* Storage & status */}
               <div className="border-t pt-4 mt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Storage &amp; Status</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Storage Requirements</label>
                     <select
@@ -724,20 +685,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
-            >
-              {isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}
-            </button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}</Button>
           </div>
         </form>
       </Modal>
@@ -749,21 +698,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
           removes the substance from the Chemical master.
         </p>
         <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(null)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void confirmDelete()}
-            disabled={isDeleting}
-            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-60"
-          >
-            {isDeleting ? 'Deleting…' : 'Delete'}
-          </button>
+          <Button variant="secondary" type="button" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button variant="danger" type="button" onClick={() => void confirmDelete()} disabled={isDeleting}>{isDeleting ? 'Deleting…' : 'Delete'}</Button>
         </div>
       </Modal>
     </div>

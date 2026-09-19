@@ -7,6 +7,7 @@ import { TaskCard } from '@/components/cards/TaskCard';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { useMyTasks } from '@/hooks/useMyTasks';
 
+
 type Segment = 'today' | 'upcoming' | 'overdue';
 
 const SEGMENTS: { key: Segment; label: string }[] = [
@@ -59,9 +60,7 @@ export function MyTasksPage(): JSX.Element {
       {/* Pull to refresh button */}
       <div className="px-5 pt-3 flex justify-end">
         <button
-          onClick={() => {
-            void handleRefresh();
-          }}
+          onClick={() => { void handleRefresh(); }}
           disabled={isRefreshing}
           className="text-xs text-ocean-500 font-medium touch-feedback"
         >
@@ -91,8 +90,6 @@ export function MyTasksPage(): JSX.Element {
         )}
       </div>
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

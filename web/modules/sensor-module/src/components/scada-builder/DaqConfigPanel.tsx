@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 import {
   Database,
   Plus,
@@ -199,26 +200,14 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
             ({enabledCount}/{filtered.length} enabled)
           </span>
         </div>
-        <button
-          onClick={handleCsvImport}
-          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-          title="Import from CSV"
-        >
-          <Upload className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" size="sm" iconOnly aria-label="Import from CSV" onClick={handleCsvImport} title="Import from CSV"><Upload className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Search + bulk actions */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tags..."
-            className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
-          />
+          <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tags..." />
         </div>
         <button
           onClick={() => handleBulkToggle(true)}
@@ -255,24 +244,11 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
             ))}
           </select>
         ) : (
-          <input
-            type="text"
-            value={newTagName}
-            onChange={(e) => setNewTagName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAddTag(newTagName);
-            }}
-            placeholder="Tag name"
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
-          />
+          <Input type="text" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} onKeyDown={(e) => {
+       if (e.key === 'Enter') handleAddTag(newTagName);
+      }} placeholder="Tag name" />
         )}
-        <button
-          onClick={() => handleAddTag(newTagName)}
-          disabled={!newTagName.trim()}
-          className="p-1.5 rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:text-gray-400 dark:disabled:text-gray-500"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="primary" size="sm" iconOnly aria-label="Add" onClick={() => handleAddTag(newTagName)} disabled={!newTagName.trim()}><Plus className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Tag table */}
@@ -310,18 +286,12 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                     {config.tagName}
                   </span>
                 </div>
-                <button
-                  onClick={() => handleRemoveTag(config.tagName)}
-                  className="p-1 rounded hover:bg-red-100 text-red-400"
-                  title="Remove"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Remove" onClick={() => handleRemoveTag(config.tagName)} title="Remove"><Trash2 className="w-3 h-3" /></Button>
               </div>
 
               {/* Settings row */}
               {config.enabled && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   <div>
                     <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Interval</label>
                     <select
@@ -341,16 +311,9 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                   </div>
                   <div>
                     <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Deadband</label>
-                    <input
-                      type="number"
-                      value={config.deadband}
-                      onChange={(e) =>
-                        handleUpdate(config.tagName, { deadband: parseFloat(e.target.value) || 0 })
-                      }
-                      min={0}
-                      step={0.1}
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
-                    />
+                    <Input fullWidth type="number" value={config.deadband} onChange={(e) =>
+            handleUpdate(config.tagName, { deadband: parseFloat(e.target.value) || 0 })
+           } min={0} step={0.1} />
                   </div>
                   <div>
                     <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Retention</label>

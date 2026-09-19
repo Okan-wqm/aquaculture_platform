@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
+import { useI18n } from '../i18n';
+
 export interface ToastAction {
   label: string;
   onClick: () => void;
@@ -169,6 +171,7 @@ const ToastCard: React.FC<{
   onPause?: () => void;
   onResume?: () => void;
 }> = ({ toast: t, onDismiss, onPause, onResume }) => {
+  const { t: translate } = useI18n();
   const style = variantStyles[t.variant ?? 'info'];
   return (
     <div
@@ -199,7 +202,7 @@ const ToastCard: React.FC<{
           type="button"
           onClick={() => onDismiss(t.id)}
           className="ml-3 inline-flex rounded-md p-1 hover:opacity-80 focus:outline-hidden focus:ring-2 focus:ring-offset-2"
-          aria-label="Dismiss notification"
+          aria-label={translate('common.dismissNotification')}
         >
           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
             <path

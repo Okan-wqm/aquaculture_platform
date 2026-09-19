@@ -167,8 +167,12 @@
   --color-info-900: #1e3a8a;
 
   /* ============================ Fonts ============================ */
+  /* The three families web/shell/index.html loads, and no others (FE-MEDIUM-090):
+     one sans for the product, one mono for code and readings, one display serif
+     for the auth pages' title. A family named here must be in that loader. */
   --font-sans: Inter, system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', Consolas, monospace;
+  --font-mono: 'Geist Mono', ui-monospace, Consolas, monospace;
+  --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
 
   /* ===================== Type scale (size + line-height) ===================== */
   --text-xs: 0.75rem;

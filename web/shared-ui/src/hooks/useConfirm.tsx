@@ -17,6 +17,8 @@
 
 import React, { createContext, useCallback, useContext, useId, useMemo, useState } from 'react';
 
+import { useI18n } from '../i18n';
+
 import { ConfirmModal, Modal } from '../components/Modal';
 
 // ============================================================================
@@ -85,6 +87,7 @@ interface PromptDialogProps {
 }
 
 const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel }) => {
+  const { t } = useI18n();
   const [value, setValue] = useState(options.defaultValue ?? '');
   const inputId = useId();
   const required = options.required ?? true;
@@ -121,14 +124,14 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
           >
-            {options.cancelText ?? 'İptal'}
+            {options.cancelText ?? t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={!canSubmit}
             className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
           >
-            {options.confirmText ?? 'Tamam'}
+            {options.confirmText ?? t('common.ok')}
           </button>
         </div>
       </form>
@@ -155,23 +158,17 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const confirm = useCallback<ConfirmFn>(
     (options) =>
       new Promise<boolean>((resolve) => {
-        setQueue((prev) => [
-          ...prev,
-          { kind: 'confirm', options: normalizeConfirm(options), resolve },
-        ]);
+        setQueue((prev) => [...prev, { kind: 'confirm', options: normalizeConfirm(options), resolve }]);
       }),
-    [],
+    []
   );
 
   const prompt = useCallback<PromptFn>(
     (options) =>
       new Promise<string | null>((resolve) => {
-        setQueue((prev) => [
-          ...prev,
-          { kind: 'prompt', options: normalizePrompt(options), resolve },
-        ]);
+        setQueue((prev) => [...prev, { kind: 'prompt', options: normalizePrompt(options), resolve }]);
       }),
-    [],
+    []
   );
 
   const value = useMemo<ConfirmContextValue>(() => ({ confirm, prompt }), [confirm, prompt]);

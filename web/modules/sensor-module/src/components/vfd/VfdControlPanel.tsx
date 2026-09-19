@@ -28,7 +28,7 @@ import { Zap, Play, Square, AlertOctagon, RefreshCw, AlertCircle } from 'lucide-
 import { useVfdRealtimeReadings, getVfdStatus } from '../../hooks/useVfdReadings';
 import { useVfdCommands } from '../../hooks/useVfdCommands';
 import { VfdDeviceStatus } from '../../types/vfd.types';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 /** Beyond this the reading is old enough that acting on it is a decision, not a reflex. */
 const STALE_AFTER_MS = 30_000;
@@ -179,48 +179,38 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
 
       {/* Command Buttons */}
       <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
-        <button
-          onClick={start}
-          disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'running'}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
-        >
-          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Play className="w-3.5 h-3.5" />}
-          Başlat
-        </button>
+        <Button variant="primary" size="sm" onClick={start} disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'running'}>{cmdLoading ? (
+            <Spinner size="sm" color="inherit" />
+          ) : (
+            <Play className="w-3.5 h-3.5" />
+          )}
+          Başlat</Button>
         <button
           onClick={stop}
           disabled={!commandsEnabled || cmdLoading || vfdStatus.status === 'stopped'}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
-          {cmdLoading ? <Spinner size="sm" color="inherit" /> : <Square className="w-3.5 h-3.5" />}
+          {cmdLoading ? (
+            <Spinner size="sm" color="inherit" />
+          ) : (
+            <Square className="w-3.5 h-3.5" />
+          )}
           Durdur
         </button>
         {vfdStatus.status === 'fault' && (
-          <button
-            onClick={resetFault}
-            disabled={!commandsEnabled || cmdLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
-          >
-            {cmdLoading ? (
+          <Button variant="warning" size="sm" onClick={resetFault} disabled={!commandsEnabled || cmdLoading}>{cmdLoading ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
-            Arızayı Sıfırla
-          </button>
+            Arızayı Sıfırla</Button>
         )}
-        <button
-          onClick={emergencyStop}
-          disabled={!commandsEnabled || cmdLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 ml-auto"
-        >
-          {cmdLoading ? (
+        <Button variant="danger" size="sm" onClick={emergencyStop} disabled={!commandsEnabled || cmdLoading}>{cmdLoading ? (
             <Spinner size="sm" color="inherit" />
           ) : (
             <AlertOctagon className="w-3.5 h-3.5" />
           )}
-          Acil Dur
-        </button>
+          Acil Dur</Button>
       </div>
 
       {/* Last Command Result */}

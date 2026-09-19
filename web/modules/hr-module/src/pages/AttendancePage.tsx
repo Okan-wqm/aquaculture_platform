@@ -7,8 +7,8 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Calendar, Users, CheckCircle, Filter, Download, Search } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { Clock, Calendar, Users, CheckCircle, Filter, Search } from 'lucide-react';
+import { cn, DataTable, type DataTableColumn, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   useAttendanceRecords,
   useDailyAttendanceOverview,
@@ -266,10 +266,6 @@ export function AttendancePage() {
                 <Filter className="h-4 w-4" />
                 Filters
               </button>
-              <button className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-                <Download className="h-4 w-4" />
-                Export
-              </button>
             </div>
           </div>
 
@@ -281,48 +277,23 @@ export function AttendancePage() {
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Start Date
                   </label>
-                  <input
-                    type="date"
-                    value={filter.startDate || ''}
-                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  />
+                  <Input fullWidth type="date" value={filter.startDate || ''} onChange={(e) => handleFilterChange('startDate', e.target.value)} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     End Date
                   </label>
-                  <input
-                    type="date"
-                    value={filter.endDate || ''}
-                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  />
+                  <Input fullWidth type="date" value={filter.endDate || ''} onChange={(e) => handleFilterChange('endDate', e.target.value)} />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Status
                   </label>
-                  <select
-                    value={filter.status || ''}
-                    onChange={(e) => handleFilterChange('status', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="">All</option>
-                    <option value="present">Present</option>
-                    <option value="absent">Absent</option>
-                    <option value="late">Late</option>
-                    <option value="on_leave">On Leave</option>
-                  </select>
+                  <Select fullWidth options={[{ value: '', label: 'All' }, { value: 'present', label: 'Present' }, { value: 'absent', label: 'Absent' }, { value: 'late', label: 'Late' }, { value: 'on_leave', label: 'On Leave' }]} value={filter.status || ''} onChange={(e) => handleFilterChange('status', e.target.value)} />
                 </div>
               </div>
               <div className="mt-4 flex justify-end">
-                <button
-                  onClick={() => setFilter({})}
-                  className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-                >
-                  Clear all filters
-                </button>
+                <Button variant="ghost" onClick={() => setFilter({})}>Clear all filters</Button>
               </div>
             </div>
           )}
@@ -333,6 +304,8 @@ export function AttendancePage() {
               columns={columns}
               keyExtractor={(row) => row.id}
               loading={loadingRecords}
+              exportable
+              exportFileName="attendance"
               emptyMessage="No attendance records found"
               pagination={
                 records

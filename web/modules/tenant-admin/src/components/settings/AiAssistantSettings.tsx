@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Button, PasswordInput } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
 import {
   useAiProviderSettings,
@@ -136,7 +137,9 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Provider</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          AI Provider
+        </label>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as LlmProviderId)}
@@ -202,29 +205,22 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Z.ai API Key (GLM)
-          {settings?.zaiKeyHint && (
-            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
-              current: {settings.zaiKeyHint}
-            </span>
-          )}
-        </label>
-        <input
-          type="password"
-          autoComplete="off"
-          value={zaiApiKey}
-          onChange={(e) => setZaiApiKey(e.target.value)}
-          disabled={!canEdit}
-          placeholder={settings?.zaiKeyHint ? 'Enter a new key to replace' : '•••… (api.z.ai key)'}
-          className={inputClass}
-        />
-      </div>
+      <PasswordInput
+        label="Z.ai API Key (GLM)"
+        hint={settings?.zaiKeyHint ? `current: ${settings.zaiKeyHint}` : undefined}
+        autoComplete="off"
+        value={zaiApiKey}
+        onChange={(e) => setZaiApiKey(e.target.value)}
+        disabled={!canEdit}
+        placeholder={settings?.zaiKeyHint ? 'Enter a new key to replace' : '•••… (api.z.ai key)'}
+      />
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Chat Model <span className="text-xs font-normal text-gray-400 dark:text-gray-500">(optional override)</span>
+          Chat Model{' '}
+          <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+            (optional override)
+          </span>
         </label>
         <input
           type="text"
@@ -273,11 +269,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
               {saveError}
             </p>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
             {saved ? (
               <>
                 <Check className="w-4 h-4" />
@@ -294,7 +286,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
                 Save Changes
               </>
             )}
-          </button>
+          </Button>
         </div>
       )}
     </div>

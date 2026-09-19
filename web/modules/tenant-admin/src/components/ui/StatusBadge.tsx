@@ -1,29 +1,31 @@
+/**
+ * StatusBadge — a user's lifecycle state on the shared-ui Badge scale
+ * (FE-HIGH-079): active is success, pending is warning, inactive is neutral.
+ */
 import React, { memo } from 'react';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Badge } from '@aquaculture/shared-ui';
 
 export interface StatusBadgeProps {
   status: string;
 }
 
-const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-  active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  inactive: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', icon: <XCircle className="w-3 h-3" /> },
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
+type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
+
+const STATUS: Record<string, { variant: BadgeVariant; icon: React.ReactNode }> = {
+  active: { variant: 'success', icon: <CheckCircle className="w-3 h-3" aria-hidden="true" /> },
+  inactive: { variant: 'default', icon: <XCircle className="w-3 h-3" aria-hidden="true" /> },
+  pending: { variant: 'warning', icon: <Clock className="w-3 h-3" aria-hidden="true" /> },
 };
+const UNKNOWN = { variant: 'default' as BadgeVariant, icon: <Clock className="w-3 h-3" aria-hidden="true" /> };
 
-const defaultConfig = { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', icon: <Clock className="w-3 h-3" /> };
-
-/**
- * Renders a user status with appropriate color and icon.
- */
 export const StatusBadge = memo<StatusBadgeProps>(({ status }) => {
-  const config = statusConfig[status] ?? defaultConfig;
-
+  const config = STATUS[status] ?? UNKNOWN;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+    <Badge variant={config.variant} size="sm" className="gap-1">
       {config.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
+    </Badge>
   );
 });
 

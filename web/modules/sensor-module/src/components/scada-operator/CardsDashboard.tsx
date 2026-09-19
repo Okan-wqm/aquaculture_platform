@@ -19,6 +19,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { Button } from '@aquaculture/shared-ui';
 import { X, Maximize2, Minimize2, GripVertical } from 'lucide-react';
 
 import { useOperatorStore } from '../../store/scada/operatorStore';
@@ -84,28 +85,14 @@ const CardHeader = memo<CardHeaderProps>(
         <span className="text-xs font-medium text-gray-200 truncate">{title}</span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={(e) => {
+        <Button variant="ghost" size="sm" type="button" onClick={(e) => {
             e.stopPropagation();
             onToggleMaximize();
-          }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
-          aria-label={isMaximized ? 'Restore card' : 'Maximize card'}
-        >
-          {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
+          }} aria-label={isMaximized ? 'Restore card' : 'Maximize card'}>{isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}</Button>
+        <Button variant="ghost" size="sm" iconOnly type="button" onClick={(e) => {
             e.stopPropagation();
             onClose();
-          }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-400 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
-          aria-label="Close card"
-        >
-          <X size={12} />
-        </button>
+          }} aria-label="Close card"><X size={12} /></Button>
       </div>
     </div>
   ),

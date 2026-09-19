@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, Spinner, PageHeader, severityClasses, Button, Input } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -64,12 +64,12 @@ import {
 // ============================================================================
 
 const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string }[] = [
-  { value: 'critical', label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200' },
-  { value: 'high', label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200' },
-  { value: 'warning', label: 'Uyari', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-  { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
-  { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700' },
+  { value: 'critical', label: 'Kritik', className: severityClasses('critical') },
+  { value: 'high', label: 'Yüksek', className: severityClasses('high') },
+  { value: 'warning', label: 'Uyari', className: severityClasses('warning') },
+  { value: 'medium', label: 'Orta', className: severityClasses('medium') },
+  { value: 'low', label: 'Düşük', className: severityClasses('low') },
+  { value: 'info', label: 'Bilgi', className: severityClasses('info') },
 ];
 
 const ACTION_OPTIONS: { value: EscalationActionType; label: string }[] = [
@@ -186,14 +186,7 @@ const LevelEditor: React.FC<{
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Eskalasyon Seviyeleri <span className="text-red-500">*</span>
         </label>
-        <button
-          type="button"
-          onClick={addLevel}
-          className="flex items-center gap-1 text-sm text-cyan-600 hover:text-cyan-700"
-        >
-          <Plus className="w-4 h-4" />
-          Seviye Ekle
-        </button>
+        <Button variant="ghost" leftIcon={<Plus className="w-4 h-4" />} type="button" onClick={addLevel}>Seviye Ekle</Button>
       </div>
 
       {levels.map((level, index) => (
@@ -207,13 +200,7 @@ const LevelEditor: React.FC<{
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Seviye {level.level}</span>
             </div>
             {levels.length > 1 && (
-              <button
-                type="button"
-                onClick={() => removeLevel(index)}
-                className="text-red-400 hover:text-red-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Close" type="button" onClick={() => removeLevel(index)}><X className="w-4 h-4" /></Button>
             )}
           </div>
 
@@ -221,25 +208,13 @@ const LevelEditor: React.FC<{
             {/* Name */}
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Seviye Adi</label>
-              <input
-                type="text"
-                value={level.name}
-                onChange={(e) => updateLevel(index, 'name', e.target.value)}
-                placeholder="Ornegin: Ilk Bildirim"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="text" value={level.name} onChange={(e) => updateLevel(index, 'name', e.target.value)} placeholder="Ornegin: Ilk Bildirim" />
             </div>
 
             {/* Timeout */}
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bekleme Suresi (dk)</label>
-              <input
-                type="number"
-                min={0}
-                value={level.timeoutMinutes}
-                onChange={(e) => updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="number" min={0} value={level.timeoutMinutes} onChange={(e) => updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)} />
             </div>
 
             {/* Action */}
@@ -260,13 +235,7 @@ const LevelEditor: React.FC<{
           {/* Notify User IDs */}
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bildirilecek Kullanicilar (virgul ile)</label>
-            <input
-              type="text"
-              value={level.notifyUserIds.join(', ')}
-              onChange={(e) => updateLevel(index, 'notifyUserIds', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-              placeholder="Kullanici ID'leri"
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-            />
+            <Input fullWidth type="text" value={level.notifyUserIds.join(', ')} onChange={(e) => updateLevel(index, 'notifyUserIds', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))} placeholder="Kullanici ID'leri" />
           </div>
 
           {/* Channels */}
@@ -334,9 +303,7 @@ const PolicyForm: React.FC<{
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Düzenle'}
         </h2>
-        <button onClick={onCancel} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-          <X className="w-5 h-5" />
-        </button>
+        <Button variant="ghost" iconOnly aria-label="Close" onClick={onCancel}><X className="w-5 h-5" /></Button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -346,26 +313,11 @@ const PolicyForm: React.FC<{
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Politika Adi <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
-              placeholder="Ornegin: Kritik Alarm Eskalasyonu"
-              maxLength={200}
-              required
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="text" value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="Ornegin: Kritik Alarm Eskalasyonu" maxLength={200} required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <input
-              type="text"
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              placeholder="Politikanin kisa aciklamasi"
-              maxLength={1000}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="text" value={form.description} onChange={(e) => updateField('description', e.target.value)} placeholder="Politikanin kisa aciklamasi" maxLength={1000} />
           </div>
         </div>
 
@@ -405,49 +357,25 @@ const PolicyForm: React.FC<{
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tekrar Araligi (dk)
             </label>
-            <input
-              type="number"
-              min={1}
-              value={form.repeatIntervalMinutes}
-              onChange={(e) => updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="number" min={1} value={form.repeatIntervalMinutes} onChange={(e) => updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Maks Tekrar
             </label>
-            <input
-              type="number"
-              min={0}
-              value={form.maxRepeats}
-              onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="number" min={0} value={form.maxRepeats} onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Oncelik
             </label>
-            <input
-              type="number"
-              min={0}
-              value={form.priority}
-              onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="number" min={0} value={form.priority} onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Saat Dilimi
             </label>
-            <input
-              type="text"
-              value={form.timezone}
-              onChange={(e) => updateField('timezone', e.target.value)}
-              placeholder="Europe/Istanbul"
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            />
+            <Input fullWidth type="text" value={form.timezone} onChange={(e) => updateField('timezone', e.target.value)} placeholder="Europe/Istanbul" />
           </div>
         </div>
 
@@ -475,14 +403,8 @@ const PolicyForm: React.FC<{
           >
             İptal
           </button>
-          <button
-            type="submit"
-            disabled={isPending || !form.name.trim() || form.severity.length === 0}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
-          >
-            {isPending && <Spinner size="sm" color="inherit" />}
-            {mode === 'create' ? 'Oluştur' : 'Kaydet'}
-          </button>
+          <Button variant="primary" size="lg" type="submit" disabled={isPending || !form.name.trim() || form.severity.length === 0}>{isPending && <Spinner size="sm" color="inherit" />}
+            {mode === 'create' ? 'Oluştur' : 'Kaydet'}</Button>
         </div>
       </form>
     </div>
@@ -529,13 +451,7 @@ const SuppressionWindowManager: React.FC<{
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">Baskim Pencereleri</h3>
           <span className="text-xs text-gray-400 dark:text-gray-500">({windows.length})</span>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-1 text-sm text-cyan-600 hover:text-cyan-700"
-        >
-          <Plus className="w-4 h-4" />
-          Pencere Ekle
-        </button>
+        <Button variant="ghost" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(!showForm)}>Pencere Ekle</Button>
       </div>
 
       {/* Add Form */}
@@ -544,46 +460,21 @@ const SuppressionWindowManager: React.FC<{
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ad</label>
-              <input
-                type="text"
-                value={windowForm.name}
-                onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ornegin: Planli Bakim"
-                required
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="text" value={windowForm.name} onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ornegin: Planli Bakim" required />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sebep</label>
-              <input
-                type="text"
-                value={windowForm.reason}
-                onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
-                placeholder="Opsiyonel"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="text" value={windowForm.reason} onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Opsiyonel" />
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Baslangic</label>
-              <input
-                type="datetime-local"
-                value={windowForm.startTime}
-                onChange={(e) => setWindowForm((f) => ({ ...f, startTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
-                required
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="datetime-local" value={windowForm.startTime} onChange={(e) => setWindowForm((f) => ({ ...f, startTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))} required />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bitis</label>
-              <input
-                type="datetime-local"
-                value={windowForm.endTime}
-                onChange={(e) => setWindowForm((f) => ({ ...f, endTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
-                required
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="datetime-local" value={windowForm.endTime} onChange={(e) => setWindowForm((f) => ({ ...f, endTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))} required />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -601,13 +492,7 @@ const SuppressionWindowManager: React.FC<{
           {windowForm.isRecurring && (
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Cron Ifadesi</label>
-              <input
-                type="text"
-                value={windowForm.recurringPattern}
-                onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
-                placeholder="0 2 * * 0 (her pazar 02:00)"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
+              <Input fullWidth type="text" value={windowForm.recurringPattern} onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))} placeholder="0 2 * * 0 (her pazar 02:00)" />
             </div>
           )}
           <div className="flex justify-end gap-2">
@@ -618,14 +503,8 @@ const SuppressionWindowManager: React.FC<{
             >
               İptal
             </button>
-            <button
-              type="submit"
-              disabled={isAdding}
-              className="flex items-center gap-1 px-4 py-1.5 text-sm text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50"
-            >
-              {isAdding && <Spinner size="sm" color="inherit" />}
-              Ekle
-            </button>
+            <Button variant="primary" size="sm" type="submit" disabled={isAdding}>{isAdding && <Spinner size="sm" color="inherit" />}
+              Ekle</Button>
           </div>
         </form>
       )}
@@ -668,13 +547,7 @@ const SuppressionWindowManager: React.FC<{
                     {w.reason && <span className="ml-2">| {w.reason}</span>}
                   </div>
                 </div>
-                <button
-                  onClick={() => onRemove(w.id)}
-                  disabled={isRemoving}
-                  className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => onRemove(w.id)} disabled={isRemoving}><Trash2 className="w-4 h-4" /></Button>
               </div>
             );
           })}
@@ -786,14 +659,8 @@ const CloneDialog: React.FC<{
           >
             İptal
           </button>
-          <button
-            onClick={() => onConfirm(newName)}
-            disabled={isPending || !newName.trim()}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
-          >
-            {isPending && <Spinner size="sm" color="inherit" />}
-            Kopyala
-          </button>
+          <Button variant="primary" onClick={() => onConfirm(newName)} disabled={isPending || !newName.trim()}>{isPending && <Spinner size="sm" color="inherit" />}
+            Kopyala</Button>
         </>
       }
     >
@@ -802,12 +669,7 @@ const CloneDialog: React.FC<{
       </p>
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
-        <input
-          type="text"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-        />
+        <Input fullWidth type="text" value={newName} onChange={(e) => setNewName(e.target.value)} />
       </div>
     </Modal>
   );
@@ -914,42 +776,11 @@ const PolicyCard: React.FC<{
               <BellOff className="w-4 h-4" />
             )}
           </button>
-          <button
-            onClick={() => onManageSuppression(policy)}
-            title="Baskim Pencereleri"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-          >
-            <PauseCircle className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onClone(policy)}
-            title="Kopyala"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
-          >
-            <Copy className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onEdit(policy)}
-            title="Düzenle"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
-          >
-            <Edit3 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onDelete(policy)}
-            title="Sil"
-            disabled={policy.isDefault}
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            title={expanded ? 'Daralt' : 'Genislet'}
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Baskim Pencereleri" onClick={() => onManageSuppression(policy)} title="Baskim Pencereleri"><PauseCircle className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Kopyala" onClick={() => onClone(policy)} title="Kopyala"><Copy className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Düzenle" onClick={() => onEdit(policy)} title="Düzenle"><Edit3 className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Sil" onClick={() => onDelete(policy)} title="Sil" disabled={policy.isDefault}><Trash2 className="w-4 h-4" /></Button>
+          <Button variant="ghost" onClick={() => setExpanded(!expanded)} title={expanded ? 'Daralt' : 'Genislet'}>{expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</Button>
         </div>
       </div>
 
@@ -1235,12 +1066,7 @@ const EscalationPoliciesPage: React.FC = () => {
           <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
           <h3 className="font-semibold text-red-900 text-lg">Yukleme Hatasi</h3>
           <p className="text-sm text-red-600 mt-1">{(error as Error).message}</p>
-          <button
-            onClick={() => refetch()}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="danger" className="mt-4" onClick={() => refetch()}>Tekrar Dene</Button>
         </div>
       </div>
     );
@@ -1281,16 +1107,10 @@ const EscalationPoliciesPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Yenile
             </button>
-            <button
-              onClick={() => {
+            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => {
                 setEditingPolicy(null);
                 setFormMode('create');
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Yeni Politika
-            </button>
+              }}>Yeni Politika</Button>
           </div>
         }
       />
@@ -1327,9 +1147,7 @@ const EscalationPoliciesPage: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-700">{(error as Error).message}</p>
-          <button onClick={() => refetch()} className="ml-auto text-sm text-red-600 hover:underline">
-            Tekrar Dene
-          </button>
+          <Button variant="ghost" onClick={() => refetch()}>Tekrar Dene</Button>
         </div>
       )}
 
@@ -1411,13 +1229,7 @@ const EscalationPoliciesPage: React.FC = () => {
               : 'Henuz tanimlanmis eskalasyon politikasi bulunmuyor. Ilk politikayi olusturun.'}
           </p>
           {filterStatus === 'all' && (
-            <button
-              onClick={() => setFormMode('create')}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Ilk Politikayi Oluştur
-            </button>
+            <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setFormMode('create')}>Ilk Politikayi Oluştur</Button>
           )}
         </div>
       )}

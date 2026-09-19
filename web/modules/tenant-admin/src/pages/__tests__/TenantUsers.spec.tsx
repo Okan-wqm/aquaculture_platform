@@ -38,9 +38,20 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   // focus trap, Escape) and the list through the real DataTable (selection,
   // empty state); only the auth/session seams are faked.
   Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
+  // The form controls and buttons are the real shared-ui primitives (FE-HIGH-079);
+  // role and name queries in these tests read what the primitives render.
+  Button: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Button,
+  Input: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Input,
+  Select: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Select,
+  Textarea: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Textarea,
+  Badge: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Badge,
   ConfirmModal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).ConfirmModal,
   DataTable: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).DataTable,
   PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
+  // The user hooks report through the real feedback wrapper (FE-HIGH-086); its
+  // toast surface falls back to local state without a provider.
+  useFeedbackMutation: (await importOriginal<typeof import('@aquaculture/shared-ui')>())
+    .useFeedbackMutation,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: mockAuthState.role },

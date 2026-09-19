@@ -28,6 +28,8 @@ import type { DataProviderType } from '../../types/scada-runtime.types';
 import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
+import { AlarmAnnouncer } from './AlarmAnnouncer';
+import { severityClasses, normalizeSeverity, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -59,16 +61,9 @@ export interface OperatorShellProps {
 /*  Alarm severity badge helpers                                        */
 /* ------------------------------------------------------------------ */
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-500 text-black',
-  info: 'bg-blue-500 text-white',
-};
-
 function AlarmBadgeCount({ count, severity }: { count: number; severity: string }) {
   if (count === 0) return null;
-  const colorClass = SEVERITY_COLORS[severity] ?? 'bg-gray-500 text-white';
+  const colorClass = severityClasses(normalizeSeverity(severity), 'solid');
   return (
     <span
       className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${colorClass}`}
@@ -103,7 +98,7 @@ const AlarmPanel = React.memo(() => {
   const highCount     = activeAlarms.filter((a) => a.severity === 'high').length;
   const warningCount  = activeAlarms.filter((a) => a.severity === 'warning').length;
 
-  if (!alarmPanelOpen) return null;
+  if (!alarmPanelOpen) return <AlarmAnnouncer alarms={activeAlarms} />;
 
   return (
     <div
@@ -111,6 +106,7 @@ const AlarmPanel = React.memo(() => {
       role="region"
       aria-label="Alarm panel"
     >
+      <AlarmAnnouncer alarms={activeAlarms} />
       {/* Panel header row */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-3">
@@ -122,14 +118,7 @@ const AlarmPanel = React.memo(() => {
             <AlarmBadgeCount count={warningCount}  severity="warning" />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={toggleAlarmPanel}
-          className="text-gray-400 dark:text-gray-500 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
-          aria-label="Close alarm panel"
-        >
-          Close
-        </button>
+        <Button variant="ghost" size="xs" type="button" onClick={toggleAlarmPanel} aria-label="Close alarm panel">Close</Button>
       </div>
 
       {/* Scrollable alarm list */}
@@ -172,7 +161,7 @@ const AlarmPanel = React.memo(() => {
                 </span>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
-                    SEVERITY_COLORS[alarm.severity] ?? 'bg-gray-600 text-white'
+                    severityClasses(normalizeSeverity(alarm.severity), 'solid')
                   }`}
                 >
                   {alarm.severity}

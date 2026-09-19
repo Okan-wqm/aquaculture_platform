@@ -9,13 +9,12 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   Eye,
   Edit,
   Ship,
   Building2,
 } from 'lucide-react';
-import { cn, useAuth, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { cn, useAuth, DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
@@ -167,26 +166,14 @@ export function EmployeesListPage() {
       align: 'right',
       render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
-          <button
-            onClick={(e) => {
+          <Button variant="ghost" size="sm" iconOnly aria-label="View" onClick={(e) => {
               e.stopPropagation();
               navigate(`/hr/employees/${row.id}`);
-            }}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            title="View"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-          <button
-            onClick={(e) => {
+            }} title="View"><Eye className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Edit" onClick={(e) => {
               e.stopPropagation();
               navigate(`/hr/employees/${row.id}/edit`);
-            }}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            title="Edit"
-          >
-            <Edit className="h-4 w-4" />
-          </button>
+            }} title="Edit"><Edit className="h-4 w-4" /></Button>
         </div>
       ),
     },
@@ -219,13 +206,7 @@ export function EmployeesListPage() {
         title="Employees"
         description="Manage your organization's workforce"
         actions={
-          <button
-            onClick={() => navigate('/hr/employees/new')}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add Employee
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => navigate('/hr/employees/new')}>Add Employee</Button>
         }
       />
 
@@ -255,10 +236,6 @@ export function EmployeesListPage() {
             <Filter className="h-4 w-4" />
             Filters
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-            <Download className="h-4 w-4" />
-            Export
-          </button>
         </div>
       </div>
 
@@ -270,18 +247,7 @@ export function EmployeesListPage() {
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Status
               </label>
-              <select
-                value={filter.status || ''}
-                onChange={(e) => handleFilterChange('status', e.target.value as EmployeeStatus)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="on_leave">On Leave</option>
-                <option value="probation">Probation</option>
-                <option value="terminated">Terminated</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'All Statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'on_leave', label: 'On Leave' }, { value: 'probation', label: 'Probation' }, { value: 'terminated', label: 'Terminated' }]} value={filter.status || ''} onChange={(e) => handleFilterChange('status', e.target.value as EmployeeStatus)} />
             </div>
 
             <div>
@@ -306,49 +272,27 @@ export function EmployeesListPage() {
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Personnel Category
               </label>
-              <select
-                value={filter.personnelCategory || ''}
-                onChange={(e) => handleFilterChange('personnelCategory', e.target.value as PersonnelCategory)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Categories</option>
-                <option value="offshore">Offshore</option>
-                <option value="onshore">Onshore</option>
-                <option value="hybrid">Hybrid</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'All Categories' }, { value: 'offshore', label: 'Offshore' }, { value: 'onshore', label: 'Onshore' }, { value: 'hybrid', label: 'Hybrid' }]} value={filter.personnelCategory || ''} onChange={(e) => handleFilterChange('personnelCategory', e.target.value as PersonnelCategory)} />
             </div>
 
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Sea Worthy
               </label>
-              <select
-                value={filter.seaWorthy === undefined ? '' : filter.seaWorthy.toString()}
-                onChange={(e) =>
-                  handleFilterChange(
-                    'seaWorthy',
-                    e.target.value === '' ? undefined : e.target.value === 'true'
-                  )
-                }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All</option>
-                <option value="true">Certified</option>
-                <option value="false">Not Certified</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'All' }, { value: 'true', label: 'Certified' }, { value: 'false', label: 'Not Certified' }]} value={filter.seaWorthy === undefined ? '' : filter.seaWorthy.toString()} onChange={(e) =>
+         handleFilterChange(
+          'seaWorthy',
+          e.target.value === '' ? undefined : e.target.value === 'true'
+         )
+        } />
             </div>
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => {
+            <Button variant="ghost" onClick={() => {
                 setFilter({});
                 setSearchQuery('');
-              }}
-              className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-            >
-              Clear all filters
-            </button>
+              }}>Clear all filters</Button>
           </div>
         </div>
       )}
@@ -363,29 +307,12 @@ export function EmployeesListPage() {
             {canBulkDelete && (
               <>
                 {/* BUG-016: bulk actions are guarded but not yet implemented */}
-                <button
-                  disabled
-                  title="Bulk edit — not yet implemented"
-                  className="text-sm text-indigo-400 cursor-not-allowed dark:text-indigo-600"
-                >
-                  Bulk Edit
-                </button>
-                <button
-                  disabled
-                  title="Bulk delete — not yet implemented"
-                  className="text-sm text-red-400 cursor-not-allowed dark:text-red-600"
-                >
-                  Delete Selected
-                </button>
+                <Button variant="ghost" disabled title="Bulk edit — not yet implemented">Bulk Edit</Button>
+                <Button variant="ghost" disabled title="Bulk delete — not yet implemented">Delete Selected</Button>
               </>
             )}
           </div>
-          <button
-            onClick={() => setSelectedKeys([])}
-            className="ml-auto text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
-          >
-            Clear selection
-          </button>
+          <Button variant="ghost" onClick={() => setSelectedKeys([])}>Clear selection</Button>
         </div>
       )}
 
@@ -395,6 +322,8 @@ export function EmployeesListPage() {
         columns={columns}
         keyExtractor={keyExtractor}
         loading={isLoading}
+        exportable
+        exportFileName="employees"
         emptyMessage="No employees found"
         pagination={
           employees

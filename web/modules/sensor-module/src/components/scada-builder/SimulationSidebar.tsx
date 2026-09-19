@@ -24,7 +24,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { getTenantId, tenantScopedStorageKey, severityClasses, Button, Input } from '@aquaculture/shared-ui';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
@@ -50,10 +50,10 @@ interface Scenario {
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-400 text-gray-900',
-  info: 'bg-blue-500 text-white',
+  critical: severityClasses('critical', 'solid'),
+  high: severityClasses('high', 'solid'),
+  warning: severityClasses('warning', 'solid'),
+  info: severityClasses('info', 'solid'),
 };
 
 /* ------------------------------------------------------------------ */
@@ -111,19 +111,14 @@ const Section: React.FC<{
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="border-b border-gray-700">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-700 transition-colors"
-      >
-        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>{open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {icon}
         <span className="flex-1 text-left">{title}</span>
         {badge !== undefined && (
           <span className="px-1.5 py-0.5 rounded-full bg-gray-600 text-gray-200 text-[10px] font-medium">
             {badge}
           </span>
-        )}
-      </button>
+        )}</Button>
       {open && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
@@ -179,21 +174,11 @@ const TagRow: React.FC<{
               onChange={(e) => onChange(tag.tagName, Number(e.target.value))}
               className="w-16 h-1 accent-cyan-500"
             />
-            <input
-              type="number"
-              value={typeof value === 'number' ? value : 0}
-              onChange={(e) => onChange(tag.tagName, Number(e.target.value))}
-              className="w-14 px-1 py-0.5 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200 text-right"
-            />
+            <Input className="text-right" type="number" value={typeof value === 'number' ? value : 0} onChange={(e) => onChange(tag.tagName, Number(e.target.value))} />
           </div>
         )}
         {tag.dataHint === 'string' && (
-          <input
-            type="text"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(e) => onChange(tag.tagName, e.target.value)}
-            className="w-24 px-1 py-0.5 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200"
-          />
+          <Input type="text" value={typeof value === 'string' ? value : ''} onChange={(e) => onChange(tag.tagName, e.target.value)} />
         )}
       </div>
     </div>
@@ -581,13 +566,7 @@ export const SimulationSidebar: React.FC = () => {
                   />
                 ))}
               </div>
-              <button
-                onClick={clearSimTagValues}
-                className="mt-2 flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
-              >
-                <RotateCcw className="w-3 h-3" />
-                Reset All
-              </button>
+              <Button variant="ghost" size="xs" className="mt-2" leftIcon={<RotateCcw className="w-3 h-3" />} onClick={clearSimTagValues}>Reset All</Button>
             </>
           )}
         </Section>
@@ -596,55 +575,23 @@ export const SimulationSidebar: React.FC = () => {
         <Section title="Scenarios" icon={<BookOpen className="w-3 h-3" />} defaultOpen={false}>
           <div className="space-y-1">
             {builtInScenarios.map((sc) => (
-              <button
-                key={sc.id}
-                onClick={() => handleApplyScenario(sc)}
-                className="w-full text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors"
-              >
-                {sc.name}
-              </button>
+              <Button variant="ghost" size="sm" key={sc.id} onClick={() => handleApplyScenario(sc)}>{sc.name}</Button>
             ))}
             {customScenarios.length > 0 && (
               <>
                 <div className="h-px bg-gray-700 my-1" />
                 {customScenarios.map((sc) => (
                   <div key={sc.id} className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleApplyScenario(sc)}
-                      className="flex-1 text-left px-2 py-1.5 text-[11px] text-gray-300 hover:bg-gray-700 rounded transition-colors truncate"
-                    >
-                      {sc.name}
-                    </button>
-                    <button
-                      onClick={() => handleDeleteScenario(sc.id)}
-                      aria-label="Delete scenario"
-                      className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    <Button variant="ghost" size="sm" className="flex-1" onClick={() => handleApplyScenario(sc)}>{sc.name}</Button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => handleDeleteScenario(sc.id)} aria-label="Delete scenario"><Trash2 className="w-3 h-3" /></Button>
                   </div>
                 ))}
               </>
             )}
           </div>
           <div className="mt-2 flex items-center gap-1">
-            <input
-              type="text"
-              value={newScenarioName}
-              onChange={(e) => setNewScenarioName(e.target.value)}
-              placeholder="Scenario name..."
-              className="flex-1 px-2 py-1 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
-              onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()}
-            />
-            <button
-              onClick={handleSaveScenario}
-              disabled={!newScenarioName.trim()}
-              className="p-1 text-gray-400 dark:text-gray-500 hover:text-cyan-400 disabled:opacity-30 transition-colors"
-              aria-label="Save current values as scenario"
-              title="Save current values as scenario"
-            >
-              <Save className="w-3.5 h-3.5" />
-            </button>
+            <Input type="text" value={newScenarioName} onChange={(e) => setNewScenarioName(e.target.value)} placeholder="Scenario name..." onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()} />
+            <Button variant="ghost" size="sm" iconOnly onClick={handleSaveScenario} disabled={!newScenarioName.trim()} aria-label="Save current values as scenario" title="Save current values as scenario"><Save className="w-3.5 h-3.5" /></Button>
           </div>
         </Section>
 
@@ -739,21 +686,9 @@ export const SimulationSidebar: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-1">
                       {!isActive ? (
-                        <button
-                          onClick={() => handleStartProgram(binding.programId)}
-                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-green-600 hover:bg-green-700 text-white rounded transition-colors"
-                        >
-                          <Play className="w-3 h-3" />
-                          Run
-                        </button>
+                        <Button variant="primary" leftIcon={<Play className="w-3 h-3" />} onClick={() => handleStartProgram(binding.programId)}>Run</Button>
                       ) : (
-                        <button
-                          onClick={stopAutomation}
-                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
-                        >
-                          <Square className="w-3 h-3" />
-                          Stop
-                        </button>
+                        <Button variant="danger" leftIcon={<Square className="w-3 h-3" />} onClick={stopAutomation}>Stop</Button>
                       )}
                       {isActive && (
                         <span className="text-[9px] text-green-400 flex items-center gap-1">

@@ -9,17 +9,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Select,
-  Alert,
-  RadioGroup,
-  Spinner,
-  PageHeader,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Alert, RadioGroup, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -1066,7 +1056,7 @@ const CreateTenantPage: React.FC = () => {
                   onChange={(e) => updateFormData('domain', e.target.value)}
                   placeholder="ocean-farm.aquaculture.io"
                 />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input
                     label="Country"
                     value={formData.country}

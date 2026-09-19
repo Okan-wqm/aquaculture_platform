@@ -14,7 +14,7 @@ import {
 import type { MobileUserSettingsData } from '../../hooks/useTenantData';
 import { logError } from '../../utils/error-handling';
 import { SmallToggle } from './Toggle';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 
 /** Feature columns rendered in the table header. */
 const FEATURE_COLUMNS = [
@@ -255,12 +255,7 @@ const MobileSettings: React.FC = () => {
             <span>{dirtyUserIds.size} user(s) have unsaved changes</span>
           </div>
         )}
-        <button
-          onClick={saveMobileSettings}
-          disabled={mobileSaving || dirtyUserIds.size === 0}
-          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saved ? (
+        <Button variant="primary" onClick={saveMobileSettings} disabled={mobileSaving || dirtyUserIds.size === 0}>{saved ? (
             <>
               <Check className="w-4 h-4" />
               Saved!
@@ -275,8 +270,7 @@ const MobileSettings: React.FC = () => {
               <Save className="w-4 h-4" />
               Save Changes
             </>
-          )}
-        </button>
+          )}</Button>
       </div>
     </div>
   );

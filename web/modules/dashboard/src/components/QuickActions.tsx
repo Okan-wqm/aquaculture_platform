@@ -130,7 +130,7 @@ const QuickActions: React.FC = () => {
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Hızlı İşlemler</h3>
       </div>
-      <div className="p-4 grid grid-cols-2 gap-3">
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
         {visibleActions.map((action) => (
           <Link
             key={action.id}

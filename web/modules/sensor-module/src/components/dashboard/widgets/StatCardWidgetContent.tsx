@@ -133,7 +133,7 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
 
   return (
     <div className="flex flex-col h-full p-2">
-      <div className="grid grid-cols-2 gap-3 flex-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
         {statItems.map((stat) => (
           <div
             key={stat.label}

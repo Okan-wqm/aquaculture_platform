@@ -20,7 +20,10 @@ import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
 } from '@/generated/graphql';
-import { MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, MOBILE_REPORT_DRAFTS } from '@/graphql/operations';
+import {
+  MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
+  MOBILE_REPORT_DRAFTS,
+} from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -104,7 +107,10 @@ export function ReportReviewPage(): JSX.Element {
   const approveMutation = useMutation({
     mutationFn: async () => {
       if (!draftId) throw new Error('Missing draft id');
-      const result = await graphqlRequest(MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, { draftId });
+      const result = await graphqlRequest(
+        MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
+        { draftId },
+      );
       return result.approveAndSubmitReportDraft;
     },
     onSuccess: async (result) => {
@@ -136,7 +142,7 @@ export function ReportReviewPage(): JSX.Element {
         back={() => navigate('/reports')}
       />
 
-      <div className="px-4 pt-4 space-y-4 pb-28">
+      <div className="px-4 pt-4 space-y-4">
         {!isOnline && (
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
             <CloudOff size={20} className="text-amber-600 flex-shrink-0" />

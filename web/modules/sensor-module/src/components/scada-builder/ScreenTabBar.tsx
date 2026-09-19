@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { useConfirm, useClickOutside, colors as themeColors } from '@aquaculture/shared-ui';
+import { useConfirm, useClickOutside, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 import {
   Plus,
   Minus,
@@ -141,19 +141,10 @@ const ScreenTabBar: React.FC = () => {
 
         if (renamingId === screen.id) {
           return (
-            <input
-              key={screen.id}
-              type="text"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={() => handleRenameSubmit(screen.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRenameSubmit(screen.id);
-                if (e.key === 'Escape') setRenamingId(null);
-              }}
-              autoFocus
-              className="px-2 py-1 text-xs border border-cyan-400 rounded bg-white dark:bg-gray-900 focus:outline-hidden focus:ring-1 focus:ring-cyan-500 w-28"
-            />
+            <Input key={screen.id} type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={() => handleRenameSubmit(screen.id)} onKeyDown={(e) => {
+        if (e.key === 'Enter') handleRenameSubmit(screen.id);
+        if (e.key === 'Escape') setRenamingId(null);
+       }} autoFocus />
           );
         }
 
@@ -211,21 +202,13 @@ const ScreenTabBar: React.FC = () => {
 
       {/* Add / Remove Screen Buttons */}
       <div className="relative flex items-center gap-0.5" ref={addMenuRef}>
-        <button
-          ref={addBtnRef}
-          onClick={() => {
+        <Button variant="ghost" iconOnly className="justify-center w-7 h-7" ref={addBtnRef} onClick={() => {
             if (!showAddDropdown && addBtnRef.current) {
               const rect = addBtnRef.current.getBoundingClientRect();
               setDropdownPos({ x: rect.left, y: rect.bottom + 4 });
             }
             setShowAddDropdown(!showAddDropdown);
-          }}
-          className="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-700 dark:hover:text-gray-100 transition-colors"
-          aria-label="Add Screen"
-          title="Add Screen"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+          }} aria-label="Add Screen" title="Add Screen"><Plus className="w-4 h-4" /></Button>
         <button
           onClick={() => { if (activeScreenId) void handleDelete(activeScreenId); }}
           disabled={isLastScreen}
@@ -246,14 +229,8 @@ const ScreenTabBar: React.FC = () => {
             style={{ left: dropdownPos?.x ?? 0, top: dropdownPos?.y ?? 0 }}
           >
             {SCREEN_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.type}
-                onClick={() => handleAddScreen(opt.type)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                {opt.icon}
-                {opt.label}
-              </button>
+              <Button variant="ghost" size="sm" key={opt.type} onClick={() => handleAddScreen(opt.type)}>{opt.icon}
+                {opt.label}</Button>
             ))}
           </div>
         )}
@@ -266,27 +243,12 @@ const ScreenTabBar: React.FC = () => {
           className="fixed bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50 w-44"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            onClick={() => {
+          <Button variant="ghost" size="sm" onClick={() => {
               const screen = screens.find((s) => s.id === contextMenu.screenId);
               if (screen) handleRenameStart(screen);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Rename
-          </button>
-          <button
-            onClick={() => handleDuplicate(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Duplicate
-          </button>
-          <button
-            onClick={() => handleSetDefault(contextMenu.screenId)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Set as Default
-          </button>
+            }}>Rename</Button>
+          <Button variant="ghost" size="sm" onClick={() => handleDuplicate(contextMenu.screenId)}>Duplicate</Button>
+          <Button variant="ghost" size="sm" onClick={() => handleSetDefault(contextMenu.screenId)}>Set as Default</Button>
           <hr className="my-1 border-gray-200 dark:border-gray-700" />
           <button
             onClick={() => void handleDelete(contextMenu.screenId)}

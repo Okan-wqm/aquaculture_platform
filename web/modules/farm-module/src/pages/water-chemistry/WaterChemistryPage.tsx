@@ -5,7 +5,7 @@
  *
  * Ported from Python v1.py PyQt5 application.
  */
-import { buildDeffeyesData, computeWaterChemistryOutputs, useCanMutate, type WaterChemistryInputs, PageHeader } from '@aquaculture/shared-ui';
+import { buildDeffeyesData, computeWaterChemistryOutputs, useCanMutate, type WaterChemistryInputs, PageHeader, Button } from '@aquaculture/shared-ui';
 import { alkMgToMeq, calcDicOfAlk, calcForwardDosing, REAGENTS } from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -171,15 +171,10 @@ const OverviewContent: React.FC = () => {
 
       {/* Print button */}
       <div className="flex justify-end">
-        <button
-          onClick={handlePrintClick}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <Button variant="secondary" size="xs" onClick={handlePrintClick}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
           </svg>
-          Print Report
-        </button>
+          Print Report</Button>
       </div>
 
       {/* Dosing Simulator Results — appears between input and charts when active */}

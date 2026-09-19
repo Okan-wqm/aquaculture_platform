@@ -9,7 +9,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layers, ArrowRight } from 'lucide-react';
 import IndustryTemplateSelector from '../components/templates/IndustryTemplateSelector';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button } from '@aquaculture/shared-ui';
 
 const IndustrySetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -47,13 +47,7 @@ const IndustrySetupPage: React.FC = () => {
 
         {/* Skip link */}
         <div className="mt-6 flex justify-center">
-          <button
-            onClick={handleSkip}
-            className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
-            Atla
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" rightIcon={<ArrowRight className="w-4 h-4" />} onClick={handleSkip}>Atla</Button>
         </div>
       </div>
     </div>

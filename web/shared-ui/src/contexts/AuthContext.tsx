@@ -71,6 +71,8 @@ export interface AuthUser {
    * independently. Empty for admins (who bypass) and for ungranted users.
    */
   resourcePermissions?: string[];
+  /** The UI language saved on the account (FE-HIGH-089); the shell applies it on sign-in. */
+  preferredLanguage?: string | null;
 }
 
 /**
@@ -363,6 +365,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
               tenantId
               accessType
               isActive
+              preferredLanguage
             }
             modules {
               code

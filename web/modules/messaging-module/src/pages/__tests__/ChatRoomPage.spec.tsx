@@ -28,17 +28,17 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { routeGraphql } from '../../test-utils/mockGraphqlClient';
-import { fireSocketEvent, resetSocketMock } from '../../test-utils/mockSocketIo';
-import { requestMock, TEST_USER_ID } from '../../test-utils/sharedUiMock';
+import { routeGraphql } from '../../__tests__/mockGraphqlClient';
+import { fireSocketEvent, resetSocketMock } from '../../__tests__/mockSocketIo';
+import { requestMock, TEST_USER_ID } from '../../__tests__/sharedUiMock';
 import type { Channel, Message } from '../../types/messaging';
 import ChatRoomPage from '../ChatRoomPage';
 
 vi.mock('@aquaculture/shared-ui', async () =>
-  (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
+  (await import('../../__tests__/sharedUiMock')).createSharedUiMock(),
 );
 vi.mock('socket.io-client', async () =>
-  (await import('../../test-utils/mockSocketIo')).socketIoModuleMock(),
+  (await import('../../__tests__/mockSocketIo')).socketIoModuleMock(),
 );
 
 const CHANNEL = 'cccccccc-3333-4444-8555-666666666666';

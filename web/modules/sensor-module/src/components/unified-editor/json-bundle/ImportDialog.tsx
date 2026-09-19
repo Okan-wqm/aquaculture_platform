@@ -29,7 +29,7 @@ import {
   formatFileSize,
   type BundleValidationResult,
 } from './bundle.utils';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -189,20 +189,9 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
         )}
       </div>
       <div className="flex items-center gap-2">
-        <button
-          onClick={handleClose}
-          className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 rounded"
-        >
-          Cancel
-        </button>
+        <Button variant="ghost" size="sm" onClick={handleClose}>Cancel</Button>
         {stage === 'preview' && result?.valid && (
-          <button
-            onClick={handleImport}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Import Program
-          </button>
+          <Button variant="primary" size="sm" leftIcon={<Upload className="w-3.5 h-3.5" />} onClick={handleImport}>Import Program</Button>
         )}
       </div>
     </div>
@@ -351,7 +340,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
             <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Program Details
             </h3>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Code: </span>
                 <span className="text-gray-200 font-mono">
@@ -380,7 +369,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           </div>
 
           {/* Statistics */}
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             <StatBox
               label="Variables"
               value={result.bundle.variables.length}

@@ -7,7 +7,7 @@
  * dosed once and affects the shared-water system). The gear opens the shared config drawer
  * (member limits + reagents); the checkboxes here are the member opt-out.
  */
-import { buildDeffeyesData, computeWaterChemistryOutputs, colors } from '@aquaculture/shared-ui';
+import { buildDeffeyesData, computeWaterChemistryOutputs, colors, Button } from '@aquaculture/shared-ui';
 import {
   DeffeyesChart,
   ResultsPanel,
@@ -55,10 +55,8 @@ const WcSystemView = ({
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{system.title}</h2>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setConfigOpen(true)}
-            className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">⚙ Configure</button>
-          <button type="button" onClick={onRemove}
-            className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-red-600 hover:bg-red-50">Remove system</button>
+          <Button variant="secondary" size="xs" type="button" onClick={() => setConfigOpen(true)}>⚙ Configure</Button>
+          <Button variant="secondary" size="xs" type="button" onClick={onRemove}>Remove system</Button>
         </div>
       </div>
 

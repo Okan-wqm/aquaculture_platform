@@ -618,70 +618,28 @@ export const HealthEventsPage: React.FC = () => {
           {item.status !== 'resolved' && item.status !== 'cancelled' && (
             <>
               {!item.isUnderTreatment ? (
-                <button
-                  onClick={() => handleOpenStartTreatment(item)}
-                  className="text-purple-600 hover:text-purple-900"
-                  title="Start Treatment"
-                >
-                  <Play className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Start Treatment" onClick={() => handleOpenStartTreatment(item)} title="Start Treatment"><Play className="w-4 h-4" /></Button>
               ) : (
-                <button
-                  onClick={() => handleEndTreatment(item)}
-                  className="text-purple-600 hover:text-purple-900"
-                  title="End Treatment"
-                >
-                  <Square className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="End Treatment" onClick={() => handleEndTreatment(item)} title="End Treatment"><Square className="w-4 h-4" /></Button>
               )}
 
               {/* Quarantine actions */}
               {!item.isQuarantined ? (
-                <button
-                  onClick={() => handleOpenStartQuarantine(item)}
-                  className="text-yellow-600 hover:text-yellow-900"
-                  title="Start Quarantine"
-                >
-                  <Shield className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Start Quarantine" onClick={() => handleOpenStartQuarantine(item)} title="Start Quarantine"><Shield className="w-4 h-4" /></Button>
               ) : (
-                <button
-                  onClick={() => handleEndQuarantine(item)}
-                  className="text-yellow-600 hover:text-yellow-900"
-                  title="End Quarantine"
-                >
-                  <Shield className="w-4 h-4 fill-current" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="End Quarantine" onClick={() => handleEndQuarantine(item)} title="End Quarantine"><Shield className="w-4 h-4 fill-current" /></Button>
               )}
 
               {/* Resolve */}
-              <button
-                onClick={() => handleOpenResolve(item)}
-                className="text-green-600 hover:text-green-900"
-                title="Resolve Event"
-              >
-                <CheckCircle className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Resolve Event" onClick={() => handleOpenResolve(item)} title="Resolve Event"><CheckCircle className="w-4 h-4" /></Button>
             </>
           )}
 
           {/* Edit */}
-          <button
-            onClick={() => handleOpenEdit(item)}
-            className="text-indigo-600 hover:text-indigo-900"
-            title="Edit"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Edit" onClick={() => handleOpenEdit(item)} title="Edit"><Edit className="w-4 h-4" /></Button>
 
           {/* Delete */}
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-            title="Delete"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => handleDelete(item.id)} title="Delete"><Trash2 className="w-4 h-4" /></Button>
         </div>
       ),
     }
@@ -907,7 +865,7 @@ export const HealthEventsPage: React.FC = () => {
         title={editingId ? 'Edit Health Event' : 'New Health Event'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Batch ID"
               value={formData.batchId}
@@ -932,7 +890,7 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Event Type"
               value={formData.eventType}
@@ -956,7 +914,7 @@ export const HealthEventsPage: React.FC = () => {
               }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Event Date"
               type="date"
@@ -971,7 +929,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, eventTime: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
               label="Disease Category"
               value={formData.diseaseCategory}
@@ -989,7 +947,7 @@ export const HealthEventsPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, diseaseName: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Affected Count"
               type="number"
@@ -1014,7 +972,7 @@ export const HealthEventsPage: React.FC = () => {
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -1072,7 +1030,7 @@ export const HealthEventsPage: React.FC = () => {
               label,
             }))}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Medication Name"
               value={treatmentData.medicationName}
@@ -1088,7 +1046,7 @@ export const HealthEventsPage: React.FC = () => {
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Dosage"
               type="number"
@@ -1107,7 +1065,7 @@ export const HealthEventsPage: React.FC = () => {
               placeholder="mg/L, mg/kg, etc."
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Start Date"
               type="date"
@@ -1126,7 +1084,7 @@ export const HealthEventsPage: React.FC = () => {
               }
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Frequency"
               value={treatmentData.frequency}

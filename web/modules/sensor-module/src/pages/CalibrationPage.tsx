@@ -33,7 +33,7 @@ import {
   getStatusLabel,
   getStatusColor,
 } from '../hooks/useCalibration';
-import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -166,13 +166,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       align: 'center',
       render: (_value, channel) =>
         isEditingRow(channel) && editing ? (
-          <input
-            type="number"
-            step="0.001"
-            value={editing.data.calibrationMultiplier}
-            onChange={(e) => patchDraft({ calibrationMultiplier: parseFloat(e.target.value) || 1 })}
-            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input className="text-center" type="number" step="0.001" value={editing.data.calibrationMultiplier} onChange={(e) => patchDraft({ calibrationMultiplier: parseFloat(e.target.value) || 1 })} />
         ) : (
           <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationMultiplier}</span>
         ),
@@ -184,13 +178,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       align: 'center',
       render: (_value, channel) =>
         isEditingRow(channel) && editing ? (
-          <input
-            type="number"
-            step="0.001"
-            value={editing.data.calibrationOffset}
-            onChange={(e) => patchDraft({ calibrationOffset: parseFloat(e.target.value) || 0 })}
-            className="w-24 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input className="text-center" type="number" step="0.001" value={editing.data.calibrationOffset} onChange={(e) => patchDraft({ calibrationOffset: parseFloat(e.target.value) || 0 })} />
         ) : (
           <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationOffset}</span>
         ),
@@ -201,20 +189,12 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       align: 'center',
       render: (_value, channel) =>
         isEditingRow(channel) && editing ? (
-          <input
-            type="number"
-            min="1"
-            step="1"
-            value={editing.data.calibrationIntervalDays ?? ''}
-            placeholder="-"
-            onChange={(e) =>
-              patchDraft({
-                calibrationIntervalDays:
-                  e.target.value === '' ? undefined : Math.max(1, parseInt(e.target.value, 10) || 1),
-              })
-            }
-            className="w-20 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input className="text-center" type="number" min="1" step="1" value={editing.data.calibrationIntervalDays ?? ''} placeholder="-" onChange={(e) =>
+       patchDraft({
+        calibrationIntervalDays:
+         e.target.value === '' ? undefined : Math.max(1, parseInt(e.target.value, 10) || 1),
+       })
+      } />
         ) : (
           <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{channel.calibrationIntervalDays ?? '-'}</span>
         ),
@@ -255,32 +235,11 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
       render: (_value, channel) =>
         isEditingRow(channel) ? (
           <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => void saveEdit(channel)}
-              disabled={savingId === channel.id}
-              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-              title="Kaydet"
-            >
-              {savingId === channel.id ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={cancelEdit}
-              disabled={savingId === channel.id}
-              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="İptal"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="sm" onClick={() => void saveEdit(channel)} disabled={savingId === channel.id} title="Kaydet">{savingId === channel.id ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}</Button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="İptal" onClick={cancelEdit} disabled={savingId === channel.id} title="İptal"><X className="w-4 h-4" /></Button>
           </div>
         ) : (
-          <button
-            onClick={() => startEdit(channel)}
-            disabled={updating}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-            title="Düzenle"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Düzenle" onClick={() => startEdit(channel)} disabled={updating} title="Düzenle"><Edit className="w-4 h-4" /></Button>
         ),
     },
   ];
@@ -356,12 +315,7 @@ const CalibrationPage: React.FC = () => {
           <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
           <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
           <p className="text-sm text-red-600 mt-1">{error}</p>
-          <button
-            onClick={refetch}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="danger" className="mt-4" onClick={refetch}>Tekrar Dene</Button>
         </div>
       </div>
     );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle } from 'lucide-react';
 import { useMyTenant, useUpdateTenantSettings } from '../../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
@@ -105,12 +106,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
               {saveError}
             </p>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving}>{saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -125,8 +121,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}
-          </button>
+            )}</Button>
         </div>
       )}
     </div>

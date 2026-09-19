@@ -10,7 +10,7 @@
  */
 import React, { useState } from 'react';
 
-import { useCanMutate, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm, DataTable, type DataTableColumn, Button, Input, Select } from '@aquaculture/shared-ui';
 
 import {
   FinanceCategory,
@@ -92,18 +92,9 @@ export const CategoriesTab: React.FC = () => {
         <>
           {renaming?.id === category.id ? (
             <span className="flex items-center space-x-2">
-              <input
-                value={renaming.name}
-                onChange={(e) => setRenaming({ id: category.id, name: e.target.value })}
-                className="rounded-md border-gray-300 dark:border-gray-600 text-sm shadow-sm"
-                autoFocus
-              />
-              <button onClick={handleRename} className="text-sm font-medium text-blue-600">
-                Save
-              </button>
-              <button onClick={() => setRenaming(null)} className="text-sm text-gray-500 dark:text-gray-400">
-                Cancel
-              </button>
+              <Input value={renaming.name} onChange={(e) => setRenaming({ id: category.id, name: e.target.value })} autoFocus />
+              <Button variant="ghost" onClick={handleRename}>Save</Button>
+              <Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
             </span>
           ) : (
             <>
@@ -149,28 +140,13 @@ export const CategoriesTab: React.FC = () => {
       render: (_value, category) => (
         <span className="space-x-3">
           {canUpdate && category.isActive && renaming?.id !== category.id && (
-            <button
-              onClick={() => setRenaming({ id: category.id, name: category.name })}
-              className="font-medium text-blue-600 hover:text-blue-800"
-            >
-              Rename
-            </button>
+            <Button variant="ghost" onClick={() => setRenaming({ id: category.id, name: category.name })}>Rename</Button>
           )}
           {canArchive(category) && (
-            <button
-              onClick={() => handleArchive(category)}
-              className="font-medium text-red-600 hover:text-red-800"
-            >
-              Archive
-            </button>
+            <Button variant="ghost" onClick={() => handleArchive(category)}>Archive</Button>
           )}
           {canRestore && !category.isActive && (
-            <button
-              onClick={() => restoreCategory.mutate(category.id)}
-              className="font-medium text-green-600 hover:text-green-800"
-            >
-              Restore
-            </button>
+            <Button variant="ghost" onClick={() => restoreCategory.mutate(category.id)}>Restore</Button>
           )}
         </span>
       ),
@@ -186,35 +162,15 @@ export const CategoriesTab: React.FC = () => {
           <label htmlFor="new-category-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             New category name
           </label>
-          <input
-            id="new-category-name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="e.g. Diesel fuel"
-          />
+          <Input fullWidth id="new-category-name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Diesel fuel" />
         </div>
         <div>
           <label htmlFor="new-category-scope" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Ledger
           </label>
-          <select
-            id="new-category-scope"
-            value={newScope}
-            onChange={(e) => setNewScope(e.target.value as typeof newScope)}
-            className="mt-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          >
-            <option value="FARM_OPEX">Operational cost</option>
-            <option value="FARM_REVENUE">Revenue</option>
-          </select>
+          <Select options={[{ value: 'FARM_OPEX', label: 'Operational cost' }, { value: 'FARM_REVENUE', label: 'Revenue' }]} id="new-category-scope" value={newScope} onChange={(e) => setNewScope(e.target.value as typeof newScope)} />
         </div>
-        <button
-          type="submit"
-          disabled={createCategory.isPending || !newName.trim()}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          Add category
-        </button>
+        <Button variant="primary" type="submit" disabled={createCategory.isPending || !newName.trim()}>Add category</Button>
         <label className="ml-auto flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
           <input
             type="checkbox"

@@ -1,4 +1,4 @@
-import { useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -65,12 +65,13 @@ const ChannelListPage: React.FC = () => {
       </div>
 
       {canUseAi && (
-        <button
+        <Button
           onClick={() => navigate('/messaging/new-ai')}
-          className="sd-send mb-3 inline-flex items-center gap-2 px-3.5 py-2"
+          leftIcon={<Sparkles size={15} />}
+          className="sd-send mb-3"
         >
-          <Sparkles size={15} /> {t('messaging.ai.newChat')}
-        </button>
+          {t('messaging.ai.newChat')}
+        </Button>
       )}
 
       {isLoading && (

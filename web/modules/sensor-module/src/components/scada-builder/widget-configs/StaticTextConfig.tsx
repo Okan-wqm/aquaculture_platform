@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -25,39 +25,18 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Text */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Text</label>
-        <textarea
-          rows={3}
-          value={config.text || ''}
-          onChange={(e) => onChange({ text: e.target.value })}
-          placeholder="Text"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-none"
-        />
+        <Textarea className="resize-none" fullWidth rows={3} value={config.text || ''} onChange={(e) => onChange({ text: e.target.value })} placeholder="Text" />
       </div>
 
       {/* Font Size & Weight */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size</label>
-          <input
-            type="number"
-            min={8}
-            max={72}
-            value={config.fontSize ?? 14}
-            onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" min={8} max={72} value={config.fontSize ?? 14} onChange={(e) => onChange({ fontSize: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Weight</label>
-          <select
-            value={config.fontWeight || 'normal'}
-            onChange={(e) => onChange({ fontWeight: e.target.value })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          >
-            <option value="light">Light</option>
-            <option value="normal">Normal</option>
-            <option value="bold">Bold</option>
-          </select>
+          <Select fullWidth options={[{ value: 'light', label: 'Light' }, { value: 'normal', label: 'Normal' }, { value: 'bold', label: 'Bold' }]} value={config.fontWeight || 'normal'} onChange={(e) => onChange({ fontWeight: e.target.value })} />
         </div>
       </div>
 
@@ -85,15 +64,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Vertical Align */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Vertical Alignment</label>
-        <select
-          value={config.verticalAlign || 'middle'}
-          onChange={(e) => onChange({ verticalAlign: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="top">Top</option>
-          <option value="middle">Middle</option>
-          <option value="bottom">Bottom</option>
-        </select>
+        <Select fullWidth options={[{ value: 'top', label: 'Top' }, { value: 'middle', label: 'Middle' }, { value: 'bottom', label: 'Bottom' }]} value={config.verticalAlign || 'middle'} onChange={(e) => onChange({ verticalAlign: e.target.value })} />
       </div>
 
       {/* ── Appearance ── */}
@@ -134,17 +105,10 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
 
       {/* Border */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Width</label>
-          <input
-            type="number"
-            min={0}
-            max={5}
-            value={config.borderWidth ?? 0}
-            onChange={(e) => onChange({ borderWidth: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" min={0} max={5} value={config.borderWidth ?? 0} onChange={(e) => onChange({ borderWidth: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Color</label>
@@ -160,14 +124,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Padding */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Padding (px)</label>
-        <input
-          type="number"
-          min={0}
-          max={32}
-          value={config.padding ?? 8}
-          onChange={(e) => onChange({ padding: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={0} max={32} value={config.padding ?? 8} onChange={(e) => onChange({ padding: Number(e.target.value) })} />
       </div>
     </div>
   );

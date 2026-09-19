@@ -17,7 +17,7 @@
  *    or regulatory status)
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useTransferStock,
   StorageItemType,
@@ -207,7 +207,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Item Type — determines which item list is loaded */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -245,15 +245,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Quantity — minimum 0.01 enforced client-side */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity *</label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="0.00"
-              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="number" min="0.01" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0.00" />
           </div>
 
           {/* From Location — source of the stock being transferred */}
@@ -293,44 +285,20 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Lot Number — optional for transfers (traceability already established at receipt) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Lot Number</label>
-            <input
-              type="text"
-              value={lotNumber}
-              onChange={(e) => setLotNumber(e.target.value)}
-              placeholder="Optional"
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="text" value={lotNumber} onChange={(e) => setLotNumber(e.target.value)} placeholder="Optional" />
           </div>
 
           {/* Reason — optional for transfers (e.g., "Moving to pond-side dispenser") */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason</label>
-            <textarea
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Optional — e.g., Moving feed closer to pond area"
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Textarea fullWidth rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Optional — e.g., Moving feed closer to pond area" />
           </div>
         </div>
 
         {/* Footer with cancel/submit actions */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!isFormValid || transferStock.isPending}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {transferStock.isPending ? 'Transferring...' : 'Transfer Stock'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!isFormValid || transferStock.isPending}>{transferStock.isPending ? 'Transferring...' : 'Transfer Stock'}</Button>
         </div>
       </form>
     </Modal>

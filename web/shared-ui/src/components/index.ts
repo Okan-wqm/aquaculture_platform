@@ -57,10 +57,10 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
-export { SuderraSidebar } from './Layout/SuderraSidebar';
-export type { SuderraSidebarProps, SuderraNavSection } from './Layout/SuderraSidebar';
 export { PageHeader } from './Layout/PageHeader';
 export type { PageHeaderProps } from './Layout/PageHeader';
+export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
+export type { DesktopOnlyNoticeProps } from './Layout/DesktopOnlyNotice';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
@@ -82,6 +82,18 @@ export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
 // Tabs
 export { Tabs, TabPanel, tabId, panelId } from './Tabs';
 export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
+
+// Severity + tag quality — one vocabulary, one palette
+export { SeverityBadge, SEVERITIES, normalizeSeverity, severityClasses, severityColor } from './Severity';
+export type { Severity, SeverityTone, SeverityBadgeProps } from './Severity';
+export { QualityIndicator, normalizeQuality, qualityClasses, qualityColor } from './Quality';
+export type { TagQuality, QualityIndicatorProps } from './Quality';
+
+// Popover / Menu / Tooltip
+export { Popover, Menu } from './Menu';
+export type { PopoverProps, PopoverTriggerProps, MenuProps, MenuItem } from './Menu';
+export { Tooltip } from './Tooltip';
+export type { TooltipProps } from './Tooltip';
 
 // Empty / error surfaces
 export { EmptyState, ErrorState } from './EmptyState';

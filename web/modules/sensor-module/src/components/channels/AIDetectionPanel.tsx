@@ -9,7 +9,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Sparkles, CheckCheck, XCircle, AlertCircle, FileJson } from 'lucide-react';
 import { useChannelDetection, ProposedChannel } from '../../hooks/useChannelDetection';
 import { AIChannelProposalCard } from './AIChannelProposalCard';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -246,27 +246,10 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {editingProposalId && (
         <div className="bg-white dark:bg-gray-900 border border-blue-200 rounded-lg p-4 mb-4 space-y-3">
           <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Kanal etiketini düzenleyin</p>
-          <input
-            type="text"
-            value={editLabel}
-            onChange={(e) => setEditLabel(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            autoFocus
-          />
+          <Input fullWidth type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} autoFocus />
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleEditSave}
-              disabled={!editLabel.trim()}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-xs font-medium disabled:opacity-50"
-            >
-              Kaydet
-            </button>
-            <button
-              onClick={handleEditCancel}
-              className="px-3 py-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-medium"
-            >
-              İptal
-            </button>
+            <Button variant="primary" size="xs" onClick={handleEditSave} disabled={!editLabel.trim()}>Kaydet</Button>
+            <Button variant="secondary" size="xs" onClick={handleEditCancel}>İptal</Button>
           </div>
         </div>
       )}
@@ -279,37 +262,19 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
             AI, veri kanallarini otomatik olarak tespit edecektir.
           </p>
 
-          <textarea
-            value={sampleInput}
-            onChange={(e) => {
-              setSampleInput(e.target.value);
-              setParseError(null);
-            }}
-            placeholder='{"temperature": 24.5, "ph": 7.2, "dissolved_oxygen": 6.8}'
-            className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-          />
+          <Textarea className="font-mono resize-y" fullWidth value={sampleInput} onChange={(e) => {
+       setSampleInput(e.target.value);
+       setParseError(null);
+      }} placeholder='{"temperature": 24.5, "ph": 7.2, "dissolved_oxygen": 6.8}' />
 
           {parseError && (
             <p className="text-red-600 text-xs">{parseError}</p>
           )}
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleDetect}
-              disabled={!sampleInput.trim()}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Sparkles className="w-4 h-4" />
-              Otomatik Kanal Tespiti
-            </button>
+            <Button variant="primary" leftIcon={<Sparkles className="w-4 h-4" />} onClick={handleDetect} disabled={!sampleInput.trim()}>Otomatik Kanal Tespiti</Button>
 
-            <button
-              onClick={handleUseSampleData}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium"
-            >
-              <FileJson className="w-4 h-4" />
-              Son Verileri Kullan
-            </button>
+            <Button variant="secondary" leftIcon={<FileJson className="w-4 h-4" />} onClick={handleUseSampleData}>Son Verileri Kullan</Button>
           </div>
         </div>
       )}
@@ -333,30 +298,18 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
               {allChannels.length} kanal tespit edildi
             </p>
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleApproveAll}
-                disabled={bulkProcessing}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-medium disabled:opacity-50"
-              >
-                {bulkProcessing ? (
+              <Button variant="primary" size="xs" onClick={handleApproveAll} disabled={bulkProcessing}>{bulkProcessing ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <CheckCheck className="w-3.5 h-3.5" />
                 )}
-                Tümünü Onayla
-              </button>
-              <button
-                onClick={handleRejectAll}
-                disabled={bulkProcessing}
-                className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-xs font-medium disabled:opacity-50"
-              >
-                {bulkProcessing ? (
+                Tümünü Onayla</Button>
+              <Button variant="danger" size="xs" onClick={handleRejectAll} disabled={bulkProcessing}>{bulkProcessing ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <XCircle className="w-3.5 h-3.5" />
                 )}
-                Tümünü Reddet
-              </button>
+                Tümünü Reddet</Button>
             </div>
           </div>
 

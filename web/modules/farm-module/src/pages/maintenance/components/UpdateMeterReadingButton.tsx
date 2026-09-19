@@ -31,8 +31,7 @@ import {
   Modal,
   formatErrorForToast,
   useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Input } from '@aquaculture/shared-ui';
 
 import {
   type MaintenanceSchedule,
@@ -120,14 +119,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className="text-cyan-700 hover:text-cyan-900"
-        title="Sayaç okumasını güncelle (METER_BASED)"
-      >
-        Sayaç Güncelle
-      </button>
+      <Button variant="ghost" type="button" onClick={() => setIsOpen(true)} title="Sayaç okumasını güncelle (METER_BASED)">Sayaç Güncelle</Button>
 
       <Modal
         isOpen={isOpen}
@@ -164,17 +156,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               Yeni Sayaç Okuması{' '}
               <span className="text-red-600">*</span>
             </label>
-            <input
-              id="meter-reading-input"
-              type="number"
-              step="0.01"
-              min={lastMeter ?? 0}
-              value={meterRaw}
-              onChange={(e) => setMeterRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              required
-              autoFocus
-            />
+            <Input fullWidth id="meter-reading-input" type="number" step="0.01" min={lastMeter ?? 0} value={meterRaw} onChange={(e) => setMeterRaw(e.target.value)} required autoFocus />
           </div>
 
           {errors.length > 0 && (

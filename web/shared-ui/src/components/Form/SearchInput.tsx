@@ -5,6 +5,8 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
+import { useI18n } from '../../i18n';
+
 export interface SearchInputProps {
   value?: string;
   placeholder?: string;
@@ -21,7 +23,7 @@ export interface SearchInputProps {
 
 export const SearchInput: React.FC<SearchInputProps> = ({
   value: controlledValue,
-  placeholder = 'Search...',
+  placeholder: placeholderProp,
   onChange,
   onSearch,
   debounceMs = 300,
@@ -32,6 +34,8 @@ export const SearchInput: React.FC<SearchInputProps> = ({
   autoFocus = false,
   className = '',
 }) => {
+  const { t } = useI18n();
+  const placeholder = placeholderProp ?? t('table.searchPlaceholder');
   const [internalValue, setInternalValue] = useState(controlledValue || '');
   const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);

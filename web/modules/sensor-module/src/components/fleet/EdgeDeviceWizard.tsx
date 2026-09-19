@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Server, CheckCircle, AlertCircle } from 'lucide-react';
 import {
   useCreateProvisionedDevice,
@@ -138,18 +138,8 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         bodyClassName="p-6 space-y-5"
         footer={
           <div className="flex w-full items-center justify-between">
-            <button
-              onClick={handleClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500 transition-colors"
-            >
-              İptal
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={isCreating}
-              className="flex items-center gap-2 px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isCreating ? (
+            <Button variant="secondary" onClick={handleClose}>İptal</Button>
+            <Button variant="primary" size="lg" onClick={handleSubmit} disabled={isCreating}>{isCreating ? (
                 <>
                   <Spinner size="sm" color="inherit" />
                   Oluşturuluyor...
@@ -159,8 +149,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
                   <CheckCircle className="w-4 h-4" />
                   Cihaz Oluştur
                 </>
-              )}
-            </button>
+              )}</Button>
           </div>
         }
       >
@@ -199,42 +188,24 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
         </div>
 
         {/* Device Name & Serial Number */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Cihaz Adı
             </label>
-            <input
-              type="text"
-              value={formData.deviceName}
-              onChange={handleInputChange('deviceName')}
-              placeholder="Bodrum RAS Controller"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            />
+            <Input fullWidth type="text" value={formData.deviceName} onChange={handleInputChange('deviceName')} placeholder="Bodrum RAS Controller" />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Opsiyonel - otomatik oluşturulur</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Seri Numarasi</label>
-            <input
-              type="text"
-              value={formData.serialNumber}
-              onChange={handleInputChange('serialNumber')}
-              placeholder="123456789"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            />
+            <Input fullWidth type="text" value={formData.serialNumber} onChange={handleInputChange('serialNumber')} placeholder="123456789" />
           </div>
         </div>
 
         {/* Description */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama (Opsiyonel)</label>
-          <textarea
-            value={formData.description}
-            onChange={handleInputChange('description')}
-            placeholder="Ana RAS sistemini kontrol eden edge controller..."
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-none"
-          />
+          <Textarea className="resize-none" fullWidth value={formData.description} onChange={handleInputChange('description')} placeholder="Ana RAS sistemini kontrol eden edge controller..." rows={2} />
         </div>
       </Modal>
 

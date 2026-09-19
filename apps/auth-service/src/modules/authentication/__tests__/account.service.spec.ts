@@ -123,6 +123,17 @@ describe('AccountService', () => {
     expect(userRepository.save).toHaveBeenCalledWith(user);
   });
 
+  it('stores the preferred UI language on the account', async () => {
+    const user = createUser();
+    userRepository.findOne.mockResolvedValue(user);
+
+    const result = await service.updateMyProfile('user-1', { preferredLanguage: 'en' });
+
+    expect(result.preferredLanguage).toBe('en');
+    expect(result.firstName).toBe(user.firstName);
+    expect(userRepository.save).toHaveBeenCalledWith(user);
+  });
+
   it('rejects blank profile names', async () => {
     userRepository.findOne.mockResolvedValue(createUser());
 

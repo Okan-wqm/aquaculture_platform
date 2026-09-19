@@ -22,6 +22,7 @@ import {
   Disc3, ChevronDownSquare, BarChart3, PieChart, Table2, Globe,
 } from 'lucide-react';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 
 import {
   PALETTE_CATEGORIES,
@@ -128,24 +129,19 @@ const WidgetCard: React.FC<{
   isFav: boolean;
   onDrag: (e: React.DragEvent, w: PaletteWidgetDef) => void;
   onCtx: (e: React.MouseEvent, w: PaletteWidgetDef) => void;
-}> = ({ w, isFav, onDrag, onCtx }) => {
+  /** Keyboard path: Enter/Space places the widget on the active screen (drag is the pointer enhancement). */
+  onAdd: (w: PaletteWidgetDef) => void;
+}> = ({ w, isFav, onDrag, onCtx, onAdd }) => {
   const sub = w.defaultConfig?.equipmentSubType as string | undefined;
   const sd = sub ? EQUIPMENT_SUBTYPE_SIZES[sub as EquipmentSubType] : WIDGET_SIZES[w.type];
   const pw = sd ? sd.defaultW * GRID_CELL_W : 0;
   const ph = sd ? sd.defaultH * GRID_CELL_H : 0;
   return (
-    <div
-      draggable
-      onDragStart={(e) => onDrag(e, w)}
-      onContextMenu={(e) => onCtx(e, w)}
-      className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-400 hover:bg-cyan-50 cursor-grab active:cursor-grabbing transition-colors group"
-    >
-      <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-cyan-400 flex-shrink-0" />
+    <Button variant="secondary" size="sm" type="button" draggable onDragStart={(e) => onDrag(e, w)} onContextMenu={(e) => onCtx(e, w)} onClick={() => onAdd(w)} title="Add to the active screen; drag to place"><GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-cyan-400 flex-shrink-0" />
       <span className="text-gray-600 dark:text-gray-400 flex-shrink-0">{icon(w.iconKey)}</span>
       <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{w.label}</span>
       {isFav && <Star className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />}
-      {pw > 0 && <span className="text-[9px] text-gray-500 dark:text-gray-400 flex-shrink-0">{pw}x{ph}</span>}
-    </div>
+      {pw > 0 && <span className="text-[9px] text-gray-500 dark:text-gray-400 flex-shrink-0">{pw}x{ph}</span>}</Button>
   );
 };
 
@@ -292,6 +288,22 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
     e.preventDefault(); toggleFav(paletteWidgetKey(w));
   }, [toggleFav]);
 
+  // Keyboard path to placement: the same widget a drop would create, at a default position.
+  const onAdd = useCallback((w: PaletteWidgetDef) => {
+    if (!activeScreenId) return;
+    const sub = w.defaultConfig?.equipmentSubType as string | undefined;
+    const sd = (sub ? EQUIPMENT_SUBTYPE_SIZES[sub as EquipmentSubType] : undefined) ?? WIDGET_SIZES[w.type];
+    const id = `w-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    addWidget(activeScreenId, {
+      id,
+      widgetType: w.type,
+      position: { col: 2, row: 2, w: sd?.defaultW ?? 4, h: sd?.defaultH ?? 3 },
+      config: { label: w.label, ...w.defaultConfig },
+    });
+    setSelectedWidget(id);
+    trackDrop(paletteWidgetKey(w));
+  }, [activeScreenId, addWidget, setSelectedWidget, trackDrop]);
+
   // Layers resize
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault(); setResizing(true);
@@ -308,9 +320,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
   if (collapsed) {
     return (
       <div className="w-10 flex flex-col items-center py-2 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700">
-        <button onClick={onToggleCollapse} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400" title="Expand panel">
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <Button variant="ghost" size="sm" iconOnly aria-label="Expand panel" onClick={onToggleCollapse} title="Expand panel"><ChevronRight className="w-4 h-4" /></Button>
       </div>
     );
   }
@@ -331,7 +341,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
           {Array.from(byCat.entries()).map(([cat, ws]) => (
             <div key={cat}>
               <div className="px-2 py-1 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{cat} ({ws.length})</div>
-              <div className="space-y-1 px-1">{ws.map((w) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav={favs.has(paletteWidgetKey(w))} onDrag={onDrag} onCtx={onCtx} />)}</div>
+              <div className="space-y-1 px-1">{ws.map((w) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav={favs.has(paletteWidgetKey(w))} onDrag={onDrag} onCtx={onCtx} onAdd={onAdd} />)}</div>
             </div>
           ))}
         </div>
@@ -347,10 +357,10 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
             <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider"><Clock className="w-3 h-3" />Recent</div>
             <div className="flex gap-1.5 px-2 pb-1.5 overflow-x-auto">
               {recentW.map(({ w }) => (
-                <div key={paletteWidgetKey(w)} draggable onDragStart={(e) => onDrag(e, w)} onContextMenu={(e) => onCtx(e, w)}
+                <button type="button" key={paletteWidgetKey(w)} draggable onDragStart={(e) => onDrag(e, w)} onContextMenu={(e) => onCtx(e, w)} onClick={() => onAdd(w)}
                   className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:border-cyan-400 hover:bg-cyan-50 cursor-grab text-xs text-gray-600 dark:text-gray-400 transition-colors" title={w.label}>
                   {icon(w.iconKey, 'w-3 h-3')}<span className="max-w-[60px] truncate text-[10px]">{w.label}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -360,19 +370,17 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
         {favW.length > 0 && (
           <div className="border-b border-gray-100 dark:border-gray-700 pb-1">
             <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider"><Star className="w-3 h-3 text-amber-400" />Favorites</div>
-            <div className="py-1 px-2 space-y-1">{favW.map(({ w }) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav onDrag={onDrag} onCtx={onCtx} />)}</div>
+            <div className="py-1 px-2 space-y-1">{favW.map(({ w }) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav onDrag={onDrag} onCtx={onCtx} onAdd={onAdd} />)}</div>
           </div>
         )}
 
         {/* Categories */}
         {PALETTE_CATEGORIES.map((cat) => (
           <div key={cat.name}>
-            <button onClick={() => toggleCat(cat.name)} className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-              <span>{cat.name} <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">({cat.widgets.length})</span></span>
-              {expCat.has(cat.name) ? <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />}
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => toggleCat(cat.name)}><span>{cat.name} <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">({cat.widgets.length})</span></span>
+              {expCat.has(cat.name) ? <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />}</Button>
             {expCat.has(cat.name) && (
-              <div className="py-1 px-2 space-y-1">{cat.widgets.map((w) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav={favs.has(paletteWidgetKey(w))} onDrag={onDrag} onCtx={onCtx} />)}</div>
+              <div className="py-1 px-2 space-y-1">{cat.widgets.map((w) => <WidgetCard key={paletteWidgetKey(w)} w={w} isFav={favs.has(paletteWidgetKey(w))} onDrag={onDrag} onCtx={onCtx} onAdd={onAdd} />)}</div>
             )}
           </div>
         ))}
@@ -406,12 +414,9 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
             <div className="px-2 pb-1.5 flex-shrink-0">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 pointer-events-none" />
-                <input ref={searchRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search widgets..." className="w-full h-8 text-sm pl-7 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md focus:outline-hidden focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500" />
+                <Input fullWidth ref={searchRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search widgets..." />
                 {query && (
-                  <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-500">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                  <Button variant="ghost" iconOnly aria-label="Close" className="absolute right-2 top-1/2" onClick={() => setQuery('')}><X className="w-3.5 h-3.5" /></Button>
                 )}
               </div>
             </div>
@@ -442,11 +447,8 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
             <GripHorizontal className="w-4 h-4 text-gray-300" />
           </button>
         )}
-        <button onClick={() => setLayColl((p) => !p)}
-          className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-          {layColl ? <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />}
-          LAYERS
-        </button>
+        <Button variant="secondary" size="xs" onClick={() => setLayColl((p) => !p)}>{layColl ? <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />}
+          LAYERS</Button>
         {!layColl && (
           <div style={{ height: layH, minHeight: 120, maxHeight: 400 }} className="overflow-hidden">
             <LayersPanel />

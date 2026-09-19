@@ -8,8 +8,8 @@
  * - Equipment qualifications
  */
 
-import React, { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Award,
@@ -20,14 +20,13 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   Eye,
   RefreshCw,
   Users,
   Calendar,
   FileText,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import {
   useCertificationTypes,
   useExpiringCertifications,
@@ -36,7 +35,12 @@ import {
 } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
-import { CertificationExpiryAlert } from '../../components/certification';
+import {
+  CertificationExpiryAlert,
+  AddCertificationModal,
+  AddCertificationTypeModal,
+  RenewCertificationModal,
+} from '../../components/certification';
 import { CertificationRequirement } from '../../types';
 import type {
   CertificationType,
@@ -187,7 +191,7 @@ const CertificationTypeCard: React.FC<{
           </span>
         )}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
         <div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeCount}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
@@ -220,8 +224,15 @@ const CertificationTypeCard: React.FC<{
 // ============================================================================
 
 export function CertificationDashboardPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const renewCertId = searchParams.get('renew');
+
+  // Dialogs (FE-MEDIUM-092): the controls above open these; a `?renew=<id>`
+  // link (the expiry alert) opens the renew dialog for that record.
+  const [showAddCertification, setShowAddCertification] = useState(false);
+  const [showAddType, setShowAddType] = useState(false);
+  const [renewing, setRenewing] = useState<EmployeeCertification | null>(null);
 
   // State
   const [activeTab, setActiveTab] = useState<'overview' | 'certifications' | 'types' | 'compliance'>(
@@ -251,6 +262,21 @@ export function CertificationDashboardPage() {
   );
   const allCertifications = certData?.items || [];
   const certTotal = certData?.total || 0;
+
+  useEffect(() => {
+    if (!renewCertId) return;
+    const target = allCertifications.find((cert) => cert.id === renewCertId) ?? expiring30?.find((cert) => cert.id === renewCertId);
+    if (target) setRenewing(target);
+  }, [renewCertId, allCertifications, expiring30]);
+
+  const closeRenew = (): void => {
+    setRenewing(null);
+    if (renewCertId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('renew');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   // Calculate stats
   const totalCertTypes = certTypes?.length || 0;
@@ -375,18 +401,8 @@ export function CertificationDashboardPage() {
       align: 'right',
       render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
-          <button
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            title="View"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-          <button
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-indigo-600 dark:hover:bg-gray-700"
-            title="Renew"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="View employee" title="View employee" onClick={() => navigate(`/hr/employees/${row.employeeId}`)}><Eye className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Renew" title="Renew" onClick={() => setRenewing(row)}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       ),
     },
@@ -421,14 +437,7 @@ export function CertificationDashboardPage() {
         description="Track and manage employee certifications and compliance"
         actions={
           <div className="flex items-center gap-3">
-            <button className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
-              <Download className="h-4 w-4" />
-              Export
-            </button>
-            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              <Plus className="h-4 w-4" />
-              Add Certification
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddCertification(true)}>Add Certification</Button>
           </div>
         }
       />
@@ -571,12 +580,7 @@ export function CertificationDashboardPage() {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Recent Certifications
               </h3>
-              <button
-                onClick={() => setActiveTab('certifications')}
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-              >
-                View All
-              </button>
+              <Button variant="ghost" onClick={() => setActiveTab('certifications')}>View All</Button>
             </div>
             <DataTable<EmployeeCertification>
               data={activeCertifications.slice(0, 5)}
@@ -607,37 +611,8 @@ export function CertificationDashboardPage() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value as CertificationCategory | '')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">All Categories</option>
-                <option value="diving">Diving</option>
-                <option value="safety">Safety</option>
-                <option value="vessel">Vessel</option>
-                <option value="equipment">Equipment</option>
-                <option value="first_aid">First Aid</option>
-                <option value="fire_safety">Fire Safety</option>
-                <option value="chemical_handling">Chemical Handling</option>
-                <option value="fish_handling">Fish Handling</option>
-                <option value="water_quality">Water Quality</option>
-                <option value="leadership">Leadership</option>
-                <option value="technical">Technical</option>
-                <option value="other">Other</option>
-              </select>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as CertificationStatus | '')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">All Statuses</option>
-                <option value="active">Active</option>
-                <option value="expired">Expired</option>
-                <option value="pending_renewal">Pending Renewal</option>
-                <option value="suspended">Suspended</option>
-                <option value="revoked">Revoked</option>
-              </select>
+              <Select options={[{ value: '', label: 'All Categories' }, { value: 'diving', label: 'Diving' }, { value: 'safety', label: 'Safety' }, { value: 'vessel', label: 'Vessel' }, { value: 'equipment', label: 'Equipment' }, { value: 'first_aid', label: 'First Aid' }, { value: 'fire_safety', label: 'Fire Safety' }, { value: 'chemical_handling', label: 'Chemical Handling' }, { value: 'fish_handling', label: 'Fish Handling' }, { value: 'water_quality', label: 'Water Quality' }, { value: 'leadership', label: 'Leadership' }, { value: 'technical', label: 'Technical' }, { value: 'other', label: 'Other' }]} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as CertificationCategory | '')} />
+              <Select options={[{ value: '', label: 'All Statuses' }, { value: 'active', label: 'Active' }, { value: 'expired', label: 'Expired' }, { value: 'pending_renewal', label: 'Pending Renewal' }, { value: 'suspended', label: 'Suspended' }, { value: 'revoked', label: 'Revoked' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as CertificationStatus | '')} />
             </div>
           </div>
 
@@ -647,6 +622,8 @@ export function CertificationDashboardPage() {
             columns={certificationColumns}
             keyExtractor={(row) => row.id}
             loading={loadingCerts}
+            exportable
+            exportFileName="certifications"
             emptyMessage="No certifications found"
             pagination={derivePaginationMetadataV1(certTotal, pagination.page || 1, pagination.limit || 20)}
             onPageChange={handlePageChange}
@@ -663,10 +640,7 @@ export function CertificationDashboardPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {certTypes?.length || 0} certification types configured
             </p>
-            <button className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700">
-              <Plus className="h-4 w-4" />
-              Add Certification Type
-            </button>
+            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddType(true)}>Add Certification Type</Button>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -831,6 +805,14 @@ export function CertificationDashboardPage() {
           </div>
         </div>
       )}
+      <AddCertificationModal
+        open={showAddCertification}
+        onClose={() => setShowAddCertification(false)}
+        employees={employees?.items ?? []}
+        certificationTypes={certTypes ?? []}
+      />
+      <AddCertificationTypeModal open={showAddType} onClose={() => setShowAddType(false)} />
+      <RenewCertificationModal certification={renewing} onClose={closeRenew} />
     </div>
   );
 }

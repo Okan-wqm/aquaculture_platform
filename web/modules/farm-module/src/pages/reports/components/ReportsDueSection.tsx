@@ -13,6 +13,7 @@
  * source records, never the report.
  */
 import React, { useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 import {
   ReportDeadline,
@@ -145,40 +146,12 @@ export const ReportsDueSection: React.FC = () => {
                   )}
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setReviewingId(isReviewing ? null : d.id)}
-                      aria-expanded={isReviewing}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    >
-                      {isReviewing ? 'Hide' : 'Review'}
-                    </button>
+                    <Button variant="secondary" size="xs" type="button" onClick={() => setReviewingId(isReviewing ? null : d.id)} aria-expanded={isReviewing}>{isReviewing ? 'Hide' : 'Review'}</Button>
                     {d.status === 'READY' && (
-                      <button
-                        type="button"
-                        onClick={() => handleApprove(d.id)}
-                        disabled={isBusy}
-                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        Approve &amp; Submit
-                      </button>
+                      <Button variant="primary" size="xs" type="button" onClick={() => handleApprove(d.id)} disabled={isBusy}>Approve &amp; Submit</Button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => refresh.mutate(d.id)}
-                      disabled={isBusy}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-                    >
-                      Refresh
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => dismiss.mutate(d.id)}
-                      disabled={isBusy}
-                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 disabled:opacity-50"
-                    >
-                      Dismiss
-                    </button>
+                    <Button variant="secondary" size="xs" type="button" onClick={() => refresh.mutate(d.id)} disabled={isBusy}>Refresh</Button>
+                    <Button variant="ghost" size="xs" type="button" onClick={() => dismiss.mutate(d.id)} disabled={isBusy}>Dismiss</Button>
                   </div>
                 </div>
                 {isReviewing && <DraftReviewPanel draftId={d.id} />}

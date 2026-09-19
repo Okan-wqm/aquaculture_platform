@@ -12,7 +12,7 @@ import { useStockMovements, useLotTrace } from '../../../hooks/useStorageInvento
 import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 const typeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -161,20 +161,8 @@ export const StockMovementsTab: React.FC = () => {
         {/* Date range filter for audit queries ("show me all movements in January")
             and troubleshooting ("what happened last week?"). The backend already
             supports fromDate/toDate — this is purely a frontend wiring task. */}
-        <input
-          type="date"
-          value={fromDate}
-          onChange={e => setFromDate(e.target.value)}
-          aria-label="Filter movements from date"
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-        />
-        <input
-          type="date"
-          value={toDate}
-          onChange={e => setToDate(e.target.value)}
-          aria-label="Filter movements to date"
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-        />
+        <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} aria-label="Filter movements from date" />
+        <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} aria-label="Filter movements to date" />
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
           className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
           <option value="all">All Types</option>
@@ -204,18 +192,8 @@ export const StockMovementsTab: React.FC = () => {
           >
             {lotTraceMode ? '\u2715 Exit Lot Trace' : 'Lot Trace'}
           </button>
-          <button
-            onClick={() => setShowMovementModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            Record Movement
-          </button>
-          <button
-            onClick={() => setShowTransferModal(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
-          >
-            Transfer Stock
-          </button>
+          <Button variant="primary" onClick={() => setShowMovementModal(true)}>Record Movement</Button>
+          <Button variant="primary" onClick={() => setShowTransferModal(true)}>Transfer Stock</Button>
         </div>
       </div>
 
@@ -228,13 +206,7 @@ export const StockMovementsTab: React.FC = () => {
           <label className="block text-sm font-medium text-purple-800 mb-1">
             Lot Number (EU 178/2002 Traceability)
           </label>
-          <input
-            type="text"
-            value={lotTraceNumber}
-            onChange={e => setLotTraceNumber(e.target.value)}
-            placeholder="Enter lot number to trace..."
-            className="w-full px-3 py-2 border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
+          <Input fullWidth type="text" value={lotTraceNumber} onChange={e => setLotTraceNumber(e.target.value)} placeholder="Enter lot number to trace..." />
           {lotTraceNumber.length > 0 && lotTraceNumber.length < 2 && (
             <p className="mt-1 text-xs text-purple-600">
               Type at least 2 characters to begin tracing.
@@ -256,7 +228,7 @@ export const StockMovementsTab: React.FC = () => {
           <p className="text-red-600">
             {lotTraceMode ? 'Failed to trace lot movements.' : 'Failed to load movements.'}
           </p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 

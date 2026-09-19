@@ -80,13 +80,7 @@ interface SummaryCardProps {
  * Reusable summary card shell: gradient header pill + white body + chevron.
  * WHY button (not div): keyboard accessibility — tab-focusable + enter activates.
  */
-function SummaryCard({
-  title,
-  ariaLabel,
-  gradient,
-  onClick,
-  children,
-}: SummaryCardProps): JSX.Element {
+function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryCardProps): JSX.Element {
   return (
     <button
       onClick={onClick}
@@ -131,10 +125,7 @@ export function OperationsHubPage(): JSX.Element {
   // WHY permission checks per hub: each hub aggregates multiple features.
   // Show the card if the user can access ANY feature within that hub.
   const hasDailyOps =
-    canAccess('attendance') ||
-    canAccess('mortality') ||
-    canAccess('waterQuality') ||
-    canAccess('feeding');
+    canAccess('attendance') || canAccess('mortality') || canAccess('waterQuality') || canAccess('feeding');
   const hasStockEvents = canReach('cull') || canReach('harvest') || canReach('transfer');
   const hasWarehouse = canAccess('storage');
   const hasStaff = canAccess('attendance') || canAccess('leave') || canAccess('schedule');
@@ -253,8 +244,6 @@ export function OperationsHubPage(): JSX.Element {
         )}
       </main>
 
-      {/* Bottom spacer to prevent content from hiding behind the fixed tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

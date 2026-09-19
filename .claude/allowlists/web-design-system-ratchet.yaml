@@ -22,6 +22,20 @@
 #                 per package. shared-ui is never granted a ceiling: the
 #                 primitives paint from primary / secondary / accent / success /
 #                 warning / error / info / neutral.
+#   rawMutation — direct TanStack useMutation( calls per package (web/apps and
+#                 the admin panel's useAdminMutation wrapper excluded); a
+#                 mutation declares its outcome through useFeedbackMutation.
+#   rawButton   — raw <button> elements per package, primitives excluded.
+#   rawField    — raw <input> / <select> / <textarea> per package, primitives excluded.
+#   fixedGrid   — class attributes fixing grid-cols-N (2–6, 8–11) with no
+#                 breakpoint variant, per package (web/apps excluded: phone-first
+#                 by construction). A week (7) and a layout grid (12) are not
+#                 counted. The phone shape is grid-cols-1 sm:grid-cols-2 lg:grid-cols-N.
+#   hardcodedText — user-visible strings written in the file (JSX text, or a
+#                 placeholder / title / aria-label / alt / label attribute)
+#                 instead of a message key through useI18n, per package,
+#                 shared-ui included; the SUPER_ADMIN panel is the declared
+#                 English-only surface and is not counted (FE-HIGH-089).
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -101,6 +115,202 @@ rawTable:
       expiry: 2027-06-30
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+rawMutation:
+  entries:
+    - package: web/modules/farm-module
+      ceiling: 177
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 77
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+    - package: web/shell
+      ceiling: 3
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-086
+      reason: direct useMutation calls whose outcome the user never hears; declare success and error through useFeedbackMutation (the admin panel through useAdminMutation feedback) and lower this ceiling
+rawButton:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 153
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 177
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 2
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 118
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 50
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 9
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 237
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 31
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+    - package: web/shell
+      ceiling: 25
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
+rawField:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 24
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 123
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 315
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 24
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 392
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 31
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+    - package: web/shell
+      ceiling: 4
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-079
+      reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
+fixedGrid:
+  entries: []
+hardcodedText:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 618
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 90
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 2678
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 577
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 191
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 3340
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 503
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/shared-ui
+      ceiling: 204
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
+    - package: web/shell
+      ceiling: 155
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-089
+      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
 rawSpinner:
   entries: []
 rawPageTitle:
@@ -136,17 +346,23 @@ rawPageTitle:
       findingId: FE-MEDIUM-071
       reason: the 404 page — a centred message, not a page header
 darkSurface:
-  entries: []
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
 rawPalette:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 1455
+      ceiling: 1452
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/admin-panel
-      ceiling: 1483
+      ceiling: 1478
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
@@ -158,37 +374,37 @@ rawPalette:
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 4318
+      ceiling: 2999
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 1036
+      ceiling: 879
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 107
+      ceiling: 95
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 4283
+      ceiling: 2950
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 878
+      ceiling: 651
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078
       reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
     - package: web/shell
-      ceiling: 113
+      ceiling: 110
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

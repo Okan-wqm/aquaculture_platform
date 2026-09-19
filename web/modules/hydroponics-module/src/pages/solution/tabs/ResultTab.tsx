@@ -10,7 +10,7 @@ import {
   NS_TYPE_OPTIONS,
 } from '../../../types/solution.types';
 import type { NutrientVector, FertilizerAmount } from '../../../lib/calculator';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 
 const MACRO_ROWS: { key: keyof NutrientVector; label: string; unit: string }[] = [
   { key: 'K', label: 'K+', unit: 'mmol/L' },
@@ -159,18 +159,8 @@ const ResultTab: React.FC = () => {
         >
           Save Configuration
         </button>
-        <button
-          onClick={handleDownload}
-          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          Download
-        </button>
-        <button
-          onClick={handlePrint}
-          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          Print
-        </button>
+        <Button variant="secondary" onClick={handleDownload}>Download</Button>
+        <Button variant="secondary" onClick={handlePrint}>Print</Button>
       </div>
 
       {/* Info Summary */}
@@ -237,7 +227,7 @@ const ResultTab: React.FC = () => {
       {result && (
         <>
           {/* EC & pH */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
               <span className="text-xs text-gray-500 dark:text-gray-400 block">Target EC</span>
               <span className="text-xl font-bold text-green-700">{fmt(result.ec)} mS/cm</span>
@@ -301,7 +291,7 @@ const ResultTab: React.FC = () => {
           {/* Ion Balance */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Ion Balance Check</h3>
-            <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
                 <span className="text-xs text-gray-500 dark:text-gray-400 block">Total Cations</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmt(result.ionBalance.totalCations)} meq/L</span>

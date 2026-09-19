@@ -20,14 +20,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import {
-  Modal,
-  useToast,
-  useConfirm,
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-} from '@aquaculture/shared-ui';
+import { FormField, Modal, useToast, useConfirm, DataTable, type DataTableColumn, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -231,7 +224,7 @@ const SiteMultiSelect: React.FC<{
       {sites.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">No sites available</p>
       ) : (
-        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
           {sites.map((site) => (
             <label
               key={site.id}
@@ -258,13 +251,7 @@ const SiteMultiSelect: React.FC<{
                 className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
               >
                 {site.name}
-                <button
-                  type="button"
-                  onClick={() => toggleSite(id)}
-                  className="ml-1 hover:text-blue-900"
-                >
-                  &times;
-                </button>
+                <Button variant="ghost" className="ml-1" type="button" onClick={() => toggleSite(id)}>&times;</Button>
               </span>
             ) : null;
           })}
@@ -334,13 +321,7 @@ const DocumentsSection: React.FC<{
           <div className="flex gap-3 items-end">
             <div className="flex-1">
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Document Name</label>
-              <input
-                type="text"
-                value={uploadName}
-                onChange={(e) => setUploadName(e.target.value)}
-                placeholder="Enter document name"
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md py-1.5 px-3 text-sm"
-              />
+              <Input fullWidth type="text" value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="Enter document name" />
             </div>
             <div className="w-40">
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
@@ -356,14 +337,7 @@ const DocumentsSection: React.FC<{
                 ))}
               </select>
             </div>
-            <button
-              type="button"
-              onClick={handleUpload}
-              disabled={isUploading || !uploadName}
-              className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              {isUploading ? 'Uploading...' : 'Upload'}
-            </button>
+            <Button variant="primary" size="sm" type="button" onClick={handleUpload} disabled={isUploading || !uploadName}>{isUploading ? 'Uploading...' : 'Upload'}</Button>
           </div>
         )}
       </div>
@@ -403,13 +377,7 @@ const DocumentsSection: React.FC<{
                 >
                   Download
                 </a>
-                <button
-                  type="button"
-                  onClick={() => onDelete(doc)}
-                  className="text-red-600 hover:text-red-800 text-sm"
-                >
-                  Delete
-                </button>
+                <Button variant="ghost" type="button" onClick={() => onDelete(doc)}>Delete</Button>
               </div>
             </div>
           ))}
@@ -448,6 +416,8 @@ export const ChemicalsTab: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingChemical, setEditingChemical] = useState<Chemical | null>(null);
   const [formData, setFormData] = useState<ChemicalFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   // Collapsible section states
@@ -483,22 +453,13 @@ export const ChemicalsTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name) {
-      toast({ title: 'Please enter a name.', variant: 'warning' });
-      return;
-    }
-    if (!formData.code) {
-      toast({ title: 'Please enter a code.', variant: 'warning' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Please select a chemical type.', variant: 'warning' });
-      return;
-    }
-    if (!formData.siteId) {
-      toast({ title: 'Please select a site.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!formData.type) errors.type = 'Please select a chemical type.';
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsSaving(true);
     try {
@@ -550,6 +511,7 @@ export const ChemicalsTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
       setEditingChemical(null);
     } catch (err: unknown) {
@@ -613,14 +575,7 @@ export const ChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (
-      await confirm({
-        title: 'Delete this chemical?',
-        confirmText: 'Delete',
-        cancelText: 'Cancel',
-        variant: 'danger',
-      })
-    ) {
+    if (await confirm({ title: 'Delete this chemical?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteChemicalMutation.mutateAsync(id);
       } catch (err) {
@@ -648,14 +603,7 @@ export const ChemicalsTab: React.FC = () => {
 
   const handleDocumentDelete = async (doc: ChemicalDocument) => {
     if (!editingId) return;
-    if (
-      await confirm({
-        title: `Delete document "${doc.name}"?`,
-        confirmText: 'Delete',
-        cancelText: 'Cancel',
-        variant: 'danger',
-      })
-    ) {
+    if (await confirm({ title: `Delete document "${doc.name}"?`, confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         const filename = doc.url.split('/').pop() || doc.name;
         await removeDocument.mutateAsync({
@@ -728,7 +676,11 @@ export const ChemicalsTab: React.FC = () => {
     {
       key: 'documents',
       header: 'Documents',
-      render: (_value, chemical) => <>{chemical.documents?.length || 0} docs</>,
+      render: (_value, chemical) => (
+        <>
+          {chemical.documents?.length || 0} docs
+        </>
+      ),
     },
     {
       key: 'actions',
@@ -736,21 +688,11 @@ export const ChemicalsTab: React.FC = () => {
       align: 'right',
       render: (_value, chemical) => (
         <>
-          <button
-            onClick={() => handleEdit(chemical)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => handleDelete(chemical.id)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(chemical)}>Edit</Button>
+          <Button variant="ghost" onClick={() => handleDelete(chemical.id)}>Delete</Button>
         </>
       ),
-    },
+    }
   ];
 
   return (
@@ -793,11 +735,11 @@ export const ChemicalsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={() => {
+        <Button variant="primary" onClick={() => {
             setEditingId(null);
             setEditingChemical(null);
             setFormData(initialFormData);
+            setFieldErrors({});
             setOpenSections({
               basic: true,
               composition: false,
@@ -808,10 +750,7 @@ export const ChemicalsTab: React.FC = () => {
               notes: false,
             });
             setIsModalOpen(true);
-          }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          }}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -819,8 +758,7 @@ export const ChemicalsTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Chemical
-        </button>
+          Add Chemical</Button>
       </div>
 
       {/* Loading State */}
@@ -834,9 +772,7 @@ export const ChemicalsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load chemicals. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -894,31 +830,24 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('basic')}
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
+                    <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.code}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
+                    <Input fullWidth type="text" required value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
+                    </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                    <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
                     <select
                       required
                       value={formData.type}
@@ -934,9 +863,11 @@ export const ChemicalsTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
+                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                     <select
                       required
                       value={formData.siteId}
@@ -950,9 +881,10 @@ export const ChemicalsTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Manufacturer (Supplier)
@@ -974,30 +906,14 @@ export const ChemicalsTab: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit *</label>
-                    <select
-                      required
-                      value={formData.unit}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="liter">Liter</option>
-                      <option value="ml">Milliliter</option>
-                      <option value="kg">Kilogram</option>
-                      <option value="gram">Gram</option>
-                      <option value="piece">Piece</option>
-                    </select>
+                    <Select fullWidth options={[{ value: 'liter', label: 'Liter' }, { value: 'ml', label: 'Milliliter' }, { value: 'kg', label: 'Kilogram' }, { value: 'gram', label: 'Gram' }, { value: 'piece', label: 'Piece' }]} required value={formData.unit} onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))} />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, description: e.target.value }))
-                    }
-                    rows={2}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Textarea fullWidth value={formData.description} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, description: e.target.value }))
+          } rows={2} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
@@ -1025,49 +941,26 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('composition')}
               optional
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Active Ingredient
                   </label>
-                  <input
-                    type="text"
-                    value={formData.activeIngredient}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.activeIngredient} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
+          } />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Concentration</label>
-                  <input
-                    type="text"
-                    value={formData.concentration}
-                    placeholder="e.g., 10%, 50mg/L"
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, concentration: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.concentration} placeholder="e.g., 10%, 50mg/L" onChange={(e) =>
+           setFormData((prev) => ({ ...prev, concentration: e.target.value }))
+          } />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Formulation</label>
-                  <select
-                    value={formData.formulation}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, formulation: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select Formulation</option>
-                    <option value="liquid">Liquid</option>
-                    <option value="powder">Powder</option>
-                    <option value="granule">Granule</option>
-                    <option value="tablet">Tablet</option>
-                    <option value="gel">Gel</option>
-                    <option value="emulsion">Emulsion</option>
-                  </select>
+                  <Select fullWidth options={[{ value: '', label: 'Select Formulation' }, { value: 'liquid', label: 'Liquid' }, { value: 'powder', label: 'Powder' }, { value: 'granule', label: 'Granule' }, { value: 'tablet', label: 'Tablet' }, { value: 'gel', label: 'Gel' }, { value: 'emulsion', label: 'Emulsion' }]} value={formData.formulation} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, formulation: e.target.value }))
+          } />
                 </div>
               </div>
             </CollapsibleSection>
@@ -1080,7 +973,7 @@ export const ChemicalsTab: React.FC = () => {
               optional
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Storage Requirements
@@ -1101,112 +994,65 @@ export const ChemicalsTab: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Hazard Class</label>
-                    <input
-                      type="text"
-                      value={formData.hazardClass}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.hazardClass} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
+           } />
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Min Temp (°C)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.storageTempMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" value={formData.storageTempMin} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+            }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Temp (°C)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.storageTempMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" value={formData.storageTempMax} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+            }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Min Humidity (%)
                     </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={formData.storageHumidityMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMin} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+            }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Max Humidity (%)
                     </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      value={formData.storageHumidityMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-                        }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMax} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+            }))
+           } />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Signal Word</label>
-                    <select
-                      value={formData.signalWord}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">None</option>
-                      <option value="warning">Warning</option>
-                      <option value="danger">Danger</option>
-                    </select>
+                    <Select fullWidth options={[{ value: '', label: 'None' }, { value: 'warning', label: 'Warning' }, { value: 'danger', label: 'Danger' }]} value={formData.signalWord} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">MSDS URL</label>
-                    <input
-                      type="url"
-                      value={formData.msdsUrl}
-                      placeholder="https://..."
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="url" value={formData.msdsUrl} placeholder="https://..." onChange={(e) =>
+            setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
+           } />
                   </div>
                 </div>
               </div>
@@ -1219,35 +1065,23 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('usage')}
               optional
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Withdrawal Period (days)
                   </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formData.withdrawalPeriodDays}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        withdrawalPeriodDays: parseInt(e.target.value) || 0,
-                      }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="number" min="0" value={formData.withdrawalPeriodDays} onChange={(e) =>
+           setFormData((prev) => ({
+            ...prev,
+            withdrawalPeriodDays: parseInt(e.target.value) || 0,
+           }))
+          } />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Usage Guide URL</label>
-                  <input
-                    type="url"
-                    value={formData.usageGuideUrl}
-                    placeholder="https://..."
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="url" value={formData.usageGuideUrl} placeholder="https://..." onChange={(e) =>
+           setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
+          } />
                 </div>
               </div>
             </CollapsibleSection>
@@ -1291,31 +1125,13 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('notes')}
               optional
             >
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                placeholder="Additional notes about this chemical..."
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} placeholder="Additional notes about this chemical..." />
             </CollapsibleSection>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-gray-400"
-            >
-              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -10,12 +11,12 @@ export const ProcessViewConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     <div className="space-y-3">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Proses ID</label>
-        <input
+        <Input
+          fullWidth
           type="text"
           value={config.processId || ''}
           onChange={(e) => onChange({ processId: e.target.value })}
           placeholder="Enter Process ID"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
     </div>

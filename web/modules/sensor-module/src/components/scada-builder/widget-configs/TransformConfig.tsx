@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM, clampTransform } from '../../../types/scada-transform.types';
 
@@ -61,14 +62,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
-        aria-expanded={open}
-        aria-label="Transform settings"
-      >
-        <span>Transform</span>
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Transform settings"><span>Transform</span>
         <svg
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
@@ -76,8 +70,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {open && (
         <div className="space-y-3 mt-2">
@@ -103,15 +96,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 className={INPUT_CLASS}
                 aria-label="Rotation degrees"
               />
-              <button
-                type="button"
-                onClick={() => handleChange({ rotation: 0 })}
-                className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg shrink-0"
-                title="Reset rotation"
-                aria-label="Reset rotation"
-              >
-                0
-              </button>
+              <Button variant="secondary" size="xs" className="shrink-0" type="button" onClick={() => handleChange({ rotation: 0 })} title="Reset rotation" aria-label="Reset rotation">0</Button>
             </div>
           </div>
 
@@ -134,7 +119,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 {aspectLock ? 'Locked' : 'Lock'}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X</label>
                 <input
@@ -165,7 +150,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           </div>
 
           {/* Skew */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew X</label>
               <input
@@ -198,7 +183,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Origin</label>
             <div
-              className="inline-grid grid-cols-3 gap-1 p-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg"
+              className="inline-grid grid-cols-1 sm:grid-cols-3 gap-1 p-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg"
               role="radiogroup"
               aria-label="Transform origin"
             >
@@ -225,15 +210,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           </div>
 
           {/* Reset all */}
-          <button
-            type="button"
-            onClick={handleReset}
-            className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
-            aria-label="Reset all transforms"
-            data-testid="transform-reset-all"
-          >
-            Reset All Transforms
-          </button>
+          <Button variant="secondary" size="xs" type="button" onClick={handleReset} aria-label="Reset all transforms" data-testid="transform-reset-all">Reset All Transforms</Button>
         </div>
       )}
     </div>

@@ -29,7 +29,7 @@ import {
   AlertSeverity,
   AlertStatusFilter,
 } from '../hooks/useAlerts';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, severityClasses, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -52,12 +52,12 @@ type StatusConfig = {
 // ============================================================================
 
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
-  critical: { label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200', borderClass: 'border-l-red-500' },
-  high: { label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-l-orange-500' },
-  warning: { label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200', borderClass: 'border-l-yellow-500' },
-  medium: { label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200', borderClass: 'border-l-amber-500' },
-  low: { label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-l-blue-500' },
-  info: { label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700', borderClass: 'border-l-gray-400' },
+  critical: { label: 'Kritik', className: severityClasses('critical'), borderClass: severityClasses('critical', 'bar') },
+  high: { label: 'Yüksek', className: severityClasses('high'), borderClass: severityClasses('high', 'bar') },
+  warning: { label: 'Uyarı', className: severityClasses('warning'), borderClass: severityClasses('warning', 'bar') },
+  medium: { label: 'Orta', className: severityClasses('medium'), borderClass: severityClasses('medium', 'bar') },
+  low: { label: 'Düşük', className: severityClasses('low'), borderClass: severityClasses('low', 'bar') },
+  info: { label: 'Bilgi', className: severityClasses('info'), borderClass: severityClasses('info', 'bar') },
 };
 
 const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
@@ -180,18 +180,12 @@ const AlertCard: React.FC<{
               Onayla
             </button>
           )}
-          <button
-            onClick={() => onResolve(alert.id)}
-            disabled={isMutating}
-            className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {isMutating ? (
+          <Button variant="primary" onClick={() => onResolve(alert.id)} disabled={isMutating}>{isMutating ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
-            Çözüldü İşaretle
-          </button>
+            Çözüldü İşaretle</Button>
         </div>
       )}
     </div>
@@ -247,12 +241,7 @@ const AlertsPage: React.FC = () => {
           <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
           <h3 className="font-semibold text-red-900 text-lg">Yükleme Hatası</h3>
           <p className="text-sm text-red-600 mt-1">{error}</p>
-          <button
-            onClick={refetch}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="danger" className="mt-4" onClick={refetch}>Tekrar Dene</Button>
         </div>
       </div>
     );
@@ -350,23 +339,11 @@ const AlertsPage: React.FC = () => {
           {/* Severity Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <select
-              value={filters.severity || 'all'}
-              onChange={(e) =>
-                updateFilters({
-                  severity: e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
-                })
-              }
-              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
-            >
-              <option value="all">Tüm Önem Dereceleri</option>
-              <option value="critical">Kritik</option>
-              <option value="high">Yüksek</option>
-              <option value="warning">Uyarı</option>
-              <option value="medium">Orta</option>
-              <option value="low">Düşük</option>
-              <option value="info">Bilgi</option>
-            </select>
+            <Select options={[{ value: 'all', label: 'Tüm Önem Dereceleri' }, { value: 'critical', label: 'Kritik' }, { value: 'high', label: 'Yüksek' }, { value: 'warning', label: 'Uyarı' }, { value: 'medium', label: 'Orta' }, { value: 'low', label: 'Düşük' }, { value: 'info', label: 'Bilgi' }]} value={filters.severity || 'all'} onChange={(e) =>
+        updateFilters({
+         severity: e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
+        })
+       } />
           </div>
 
           {/* Auto-refresh indicator */}
@@ -382,9 +359,7 @@ const AlertsPage: React.FC = () => {
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
           <XCircle className="w-4 h-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={refetch} className="ml-auto text-sm text-red-600 hover:underline">
-            Tekrar Dene
-          </button>
+          <Button variant="ghost" onClick={refetch}>Tekrar Dene</Button>
         </div>
       )}
 
@@ -421,23 +396,11 @@ const AlertsPage: React.FC = () => {
             Sayfa {filters.page} - {alerts.length} sonuç gösteriliyor
           </p>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage(filters.page - 1)}
-              disabled={filters.page <= 1}
-              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+            <Button variant="secondary" iconOnly aria-label="Previous" onClick={() => setPage(filters.page - 1)} disabled={filters.page <= 1}><ChevronLeft className="w-4 h-4" /></Button>
             <span className="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300">
               {filters.page}
             </span>
-            <button
-              onClick={() => setPage(filters.page + 1)}
-              disabled={alerts.length < filters.limit}
-              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            <Button variant="secondary" iconOnly aria-label="Next" onClick={() => setPage(filters.page + 1)} disabled={alerts.length < filters.limit}><ChevronRight className="w-4 h-4" /></Button>
           </div>
         </div>
       )}

@@ -11,7 +11,12 @@
  */
 
 import { clsx } from 'clsx';
-import { Package, Scissors, ArrowLeftRight, Skull } from 'lucide-react';
+import {
+  Package,
+  Scissors,
+  ArrowLeftRight,
+  Skull,
+} from 'lucide-react';
 import type { JSX } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -31,18 +36,15 @@ import type { StockEvent } from '@/types';
  * label. A static lookup avoids a switch statement in the render and ensures
  * Tailwind's PurgeCSS sees all class literals.
  */
-const EVENT_TYPE_CONFIG: Record<
-  StockEvent['type'],
-  {
-    icon: typeof Package;
-    borderColor: string;
-    badgeBg: string;
-    badgeText: string;
-    iconColor: string;
-    iconBg: string;
-    label: string;
-  }
-> = {
+const EVENT_TYPE_CONFIG: Record<StockEvent['type'], {
+  icon: typeof Package;
+  borderColor: string;
+  badgeBg: string;
+  badgeText: string;
+  iconColor: string;
+  iconBg: string;
+  label: string;
+}> = {
   MORTALITY: {
     icon: Skull,
     borderColor: 'border-l-red-500',
@@ -168,7 +170,9 @@ function EventRow({ event }: { event: StockEvent }): JSX.Element {
             {event.tankName}
           </span>
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{event.quantity} fish</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          {event.quantity} fish
+        </p>
       </div>
 
       <time
@@ -290,8 +294,6 @@ export function StockEventsHubPage(): JSX.Element {
           </section>
         </main>
 
-        {/* WHY: Bottom spacer prevents content from hiding behind the fixed tab bar. */}
-        <div className="h-24" />
       </div>
     </ErrorBoundary>
   );

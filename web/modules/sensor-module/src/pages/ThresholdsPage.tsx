@@ -25,7 +25,7 @@ import {
   AlertThresholds,
   getSensorTypeLabel,
 } from '../hooks/useSensorThresholds';
-import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -112,14 +112,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
         ? 'w-20 px-2 py-1 border border-yellow-300 rounded text-center text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500'
         : 'w-20 px-2 py-1 border border-red-300 rounded text-center text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500';
     return editing?.sensorId === threshold.sensorId ? (
-      <input
-        type="number"
-        step="0.1"
-        value={editing.data[level]?.[bound] ?? ''}
-        onChange={(e) => updateValue(level, bound, e.target.value)}
-        className={inputClass}
-        placeholder="-"
-      />
+      <Input fullWidth type="number" step="0.1" value={editing.data[level]?.[bound] ?? ''} onChange={(e) => updateValue(level, bound, e.target.value)} placeholder="-" />
     ) : (
       <span className="text-sm text-gray-700 dark:text-gray-300">{threshold.alertThresholds[level]?.[bound] ?? '-'}</span>
     );
@@ -177,32 +170,11 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       render: (_value, threshold) =>
         editing?.sensorId === threshold.sensorId ? (
           <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => void saveEdit(threshold)}
-              disabled={savingId === threshold.sensorId}
-              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-              title="Kaydet"
-            >
-              {savingId === threshold.sensorId ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={cancelEdit}
-              disabled={savingId === threshold.sensorId}
-              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="İptal"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <Button variant="ghost" size="sm" onClick={() => void saveEdit(threshold)} disabled={savingId === threshold.sensorId} title="Kaydet">{savingId === threshold.sensorId ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}</Button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="İptal" onClick={cancelEdit} disabled={savingId === threshold.sensorId} title="İptal"><X className="w-4 h-4" /></Button>
           </div>
         ) : (
-          <button
-            onClick={() => startEdit(threshold)}
-            disabled={updating}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-            title="Düzenle"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Düzenle" onClick={() => startEdit(threshold)} disabled={updating} title="Düzenle"><Edit className="w-4 h-4" /></Button>
         ),
     },
   ];
@@ -271,12 +243,7 @@ const ThresholdsPage: React.FC = () => {
           <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
           <h3 className="font-medium text-red-900">Yükleme Hatası</h3>
           <p className="text-sm text-red-600 mt-1">{error}</p>
-          <button
-            onClick={() => refetch()}
-            className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="danger" className="mt-3" onClick={() => refetch()}>Tekrar Dene</Button>
         </div>
       </div>
     );

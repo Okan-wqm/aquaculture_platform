@@ -13,7 +13,6 @@
  * (ADR-028 lib-creation rubric).
  */
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import { AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import {
@@ -25,6 +24,8 @@ import {
   useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+import { SectionTitle, Select, Input, Textarea } from '../../components/ui';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -271,12 +272,7 @@ export function RecordEntityPage<
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3
-                className={clsx(
-                  'text-sm font-bold uppercase tracking-wider',
-                  theme.summaryHeaderText,
-                )}
-              >
+              <h3 className={clsx('text-sm font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
                 {summaryHeading}
               </h3>
             </div>
@@ -286,11 +282,9 @@ export function RecordEntityPage<
 
         {errors.general && <ErrorBanner message={errors.general} />}
 
-        <div className="px-4 mt-6 space-y-3 pb-28">
+        <div className="px-4 mt-6 space-y-3">
           <button
-            onClick={() => {
-              void handleSubmit();
-            }}
+            onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
             className={clsx(
               'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
@@ -359,32 +353,28 @@ export function RecordEntityPage<
           not selectable. */}
       {!tankId && (
         <>
-          <BlockTitle>Select Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
+          <SectionTitle>Select Tank</SectionTitle>
+          <div className="px-4">
+            <Select
+              label="Tank"
+              hideLabel
               value={selectedTankId}
               onChange={handleTankChange}
               error={errors.tank}
             >
               <option value="">-- Select Tank --</option>
-              {tanks
-                ?.filter((t) => t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                  </option>
-                ))}
-              {tanks
-                ?.filter((t) => !t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id} disabled>
-                    {t.name} (No active batch)
-                  </option>
-                ))}
-            </ListInput>
-          </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
+              {tanks?.filter((t) => t.batchMetrics).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                </option>
+              ))}
+              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
+                <option key={t.id} value={t.id} disabled>
+                  {t.name} (No active batch)
+                </option>
+              ))}
+            </Select>
+          </div>
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
             <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
               <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
@@ -402,7 +392,7 @@ export function RecordEntityPage<
       {children}
 
       {/* Review CTA */}
-      <div className="px-4 pt-5 pb-28">
+      <div className="px-4 pt-5">
         <button
           onClick={handleReview}
           disabled={!canReview}
@@ -533,12 +523,7 @@ export function ReasonGrid<TValue extends string>(props: {
               className={clsx(
                 'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
                 selected
-                  ? clsx(
-                      theme.selectionBorder,
-                      theme.surfaceSoftBg,
-                      theme.selectionGlow,
-                      'scale-[1.02]',
-                    )
+                  ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
                   : 'border-gray-100 dark:border-gray-800',
               )}
             >
@@ -553,7 +538,7 @@ export function ReasonGrid<TValue extends string>(props: {
 }
 
 /**
- * Numeric field (decimal-capable) — konsta-styled, used by the regulatory
+ * Numeric field (decimal-capable) — on the app's Input primitive, used by the regulatory
  * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
  * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
  * cannot express. Empty input surfaces as null so "not entered" is
@@ -570,8 +555,8 @@ export function NumberField(props: {
 }): JSX.Element {
   const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
   return (
-    <List strongIos insetIos>
-      <ListInput
+    <div className="px-4">
+      <Input
         label={label}
         type="number"
         inputMode="decimal"
@@ -580,7 +565,7 @@ export function NumberField(props: {
         placeholder={placeholder}
         value={value ?? ''}
         error={error}
-        onInput={(e: ChangeEvent<HTMLInputElement>) => {
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
           const raw = e.target.value;
           if (raw === '') {
             onChange(null);
@@ -590,11 +575,11 @@ export function NumberField(props: {
           onChange(Number.isFinite(parsed) ? parsed : null);
         }}
       />
-    </List>
+    </div>
   );
 }
 
-/** Notes textarea — konsta-styled, used by cull + mortality. */
+/** Notes textarea — on the app's Textarea primitive, used by cull + mortality. */
 export function NotesInput(props: {
   value: string;
   onChange: (next: string) => void;
@@ -603,16 +588,16 @@ export function NotesInput(props: {
   const { value, onChange, placeholder = 'Additional observations...' } = props;
   return (
     <>
-      <BlockTitle>Notes (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Notes (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Notes"
+          hideLabel
           placeholder={placeholder}
           value={value}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-          inputClassName="!h-24"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
         />
-      </List>
+      </div>
     </>
   );
 }

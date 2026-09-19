@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -79,12 +79,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
       header: 'Görev',
       render: (_value, task) => (
         <>
-          <button
-            onClick={() => setSelectedTask(task)}
-            className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 text-left"
-          >
-            {task.title}
-          </button>
+          <Button variant="ghost" onClick={() => setSelectedTask(task)}>{task.title}</Button>
           {task.location && <p className="text-xs text-gray-500 dark:text-gray-400">{task.location}</p>}
         </>
       ),
@@ -145,24 +140,12 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
       header: 'İşlem',
       render: (_value, task) => (
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onToggleComplete(task.id)}
-            className="text-green-600 hover:text-green-800 text-sm"
-            title="Tamamla"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="ghost" onClick={() => onToggleComplete(task.id)} title="Tamamla"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => onDeleteTask(task.id)}
-            className="text-red-600 hover:text-red-800 text-sm"
-            title="Sil"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            </svg></Button>
+          <Button variant="ghost" onClick={() => onDeleteTask(task.id)} title="Sil"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+            </svg></Button>
         </div>
       ),
     }
@@ -202,27 +185,16 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
             {assignees.map((a: { id: string; name: string }) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap"
-        >
-          + Yeni Görev
-        </button>
+        <Button variant="primary" onClick={() => setShowCreateModal(true)}>+ Yeni Görev</Button>
       </div>
 
       {/* Bulk Actions */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
           <span className="text-sm text-blue-700 font-medium">{selectedIds.size} görev seçili</span>
-          <button onClick={handleBulkComplete} className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">
-            Tamamla
-          </button>
-          <button onClick={handleBulkDelete} className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700">
-            Sil
-          </button>
-          <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100">
-            İptal
-          </button>
+          <Button variant="primary" size="sm" onClick={handleBulkComplete}>Tamamla</Button>
+          <Button variant="danger" size="sm" onClick={handleBulkDelete}>Sil</Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>İptal</Button>
         </div>
       )}
 

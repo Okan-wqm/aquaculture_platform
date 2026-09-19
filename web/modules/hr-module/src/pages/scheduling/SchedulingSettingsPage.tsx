@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { cn, useAuth, colors, PageHeader } from '@aquaculture/shared-ui';
+import { cn, useAuth, colors, PageHeader, Button, Input } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -370,21 +370,9 @@ export function SchedulingSettingsPage() {
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Cizelge Kategorileri</h2>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleResetCategories}
-                className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                title="Varsayilanlara sifirla"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
+              <Button variant="ghost" size="xs" iconOnly aria-label="Varsayilanlara sifirla" onClick={handleResetCategories} title="Varsayilanlara sifirla"><RefreshCw className="h-3.5 w-3.5" /></Button>
               {!showCategoryForm && (
-                <button
-                  onClick={() => { resetCategoryForm(); setShowCategoryForm(true); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  Yeni Kategori
-                </button>
+                <Button variant="primary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { resetCategoryForm(); setShowCategoryForm(true); }}>Yeni Kategori</Button>
               )}
             </div>
           </div>
@@ -401,45 +389,20 @@ export function SchedulingSettingsPage() {
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {editingCategoryCode ? 'Kategori Duzenle' : 'Yeni Kategori Ekle'}
                   </h3>
-                  <button onClick={resetCategoryForm} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-                    <X className="h-4 w-4" />
-                  </button>
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={resetCategoryForm}><X className="h-4 w-4" /></Button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
-                    <input
-                      type="text"
-                      maxLength={4}
-                      value={categoryForm.code}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
-                      disabled={!!editingCategoryCode}
-                      placeholder="D, X, P, OT..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
-                    />
+                    <Input fullWidth type="text" maxLength={4} value={categoryForm.code} onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} disabled={!!editingCategoryCode} placeholder="D, X, P, OT..." />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Ad</label>
-                    <input
-                      type="text"
-                      value={categoryForm.name}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="Calisma, Off, Izin..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="text" value={categoryForm.name} onChange={(e) => setCategoryForm((p) => ({ ...p, name: e.target.value }))} placeholder="Calisma, Off, Izin..." />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Saat</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={24}
-                      step={0.5}
-                      value={categoryForm.hours}
-                      onChange={(e) => setCategoryForm((p) => ({ ...p, hours: parseFloat(e.target.value) || 0 }))}
-                      disabled={!categoryForm.isWorking}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                    />
+                    <Input fullWidth type="number" min={0} max={24} step={0.5} value={categoryForm.hours} onChange={(e) => setCategoryForm((p) => ({ ...p, hours: parseFloat(e.target.value) || 0 }))} disabled={!categoryForm.isWorking} />
                   </div>
                   <div className="flex items-center pt-5">
                     <input
@@ -526,20 +489,8 @@ export function SchedulingSettingsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleEditCategory(cat)}
-                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                        title="Duzenle"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCategory(cat.code)}
-                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                        title="Sil"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <Button variant="ghost" size="sm" iconOnly aria-label="Duzenle" onClick={() => handleEditCategory(cat)} title="Duzenle"><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="sm" iconOnly aria-label="Sil" onClick={() => handleDeleteCategory(cat.code)} title="Sil"><Trash2 className="h-3.5 w-3.5" /></Button>
                     </div>
                   </div>
                 ))}
@@ -548,12 +499,7 @@ export function SchedulingSettingsPage() {
               <div className="text-center py-8">
                 <Tag className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Henuz kategori tanimlanmamis</p>
-                <button
-                  onClick={handleResetCategories}
-                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
-                >
-                  Varsayilan kategorileri yukle
-                </button>
+                <Button variant="ghost" onClick={handleResetCategories}>Varsayilan kategorileri yukle</Button>
               </div>
             )}
           </div>
@@ -567,13 +513,7 @@ export function SchedulingSettingsPage() {
               <h2 className="font-semibold text-gray-900 dark:text-gray-100">Vardiya Yonetimi</h2>
             </div>
             {!showShiftForm && (
-              <button
-                onClick={() => { resetShiftForm(); setShowShiftForm(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                Yeni Vardiya
-              </button>
+              <Button variant="primary" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={() => { resetShiftForm(); setShowShiftForm(true); }}>Yeni Vardiya</Button>
             )}
           </div>
 
@@ -585,74 +525,32 @@ export function SchedulingSettingsPage() {
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {editingShiftId ? 'Vardiya Duzenle' : 'Yeni Vardiya Ekle'}
                   </h3>
-                  <button onClick={resetShiftForm} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-                    <X className="h-4 w-4" />
-                  </button>
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={resetShiftForm}><X className="h-4 w-4" /></Button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
-                    <input
-                      type="text"
-                      maxLength={10}
-                      value={shiftForm.code}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
-                      disabled={!!editingShiftId}
-                      placeholder="S, A, G..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
-                    />
+                    <Input fullWidth type="text" maxLength={10} value={shiftForm.code} onChange={(e) => setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))} disabled={!!editingShiftId} placeholder="S, A, G..." />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Ad</label>
-                    <input
-                      type="text"
-                      value={shiftForm.name}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="Sabah, Aksam..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="text" value={shiftForm.name} onChange={(e) => setShiftForm((p) => ({ ...p, name: e.target.value }))} placeholder="Sabah, Aksam..." />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baslangic</label>
-                    <input
-                      type="time"
-                      value={shiftForm.startTime}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, startTime: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="time" value={shiftForm.startTime} onChange={(e) => setShiftForm((p) => ({ ...p, startTime: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bitis</label>
-                    <input
-                      type="time"
-                      value={shiftForm.endTime}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, endTime: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="time" value={shiftForm.endTime} onChange={(e) => setShiftForm((p) => ({ ...p, endTime: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Toplam Dakika</label>
-                    <input
-                      type="number"
-                      min={60}
-                      max={1440}
-                      step={30}
-                      value={shiftForm.totalMinutes}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, totalMinutes: parseInt(e.target.value) || 480 }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="number" min={60} max={1440} step={30} value={shiftForm.totalMinutes} onChange={(e) => setShiftForm((p) => ({ ...p, totalMinutes: parseInt(e.target.value) || 480 }))} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Mola (dk)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={240}
-                      step={15}
-                      value={shiftForm.breakMinutes}
-                      onChange={(e) => setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
+                    <Input fullWidth type="number" min={0} max={240} step={15} value={shiftForm.breakMinutes} onChange={(e) => setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))} />
                   </div>
                 </div>
                 {/* Color Picker */}
@@ -731,13 +629,7 @@ export function SchedulingSettingsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleEditShift(shift)}
-                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                        title="Duzenle"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
+                      <Button variant="ghost" size="sm" iconOnly aria-label="Duzenle" onClick={() => handleEditShift(shift)} title="Duzenle"><Pencil className="h-3.5 w-3.5" /></Button>
                       <button
                         onClick={() => handleToggleShiftActive(shift)}
                         disabled={updateShiftMutation.isPending}
@@ -758,12 +650,7 @@ export function SchedulingSettingsPage() {
               <div className="text-center py-8">
                 <Layers className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Henuz vardiya tanimlanmamis</p>
-                <button
-                  onClick={() => { resetShiftForm(); setShowShiftForm(true); }}
-                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
-                >
-                  Ilk vardiyayi olustur
-                </button>
+                <Button variant="ghost" onClick={() => { resetShiftForm(); setShowShiftForm(true); }}>Ilk vardiyayi olustur</Button>
               </div>
             )}
           </div>
@@ -783,17 +670,9 @@ export function SchedulingSettingsPage() {
                   Standart Haftalik Calisma Suresi
                 </label>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="60"
-                    max="3600"
-                    step="30"
-                    value={formData.standardWeeklyMinutes || 2700}
-                    onChange={(e) =>
-                      handleChange('standardWeeklyMinutes', parseInt(e.target.value))
-                    }
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <Input type="number" min="60" max="3600" step="30" value={formData.standardWeeklyMinutes || 2700} onChange={(e) =>
+           handleChange('standardWeeklyMinutes', parseInt(e.target.value))
+          } />
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.standardWeeklyMinutes || 2700)})
                   </span>
@@ -809,17 +688,9 @@ export function SchedulingSettingsPage() {
                   Maksimum Haftalik Fazla Mesai
                 </label>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="0"
-                    max="3600"
-                    step="30"
-                    value={formData.maxOvertimeMinutesPerWeek || 900}
-                    onChange={(e) =>
-                      handleChange('maxOvertimeMinutesPerWeek', parseInt(e.target.value))
-                    }
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <Input type="number" min="0" max="3600" step="30" value={formData.maxOvertimeMinutesPerWeek || 900} onChange={(e) =>
+           handleChange('maxOvertimeMinutesPerWeek', parseInt(e.target.value))
+          } />
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.maxOvertimeMinutesPerWeek || 900)})
                   </span>
@@ -832,17 +703,9 @@ export function SchedulingSettingsPage() {
                   Maksimum Aylik Fazla Mesai
                 </label>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="0"
-                    max="10800"
-                    step="60"
-                    value={formData.maxOvertimeMinutesPerMonth || 2700}
-                    onChange={(e) =>
-                      handleChange('maxOvertimeMinutesPerMonth', parseInt(e.target.value))
-                    }
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <Input type="number" min="0" max="10800" step="60" value={formData.maxOvertimeMinutesPerMonth || 2700} onChange={(e) =>
+           handleChange('maxOvertimeMinutesPerMonth', parseInt(e.target.value))
+          } />
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.maxOvertimeMinutesPerMonth || 2700)})
                   </span>
@@ -855,17 +718,9 @@ export function SchedulingSettingsPage() {
                   Vardiyalar Arasi Minimum Dinlenme
                 </label>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min="0"
-                    max="1440"
-                    step="30"
-                    value={formData.minRestMinutesBetweenShifts || 660}
-                    onChange={(e) =>
-                      handleChange('minRestMinutesBetweenShifts', parseInt(e.target.value))
-                    }
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <Input type="number" min="0" max="1440" step="30" value={formData.minRestMinutesBetweenShifts || 660} onChange={(e) =>
+           handleChange('minRestMinutesBetweenShifts', parseInt(e.target.value))
+          } />
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.minRestMinutesBetweenShifts || 660)})
                   </span>
@@ -930,16 +785,9 @@ export function SchedulingSettingsPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Maksimum Ardisik Calisma Gunu
                 </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="14"
-                  value={formData.maxConsecutiveWorkDays || 6}
-                  onChange={(e) =>
-                    handleChange('maxConsecutiveWorkDays', parseInt(e.target.value))
-                  }
-                  className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
+                <Input type="number" min="1" max="14" value={formData.maxConsecutiveWorkDays || 6} onChange={(e) =>
+          handleChange('maxConsecutiveWorkDays', parseInt(e.target.value))
+         } />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Bu limite ulasinca uyari gosterilir
                 </p>
@@ -999,16 +847,9 @@ export function SchedulingSettingsPage() {
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-500 dark:text-gray-400">Hafta baslamadan</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="7"
-                    value={formData.notifyDaysBefore || 2}
-                    onChange={(e) =>
-                      handleChange('notifyDaysBefore', parseInt(e.target.value))
-                    }
-                    className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <Input type="number" min="0" max="7" value={formData.notifyDaysBefore || 2} onChange={(e) =>
+           handleChange('notifyDaysBefore', parseInt(e.target.value))
+          } />
                   <span className="text-sm text-gray-500 dark:text-gray-400">gun once</span>
                 </div>
               </div>

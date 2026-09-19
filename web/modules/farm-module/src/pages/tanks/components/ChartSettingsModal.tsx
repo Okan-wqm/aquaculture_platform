@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 import type { ChartVisibility } from './TankChartsSection';
 
@@ -347,18 +347,8 @@ export const ChartSettingsModal: React.FC<ChartSettingsModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-900">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleApply}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-          >
-            Apply
-          </button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleApply}>Apply</Button>
         </div>
       </div>
     </Modal>

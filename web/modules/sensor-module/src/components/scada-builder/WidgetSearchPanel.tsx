@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import { Search, Box } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 
@@ -68,13 +69,7 @@ export const WidgetSearchPanel: React.FC = () => {
       {/* Search Input */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search widgets..."
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
-        />
+        <Input fullWidth type="text" placeholder="Search widgets..." value={searchText} onChange={(e) => setSearchText(e.target.value)} />
       </div>
 
       {/* Results List */}

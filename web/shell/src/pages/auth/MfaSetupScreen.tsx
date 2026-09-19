@@ -226,7 +226,7 @@ const MfaSetupScreen: React.FC<MfaSetupScreenProps> = ({ challenge, onBackToLogi
               Save these recovery codes somewhere safe — each can be used once if you lose your
               device:
             </p>
-            <ul className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface-field-bg)] px-3 py-2">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1 rounded-lg bg-[var(--surface-field-bg)] px-3 py-2">
               {setup.recoveryCodes.map((rc) => (
                 <li key={rc} className="font-mono text-xs text-[var(--surface-heading-fg)]">
                   {rc}

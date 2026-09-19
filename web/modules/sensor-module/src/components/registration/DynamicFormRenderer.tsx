@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { JSONSchema, JSONSchemaProperty, UIGroup } from '../../types/registration.types';
 
 interface DynamicFormRendererProps {
@@ -110,27 +111,13 @@ function FieldRenderer({ name, property, value, onChange, error, disabled, schem
                 className={inputClassName}
                 disabled={disabled}
               />
-              <button
-                type="button"
-                onClick={() => {
+              <Button variant="ghost" size="xs" type="button" onClick={() => {
                   const newArray = arrayValue.filter((_, i) => i !== index);
                   onChange(newArray);
-                }}
-                className="px-2 py-1 text-red-600 hover:text-red-800"
-                disabled={disabled}
-              >
-                X
-              </button>
+                }} disabled={disabled}>X</Button>
             </div>
           ))}
-          <button
-            type="button"
-            onClick={() => onChange([...arrayValue, ''])}
-            className="text-sm text-blue-600 hover:text-blue-800"
-            disabled={disabled}
-          >
-            + Add Item
-          </button>
+          <Button variant="ghost" type="button" onClick={() => onChange([...arrayValue, ''])} disabled={disabled}>+ Add Item</Button>
         </div>
       );
     }

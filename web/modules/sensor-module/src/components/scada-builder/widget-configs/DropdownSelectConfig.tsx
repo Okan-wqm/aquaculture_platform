@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button, Input } from '@aquaculture/shared-ui';
 
 interface DropdownOption {
   label: string;
@@ -64,25 +64,13 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Selection"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Selection" />
       </div>
 
       {/* Placeholder */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Placeholder</label>
-        <input
-          type="text"
-          value={(config.placeholder as string) || ''}
-          onChange={(e) => onChange({ placeholder: e.target.value })}
-          placeholder="Select..."
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={(config.placeholder as string) || ''} onChange={(e) => onChange({ placeholder: e.target.value })} placeholder="Select..." />
       </div>
 
       {/* Show label toggle */}
@@ -101,18 +89,11 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       {/* Font size */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size (px)</label>
-        <input
-          type="number"
-          min={8}
-          max={24}
-          value={(config.fontSize as number) ?? 12}
-          onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={8} max={24} value={(config.fontSize as number) ?? 12} onChange={(e) => onChange({ fontSize: Number(e.target.value) })} />
       </div>
 
       {/* Colors */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Color</label>
           <input
@@ -137,36 +118,14 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Options</label>
-          <button
-            onClick={addOption}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
-          >
-            + Add Option
-          </button>
+          <Button variant="ghost" size="xs" onClick={addOption}>+ Add Option</Button>
         </div>
         <div className="space-y-2">
           {options.map((opt, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
-                type="text"
-                value={opt.label}
-                onChange={(e) => updateOption(i, 'label', e.target.value)}
-                placeholder="Label"
-                className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-              />
-              <input
-                type="text"
-                value={String(opt.value)}
-                onChange={(e) => updateOption(i, 'value', e.target.value)}
-                placeholder="Value"
-                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-              />
-              <button
-                onClick={() => removeOption(i)}
-                className="text-red-400 hover:text-red-600 text-xs px-1"
-              >
-                X
-              </button>
+              <Input type="text" value={opt.label} onChange={(e) => updateOption(i, 'label', e.target.value)} placeholder="Label" />
+              <Input type="text" value={String(opt.value)} onChange={(e) => updateOption(i, 'value', e.target.value)} placeholder="Value" />
+              <Button variant="ghost" size="xs" onClick={() => removeOption(i)}>X</Button>
             </div>
           ))}
         </div>

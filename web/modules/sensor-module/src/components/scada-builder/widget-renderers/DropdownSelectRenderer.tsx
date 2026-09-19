@@ -13,7 +13,7 @@
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, chartChrome, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -63,7 +63,9 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
 
   /* ---- Resolve current selection ---- */
   const currentValue = value ?? '';
-  const selectedOption = options.find((opt) => String(opt.value) === String(currentValue));
+  const selectedOption = options.find(
+    (opt) => String(opt.value) === String(currentValue),
+  );
   const displayText = selectedOption?.label ?? placeholder;
   const hasSelection = selectedOption !== undefined;
 
@@ -153,7 +155,10 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
         setHighlightIndex(-1);
       }
@@ -200,7 +205,8 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
         padding: PAD,
         boxSizing: 'border-box',
         position: 'relative',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
       {/* Label */}
@@ -221,15 +227,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
       )}
 
       {/* Trigger button */}
-      <button
-        type="button"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-label={label}
-        onClick={toggleOpen}
-        onKeyDown={handleKeyDown}
-        style={{
+      <Button variant="ghost" type="button" role="combobox" aria-expanded={isOpen} aria-haspopup="listbox" aria-label={label} onClick={toggleOpen} onKeyDown={handleKeyDown} style={{
           width: '100%',
           height: BUTTON_H,
           padding: '0 8px',
@@ -248,15 +246,12 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
           boxShadow: isOpen ? '0 0 0 2px rgba(6, 182, 212, 0.2)' : 'none',
           transition: 'border-color 150ms, box-shadow 150ms',
           textAlign: 'left',
-        }}
-      >
-        <span
+        }}><span
           className="overflow-hidden whitespace-nowrap text-ellipsis flex-1"
         >
           {displayText}
         </span>
-        {chevron}
-      </button>
+        {chevron}</Button>
 
       {/* Dropdown popover */}
       {isOpen && !isEditing && (
@@ -277,7 +272,8 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
             background: colors.white,
             border: `1px solid ${themeColors.neutral[200]}`,
             borderRadius: 6,
-            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
+            boxShadow:
+              '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
             zIndex: 50,
           }}
         >

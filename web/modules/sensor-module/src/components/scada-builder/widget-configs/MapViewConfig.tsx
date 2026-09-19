@@ -10,7 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -168,14 +168,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
                 <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500">
                   #{idx + 1}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => removeMarker(marker.id)}
-                  className="p-0.5 text-red-400 hover:text-red-600 transition-colors"
-                  title="Remove marker"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Remove marker" type="button" onClick={() => removeMarker(marker.id)} title="Remove marker"><Trash2 className="w-3 h-3" /></Button>
               </div>
 
               {/* Label */}
@@ -191,7 +184,7 @@ export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange })
               </div>
 
               {/* X / Y coordinates */}
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X (0-100)</label>
                   <input

@@ -13,13 +13,13 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { routeGraphql } from '../../test-utils/mockGraphqlClient';
-import { requestMock, TEST_TENANT_ID } from '../../test-utils/sharedUiMock';
+import { routeGraphql } from '../../__tests__/mockGraphqlClient';
+import { requestMock, TEST_TENANT_ID } from '../../__tests__/sharedUiMock';
 import type { Channel } from '../../types/messaging';
 import { useMarkMessagesRead } from '../useMessagingData';
 
 vi.mock('@aquaculture/shared-ui', async () =>
-  (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
+  (await import('../../__tests__/sharedUiMock')).createSharedUiMock(),
 );
 
 const ACTIVE_CHANNEL = 'cccccccc-3333-4444-8555-666666666666';

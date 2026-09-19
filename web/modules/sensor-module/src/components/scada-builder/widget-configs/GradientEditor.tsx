@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useCallback, useId } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import type {
   GradientConfig,
   GradientType,
@@ -246,14 +247,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
-        aria-expanded={open}
-        aria-label="Gradient settings"
-      >
-        <span>Gradient</span>
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Gradient settings"><span>Gradient</span>
         <svg
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
@@ -261,8 +255,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {open && (
         <div className="space-y-3 mt-2">
@@ -344,15 +337,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                       Stop {safeSelected + 1}
                     </span>
                     {gradient.stops.length > MIN_STOPS && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveStop(safeSelected)}
-                        className="text-xs text-red-400 hover:text-red-600 px-1"
-                        aria-label="Remove selected stop"
-                        data-testid="remove-stop"
-                      >
-                        Remove
-                      </button>
+                      <Button variant="ghost" size="xs" type="button" onClick={() => handleRemoveStop(safeSelected)} aria-label="Remove selected stop" data-testid="remove-stop">Remove</Button>
                     )}
                   </div>
 
@@ -388,15 +373,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               )}
 
               {/* Add stop button */}
-              <button
-                type="button"
-                onClick={handleAddStop}
-                className="w-full py-1.5 text-xs text-cyan-600 hover:text-cyan-700 border border-cyan-200 hover:border-cyan-300 rounded-lg transition-colors"
-                aria-label="Add gradient stop"
-                data-testid="add-stop"
-              >
-                + Add Stop
-              </button>
+              <Button variant="secondary" size="xs" type="button" onClick={handleAddStop} aria-label="Add gradient stop" data-testid="add-stop">+ Add Stop</Button>
             </>
           )}
         </div>

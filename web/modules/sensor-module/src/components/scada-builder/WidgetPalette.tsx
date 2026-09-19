@@ -52,6 +52,7 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import React, { useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 import { WIDGET_SIZES, GRID_CELL_W, GRID_CELL_H, EQUIPMENT_SUBTYPE_SIZES } from '../../constants/scada-widget-sizes';
 import type { ScadaWidgetType } from '../../types/scada-widget.types';
@@ -381,17 +382,12 @@ export const WidgetPalette: React.FC = () => {
       <div className="flex-1 overflow-y-auto">
         {WIDGET_CATEGORIES.map((category) => (
           <div key={category.name}>
-            <button
-              onClick={() => toggleCategory(category.name)}
-              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700"
-            >
-              <span>{category.name}</span>
+            <Button variant="secondary" size="sm" onClick={() => toggleCategory(category.name)}><span>{category.name}</span>
               {expandedCategories.has(category.name) ? (
                 <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
               ) : (
                 <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-              )}
-            </button>
+              )}</Button>
             {expandedCategories.has(category.name) && (
               <div className="py-1 px-2 space-y-1">
                 {category.widgets.map((widget) => {

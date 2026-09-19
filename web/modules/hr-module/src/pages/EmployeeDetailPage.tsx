@@ -143,7 +143,7 @@ const EmployeeDetailPage: React.FC = () => {
           {/* Work Info */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Work Information</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Employee Number</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.employeeNumber || '-'}</p>

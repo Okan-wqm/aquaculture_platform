@@ -28,7 +28,8 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Badge, useFeedbackMutation, downloadJson } from '@aquaculture/shared-ui';
+import { getTableSchema } from '../lib/api';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -126,42 +127,19 @@ const getModuleFromTableName = (fullTableName: string): string => {
  * Status badge component
  */
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
-    healthy: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-4 h-4" />,
-      label: 'Healthy',
-    },
-    warning: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Warning',
-    },
-    error: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Error',
-    },
-    unhealthy: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <AlertCircle className="w-4 h-4" />,
-      label: 'Unhealthy',
-    },
+  // FE-HIGH-079: database health on the shared-ui Badge scale.
+  const statusConfig: Record<string, { variant: 'success' | 'warning' | 'error'; icon: React.ReactNode; label: string }> = {
+    healthy: { variant: 'success', icon: <CheckCircle className="w-4 h-4" />, label: 'Healthy' },
+    warning: { variant: 'warning', icon: <AlertCircle className="w-4 h-4" />, label: 'Warning' },
+    error: { variant: 'error', icon: <AlertCircle className="w-4 h-4" />, label: 'Error' },
+    unhealthy: { variant: 'error', icon: <AlertCircle className="w-4 h-4" />, label: 'Unhealthy' },
   };
-
   const config = statusConfig[status] || statusConfig.warning;
-
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${config.bg} ${config.text}`}
-    >
+    <Badge variant={config.variant} size="md" className="gap-1.5">
       {config.icon}
       {config.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -235,6 +213,33 @@ const TenantDatabase: React.FC = () => {
   // TanStack Query hooks
   const { data: databaseInfo, isLoading: loading, error: dbError } = useTenantDatabase();
   const error = dbError ? (dbError as Error).message : null;
+
+  // Export Schema (FE-MEDIUM-092): every table's columns and indexes, read
+  // through the same query the per-table view uses, written as one JSON file.
+  const exportSchema = useFeedbackMutation({
+    feedback: { success: 'Schema exported' },
+    mutationFn: async () => {
+      if (!databaseInfo) throw new Error('The database information has not loaded yet');
+      const tables = await Promise.all(
+        databaseInfo.tables.map(async (table) => {
+          const schema = await getTableSchema(databaseInfo.schemaName, table.name);
+          return {
+            name: table.name,
+            rowCount: table.rowCount,
+            size: table.size,
+            columns: schema.columns,
+            indexes: schema.indexes,
+          };
+        }),
+      );
+      downloadJson(`${databaseInfo.databaseName}-schema-${new Date().toISOString().slice(0, 10)}`, {
+        database: databaseInfo.databaseName,
+        schema: databaseInfo.schemaName,
+        exportedAt: new Date().toISOString(),
+        tables,
+      });
+    },
+  });
 
   // Schema query - enabled only when a table is selected
   const { data: schemaData, isLoading: schemaLoading, error: schemaQueryError } = useTableSchema(
@@ -397,12 +402,7 @@ const TenantDatabase: React.FC = () => {
           <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
           <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load database info</p>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
-          <button
-            onClick={handleRefresh}
-            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-          >
-            Try Again
-          </button>
+          <Button variant="primary" className="mt-4" onClick={handleRefresh}>Try Again</Button>
         </div>
       </div>
     );
@@ -472,19 +472,8 @@ const TenantDatabase: React.FC = () => {
       align: 'right',
       render: (_value, table) => (
         <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={() => handleViewData(table.name)}
-            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-          >
-            View Data
-          </button>
-          <button
-            onClick={() => handleViewSchema(table.name)}
-            className="inline-flex items-center gap-1 text-sm text-green-600 hover:text-green-700 font-medium transition-colors"
-          >
-            View Schema
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" onClick={() => handleViewData(table.name)}>View Data</Button>
+          <Button variant="ghost" rightIcon={<ChevronRight className="w-4 h-4" />} onClick={() => handleViewSchema(table.name)}>View Schema</Button>
         </div>
       ),
     }
@@ -498,17 +487,8 @@ const TenantDatabase: React.FC = () => {
         description="View your tenant database information and statistics"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
-            <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
-              <Download className="w-4 h-4" />
-              Export Schema
-            </button>
+            <Button variant="secondary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={handleRefresh}>Refresh</Button>
+            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />} onClick={() => exportSchema.mutate()} loading={exportSchema.isPending} disabled={!databaseInfo}>Export Schema</Button>
           </div>
         }
       />
@@ -617,22 +597,8 @@ const TenantDatabase: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <input
-                type="text"
-                placeholder="Search tables..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')}
-                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              >
-                <option value="name">Sort by Name</option>
-                <option value="rows">Sort by Rows</option>
-                <option value="size">Sort by Size</option>
-              </select>
+              <Input type="text" placeholder="Search tables..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              <Select options={[{ value: 'name', label: 'Sort by Name' }, { value: 'rows', label: 'Sort by Rows' }, { value: 'size', label: 'Sort by Size' }]} value={sortBy} onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')} />
             </div>
           </div>
         </div>

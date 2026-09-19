@@ -8,7 +8,7 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader, Tabs, TabPanel } from '@aquaculture/shared-ui';
+import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader, Tabs, TabPanel, SUPPORTED_LOCALES, type SupportedLocale, useI18n, formatErrorForToast } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -928,7 +928,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           </Alert>
 
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {recoveryCodes.map((code, index) => (
                 <code key={index} className="text-sm font-mono text-gray-800 dark:text-gray-200 p-1 select-all">
                   {code}
@@ -1095,6 +1095,9 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 // ============================================================================
 
 const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
+  const { locale, setLocale, t } = useI18n();
+  const { refreshAuth } = useAuthContext();
+  const [languageSaving, setLanguageSaving] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => getStoredThemePreference());
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
     resolveThemePreference(getStoredThemePreference()),
@@ -1119,6 +1122,28 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       (theme) => setResolvedTheme(theme),
     );
   }, [themePreference]);
+
+  /**
+   * The language follows the user (FE-HIGH-089): applied to this session at
+   * once, then saved on the account so the next device opens in it too.
+   */
+  const updateLanguage = async (code: SupportedLocale): Promise<void> => {
+    setLocale(code);
+    setLanguageSaving(true);
+    try {
+      await graphqlClient.request(UPDATE_MY_PROFILE, { input: { preferredLanguage: code } });
+      await refreshAuth();
+      showToast({
+        title: t('settings.language.saved'),
+        description: t('settings.language.savedDescription'),
+        variant: 'success',
+      });
+    } catch (err) {
+      showToast({ title: t('settings.language.failed'), description: formatErrorForToast(err), variant: 'error' });
+    } finally {
+      setLanguageSaving(false);
+    }
+  };
 
   const updateThemePreference = (preference: ThemePreference): void => {
     setThemePreference(preference);
@@ -1220,7 +1245,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 max-w-md">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-md">
             {[
               { id: 'light', label: 'Light' },
               { id: 'dark', label: 'Dark' },
@@ -1247,42 +1272,40 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
         </div>
       </Card>
 
-      {/* Language */}
+      {/* Language — applied now, saved on the account, followed on every device (FE-HIGH-089) */}
       <Card>
         <div className="p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 01-3.827-5.802" />
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Language</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Choose your preferred language</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('settings.language.title')}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('settings.language.description')}</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 max-w-md">
-            {[
-              { code: 'tr', label: 'Turkish', flag: 'TR' },
-              { code: 'en', label: 'English', flag: 'EN' },
-            ].map((lang) => (
+          <div className="flex flex-wrap gap-3 max-w-md" role="group" aria-label={t('settings.language.title')}>
+            {SUPPORTED_LOCALES.map((code) => (
               <button
-                key={lang.code}
+                key={code}
                 type="button"
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                  lang.code === 'tr'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 opacity-50 cursor-not-allowed'
+                onClick={() => void updateLanguage(code)}
+                disabled={languageSaving}
+                aria-pressed={locale === code}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all disabled:opacity-60 ${
+                  locale === code
+                    ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
-                disabled={lang.code !== 'tr'}
               >
-                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{lang.flag}</span>
-                {lang.label}
+                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded uppercase">{code}</span>
+                {t(`language.${code}`)}
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">Multi-language support coming soon.</p>
         </div>
       </Card>
 

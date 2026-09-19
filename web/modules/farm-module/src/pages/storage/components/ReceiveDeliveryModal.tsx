@@ -2,7 +2,7 @@
  * Receive Delivery Modal - Mark PO items as received
  */
 import React, { useState } from 'react';
-import { Modal, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useToast, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 import {
   useReceiveDelivery,
   PurchaseOrder,
@@ -109,18 +109,9 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
       render: (_value, item) => {
         const remaining = Number(item.quantity) - Number(item.quantityReceived);
         return (
-          <input
-            type="number"
-            min="0"
-            max={remaining}
-            step="0.01"
-            value={receivedItems[item.itemId]?.qty ?? ''}
-            onChange={(e) =>
-              updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
-            }
-            placeholder={String(remaining)}
-            className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
-          />
+          <Input type="number" min="0" max={remaining} step="0.01" value={receivedItems[item.itemId]?.qty ?? ''} onChange={(e) =>
+       updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
+      } placeholder={String(remaining)} />
         );
       },
     },
@@ -128,27 +119,16 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
       key: 'lot',
       header: 'Lot #',
       render: (_value, item) => (
-        <input
-          type="text"
-          value={receivedItems[item.itemId]?.lotNumber ?? ''}
-          onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
-          placeholder="LOT-"
-          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
-        />
+        <Input type="text" value={receivedItems[item.itemId]?.lotNumber ?? ''} onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)} placeholder="LOT-" />
       ),
     },
     {
       key: 'expiry',
       header: 'Expiry',
       render: (_value, item) => (
-        <input
-          type="date"
-          value={receivedItems[item.itemId]?.expiryDate ?? ''}
-          onChange={(e) =>
-            updateReceived(item.itemId, 'expiryDate', e.target.value)
-          }
-          className="w-32 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
-        />
+        <Input type="date" value={receivedItems[item.itemId]?.expiryDate ?? ''} onChange={(e) =>
+      updateReceived(item.itemId, 'expiryDate', e.target.value)
+     } />
       ),
     }
   ];
@@ -200,20 +180,8 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!storageLocationId || pendingItems.length === 0 || receiveDelivery.isPending}
-            className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50"
-          >
-            {receiveDelivery.isPending ? 'Receiving...' : 'Confirm Receipt'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!storageLocationId || pendingItems.length === 0 || receiveDelivery.isPending}>{receiveDelivery.isPending ? 'Receiving...' : 'Confirm Receipt'}</Button>
         </div>
       </form>
     </Modal>

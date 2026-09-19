@@ -14,6 +14,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -69,6 +70,57 @@ export function VfdAuditLogViewer({
     );
   }
 
+  const vfdParameterAuditLogColumns: DataTableColumn<VfdParameterAuditLog>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, log) => formatTimestamp(log.timestamp),
+    },
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, log) => log.parameterName,
+    },
+    {
+      key: 'oldValue',
+      header: 'Old Value',
+      render: (_value, log) => log.previousValue !== null ? log.previousValue : '-',
+    },
+    {
+      key: 'newValue',
+      header: 'New Value',
+      render: (_value, log) => log.newValue,
+    },
+    {
+      key: 'by',
+      header: 'By',
+      render: (_value, log) => log.performedBy,
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, log) => log.action,
+    },
+    {
+      key: 'risk',
+      header: 'Risk',
+      render: (_value, log) => {
+        const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
+        const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
+        return (
+          <>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
+              data-testid={`risk-${log.id}`}
+            >
+              {risk}
+            </span>
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div data-testid="vfd-audit-log">
       {/* Filter bar */}
@@ -103,63 +155,16 @@ export function VfdAuditLogViewer({
           <p className="text-sm text-gray-500">No audit log entries</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" data-testid="audit-table">
-            <thead>
-              <tr className="border-b text-left text-xs font-medium text-gray-500">
-                <th className="pb-2 pr-4">Timestamp</th>
-                <th className="pb-2 pr-4">Parameter</th>
-                <th className="pb-2 pr-4">Old Value</th>
-                <th className="pb-2 pr-4">New Value</th>
-                <th className="pb-2 pr-4">By</th>
-                <th className="pb-2 pr-4">Source</th>
-                <th className="pb-2">Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log) => {
-                // Derive risk level from metadata if present
-                const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
-                const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
-
-                return (
-                  <tr
-                    key={log.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                    data-testid={`audit-row-${log.id}`}
-                  >
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {formatTimestamp(log.timestamp)}
-                    </td>
-                    <td className="py-2 pr-4 font-mono text-xs font-medium">
-                      {log.parameterName}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {log.previousValue !== null ? log.previousValue : '-'}
-                    </td>
-                    <td className="py-2 pr-4 text-xs font-medium text-indigo-700">
-                      {log.newValue}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {log.performedBy}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-500">
-                      {log.action}
-                    </td>
-                    <td className="py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
-                        data-testid={`risk-${log.id}`}
-                      >
-                        {risk}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<VfdParameterAuditLog>
+          data={logs}
+          columns={vfdParameterAuditLogColumns}
+          keyExtractor={(log) => log.id}
+          emptyMessage="No audit log entries"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       )}
 
       {/* Load more */}

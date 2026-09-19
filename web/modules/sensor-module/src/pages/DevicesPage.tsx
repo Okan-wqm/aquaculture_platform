@@ -39,7 +39,7 @@ import { SensorRegistrationWizard } from '../components/registration/SensorRegis
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { Modal, useAuth, useClickOutside } from '@aquaculture/shared-ui';
+import { Modal, useAuth, useClickOutside, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -200,114 +200,6 @@ const EdgeFilterDropdown: React.FC<{
     />
   </div>
 );
-
-/**
- * Device list row for Edge Controllers list view
- */
-const EdgeDeviceListRow: React.FC<{
-  device: EdgeDevice;
-  onClick: () => void;
-  isSelected?: boolean;
-  onSelect?: (checked: boolean) => void;
-}> = ({ device, onClick, isSelected, onSelect }) => {
-  const isOnline = device.isOnline;
-  const lastSeenText =
-    device.lastSeenAt && !isOnline
-      ? new Date(device.lastSeenAt).toLocaleString('tr-TR')
-      : isOnline
-      ? 'Şimdi'
-      : 'Bilinmiyor';
-
-  return (
-    <tr
-      className="hover:bg-gray-50 cursor-pointer transition-colors"
-      onClick={onClick}
-    >
-      {onSelect && (
-        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isSelected || false}
-            onChange={(e) => onSelect(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-          />
-        </td>
-      )}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              isOnline ? 'bg-cyan-100' : 'bg-gray-100'
-            }`}
-          >
-            <Server size={20} className={isOnline ? 'text-cyan-600' : 'text-gray-500'} />
-          </div>
-          <div>
-            <div className="font-medium text-gray-900">{device.deviceCode}</div>
-            <div className="text-xs text-gray-500">{device.deviceName}</div>
-          </div>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm text-gray-700">
-          {getDeviceModelText(device.deviceModel)}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          {isOnline ? (
-            <>
-              <Wifi size={14} className="text-green-500" />
-              <span className="text-sm text-green-600">Çevrimiçi</span>
-            </>
-          ) : (
-            <>
-              <WifiOff size={14} className="text-gray-500" />
-              <span className="text-sm text-gray-500">Çevrimdışı</span>
-            </>
-          )}
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-            device.lifecycleState === DeviceLifecycleState.ACTIVE
-              ? 'bg-green-100 text-green-800'
-              : device.lifecycleState === DeviceLifecycleState.ERROR
-              ? 'bg-red-100 text-red-800'
-              : device.lifecycleState === DeviceLifecycleState.MAINTENANCE
-              ? 'bg-yellow-100 text-yellow-800'
-              : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {getDeviceStatusText(device.lifecycleState)}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1 text-sm text-gray-500">
-          <Clock size={12} />
-          <span>{lastSeenText}</span>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm text-gray-600">
-          {device.firmwareVersion || 'N/A'}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-right">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick();
-          }}
-          className="text-cyan-600 hover:text-cyan-700 text-sm font-medium"
-        >
-          Detay
-        </button>
-      </td>
-    </tr>
-  );
-};
 
 const DeviceCard: React.FC<{
   group: GroupedDevice;
@@ -568,14 +460,6 @@ const DevicesPage: React.FC = () => {
     });
   };
 
-  const toggleAllDeviceSelection = (checked: boolean) => {
-    if (checked) {
-      setSelectedDeviceIds(new Set(edgeDevices.map((d) => d.id)));
-    } else {
-      setSelectedDeviceIds(new Set());
-    }
-  };
-
   const closeBulkFirmwareModal = (): void => {
     setShowBulkFirmwareModal(false);
     setBulkUpdateResult(null);
@@ -671,6 +555,114 @@ const DevicesPage: React.FC = () => {
   };
 
   const onlineCount = groupedDevices.filter((g) => g.parent.connectionStatus?.isConnected).length;
+
+  const edgeDeviceColumns: DataTableColumn<EdgeDevice>[] = [
+    {
+      key: 'deviceCode',
+      header: 'Cihaz',
+      render: (_value, device) => (
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              device.isOnline ? 'bg-cyan-100' : 'bg-gray-100'
+            }`}
+          >
+            <Server size={20} className={device.isOnline ? 'text-cyan-600' : 'text-gray-500'} />
+          </div>
+          <div>
+            <div className="font-medium text-gray-900">{device.deviceCode}</div>
+            <div className="text-xs text-gray-500">{device.deviceName}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'deviceModel',
+      header: 'Model',
+      render: (_value, device) => (
+        <span className="text-sm text-gray-700">{getDeviceModelText(device.deviceModel)}</span>
+      ),
+    },
+    {
+      key: 'isOnline',
+      header: 'Bağlantı',
+      render: (_value, device) => (
+        <div className="flex items-center gap-2">
+          {device.isOnline ? (
+            <>
+              <Wifi size={14} className="text-green-500" />
+              <span className="text-sm text-green-600">Çevrimiçi</span>
+            </>
+          ) : (
+            <>
+              <WifiOff size={14} className="text-gray-500" />
+              <span className="text-sm text-gray-500">Çevrimdışı</span>
+            </>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'lifecycleState',
+      header: 'Durum',
+      render: (_value, device) => (
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            device.lifecycleState === DeviceLifecycleState.ACTIVE
+              ? 'bg-green-100 text-green-800'
+              : device.lifecycleState === DeviceLifecycleState.ERROR
+              ? 'bg-red-100 text-red-800'
+              : device.lifecycleState === DeviceLifecycleState.MAINTENANCE
+              ? 'bg-yellow-100 text-yellow-800'
+              : 'bg-gray-100 text-gray-800'
+          }`}
+        >
+          {getDeviceStatusText(device.lifecycleState)}
+        </span>
+      ),
+    },
+    {
+      key: 'lastSeenAt',
+      header: 'Son Görülme',
+      render: (_value, device) => {
+        const lastSeenText =
+          device.lastSeenAt && !device.isOnline
+            ? new Date(device.lastSeenAt).toLocaleString('tr-TR')
+            : device.isOnline
+            ? 'Şimdi'
+            : 'Bilinmiyor';
+        return (
+          <div className="flex items-center gap-1 text-sm text-gray-500">
+            <Clock size={12} />
+            <span>{lastSeenText}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'firmwareVersion',
+      header: 'Firmware',
+      render: (_value, device) => (
+        <span className="text-sm text-gray-600">{device.firmwareVersion || 'N/A'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, device) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleEdgeDeviceClick(device);
+          }}
+          className="text-cyan-600 hover:text-cyan-700 text-sm font-medium"
+        >
+          Detay
+        </button>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -1018,54 +1010,20 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Device List */}
           {!edgeLoading && edgeDevices.length > 0 && edgeViewMode === 'list' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-4 py-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={edgeDevices.length > 0 && edgeDevices.every((d) => selectedDeviceIds.has(d.id))}
-                        onChange={(e) => toggleAllDeviceSelection(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                      />
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Cihaz
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Model
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Bağlantı
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Durum
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Son Görülme
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Firmware
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      İşlemler
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {edgeDevices.map((device) => (
-                    <EdgeDeviceListRow
-                      key={device.id}
-                      device={device}
-                      onClick={() => handleEdgeDeviceClick(device)}
-                      isSelected={selectedDeviceIds.has(device.id)}
-                      onSelect={(checked) => toggleDeviceSelection(device.id, checked)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<EdgeDevice>
+              data={edgeDevices}
+              columns={edgeDeviceColumns}
+              keyExtractor={(device) => device.id}
+              selectable
+              selectedRows={Array.from(selectedDeviceIds)}
+              onSelectionChange={(ids) => setSelectedDeviceIds(new Set(ids))}
+              onRowClick={handleEdgeDeviceClick}
+              rowClassName={() => 'cursor-pointer'}
+              emptyMessage="Cihaz yok"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           )}
 
           {/* Edge Pagination */}

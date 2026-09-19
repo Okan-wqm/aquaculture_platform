@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -160,6 +160,146 @@ const ProcessListPage: React.FC = () => {
     );
   }
 
+  const processColumns: DataTableColumn<Process>[] = [
+    {
+      key: 'process',
+      header: 'Process',
+      render: (_value, process) => (
+        <>
+          <Link
+            to={`/sensor/unified-editor/${process.id}`}
+            className="block"
+          >
+            <div className="font-medium text-gray-900 hover:text-blue-600">
+              {process.name}
+            </div>
+            <div className="text-sm text-gray-500 line-clamp-1">
+              {process.description || 'No description'}
+            </div>
+          </Link>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, process) => {
+        const config = statusConfig[status] || statusConfig.draft;
+        return (
+          <>
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+            >
+              {config.label}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      key: 'components',
+      header: 'Components',
+      render: (_value, process) => {
+        const nodeCount = Array.isArray(process.nodes) ? process.nodes.length : 0;
+        const edgeCount = Array.isArray(process.edges) ? process.edges.length : 0;
+        return (
+          <>
+            {nodeCount} nodes, {edgeCount} connections
+          </>
+        );
+      },
+    },
+    {
+      key: 'lastModified',
+      header: 'Last Modified',
+      render: (_value, process) => (
+        <>
+          <div className="flex items-center gap-1 text-sm text-gray-500">
+            <Clock className="w-4 h-4" />
+            {formatDate(process.updatedAt)}
+          </div>
+          {process.createdBy && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+              <User className="w-3 h-3" />
+              {process.createdBy}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, process) => {
+        const status = process.status.toLowerCase();
+        const isActionLoading = actionLoading === process.id;
+        return (
+          <div className="relative inline-block">
+            {isActionLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
+            ) : (
+              <>
+                <button
+                  onClick={() =>
+                    setActiveDropdown(activeDropdown === process.id ? null : process.id)
+                  }
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <MoreVertical className="w-4 h-4 text-gray-500" />
+                </button>
+
+                {activeDropdown === process.id && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+                    <Link
+                      to={`/sensor/unified-editor/${process.id}`}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </Link>
+                    <button
+                      onClick={() => handleDuplicate(process)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Duplicate
+                    </button>
+                    {status === 'active' ? (
+                      <button
+                        onClick={() => handleStatusChange(process, 'inactive')}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
+                      >
+                        <Pause className="w-4 h-4" />
+                        Deactivate
+                      </button>
+                    ) : status !== 'archived' ? (
+                      <button
+                        onClick={() => handleStatusChange(process, 'active')}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-700 hover:bg-green-50"
+                      >
+                        <Play className="w-4 h-4" />
+                        Activate
+                      </button>
+                    ) : null}
+                    <hr className="my-1 border-gray-200" />
+                    <button
+                      onClick={() => handleDelete(process)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -245,140 +385,15 @@ const ProcessListPage: React.FC = () => {
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Process
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Components
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Modified
-                </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredProcesses.map((process) => {
-                const status = process.status.toLowerCase();
-                const config = statusConfig[status] || statusConfig.draft;
-                const nodeCount = Array.isArray(process.nodes) ? process.nodes.length : 0;
-                const edgeCount = Array.isArray(process.edges) ? process.edges.length : 0;
-                const isActionLoading = actionLoading === process.id;
-
-                return (
-                  <tr key={process.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <Link
-                        to={`/sensor/unified-editor/${process.id}`}
-                        className="block"
-                      >
-                        <div className="font-medium text-gray-900 hover:text-blue-600">
-                          {process.name}
-                        </div>
-                        <div className="text-sm text-gray-500 line-clamp-1">
-                          {process.description || 'No description'}
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
-                      >
-                        {config.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {nodeCount} nodes, {edgeCount} connections
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-sm text-gray-500">
-                        <Clock className="w-4 h-4" />
-                        {formatDate(process.updatedAt)}
-                      </div>
-                      {process.createdBy && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                          <User className="w-3 h-3" />
-                          {process.createdBy}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="relative inline-block">
-                        {isActionLoading ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
-                        ) : (
-                          <>
-                            <button
-                              onClick={() =>
-                                setActiveDropdown(activeDropdown === process.id ? null : process.id)
-                              }
-                              className="p-2 hover:bg-gray-100 rounded-lg"
-                            >
-                              <MoreVertical className="w-4 h-4 text-gray-500" />
-                            </button>
-
-                            {activeDropdown === process.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
-                                <Link
-                                  to={`/sensor/unified-editor/${process.id}`}
-                                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                  Edit
-                                </Link>
-                                <button
-                                  onClick={() => handleDuplicate(process)}
-                                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                >
-                                  <Copy className="w-4 h-4" />
-                                  Duplicate
-                                </button>
-                                {status === 'active' ? (
-                                  <button
-                                    onClick={() => handleStatusChange(process, 'inactive')}
-                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
-                                  >
-                                    <Pause className="w-4 h-4" />
-                                    Deactivate
-                                  </button>
-                                ) : status !== 'archived' ? (
-                                  <button
-                                    onClick={() => handleStatusChange(process, 'active')}
-                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-700 hover:bg-green-50"
-                                  >
-                                    <Play className="w-4 h-4" />
-                                    Activate
-                                  </button>
-                                ) : null}
-                                <hr className="my-1 border-gray-200" />
-                                <button
-                                  onClick={() => handleDelete(process)}
-                                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<Process>
+          data={filteredProcesses}
+          columns={processColumns}
+          keyExtractor={(process) => process.id}
+          emptyMessage="No processes found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
     </div>
   );

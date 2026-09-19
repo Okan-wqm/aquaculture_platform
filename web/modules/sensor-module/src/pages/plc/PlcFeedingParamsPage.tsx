@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { ConfirmModal, Modal, useClickOutside } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -517,6 +517,141 @@ const PlcFeedingParamsPage: React.FC = () => {
     } catch (err) { console.error(err); }
   }, [cloneDialogId, cloneName, mutations.clone]);
 
+  const feedingParameterColumns: DataTableColumn<FeedingParameter>[] = [
+    {
+      key: 'parametre',
+      header: 'Parametre',
+      render: (_value, param) => (
+        <div>
+          <div className="font-medium text-gray-900">{param.name}</div>
+          <div className="text-xs text-gray-500">v{param.version}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'baglanti',
+      header: 'Baglanti',
+      render: (_value, param) => param.connection?.name || param.plcConnectionId.slice(0, 8),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, param) => {
+        const statusCfg = STATUS_CONFIG[param.status] || STATUS_CONFIG.DRAFT;
+        return (
+          <>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}>
+              {statusCfg.label}
+            </span>
+            {param.errorMessage && param.status === 'ERROR' && (
+              <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={param.errorMessage}>
+                {param.errorMessage}
+              </p>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'biyokutle',
+      header: 'Biyokutle',
+      align: 'right',
+      render: (_value, param) => (
+        <>
+          {Number(param.biomassKg).toLocaleString()} kg
+        </>
+      ),
+    },
+    {
+      key: 'fcr',
+      header: 'FCR',
+      align: 'right',
+      render: (_value, param) => Number(param.fcr).toFixed(2),
+    },
+    {
+      key: 'hedefGun',
+      header: 'Hedef/Gun',
+      align: 'right',
+      render: (_value, param) => (
+        <>
+          {Number(param.targetDailyFeedKg).toFixed(1)} kg
+        </>
+      ),
+    },
+    {
+      key: 'program',
+      header: 'Program',
+      render: (_value, param) => (
+        <>
+          {Array.isArray(param.schedule) ? `${param.schedule.length} öğün` : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'tarih',
+      header: 'Tarih',
+      render: (_value, param) => formatDate(param.createdAt),
+    },
+    {
+      key: 'islemler',
+      header: 'Islemler',
+      align: 'right',
+      render: (_value, param) => (
+        <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
+          <button
+            onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
+            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+          {menuOpenId === param.id && (
+            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white py-1 shadow-lg">
+              <button
+                onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Edit className="h-4 w-4" />
+                Düzenle
+              </button>
+              <button
+                onClick={() => handleSendToPlc(param.id, param.name)}
+                disabled={param.status === 'ACTIVE'}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Send className="h-4 w-4" />
+                PLC&apos;ye Gönder
+              </button>
+              {param.status !== 'ACTIVE' && (
+                <button
+                  onClick={() => handleActivate(param.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Etkinleştir
+                </button>
+              )}
+              <button
+                onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Copy className="h-4 w-4" />
+                Klonla
+              </button>
+              <div className="border-t my-1" />
+              <button
+                onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Sil
+              </button>
+            </div>
+          )}
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
@@ -584,119 +719,15 @@ const PlcFeedingParamsPage: React.FC = () => {
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
         </div>
       ) : parameters && parameters.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Parametre</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Baglanti</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Durum</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Biyokutle</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">FCR</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Hedef/Gun</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Program</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tarih</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Islemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {parameters.map((param) => {
-                const statusCfg = STATUS_CONFIG[param.status] || STATUS_CONFIG.DRAFT;
-                return (
-                  <tr key={param.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div>
-                        <div className="font-medium text-gray-900">{param.name}</div>
-                        <div className="text-xs text-gray-500">v{param.version}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {param.connection?.name || param.plcConnectionId.slice(0, 8)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}>
-                        {statusCfg.label}
-                      </span>
-                      {param.errorMessage && param.status === 'ERROR' && (
-                        <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={param.errorMessage}>
-                          {param.errorMessage}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {Number(param.biomassKg).toLocaleString()} kg
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-600">
-                      {Number(param.fcr).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {Number(param.targetDailyFeedKg).toFixed(1)} kg
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {Array.isArray(param.schedule) ? `${param.schedule.length} öğün` : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {formatDate(param.createdAt)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
-                        <button
-                          onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                        {menuOpenId === param.id && (
-                          <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white py-1 shadow-lg">
-                            <button
-                              onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Edit className="h-4 w-4" />
-                              Düzenle
-                            </button>
-                            <button
-                              onClick={() => handleSendToPlc(param.id, param.name)}
-                              disabled={param.status === 'ACTIVE'}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              <Send className="h-4 w-4" />
-                              PLC&apos;ye Gönder
-                            </button>
-                            {param.status !== 'ACTIVE' && (
-                              <button
-                                onClick={() => handleActivate(param.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                              >
-                                <PlayCircle className="h-4 w-4" />
-                                Etkinleştir
-                              </button>
-                            )}
-                            <button
-                              onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Copy className="h-4 w-4" />
-                              Klonla
-                            </button>
-                            <div className="border-t my-1" />
-                            <button
-                              onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Sil
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<FeedingParameter>
+          data={parameters}
+          columns={feedingParameterColumns}
+          keyExtractor={(param) => param.id}
+          emptyMessage="No feeding parameters"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       ) : (
         <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
           <BarChart3 className="mx-auto h-12 w-12 text-gray-400" />

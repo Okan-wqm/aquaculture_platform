@@ -7,7 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Activity, Zap, CircleDot } from 'lucide-react';
-import { Drawer, colors as themeColors } from '@aquaculture/shared-ui';
+import { Drawer, colors as themeColors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
 import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -128,6 +128,39 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
   );
 
   /* ---------- Render ---------------------------------------------- */
+  type FaceplateConnectionPoint = (typeof connectionPoints)[number];
+  const faceplateConnectionPointColumns: DataTableColumn<FaceplateConnectionPoint>[] = [
+    {
+      key: 'port',
+      header: 'Port',
+      render: (_value, pt) => pt.id,
+    },
+    {
+      key: 'side',
+      header: 'Side',
+      render: (_value, pt) => pt.side,
+    },
+    {
+      key: 'direction',
+      header: 'Direction',
+      render: (_value, pt) => DIRECTION_LABELS[pt.direction] || pt.direction,
+    },
+    {
+      key: 'color',
+      header: 'Color',
+      align: 'center',
+      render: (_value, pt) => (
+        <span
+          className="inline-block w-3 h-3 rounded-full border border-white shadow-sm"
+          style={{
+            backgroundColor: CONNECTION_POINT_COLORS[pt.direction],
+          }}
+          title={pt.direction}
+        />
+      ),
+    }
+  ];
+
   return (
     <Drawer
       isOpen
@@ -190,31 +223,25 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
               <Activity size={12} />
               Properties
             </h3>
-            <table className="w-full text-sm">
-              <tbody>
-                {propertyRows.map((row, idx) => (
-                  <tr
-                    key={row.label}
-                    className={idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
-                  >
-                    <td className="py-1 px-2 text-gray-500 font-medium whitespace-nowrap">
-                      {row.label}
-                    </td>
-                    <td className="py-1 px-2 text-gray-900">
-                      <span className="flex items-center gap-1.5">
-                        {row.color && (
-                          <span
-                            className="inline-block w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: row.color }}
-                          />
-                        )}
-                        {row.value}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <dl className="w-full text-sm">
+              {propertyRows.map((row, idx) => (
+                <div
+                  key={row.label}
+                  className={`flex items-center gap-3 py-1 px-2 ${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
+                >
+                  <dt className="text-gray-500 font-medium whitespace-nowrap">{row.label}</dt>
+                  <dd className="flex items-center gap-1.5 text-gray-900">
+                    {row.color && (
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: row.color }}
+                      />
+                    )}
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
 
@@ -225,41 +252,16 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
               <CircleDot size={12} />
               Connection Points
             </h3>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-600">
-                    <th className="py-1.5 px-2 text-left font-semibold">Port</th>
-                    <th className="py-1.5 px-2 text-left font-semibold">Side</th>
-                    <th className="py-1.5 px-2 text-left font-semibold">Direction</th>
-                    <th className="py-1.5 px-2 text-center font-semibold">Color</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {connectionPoints.map((pt, idx) => (
-                    <tr
-                      key={pt.id}
-                      className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                    >
-                      <td className="py-1 px-2 font-mono text-gray-800">{pt.id}</td>
-                      <td className="py-1 px-2 text-gray-600 capitalize">{pt.side}</td>
-                      <td className="py-1 px-2 text-gray-600">
-                        {DIRECTION_LABELS[pt.direction] || pt.direction}
-                      </td>
-                      <td className="py-1 px-2 text-center">
-                        <span
-                          className="inline-block w-3 h-3 rounded-full border border-white shadow-sm"
-                          style={{
-                            backgroundColor: CONNECTION_POINT_COLORS[pt.direction],
-                          }}
-                          title={pt.direction}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<FaceplateConnectionPoint>
+              data={connectionPoints}
+              columns={faceplateConnectionPointColumns}
+              keyExtractor={(pt) => pt.id}
+              emptyMessage="No connection points"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+            />
           </div>
         )}
       </div>

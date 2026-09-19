@@ -219,8 +219,24 @@ table), the labour-cost ledger as a definition list (label/value lines, no
 header — never a grid). `DataTable`'s rows-per-page select renders only
 when a page can act on it; before, every paginated page showed an inert
 one. hr 8 → 3: the weekly schedule and team overview are calendar grids and
-the print schedule is a print document. **Owner:** okan ·
-**Expiry:** 2027-06-30.
+the print schedule is a print document. Batch 14: sensor-module (37 → 15)
+— the PLC connection and feeding-parameter lists, process and SCADA package
+lists, automation programs (its row component folds into columns), edge
+devices (its select-all header cell and row checkboxes become `DataTable`
+selection), the edge device I/O channel table, LoRa devices, the channel
+manager, the tag registry (its loading/error/empty rows become `loading`,
+an error banner and a node `emptyMessage`), readings, VFD change sets
+(list, detail, create dialog) and the VFD audit log, the automation
+editor's I/O bindings and deployment history, the CSV export preview, the
+dashboard table widget, the PID faceplate's connection points and recipe
+values; the faceplate's property ledger is a definition list. The 15 that
+stay are the SCADA runtime grids (`RuntimeTable` ×3, `DataTableRenderer`,
+the heatmap), the dark operator alarm and simulation panels, the
+calibration and threshold pages (their row components hold per-row edit
+state, which has to move up to the page first), the automation editor's
+variable table (same), the translations matrix and CSV import mapping
+(language / column-keyed dynamic columns), tag watch, variable sync and the
+grouped auto-detect results. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -233,8 +249,8 @@ the print schedule is a print document. **Owner:** okan ·
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 114 remain after batch 13 (admin-panel 3,
-  tenant-admin 1, hr 3, shell 1, then hydroponics 10, sensor 37, farm 59).
+- Raw `<table>` → `DataTable`: 92 remain after batch 14 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, hydroponics 10, sensor 15, farm 59).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

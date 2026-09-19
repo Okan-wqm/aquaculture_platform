@@ -214,7 +214,7 @@ rawField:
       findingId: FE-HIGH-079
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 236
+      ceiling: 207
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -292,7 +292,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 2656
+      ceiling: 2651
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

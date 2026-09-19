@@ -1,544 +1,680 @@
 /**
  * WeeklySchedulePage
- * Simple table-based employee scheduling with click-to-assign codes
- * Supports daily, weekly, and monthly view modes
+ *
+ * The roster: every active employee against the visible days, each cell the
+ * employee's weekly-plan entry from the scheduling API. Choosing a shift or
+ * an off day in a cell saves it at once — the employee's plan for that week
+ * is created first when there is none — and the refetched overview repaints
+ * the cell. The daily, weekly and monthly views read the same per-week
+ * overviews, so an assignment made in one view is what the others show.
+ * Leave days come from approved leave requests and a published week is
+ * read-only: both are the API's rules, and the cells only reflect them.
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Calendar,
-  Settings,
   ChevronLeft,
   ChevronRight,
-  Save,
-  RefreshCw,
+  Coffee,
+  Lock,
+  Send,
+  Settings,
+  Umbrella,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey, colors, PageHeader, Button } from '@aquaculture/shared-ui';
-import { useQuery } from '@tanstack/react-query';
-import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
+import {
+  Badge,
+  Button,
+  EmptyState,
+  ErrorState,
+  Menu,
+  PageHeader,
+  Spinner,
+  cn,
+  colors,
+  useConfirm,
+  type MenuItem,
+} from '@aquaculture/shared-ui';
 
-// =====================
-// Types
-// =====================
-
-export interface ScheduleCategory {
-  code: string;
-  name: string;
-  color: string;
-  textColor: string;
-  isWorking: boolean;
-  hours: number;
-}
+import { sanitizeColor } from '../../components/leave/LeaveBalanceWidget';
+import { PrintScheduleButton } from '../../components/scheduling';
+import { useShifts } from '../../hooks/useAttendance';
+import {
+  formatDateISO,
+  formatMinutesAsHours,
+  getWeekMonday,
+  getWeekdayNameTR,
+  getWeekdayShortTR,
+  useAssignScheduleCell,
+  usePublishWeekPlans,
+  useTeamWeeklyOverviews,
+} from '../../hooks/useScheduling';
+import type { Shift } from '../../types/attendance.types';
+import type {
+  DayEntry,
+  EmployeeWeekSummary,
+  TeamWeeklyOverview,
+  WeekDay,
+} from '../../types/scheduling.types';
 
 type ViewMode = 'daily' | 'weekly' | 'monthly';
 
-// =====================
-// Default Categories
-// =====================
-
-const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Çalışma', color: colors.success[500], textColor: colors.white, isWorking: true, hours: 9 },
-  { code: 'X', name: 'Off', color: colors.neutral[400], textColor: colors.white, isWorking: false, hours: 0 },
-  { code: 'P', name: 'Izin', color: colors.info[500], textColor: colors.white, isWorking: false, hours: 0 },
-  { code: 'OT', name: 'Fazla Mesai', color: colors.warning[500], textColor: colors.white, isWorking: true, hours: 4 },
-  { code: 'E', name: 'Egitim', color: colors.primary[700], textColor: colors.white, isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalık', color: colors.error[500], textColor: colors.white, isWorking: false, hours: 0 },
+const VIEW_MODES: readonly { mode: ViewMode; label: string }[] = [
+  { mode: 'daily', label: 'Günlük' },
+  { mode: 'weekly', label: 'Haftalık' },
+  { mode: 'monthly', label: 'Aylık' },
 ];
 
-/**
- * SEC-007: Storage keys are namespaced with tenantId + userId so that
- * draft schedule data from one user's session cannot leak into another user's
- * session on a shared workstation.
- *
- * Falls back to 'anon' segments when the identity is not yet available so
- * the functions remain safe to call before auth is resolved.
- */
-function makeStorageKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
-  const t = tenantId || 'anon';
-  const u = userId || 'anon';
-  return `aqua-schedule-categories-${t}-${u}`;
-}
+const NO_SHIFTS: readonly Shift[] = [];
 
-function makeScheduleDataKey(tenantId: string | null | undefined, userId: string | null | undefined): string {
-  const t = tenantId || 'anon';
-  const u = userId || 'anon';
-  return `aqua-schedule-data-${t}-${u}`;
-}
-
-function loadCategories(tenantId?: string | null, userId?: string | null): ScheduleCategory[] {
-  try {
-    const stored = localStorage.getItem(makeStorageKey(tenantId, userId));
-    if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
-  return DEFAULT_CATEGORIES;
-}
-
-function saveCategories(cats: ScheduleCategory[], tenantId?: string | null, userId?: string | null) {
-  localStorage.setItem(makeStorageKey(tenantId, userId), JSON.stringify(cats));
-}
-
-// Schedule data stored per week key: "YYYY-MM-DD"
-// Format: { [weekKey]: { [employeeId]: { [dateStr]: categoryCode } } }
-type ScheduleStore = Record<string, Record<string, Record<string, string>>>;
-
-function loadScheduleData(tenantId?: string | null, userId?: string | null): ScheduleStore {
-  try {
-    const stored = localStorage.getItem(makeScheduleDataKey(tenantId, userId));
-    if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
-  return {};
-}
-
-function saveScheduleData(data: ScheduleStore, tenantId?: string | null, userId?: string | null) {
-  localStorage.setItem(makeScheduleDataKey(tenantId, userId), JSON.stringify(data));
-}
-
-// =====================
-// Helper functions
-// =====================
-
-const DAY_NAMES_TR = ['Pzt', 'Sal', 'Car', 'Per', 'Cum', 'Cts', 'Paz'];
-const DAY_FULL_NAMES_TR = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
-const MONTH_NAMES_TR = [
-  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
-];
-
-function getMonday(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/**
- * Format date as YYYY-MM-DD using local calendar date.
- * BUG-019: toISOString() converts to UTC which shifts the date for UTC+ timezones
- * (e.g. Turkey is UTC+3; a date at 01:00 local is still the previous day in UTC).
- */
-function formatDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function getWeekDates(weekStart: Date): Date[] {
-  const dates: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    dates.push(d);
+function weekdayOf(date: Date): WeekDay {
+  switch (date.getDay()) {
+    case 0:
+      return 'sunday';
+    case 1:
+      return 'monday';
+    case 2:
+      return 'tuesday';
+    case 3:
+      return 'wednesday';
+    case 4:
+      return 'thursday';
+    case 5:
+      return 'friday';
+    default:
+      return 'saturday';
   }
-  return dates;
 }
 
-function getMonthDates(year: number, month: number): Date[] {
-  const days = getDaysInMonth(year, month);
-  const dates: Date[] = [];
-  for (let i = 1; i <= days; i++) {
-    dates.push(new Date(year, month, i));
+function startOfDay(date: Date): Date {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return day;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+/** Lands on the first of the target month so a 31st never rolls over into the month after. */
+function addMonths(date: Date, months: number): Date {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months, 1);
+  return next;
+}
+
+function datesOfWeek(monday: Date): Date[] {
+  return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+}
+
+function datesOfMonth(year: number, month: number): Date[] {
+  const count = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: count }, (_, index) => new Date(year, month, index + 1));
+}
+
+/** The ISO Mondays covering the given dates, in order and without repeats. */
+function weekStartsOf(dates: readonly Date[]): string[] {
+  const starts = new Set<string>();
+  for (const date of dates) starts.add(formatDateISO(getWeekMonday(date)));
+  return Array.from(starts);
+}
+
+function isWeekend(date: Date): boolean {
+  return date.getDay() === 0 || date.getDay() === 6;
+}
+
+function isWorkingEntry(entry: DayEntry): boolean {
+  return entry.entryType === 'work' || entry.entryType === 'training';
+}
+
+function timeRange(start: string, end: string): string {
+  return `${start.slice(0, 5)}–${end.slice(0, 5)}`;
+}
+
+interface RosterEmployee {
+  employeeId: string;
+  employeeName: string;
+  position: string | undefined;
+}
+
+interface RosterCell {
+  weekStart: string;
+  plan: EmployeeWeekSummary;
+  entry: DayEntry;
+}
+
+const faceShell = 'flex w-full items-center justify-center gap-1 rounded font-semibold';
+
+interface CellFaceProps {
+  cell: RosterCell;
+  shift: Shift | undefined;
+  compact: boolean;
+  saving: boolean;
+}
+
+/**
+ * What a cell shows: the shift code in the shift's colour, an off day, a
+ * leave day, a public holiday — or nothing while the week has no plan.
+ */
+function CellFace({ cell, shift, compact, saving }: CellFaceProps): React.JSX.Element {
+  const size = compact ? 'h-6 text-xs' : 'h-8 text-xs';
+  if (saving) {
+    return (
+      <span className={cn(faceShell, size, 'text-gray-400 dark:text-gray-500')}>
+        <Spinner size="sm" color="inherit" />
+      </span>
+    );
   }
-  return dates;
-}
-
-// =====================
-// Component
-// =====================
-
-export function WeeklySchedulePage() {
-  // SEC-007: auth identity used to namespace localStorage keys
-  const { user } = useAuth();
-  const tenantId = user?.tenantId;
-  const userId = user?.id;
-
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => getMonday(new Date()));
-  const [viewMode, setViewMode] = useState<ViewMode>('weekly');
-  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
-  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
-  const [currentDay, setCurrentDay] = useState(() => new Date());
-  // SEC-007: load categories and schedule data from namespaced keys
-  const [categories] = useState<ScheduleCategory[]>(() => loadCategories(tenantId, userId));
-  const [scheduleData, setScheduleData] = useState<ScheduleStore>(() => loadScheduleData(tenantId, userId));
-  const [dropdownCell, setDropdownCell] = useState<{ empId: string; dateStr: string } | null>(null);
-  const [hasUnsaved, setHasUnsaved] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // BUG-005: `limit` is a pagination param, not a filter field — pass it separately.
-  // PERF-003: fetch only the minimal display fields needed for scheduling grid.
-  const gqlClient = useGraphQLClient();
-  const { data: employeesData, isLoading: loadingEmployees } = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'scheduling-employees'),
-    queryFn: () =>
-      graphqlRequest<{
-        employees: {
-          items: { id: string; firstName: string; lastName: string; position: string; department: string }[];
-          total: number;
-        };
-      }, unknown>(
-        gqlClient,
-        `query GetSchedulingEmployees($filter: EmployeeFilterInput) {
-          employees(filter: $filter) {
-            items { id firstName lastName position department }
-            total
-          }
-        }`,
-        {
-          filter: { status: 'ACTIVE', limit: 1000, offset: 0 },
-        }
-      ),
-    select: (data) => data.employees,
-    enabled: !!tenantId,
-  });
-
-  const employees = useMemo(() => {
-    return (employeesData?.items || []).map((e) => ({
-      id: e.id,
-      name: `${e.firstName} ${e.lastName}`,
-      position: e.position || e.department || '',
-      initials: `${e.firstName?.[0] || ''}${e.lastName?.[0] || ''}`,
-    }));
-  }, [employeesData?.items]);
-
-  // Get week key for storing data
-  const getStoreKey = useCallback((dateStr: string): string => {
-    const d = new Date(dateStr);
-    const monday = getMonday(d);
-    return formatDate(monday);
-  }, []);
-
-  // Get cell value
-  const getCellValue = useCallback((empId: string, dateStr: string): string | undefined => {
-    const weekKey = getStoreKey(dateStr);
-    return scheduleData[weekKey]?.[empId]?.[dateStr];
-  }, [scheduleData, getStoreKey]);
-
-  // Set cell value
-  const setCellValue = useCallback((empId: string, dateStr: string, code: string | null) => {
-    setScheduleData((prev) => {
-      const weekKey = getStoreKey(dateStr);
-      const newData = { ...prev };
-      if (!newData[weekKey]) newData[weekKey] = {};
-      if (!newData[weekKey][empId]) newData[weekKey][empId] = {};
-
-      if (code === null) {
-        delete newData[weekKey][empId][dateStr];
-      } else {
-        newData[weekKey][empId][dateStr] = code;
-      }
-      return newData;
-    });
-    setHasUnsaved(true);
-    setDropdownCell(null);
-  }, [getStoreKey]);
-
-  // Save locally (localStorage used as a draft buffer for offline-capable UX).
-  // PERF-003 note: server-side persistence via saveSchedule mutation is wired
-  // through the scheduling API in production; this local store serves as optimistic
-  // cache while the network is unavailable.
-  // SEC-007: pass identity so the write lands in the namespaced key.
-  const handleSave = useCallback(() => {
-    saveScheduleData(scheduleData, tenantId, userId);
-    setHasUnsaved(false);
-  }, [scheduleData, tenantId, userId]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownCell(null);
-      }
+  if (cell.plan.weeklyPlanId === undefined) {
+    return <span className={cn(faceShell, size, 'text-gray-300 dark:text-gray-600')}>·</span>;
+  }
+  switch (cell.entry.entryType) {
+    case 'off':
+      return (
+        <span
+          className={cn(
+            faceShell,
+            size,
+            'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+          )}
+          title="Tatil"
+        >
+          <Coffee className="h-3.5 w-3.5" aria-hidden="true" />
+          {!compact && 'Tatil'}
+        </span>
+      );
+    case 'leave':
+      return (
+        <span
+          className={cn(
+            faceShell,
+            size,
+            'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300',
+          )}
+          title="İzin (onaylı izin talebi)"
+        >
+          <Umbrella className="h-3.5 w-3.5" aria-hidden="true" />
+          {!compact && 'İzin'}
+        </span>
+      );
+    case 'holiday':
+      return (
+        <span
+          className={cn(
+            faceShell,
+            size,
+            'bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300',
+          )}
+          title="Resmi tatil"
+        >
+          {compact ? 'RT' : 'Resmi tatil'}
+        </span>
+      );
+    case 'work':
+    case 'training': {
+      const title =
+        shift === undefined
+          ? (cell.entry.shiftName ?? 'Vardiya atanmadı')
+          : `${shift.name} · ${timeRange(shift.startTime, shift.endTime)}`;
+      return (
+        <span
+          className={cn(faceShell, size, 'text-white shadow-sm')}
+          style={{
+            backgroundColor: sanitizeColor(
+              shift === undefined ? null : shift.colorCode,
+              colors.info[500],
+            ),
+          }}
+          title={title}
+        >
+          {cell.entry.shiftCode ?? '—'}
+        </span>
+      );
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }
+}
 
-  // Compute dates based on view mode
+function ShiftOption({ shift }: { shift: Shift }): React.JSX.Element {
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className="h-3 w-3 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: sanitizeColor(shift.colorCode, colors.info[500]) }}
+        aria-hidden="true"
+      />
+      <span className="font-semibold">{shift.code}</span>
+      <span className="text-gray-500 dark:text-gray-400">
+        {shift.name} · {timeRange(shift.startTime, shift.endTime)}
+      </span>
+    </span>
+  );
+}
+
+export function WeeklySchedulePage(): React.JSX.Element {
+  const confirm = useConfirm();
+  const [viewMode, setViewMode] = useState<ViewMode>('weekly');
+  const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()));
+
   const visibleDates = useMemo((): Date[] => {
     switch (viewMode) {
       case 'daily':
-        return [new Date(currentDay)];
+        return [anchor];
       case 'weekly':
-        return getWeekDates(currentWeekStart);
+        return datesOfWeek(getWeekMonday(anchor));
       case 'monthly':
-        return getMonthDates(currentYear, currentMonth);
+        return datesOfMonth(anchor.getFullYear(), anchor.getMonth());
     }
-  }, [viewMode, currentWeekStart, currentYear, currentMonth, currentDay]);
+  }, [viewMode, anchor]);
+  const weekStarts = useMemo(() => weekStartsOf(visibleDates), [visibleDates]);
 
-  // Compute totals for an employee
-  const getEmployeeTotals = useCallback((empId: string, dates: Date[]) => {
+  const overviews = useTeamWeeklyOverviews(weekStarts);
+  const shiftsQuery = useShifts({ isActive: true });
+  const shifts = shiftsQuery.data ?? NO_SHIFTS;
+  const assign = useAssignScheduleCell();
+  const publish = usePublishWeekPlans();
+
+  const overviewByWeek = useMemo(() => {
+    const byWeek = new Map<string, TeamWeeklyOverview>();
+    overviews.forEach((result, index) => {
+      const weekStart = weekStarts[index];
+      if (weekStart !== undefined && result.data !== undefined) byWeek.set(weekStart, result.data);
+    });
+    return byWeek;
+  }, [overviews, weekStarts]);
+
+  const plansByWeek = useMemo(() => {
+    const index = new Map<string, Map<string, EmployeeWeekSummary>>();
+    for (const [weekStart, overview] of overviewByWeek) {
+      index.set(weekStart, new Map(overview.employeePlans.map((plan) => [plan.employeeId, plan])));
+    }
+    return index;
+  }, [overviewByWeek]);
+
+  const employees = useMemo((): RosterEmployee[] => {
+    const seen = new Map<string, RosterEmployee>();
+    for (const overview of overviewByWeek.values()) {
+      for (const plan of overview.employeePlans) {
+        if (!seen.has(plan.employeeId)) {
+          seen.set(plan.employeeId, {
+            employeeId: plan.employeeId,
+            employeeName: plan.employeeName,
+            position: plan.position,
+          });
+        }
+      }
+    }
+    return Array.from(seen.values());
+  }, [overviewByWeek]);
+
+  const shiftByCode = useMemo(
+    () => new Map(shifts.map((shift) => [shift.code, shift] as const)),
+    [shifts],
+  );
+
+  const planOf = (weekStart: string, employeeId: string): EmployeeWeekSummary | undefined => {
+    const weekPlans = plansByWeek.get(weekStart);
+    return weekPlans === undefined ? undefined : weekPlans.get(employeeId);
+  };
+
+  const cellOf = (employeeId: string, date: Date): RosterCell | undefined => {
+    const weekStart = formatDateISO(getWeekMonday(date));
+    const plan = planOf(weekStart, employeeId);
+    if (plan === undefined) return undefined;
+    const weekday = weekdayOf(date);
+    const entry = plan.days.find((day) => day.dayOfWeek === weekday);
+    return entry === undefined ? undefined : { weekStart, plan, entry };
+  };
+
+  const employeeTotals = (employeeId: string): { workDays: number; minutes: number } => {
     let workDays = 0;
-    let totalHours = 0;
-    for (const date of dates) {
-      const dateStr = formatDate(date);
-      const code = getCellValue(empId, dateStr);
-      if (code) {
-        const cat = categories.find((c) => c.code === code);
-        if (cat?.isWorking) {
-          workDays++;
-          totalHours += cat.hours;
-        }
+    let minutes = 0;
+    for (const date of visibleDates) {
+      const cell = cellOf(employeeId, date);
+      if (cell !== undefined && isWorkingEntry(cell.entry)) {
+        workDays += 1;
+        minutes += cell.entry.plannedMinutes;
       }
     }
-    return { workDays, totalHours };
-  }, [getCellValue, categories]);
-
-  // Navigation handlers
-  const navigatePrev = () => {
-    switch (viewMode) {
-      case 'daily': {
-        const prev = new Date(currentDay);
-        prev.setDate(prev.getDate() - 1);
-        setCurrentDay(prev);
-        break;
-      }
-      case 'weekly': {
-        const prev = new Date(currentWeekStart);
-        prev.setDate(prev.getDate() - 7);
-        setCurrentWeekStart(prev);
-        break;
-      }
-      case 'monthly': {
-        if (currentMonth === 0) {
-          setCurrentMonth(11);
-          setCurrentYear((y) => y - 1);
-        } else {
-          setCurrentMonth((m) => m - 1);
-        }
-        break;
-      }
-    }
+    return { workDays, minutes };
   };
 
-  const navigateNext = () => {
-    switch (viewMode) {
-      case 'daily': {
-        const next = new Date(currentDay);
-        next.setDate(next.getDate() + 1);
-        setCurrentDay(next);
-        break;
+  const workingCountOn = (date: Date): number =>
+    employees.reduce((count, employee) => {
+      const cell = cellOf(employee.employeeId, date);
+      return cell !== undefined && isWorkingEntry(cell.entry) ? count + 1 : count;
+    }, 0);
+
+  const navigate = (direction: -1 | 1): void => {
+    setAnchor((current) => {
+      switch (viewMode) {
+        case 'daily':
+          return addDays(current, direction);
+        case 'weekly':
+          return addDays(current, 7 * direction);
+        case 'monthly':
+          return addMonths(current, direction);
       }
-      case 'weekly': {
-        const next = new Date(currentWeekStart);
-        next.setDate(next.getDate() + 7);
-        setCurrentWeekStart(next);
-        break;
-      }
-      case 'monthly': {
-        if (currentMonth === 11) {
-          setCurrentMonth(0);
-          setCurrentYear((y) => y + 1);
-        } else {
-          setCurrentMonth((m) => m + 1);
-        }
-        break;
-      }
-    }
+    });
   };
 
-  const navigateToday = () => {
-    const today = new Date();
-    setCurrentDay(today);
-    setCurrentWeekStart(getMonday(today));
-    setCurrentMonth(today.getMonth());
-    setCurrentYear(today.getFullYear());
-  };
-
-  // Title for navigation
-  const navTitle = useMemo(() => {
+  const navTitle = useMemo((): string => {
     switch (viewMode) {
       case 'daily':
-        return currentDay.toLocaleDateString('tr-TR', {
+        return anchor.toLocaleDateString('tr-TR', {
           weekday: 'long',
           day: 'numeric',
           month: 'long',
           year: 'numeric',
         });
       case 'weekly': {
-        const end = new Date(currentWeekStart);
-        end.setDate(end.getDate() + 6);
-        const startStr = currentWeekStart.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
-        const endStr = end.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
-        return `${startStr} - ${endStr}`;
+        const monday = getWeekMonday(anchor);
+        const start = monday.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+        const end = addDays(monday, 6).toLocaleDateString('tr-TR', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        });
+        return `${start} – ${end}`;
       }
       case 'monthly':
-        return `${MONTH_NAMES_TR[currentMonth]} ${currentYear}`;
+        return anchor.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
     }
-  }, [viewMode, currentDay, currentWeekStart, currentMonth, currentYear]);
+  }, [viewMode, anchor]);
 
-  // Column header label
-  const getColumnHeader = (date: Date): { top: string; bottom: string } => {
-    const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1;
+  const columnHeader = (date: Date): { top: string; bottom: string } => {
+    const weekday = weekdayOf(date);
     switch (viewMode) {
       case 'daily':
         return {
-          top: DAY_FULL_NAMES_TR[dayIndex] || '',
+          top: getWeekdayNameTR(weekday),
           bottom: date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' }),
         };
       case 'weekly':
-        return {
-          top: DAY_NAMES_TR[dayIndex] || '',
-          bottom: `${date.getDate()}`,
-        };
+        return { top: getWeekdayShortTR(weekday), bottom: String(date.getDate()) };
       case 'monthly':
-        return {
-          top: `${date.getDate()}`,
-          bottom: DAY_NAMES_TR[dayIndex] || '',
-        };
+        return { top: String(date.getDate()), bottom: getWeekdayShortTR(weekday) };
     }
   };
 
-  // Is weekend
-  const isWeekend = (date: Date): boolean => {
-    const day = date.getDay();
-    return day === 0 || day === 6;
+  const currentWeekStart = formatDateISO(getWeekMonday(anchor));
+  const weekOverview = viewMode === 'weekly' ? overviewByWeek.get(currentWeekStart) : undefined;
+  const draftPlanIds = useMemo(
+    (): string[] =>
+      weekOverview === undefined
+        ? []
+        : weekOverview.employeePlans.flatMap((plan) =>
+            plan.weeklyPlanId !== undefined && plan.planStatus === 'draft'
+              ? [plan.weeklyPlanId]
+              : [],
+          ),
+    [weekOverview],
+  );
+
+  const publishWeek = async (): Promise<void> => {
+    if (weekOverview === undefined || draftPlanIds.length === 0) return;
+    const confirmed = await confirm({
+      title: 'Haftayı yayınla',
+      message: `${draftPlanIds.length} çalışanın taslak planı yayınlanacak. Yayınlanan planlar düzenlenemez.`,
+      confirmText: 'Yayınla',
+      cancelText: 'Vazgeç',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
+    publish.mutate({ weekStartDate: weekOverview.weekStartDate, planIds: draftPlanIds });
   };
 
-  // PERF-005: memoize the per-date working-employee count for the tfoot row
-  const dailyTotalsMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const date of visibleDates) {
-      const dateStr = formatDate(date);
-      let count = 0;
-      for (const emp of employees) {
-        const code = getCellValue(emp.id, dateStr);
-        if (code) {
-          const cat = categories.find((c) => c.code === code);
-          if (cat?.isWorking) count++;
-        }
-      }
-      map[dateStr] = count;
-    }
-    return map;
-  }, [visibleDates, employees, getCellValue, categories]);
+  const failed = overviews.find((result) => result.isError);
+  const loading = failed === undefined && overviews.some((result) => result.data === undefined);
+  const pending = assign.isPending ? assign.variables : undefined;
+  const todayStr = formatDateISO(new Date());
+  const compact = viewMode === 'monthly';
 
-  // PERF-012: wrap renderCell in useCallback so it's stable between renders
-  const renderCell = useCallback((empId: string, date: Date) => {
-    const dateStr = formatDate(date);
-    const code = getCellValue(empId, dateStr);
-    const cat = code ? categories.find((c) => c.code === code) : null;
-    const isOpen = dropdownCell?.empId === empId && dropdownCell?.dateStr === dateStr;
-    const weekend = isWeekend(date);
+  const renderCell = (employee: RosterEmployee, date: Date): React.JSX.Element => {
+    const dateStr = formatDateISO(date);
+    const cell = cellOf(employee.employeeId, date);
+    const tdClass = cn(
+      'border border-gray-200 text-center dark:border-gray-700',
+      compact ? 'p-0.5' : 'p-1',
+      isWeekend(date) && 'bg-gray-50 dark:bg-gray-800',
+    );
+    if (cell === undefined) {
+      return <td key={dateStr} className={tdClass} />;
+    }
+
+    const saving =
+      pending !== undefined &&
+      pending.employeeId === employee.employeeId &&
+      pending.date === dateStr;
+    const shift =
+      cell.entry.shiftCode === undefined ? undefined : shiftByCode.get(cell.entry.shiftCode);
+    const face = <CellFace cell={cell} shift={shift} compact={compact} saving={saving} />;
+    const locked =
+      cell.plan.planStatus === 'published' ||
+      cell.entry.entryType === 'leave' ||
+      cell.entry.entryType === 'holiday';
+    if (locked) {
+      return (
+        <td key={dateStr} className={tdClass}>
+          {face}
+        </td>
+      );
+    }
+
+    const assignCell = (shiftId: string | null): void => {
+      assign.mutate({
+        employeeId: employee.employeeId,
+        weekStartDate: cell.weekStart,
+        weeklyPlanId: cell.plan.weeklyPlanId,
+        date: dateStr,
+        shiftId,
+      });
+    };
+    const items: MenuItem[] = [
+      ...shifts.map(
+        (option): MenuItem => ({
+          id: option.id,
+          label: <ShiftOption shift={option} />,
+          onSelect: () => assignCell(option.id),
+        }),
+      ),
+      {
+        id: 'off',
+        label: 'Tatil',
+        icon: <Coffee className="h-4 w-4" aria-hidden="true" />,
+        separator: shifts.length > 0,
+        onSelect: () => assignCell(null),
+      },
+    ];
+    const dateLabel = `${getWeekdayNameTR(weekdayOf(date))} ${date.toLocaleDateString('tr-TR', {
+      day: 'numeric',
+      month: 'long',
+    })}`;
 
     return (
-      <td
-        key={dateStr}
-        className={cn(
-          'relative border border-gray-200 dark:border-gray-700 text-center cursor-pointer select-none transition-colors',
-          viewMode === 'monthly' ? 'p-0.5' : 'p-1',
-          weekend && !cat && 'bg-gray-50 dark:bg-gray-800',
-        )}
-        onClick={() => setDropdownCell(isOpen ? null : { empId, dateStr })}
-      >
-        <div
-          className={cn(
-            'rounded flex items-center justify-center font-semibold transition-all',
-            viewMode === 'monthly' ? 'h-6 w-full text-[10px]' : 'h-8 w-full text-xs',
-            cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700',
+      <td key={dateStr} className={tdClass}>
+        <Menu
+          aria-label={`${employee.employeeName}, ${dateLabel}: vardiya seç`}
+          items={items}
+          align="start"
+          panelClassName="w-64"
+          className="w-full"
+          trigger={(props) => (
+            <button
+              type="button"
+              {...props}
+              disabled={assign.isPending}
+              className="block w-full rounded transition-colors hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-primary-500 disabled:cursor-wait dark:hover:bg-gray-700"
+              title={`${employee.employeeName} · ${dateLabel}`}
+            >
+              {face}
+            </button>
           )}
-          style={cat ? { backgroundColor: cat.color, color: cat.textColor } : undefined}
-          title={cat ? `${cat.name} (${cat.hours}h)` : 'Tıklayarak ata'}
-        >
-          {cat ? cat.code : weekend ? '-' : '·'}
-        </div>
-
-        {/* Dropdown */}
-        {isOpen && (
-          <div
-            ref={dropdownRef}
-            className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-1.5 min-w-[120px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-              {categories.map((c) => (
-                <button
-                  key={c.code}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-80',
-                    code === c.code && 'ring-2 ring-offset-1 ring-gray-400',
-                  )}
-                  style={{ backgroundColor: c.color, color: c.textColor }}
-                  onClick={() => setCellValue(empId, dateStr, c.code)}
-                  title={`${c.name} - ${c.hours}h`}
-                >
-                  {c.code}
-                  <span className="font-normal text-[10px] opacity-80 truncate">{c.name}</span>
-                </button>
-              ))}
-            </div>
-            {code && (
-              <Button variant="ghost" size="xs" className="mt-1.5" onClick={() => setCellValue(empId, dateStr, null)}>Temizle</Button>
-            )}
-          </div>
-        )}
+        />
       </td>
     );
-  }, [dropdownCell, categories, getCellValue, setCellValue, viewMode]);
+  };
+
+  const renderEmployeeRow = (employee: RosterEmployee): React.JSX.Element => {
+    const totals = employeeTotals(employee.employeeId);
+    const firstWeek = weekStarts[0];
+    const rowPlan =
+      compact || firstWeek === undefined ? undefined : planOf(firstWeek, employee.employeeId);
+    const published = rowPlan !== undefined && rowPlan.planStatus === 'published';
+    const initials = employee.employeeName
+      .split(' ')
+      .map((part) => part.charAt(0))
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    return (
+      <tr key={employee.employeeId} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
+        <th
+          scope="row"
+          className="sticky left-0 z-10 border border-gray-200 bg-white px-3 py-2 text-left font-normal dark:border-gray-700 dark:bg-gray-900"
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+              aria-hidden="true"
+            >
+              {initials}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-medium text-gray-900 dark:text-gray-100">
+                {employee.employeeName}
+              </span>
+              {employee.position !== undefined && employee.position !== '' && (
+                <span className="block truncate text-xs text-gray-400 dark:text-gray-500">
+                  {employee.position}
+                </span>
+              )}
+            </span>
+            {published && (
+              <Badge variant="info" size="sm" className="ml-auto flex-shrink-0">
+                <Lock className="mr-1 h-3 w-3" aria-hidden="true" />
+                Yayınlandı
+              </Badge>
+            )}
+          </div>
+        </th>
+        {visibleDates.map((date) => renderCell(employee, date))}
+        <td className="border border-gray-200 bg-success-50 px-2 py-1 text-center dark:border-gray-700 dark:bg-success-900/20">
+          <span
+            className={cn(
+              'text-xs font-bold',
+              totals.workDays > 0
+                ? 'text-success-700 dark:text-success-300'
+                : 'text-gray-300 dark:text-gray-600',
+            )}
+          >
+            {totals.workDays}
+          </span>
+        </td>
+        <td className="border border-gray-200 bg-success-50 px-2 py-1 text-center dark:border-gray-700 dark:bg-success-900/20">
+          <span
+            className={cn(
+              'text-xs font-bold',
+              totals.minutes > 0
+                ? 'text-success-700 dark:text-success-300'
+                : 'text-gray-300 dark:text-gray-600',
+            )}
+          >
+            {formatMinutesAsHours(totals.minutes)}
+          </span>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+      <div className="border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
         <PageHeader
           title={
             <>
-              <Calendar className="h-6 w-6 text-indigo-600" />
+              <Calendar
+                className="h-6 w-6 text-primary-600 dark:text-primary-400"
+                aria-hidden="true"
+              />
               İş Çizelgesi
             </>
           }
-          description="Çalışanların programlarını planlama ve yönetim"
+          description="Çalışanların haftalık planları; her hücre seçildiği anda kaydedilir"
           actions={
-            <div className="flex items-center gap-3">
-              {/* View Mode Toggle */}
-              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
-                  <button
+            <div className="flex flex-wrap items-center gap-3">
+              <div
+                role="group"
+                aria-label="Görünüm"
+                className="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800"
+              >
+                {VIEW_MODES.map(({ mode, label }) => (
+                  <Button
                     key={mode}
+                    size="xs"
+                    variant={viewMode === mode ? 'secondary' : 'ghost'}
+                    aria-pressed={viewMode === mode}
                     onClick={() => setViewMode(mode)}
-                    className={cn(
-                      'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                      viewMode === mode
-                        ? 'bg-white dark:bg-gray-900 text-indigo-700 shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100',
-                    )}
                   >
-                    {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
-                  </button>
+                    {label}
+                  </Button>
                 ))}
               </div>
 
-              {/* Navigation */}
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" iconOnly aria-label="Previous" onClick={navigatePrev}><ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" /></Button>
-
-                <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[200px] justify-center">
-                  <Calendar className="h-4 w-4 text-indigo-600" />
-                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{navTitle}</span>
+              <nav aria-label="Tarih gezinme" className="flex items-center gap-1">
+                <Button variant="ghost" iconOnly aria-label="Önceki" onClick={() => navigate(-1)}>
+                  <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+                </Button>
+                <div
+                  className="flex min-w-[200px] items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900"
+                  aria-live="polite"
+                >
+                  <Calendar
+                    className="h-4 w-4 text-primary-600 dark:text-primary-400"
+                    aria-hidden="true"
+                  />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {navTitle}
+                  </span>
                 </div>
+                <Button variant="ghost" iconOnly aria-label="Sonraki" onClick={() => navigate(1)}>
+                  <ChevronRight className="h-5 w-5" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="ml-1"
+                  onClick={() => setAnchor(startOfDay(new Date()))}
+                >
+                  Bugüne Dön
+                </Button>
+              </nav>
 
-                <Button variant="ghost" iconOnly aria-label="Next" onClick={navigateNext}><ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" /></Button>
-
-                <Button variant="ghost" size="xs" className="ml-1" onClick={navigateToday}>Bugüne Dön</Button>
-              </div>
-
-              {/* Save */}
-              {hasUnsaved && (
-                <Button variant="primary" leftIcon={<Save className="h-4 w-4" />} onClick={handleSave}>Kaydet</Button>
+              {viewMode === 'weekly' && (
+                <>
+                  <Button
+                    variant="primary"
+                    leftIcon={<Send className="h-4 w-4" aria-hidden="true" />}
+                    disabled={draftPlanIds.length === 0}
+                    loading={publish.isPending}
+                    onClick={() => {
+                      void publishWeek();
+                    }}
+                  >
+                    Haftayı Yayınla{draftPlanIds.length > 0 ? ` (${draftPlanIds.length})` : ''}
+                  </Button>
+                  {weekOverview !== undefined && <PrintScheduleButton overview={weekOverview} />}
+                </>
               )}
 
-              {/* Settings Link */}
               <Link
                 to="/hr/scheduling/settings"
-                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-600"
               >
-                <Settings className="h-4 w-4" />
+                <Settings className="h-4 w-4" aria-hidden="true" />
                 Ayarlar
               </Link>
             </div>
@@ -546,165 +682,173 @@ export function WeeklySchedulePage() {
         />
       </div>
 
-      {/* Category Legend */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-700 px-6 py-2">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Kategoriler:</span>
-          {categories.map((cat) => (
-            <div
-              key={cat.code}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-              style={{ backgroundColor: cat.color + '20', color: cat.color }}
+      {/* Legend: the active shifts, then the two entry kinds a cell can also be */}
+      <div className="border-b border-gray-100 bg-white px-6 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Vardiyalar:</span>
+          {shifts.map((shift) => (
+            <span
+              key={shift.id}
+              className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-xs dark:bg-gray-800"
             >
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: cat.color }}
+              <span
+                className="h-3 w-3 rounded-full"
+                style={{ backgroundColor: sanitizeColor(shift.colorCode, colors.info[500]) }}
+                aria-hidden="true"
               />
-              <span className="font-bold">{cat.code}</span>
-              <span className="opacity-70">{cat.name}</span>
-              {cat.isWorking && <span className="opacity-50">({cat.hours}h)</span>}
-            </div>
+              <span className="font-bold text-gray-900 dark:text-gray-100">{shift.code}</span>
+              <span className="text-gray-500 dark:text-gray-400">
+                {shift.name} · {timeRange(shift.startTime, shift.endTime)}
+              </span>
+            </span>
           ))}
+          {shifts.length === 0 && !shiftsQuery.isPending && (
+            <Link
+              to="/hr/scheduling/settings"
+              className="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+            >
+              Aktif vardiya yok — Ayarlar'dan tanımlayın
+            </Link>
+          )}
+          <Badge variant="default" size="sm">
+            <Coffee className="mr-1 h-3 w-3" aria-hidden="true" />
+            Tatil
+          </Badge>
+          <Badge variant="success" size="sm">
+            <Umbrella className="mr-1 h-3 w-3" aria-hidden="true" />
+            İzin (onaylı izin talebi)
+          </Badge>
         </div>
       </div>
 
-      {/* Main Table */}
       <div className="p-4">
-        <div className={cn(
-          'bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-auto',
-          viewMode === 'monthly' ? 'max-h-[calc(100vh-220px)]' : '',
-        )}>
-          {loadingEmployees ? (
-            <div className="p-12 text-center">
-              <RefreshCw className="h-8 w-8 text-gray-300 animate-spin mx-auto mb-3" />
-              <p className="text-gray-500 dark:text-gray-400 text-sm">Çalışanlar yükleniyor...</p>
+        <div
+          className={cn(
+            'overflow-auto rounded-xl bg-white shadow-sm dark:bg-gray-900',
+            compact && 'max-h-[calc(100vh-220px)]',
+          )}
+        >
+          {failed !== undefined ? (
+            <ErrorState
+              variant="plain"
+              title="Çizelge yüklenemedi"
+              description={
+                failed.error instanceof Error ? failed.error.message : 'Planlar alınamadı'
+              }
+              retryLabel="Yeniden dene"
+              onRetry={() => {
+                void failed.refetch();
+              }}
+            />
+          ) : loading ? (
+            <div className="p-12">
+              <Spinner size="lg" block text="Çizelge yükleniyor..." />
             </div>
           ) : employees.length === 0 ? (
-            <div className="p-12 text-center">
-              <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Çalışan bulunamadı</h3>
-              <p className="text-gray-500 dark:text-gray-400">Aktif calisan kaydolmasi gerekiyor.</p>
-            </div>
+            <EmptyState
+              variant="plain"
+              icon={<Calendar />}
+              title="Çalışan bulunamadı"
+              description="Çizelge için aktif bir çalışan kaydı gerekir."
+            />
           ) : (
             <table className="w-full border-collapse">
+              <caption className="sr-only">{navTitle} çalışma çizelgesi</caption>
               <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 dark:bg-gray-800">
-                  {/* Employee column header */}
-                  <th className="sticky left-0 z-20 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 min-w-[180px]">
+                  <th
+                    scope="col"
+                    className="sticky left-0 z-20 min-w-[180px] border border-gray-200 bg-gray-50 px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                  >
                     Çalışan
                   </th>
-                  {/* Day columns */}
                   {visibleDates.map((date) => {
-                    const header = getColumnHeader(date);
-                    const weekend = isWeekend(date);
-                    const isToday = formatDate(date) === formatDate(new Date());
+                    const header = columnHeader(date);
+                    const dateStr = formatDateISO(date);
+                    const today = dateStr === todayStr;
                     return (
                       <th
-                        key={formatDate(date)}
+                        key={dateStr}
+                        scope="col"
                         className={cn(
-                          'border border-gray-200 dark:border-gray-700 px-1 py-1.5 text-center',
-                          viewMode === 'monthly' ? 'min-w-[32px]' : 'min-w-[52px]',
-                          weekend && 'bg-gray-100 dark:bg-gray-800',
-                          isToday && 'bg-indigo-50',
+                          'border border-gray-200 px-1 py-1.5 text-center dark:border-gray-700',
+                          compact ? 'min-w-[36px]' : 'min-w-[56px]',
+                          isWeekend(date) && 'bg-gray-100 dark:bg-gray-800',
+                          today && 'bg-primary-50 dark:bg-primary-900/30',
                         )}
                       >
-                        <div className={cn(
-                          'text-[10px] font-semibold',
-                          isToday ? 'text-indigo-600' : weekend ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'block text-xs font-semibold',
+                            today
+                              ? 'text-primary-600 dark:text-primary-400'
+                              : isWeekend(date)
+                                ? 'text-gray-400 dark:text-gray-500'
+                                : 'text-gray-700 dark:text-gray-300',
+                          )}
+                        >
                           {header.top}
-                        </div>
-                        <div className={cn(
-                          'text-[9px]',
-                          isToday ? 'text-indigo-500' : 'text-gray-400 dark:text-gray-500',
-                        )}>
+                        </span>
+                        <span
+                          className={cn(
+                            'block text-xs',
+                            today
+                              ? 'text-primary-500 dark:text-primary-400'
+                              : 'text-gray-400 dark:text-gray-500',
+                          )}
+                        >
                           {header.bottom}
-                        </div>
+                        </span>
                       </th>
                     );
                   })}
-                  {/* Total columns */}
-                  <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-green-50 min-w-[40px]">
-                    Gun
+                  <th
+                    scope="col"
+                    className="min-w-[40px] border border-gray-200 bg-success-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-600 dark:border-gray-700 dark:bg-success-900/20 dark:text-gray-400"
+                  >
+                    Gün
                   </th>
-                  <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-green-50 min-w-[48px]">
+                  <th
+                    scope="col"
+                    className="min-w-[56px] border border-gray-200 bg-success-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-600 dark:border-gray-700 dark:bg-success-900/20 dark:text-gray-400"
+                  >
                     Saat
                   </th>
                 </tr>
               </thead>
-              <tbody>
-                {employees.map((emp) => {
-                  const totals = getEmployeeTotals(emp.id, visibleDates);
-                  return (
-                    <tr key={emp.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
-                      {/* Employee name */}
-                      <td className="sticky left-0 z-10 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[10px] font-semibold text-indigo-600">
-                              {emp.initials}
-                            </span>
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {emp.name}
-                            </div>
-                            {emp.position && (
-                              <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-                                {emp.position}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      {/* Day cells */}
-                      {visibleDates.map((date) => renderCell(emp.id, date))}
-                      {/* Totals */}
-                      <td className="border border-gray-200 dark:border-gray-700 px-2 py-1 text-center bg-green-50">
-                        <span className={cn(
-                          'text-xs font-bold',
-                          totals.workDays > 0 ? 'text-green-700' : 'text-gray-300',
-                        )}>
-                          {totals.workDays}
-                        </span>
-                      </td>
-                      <td className="border border-gray-200 dark:border-gray-700 px-2 py-1 text-center bg-green-50">
-                        <span className={cn(
-                          'text-xs font-bold',
-                          totals.totalHours > 0 ? 'text-green-700' : 'text-gray-300',
-                        )}>
-                          {totals.totalHours}h
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {/* Footer: daily summary */}
+              <tbody>{employees.map((employee) => renderEmployeeRow(employee))}</tbody>
               <tfoot>
                 <tr className="bg-gray-50 dark:bg-gray-800">
-                  <td className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
-                    Toplam Çalışan
-                  </td>
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 border border-gray-200 bg-gray-50 px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                  >
+                    Çalışan sayısı
+                  </th>
                   {visibleDates.map((date) => {
-                    const dateStr = formatDate(date);
-                    // PERF-005: read from pre-computed memoized map
-                    const count = dailyTotalsMap[dateStr] ?? 0;
+                    const count = workingCountOn(date);
                     return (
                       <td
-                        key={dateStr}
-                        className="border border-gray-200 dark:border-gray-700 px-1 py-2 text-center"
+                        key={formatDateISO(date)}
+                        className="border border-gray-200 px-1 py-2 text-center dark:border-gray-700"
                       >
-                        <span className={cn(
-                          'text-[10px] font-bold',
-                          count > 0 ? 'text-indigo-600' : 'text-gray-300',
-                        )}>
+                        <span
+                          className={cn(
+                            'text-xs font-bold',
+                            count > 0
+                              ? 'text-primary-600 dark:text-primary-400'
+                              : 'text-gray-300 dark:text-gray-600',
+                          )}
+                        >
                           {count}
                         </span>
                       </td>
                     );
                   })}
-                  <td className="border border-gray-200 dark:border-gray-700 bg-green-50" colSpan={2} />
+                  <td
+                    className="border border-gray-200 bg-success-50 dark:border-gray-700 dark:bg-success-900/20"
+                    colSpan={2}
+                  />
                 </tr>
               </tfoot>
             </table>

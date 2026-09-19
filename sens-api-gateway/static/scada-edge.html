@@ -25,13 +25,194 @@
   <!-- Aquaculture node/edge components (SVG shapes, P&ID edge styles) -->
   <script src="/libs/aquaculture-nodes.umd.js"></script>
   <style>
+    /* BEGIN GENERATED TOKENS */
+    :root {
+      --color-primary-50: #e6f3ff;
+      --rgb-primary-50: 230 243 255;
+      --color-primary-100: #b3d9ff;
+      --rgb-primary-100: 179 217 255;
+      --color-primary-200: #80bfff;
+      --rgb-primary-200: 128 191 255;
+      --color-primary-300: #4da6ff;
+      --rgb-primary-300: 77 166 255;
+      --color-primary-400: #1a8cff;
+      --rgb-primary-400: 26 140 255;
+      --color-primary-500: #0073e6;
+      --rgb-primary-500: 0 115 230;
+      --color-primary-600: #005bb3;
+      --rgb-primary-600: 0 91 179;
+      --color-primary-700: #004280;
+      --rgb-primary-700: 0 66 128;
+      --color-primary-800: #002a4d;
+      --rgb-primary-800: 0 42 77;
+      --color-primary-900: #00111a;
+      --rgb-primary-900: 0 17 26;
+      --color-secondary-50: #e6fff5;
+      --rgb-secondary-50: 230 255 245;
+      --color-secondary-100: #b3ffe0;
+      --rgb-secondary-100: 179 255 224;
+      --color-secondary-200: #80ffcc;
+      --rgb-secondary-200: 128 255 204;
+      --color-secondary-300: #4dffb8;
+      --rgb-secondary-300: 77 255 184;
+      --color-secondary-400: #1affa3;
+      --rgb-secondary-400: 26 255 163;
+      --color-secondary-500: #00e68a;
+      --rgb-secondary-500: 0 230 138;
+      --color-secondary-600: #00b36b;
+      --rgb-secondary-600: 0 179 107;
+      --color-secondary-700: #00804d;
+      --rgb-secondary-700: 0 128 77;
+      --color-secondary-800: #004d2e;
+      --rgb-secondary-800: 0 77 46;
+      --color-secondary-900: #001a10;
+      --rgb-secondary-900: 0 26 16;
+      --color-accent-50: #fff5f2;
+      --rgb-accent-50: 255 245 242;
+      --color-accent-100: #ffe0d9;
+      --rgb-accent-100: 255 224 217;
+      --color-accent-200: #ffccc0;
+      --rgb-accent-200: 255 204 192;
+      --color-accent-300: #ffb8a6;
+      --rgb-accent-300: 255 184 166;
+      --color-accent-400: #ffa38d;
+      --rgb-accent-400: 255 163 141;
+      --color-accent-500: #ff8f73;
+      --rgb-accent-500: 255 143 115;
+      --color-accent-600: #cc7259;
+      --rgb-accent-600: 204 114 89;
+      --color-accent-700: #995540;
+      --rgb-accent-700: 153 85 64;
+      --color-accent-800: #663926;
+      --rgb-accent-800: 102 57 38;
+      --color-accent-900: #331c13;
+      --rgb-accent-900: 51 28 19;
+      --color-neutral-50: #f8fafc;
+      --rgb-neutral-50: 248 250 252;
+      --color-neutral-100: #f1f5f9;
+      --rgb-neutral-100: 241 245 249;
+      --color-neutral-200: #e2e8f0;
+      --rgb-neutral-200: 226 232 240;
+      --color-neutral-300: #cbd5e1;
+      --rgb-neutral-300: 203 213 225;
+      --color-neutral-400: #94a3b8;
+      --rgb-neutral-400: 148 163 184;
+      --color-neutral-500: #64748b;
+      --rgb-neutral-500: 100 116 139;
+      --color-neutral-600: #475569;
+      --rgb-neutral-600: 71 85 105;
+      --color-neutral-700: #334155;
+      --rgb-neutral-700: 51 65 85;
+      --color-neutral-800: #1e293b;
+      --rgb-neutral-800: 30 41 59;
+      --color-neutral-900: #0f172a;
+      --rgb-neutral-900: 15 23 42;
+      --color-success-50: #ecfdf5;
+      --rgb-success-50: 236 253 245;
+      --color-success-100: #d1fae5;
+      --rgb-success-100: 209 250 229;
+      --color-success-200: #a7f3d0;
+      --rgb-success-200: 167 243 208;
+      --color-success-300: #6ee7b7;
+      --rgb-success-300: 110 231 183;
+      --color-success-400: #34d399;
+      --rgb-success-400: 52 211 153;
+      --color-success-500: #10b981;
+      --rgb-success-500: 16 185 129;
+      --color-success-600: #059669;
+      --rgb-success-600: 5 150 105;
+      --color-success-700: #047857;
+      --rgb-success-700: 4 120 87;
+      --color-success-800: #065f46;
+      --rgb-success-800: 6 95 70;
+      --color-success-900: #064e3b;
+      --rgb-success-900: 6 78 59;
+      --color-warning-50: #fffbeb;
+      --rgb-warning-50: 255 251 235;
+      --color-warning-100: #fef3c7;
+      --rgb-warning-100: 254 243 199;
+      --color-warning-200: #fde68a;
+      --rgb-warning-200: 253 230 138;
+      --color-warning-300: #fcd34d;
+      --rgb-warning-300: 252 211 77;
+      --color-warning-400: #fbbf24;
+      --rgb-warning-400: 251 191 36;
+      --color-warning-500: #f59e0b;
+      --rgb-warning-500: 245 158 11;
+      --color-warning-600: #d97706;
+      --rgb-warning-600: 217 119 6;
+      --color-warning-700: #b45309;
+      --rgb-warning-700: 180 83 9;
+      --color-warning-800: #92400e;
+      --rgb-warning-800: 146 64 14;
+      --color-warning-900: #78350f;
+      --rgb-warning-900: 120 53 15;
+      --color-error-50: #fef2f2;
+      --rgb-error-50: 254 242 242;
+      --color-error-100: #fee2e2;
+      --rgb-error-100: 254 226 226;
+      --color-error-200: #fecaca;
+      --rgb-error-200: 254 202 202;
+      --color-error-300: #fca5a5;
+      --rgb-error-300: 252 165 165;
+      --color-error-400: #f87171;
+      --rgb-error-400: 248 113 113;
+      --color-error-500: #ef4444;
+      --rgb-error-500: 239 68 68;
+      --color-error-600: #dc2626;
+      --rgb-error-600: 220 38 38;
+      --color-error-700: #b91c1c;
+      --rgb-error-700: 185 28 28;
+      --color-error-800: #991b1b;
+      --rgb-error-800: 153 27 27;
+      --color-error-900: #7f1d1d;
+      --rgb-error-900: 127 29 29;
+      --color-info-50: #eff6ff;
+      --rgb-info-50: 239 246 255;
+      --color-info-100: #dbeafe;
+      --rgb-info-100: 219 234 254;
+      --color-info-200: #bfdbfe;
+      --rgb-info-200: 191 219 254;
+      --color-info-300: #93c5fd;
+      --rgb-info-300: 147 197 253;
+      --color-info-400: #60a5fa;
+      --rgb-info-400: 96 165 250;
+      --color-info-500: #3b82f6;
+      --rgb-info-500: 59 130 246;
+      --color-info-600: #2563eb;
+      --rgb-info-600: 37 99 235;
+      --color-info-700: #1d4ed8;
+      --rgb-info-700: 29 78 216;
+      --color-info-800: #1e40af;
+      --rgb-info-800: 30 64 175;
+      --color-info-900: #1e3a8a;
+      --rgb-info-900: 30 58 138;
+      --color-gray-400: #6b7280;
+      --rgb-gray-400: 107 114 128;
+      --color-white: #ffffff;
+      --rgb-white: 255 255 255;
+      --color-black: #000000;
+      --rgb-black: 0 0 0;
+      --chart-1: #0073e6;
+      --chart-2: #00b36b;
+      --chart-3: #ff8f73;
+      --chart-4: #f59e0b;
+      --chart-5: #2563eb;
+      --chart-6: #ef4444;
+      --chart-7: #004280;
+      --chart-8: #995540;
+      --chart-grid: #e2e8f0;
+      --chart-axis: #6b7280;
+      --chart-border: #e2e8f0;
+    }
+    /* END GENERATED TOKENS */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root {
       width: 100%; height: 100%;
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
+      background: var(--color-neutral-900);
+      color: var(--color-neutral-200);
     }
     .scada-container {
       width: 100%; height: 100%;
@@ -40,15 +221,15 @@
     .scada-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 0 16px;
-      background: #1e293b;
-      border-bottom: 1px solid #334155;
+      background: var(--color-neutral-800);
+      border-bottom: 1px solid var(--color-neutral-700);
       height: 48px; min-height: 48px;
     }
     .scada-header-left {
       display: flex; align-items: center; gap: 12px;
     }
     .scada-header-title {
-      font-size: 16px; font-weight: 600; color: #f1f5f9;
+      font-size: 16px; font-weight: 600; color: var(--color-neutral-100);
     }
     .scada-header-right {
       display: flex; align-items: center; gap: 12px; font-size: 13px;
@@ -57,19 +238,19 @@
       width: 10px; height: 10px; border-radius: 50%;
       display: inline-block;
     }
-    .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
-    .status-dot.connecting { background: #eab308; animation: pulse 1.5s infinite; }
-    .status-dot.disconnected { background: #ef4444; }
-    .status-dot.failed { background: #ef4444; }
+    .status-dot.connected { background: var(--color-success-500); box-shadow: 0 0 6px var(--color-success-500); }
+    .status-dot.connecting { background: var(--color-warning-500); animation: pulse 1.5s infinite; }
+    .status-dot.disconnected { background: var(--color-error-500); }
+    .status-dot.failed { background: var(--color-error-500); }
     .scada-body {
       flex: 1; position: relative; overflow: hidden;
     }
     /* ReactFlow overrides for dark theme */
-    .react-flow__background { background: #0f172a !important; }
+    .react-flow__background { background: var(--color-neutral-900) !important; }
     .react-flow__controls { box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
-    .react-flow__controls-button { background: #1e293b; border-color: #475569; color: #e2e8f0; }
-    .react-flow__controls-button:hover { background: #334155; }
-    .react-flow__minimap { background: #1e293b; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .react-flow__controls-button { background: var(--color-neutral-800); border-color: var(--color-neutral-600); color: var(--color-neutral-200); }
+    .react-flow__controls-button:hover { background: var(--color-neutral-700); }
+    .react-flow__minimap { background: var(--color-neutral-800); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
     /* Node styles */
     .react-flow__node-scadaEquipment,
     .react-flow__node-equipment,
@@ -81,9 +262,9 @@
     .react-flow__node-connectionPoint,
     .react-flow__node-tankInlet {
       padding: 0; border-radius: 8px;
-      background: #1e293b; border: 1px solid #334155;
+      background: var(--color-neutral-800); border: 1px solid var(--color-neutral-700);
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      color: #e2e8f0;
+      color: var(--color-neutral-200);
     }
     .react-flow__node-algaeBagRed,
     .react-flow__node-algaeBagGreen,
@@ -95,7 +276,7 @@
     .react-flow__node-connectionPoint { border-radius: 50%; }
     .react-flow__handle {
       width: 10px; height: 10px;
-      background: #1e293b; border: 2px solid #60a5fa;
+      background: var(--color-neutral-800); border: 2px solid var(--color-info-400);
     }
     .react-flow__edge-path { stroke-width: 2; }
     .sensor-badge {
@@ -103,10 +284,10 @@
       padding: 2px 6px; border-radius: 4px;
       font-size: 12px; font-weight: 600;
     }
-    .sensor-badge.normal { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
-    .sensor-badge.warning { background: #713f12; color: #fde047; border: 1px solid #eab308; }
-    .sensor-badge.critical { background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; }
-    .sensor-badge.offline { background: #1e293b; color: #64748b; border: 1px solid #475569; }
+    .sensor-badge.normal { background: var(--color-success-900); color: var(--color-success-300); border: 1px solid var(--color-success-500); }
+    .sensor-badge.warning { background: var(--color-warning-900); color: var(--color-warning-300); border: 1px solid var(--color-warning-500); }
+    .sensor-badge.critical { background: var(--color-error-900); color: var(--color-error-300); border: 1px solid var(--color-error-500); }
+    .sensor-badge.offline { background: var(--color-neutral-800); color: var(--color-neutral-500); border: 1px solid var(--color-neutral-600); }
     .scada-node-wrapper { position: relative; }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
@@ -114,32 +295,32 @@
     }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .clock { font-size: 13px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+    .clock { font-size: 13px; color: var(--color-neutral-400); font-variant-numeric: tabular-nums; }
 
     /* Tab bar */
     .tab-bar { display: flex; gap: 4px; }
-    .tab-btn { padding: 6px 16px; border-radius: 8px 8px 0 0; border: none; background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-family: inherit; }
-    .tab-btn.active { background: #0f172a; color: #f1f5f9; font-weight: 600; }
-    .tab-btn:hover { color: #e2e8f0; }
+    .tab-btn { padding: 6px 16px; border-radius: 8px 8px 0 0; border: none; background: transparent; color: var(--color-neutral-400); cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-family: inherit; }
+    .tab-btn.active { background: var(--color-neutral-900); color: var(--color-neutral-100); font-weight: 600; }
+    .tab-btn:hover { color: var(--color-neutral-200); }
 
     /* Status footer */
-    .status-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; background: #1e293b; border-top: 1px solid #334155; height: 36px; min-height: 36px; font-size: 12px; color: #94a3b8; }
+    .status-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; background: var(--color-neutral-800); border-top: 1px solid var(--color-neutral-700); height: 36px; min-height: 36px; font-size: 12px; color: var(--color-neutral-400); }
     .status-footer-left { display: flex; align-items: center; gap: 12px; }
     .status-footer-right { display: flex; align-items: center; gap: 12px; }
 
     /* Slider input */
-    input[type=range] { -webkit-appearance: none; appearance: none; height: 8px; background: #334155; border-radius: 4px; outline: none; }
-    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
+    input[type=range] { -webkit-appearance: none; appearance: none; height: 8px; background: var(--color-neutral-700); border-radius: 4px; outline: none; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--color-info-500); cursor: pointer; }
 
     /* Waiting screen styles */
     .waiting-screen {
       flex: 1; display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: #0f172a; position: relative; overflow: hidden;
+      background: var(--color-neutral-900); position: relative; overflow: hidden;
     }
     .waiting-screen::before {
       content: ''; position: absolute; inset: 0;
-      background: radial-gradient(ellipse at 50% 50%, rgba(59,130,246,0.08) 0%, transparent 70%);
+      background: radial-gradient(ellipse at 50% 50%, rgb(var(--rgb-info-500) / 0.08) 0%, transparent 70%);
       pointer-events: none;
     }
     .waiting-content {
@@ -148,39 +329,39 @@
     }
     .waiting-icon {
       width: 80px; height: 80px; border-radius: 20px;
-      background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
-      border: 1px solid #334155;
+      background: linear-gradient(135deg, var(--color-primary-800) 0%, var(--color-neutral-800) 100%);
+      border: 1px solid var(--color-neutral-700);
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 24px rgba(0,0,0,0.3);
     }
-    .waiting-icon svg { width: 40px; height: 40px; color: #3b82f6; }
+    .waiting-icon svg { width: 40px; height: 40px; color: var(--color-info-500); }
     .waiting-spinner {
       width: 48px; height: 48px; border-radius: 50%;
-      border: 3px solid #1e293b;
-      border-top-color: #3b82f6;
+      border: 3px solid var(--color-neutral-800);
+      border-top-color: var(--color-info-500);
       animation: spin 1s linear infinite;
     }
-    .waiting-title { font-size: 22px; font-weight: 600; color: #f1f5f9; letter-spacing: -0.01em; }
-    .waiting-subtitle { font-size: 14px; color: #64748b; max-width: 380px; line-height: 1.5; }
+    .waiting-title { font-size: 22px; font-weight: 600; color: var(--color-neutral-100); letter-spacing: -0.01em; }
+    .waiting-subtitle { font-size: 14px; color: var(--color-neutral-500); max-width: 380px; line-height: 1.5; }
     .waiting-device-info { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 8px; }
     .waiting-device-chip {
       display: flex; align-items: center; gap: 6px;
       padding: 6px 14px; border-radius: 8px;
-      background: #1e293b; border: 1px solid #334155;
-      font-size: 13px; color: #94a3b8;
+      background: var(--color-neutral-800); border: 1px solid var(--color-neutral-700);
+      font-size: 13px; color: var(--color-neutral-400);
     }
-    .waiting-device-chip .chip-label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .waiting-device-chip .chip-value { color: #e2e8f0; font-weight: 500; }
+    .waiting-device-chip .chip-label { color: var(--color-neutral-500); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .waiting-device-chip .chip-value { color: var(--color-neutral-200); font-weight: 500; }
     .ws-status-bar {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 16px; border-radius: 8px;
-      background: #1e293b; border: 1px solid #334155;
+      background: var(--color-neutral-800); border: 1px solid var(--color-neutral-700);
       font-size: 13px;
     }
     .ws-status-bar .status-dot { width: 8px; height: 8px; }
-    .ws-status-bar.ws-connected { border-color: rgba(34,197,94,0.3); }
-    .ws-status-bar.ws-connecting { border-color: rgba(234,179,8,0.3); }
-    .ws-status-bar.ws-disconnected { border-color: rgba(239,68,68,0.3); }
+    .ws-status-bar.ws-connected { border-color: rgb(var(--rgb-success-500) / 0.3); }
+    .ws-status-bar.ws-connecting { border-color: rgb(var(--rgb-warning-500) / 0.3); }
+    .ws-status-bar.ws-disconnected { border-color: rgb(var(--rgb-error-500) / 0.3); }
 
     /* Portrait orientation warning overlay */
     @media (orientation: portrait) {
@@ -188,7 +369,7 @@
         content: 'Lutfen cihazi yatay konuma cevirin';
         position: fixed; inset: 0; z-index: 9999;
         display: flex; align-items: center; justify-content: center;
-        background: #0f172a; color: #94a3b8;
+        background: var(--color-neutral-900); color: var(--color-neutral-400);
         font-size: 18px; text-align: center; padding: 24px;
       }
     }
@@ -217,13 +398,30 @@
       font-size: 12px; font-weight: 600;
       cursor: pointer;
     }
-    .alarm-badge.has-alarms { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
-    .alarm-badge.no-alarms { background: rgba(34,197,94,0.1); color: #86efac; border: 1px solid rgba(34,197,94,0.2); }
+    .alarm-badge.has-alarms { background: rgb(var(--rgb-error-500) / 0.15); color: var(--color-error-300); border: 1px solid rgb(var(--rgb-error-500) / 0.3); }
+    .alarm-badge.no-alarms { background: rgb(var(--rgb-success-500) / 0.1); color: var(--color-success-300); border: 1px solid rgb(var(--rgb-success-500) / 0.2); }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/javascript">
+    /**
+     * A design token's value, read from the :root custom properties the
+     * generated block declares. A colour that ends up in an SVG presentation
+     * attribute (a recharts stroke, a node fill) cannot be a `var()` — the
+     * attribute is not a declaration — so the value is resolved here once and
+     * cached. CSS in the stylesheet above uses `var()` directly.
+     */
+    var TOKEN_CACHE = {};
+    function token(name) {
+      if (TOKEN_CACHE[name] === undefined) {
+        TOKEN_CACHE[name] = getComputedStyle(document.documentElement)
+          .getPropertyValue('--' + name)
+          .trim();
+      }
+      return TOKEN_CACHE[name];
+    }
+
     var h = React.createElement;
     var useState = React.useState;
     var useCallback = React.useCallback;
@@ -344,10 +542,10 @@
     // Status helpers
     // ============================================
     function getStatusColor(st) {
-      if (st === 'operational' || st === 'active') return '#22c55e';
-      if (st === 'maintenance') return '#eab308';
-      if (st === 'out_of_service') return '#ef4444';
-      return '#94a3b8';
+      if (st === 'operational' || st === 'active') return token('color-success-500');
+      if (st === 'maintenance') return token('color-warning-500');
+      if (st === 'out_of_service') return token('color-error-500');
+      return token('color-neutral-400');
     }
     function getSensorStatusColor(st) {
       if (st === 'normal') return 'normal';
@@ -364,12 +562,12 @@
       var equipmentId = data.equipmentId || data.id;
       var sensors = equipmentId ? (tagStore[equipmentId] ? [tagStore[equipmentId]] : []) : [];
       var statusColor = getStatusColor(data.status);
-      return h('div', { style: { padding: '8px 12px', minWidth: 120, position: 'relative', background: '#1e293b', borderRadius: 8 } }, [
+      return h('div', { style: { padding: '8px 12px', minWidth: 120, position: 'relative', background: token('color-neutral-800'), borderRadius: 8 } }, [
         h(Handle, { key: 'target', type: 'target', position: Position.Left }),
         h(Handle, { key: 'source', type: 'source', position: Position.Right }),
         h('div', { key: 'header', style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 } }, [
           h('div', { key: 'dot', style: { width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 } }),
-          h('div', { key: 'label', style: { fontSize: 12, fontWeight: 600, color: '#f1f5f9' } }, data.label || 'Equipment'),
+          h('div', { key: 'label', style: { fontSize: 12, fontWeight: 600, color: token('color-neutral-100') } }, data.label || 'Equipment'),
         ]),
       ]);
     }
@@ -395,7 +593,7 @@
               return h('span', { key: i, className: 'sensor-badge ' + getSensorStatusColor(s.status) }, (typeof s.value === 'number' ? s.value.toFixed(1) : '--') + ' ' + (s.unit || ''));
             })
           ),
-          hasAlerts && h('div', { key: 'alert', style: { position: 'absolute', top: -4, left: -4, width: 12, height: 12, borderRadius: '50%', background: sensors.some(function(s) { return s.status === 'critical'; }) ? '#ef4444' : '#eab308', animation: 'pulse 1.5s infinite', zIndex: 20 } }),
+          hasAlerts && h('div', { key: 'alert', style: { position: 'absolute', top: -4, left: -4, width: 12, height: 12, borderRadius: '50%', background: sensors.some(function(s) { return s.status === 'critical'; }) ? token('color-error-500') : token('color-warning-500'), animation: 'pulse 1.5s infinite', zIndex: 20 } }),
         ]);
       };
     }
@@ -458,7 +656,7 @@
     }) : nodeTypes;
 
     var edgeTypes = AQ.edgeTypes || {};
-    var getEdgeStyle = AQ.getEdgeStyle || function() { return { stroke: '#475569', strokeWidth: 2 }; };
+    var getEdgeStyle = AQ.getEdgeStyle || function() { return { stroke: token('color-neutral-600'), strokeWidth: 2 }; };
 
     // ============================================
     // SVG Arc Helper
@@ -526,9 +724,9 @@
           ]),
           h('div', { key: 'ws', className: 'ws-status-bar ' + wsClass }, [
             h('span', { key: 'dot', className: 'status-dot ' + status }),
-            h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : status === 'connecting' ? '#fde047' : '#fca5a5' } }, statusLabel),
+            h('span', { key: 'label', style: { color: status === 'connected' ? token('color-success-300') : status === 'connecting' ? token('color-warning-300') : token('color-error-300') } }, statusLabel),
           ]),
-          status === 'failed' && h('button', { key: 'retry', onClick: reconnect, style: { marginTop: 16, padding: '10px 24px', borderRadius: 8, background: '#3b82f6', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' } }, 'Yeniden Baglan'),
+          status === 'failed' && h('button', { key: 'retry', onClick: reconnect, style: { marginTop: 16, padding: '10px 24px', borderRadius: 8, background: token('color-info-500'), color: token('color-white'), border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer' } }, 'Yeniden Baglan'),
         ]),
       ]);
     }
@@ -552,11 +750,11 @@
       var zones = (config.zones || []).map(function(zone, i) {
         var zStartDeg = startDeg + ((zone.min - min) / range) * totalArc;
         var zEndDeg = startDeg + ((zone.max - min) / range) * totalArc;
-        return h('path', { key: 'z' + i, d: describeArc(cx, cy, r, zStartDeg, zEndDeg), fill: 'none', stroke: zone.color || '#334155', strokeWidth: 8, strokeLinecap: 'round' });
+        return h('path', { key: 'z' + i, d: describeArc(cx, cy, r, zStartDeg, zEndDeg), fill: 'none', stroke: zone.color || token('color-neutral-700'), strokeWidth: 8, strokeLinecap: 'round' });
       });
 
       // Background arc
-      var bgArc = h('path', { key: 'bg', d: describeArc(cx, cy, r, startDeg, endDeg), fill: 'none', stroke: '#334155', strokeWidth: 8, strokeLinecap: 'round' });
+      var bgArc = h('path', { key: 'bg', d: describeArc(cx, cy, r, startDeg, endDeg), fill: 'none', stroke: token('color-neutral-700'), strokeWidth: 8, strokeLinecap: 'round' });
 
       // Needle
       var needleDeg = startDeg + pct * totalArc;
@@ -564,17 +762,17 @@
       var needleLen = r - 12;
       var nx = cx + needleLen * Math.cos(needleRad);
       var ny = cy + needleLen * Math.sin(needleRad);
-      var needle = h('line', { key: 'needle', x1: cx, y1: cy, x2: nx, y2: ny, stroke: '#e2e8f0', strokeWidth: 2.5, strokeLinecap: 'round' });
-      var centerDot = h('circle', { key: 'center', cx: cx, cy: cy, r: 4, fill: '#e2e8f0' });
+      var needle = h('line', { key: 'needle', x1: cx, y1: cy, x2: nx, y2: ny, stroke: token('color-neutral-200'), strokeWidth: 2.5, strokeLinecap: 'round' });
+      var centerDot = h('circle', { key: 'center', cx: cx, cy: cy, r: 4, fill: token('color-neutral-200') });
 
       // Quality dot
-      var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
+      var qualityColor = tag.quality === 'good' ? token('color-success-500') : token('color-error-500');
       var decimals = config.decimals != null ? config.decimals : 1;
 
       return h('div', { style: { textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
         h('svg', { key: 'svg', viewBox: '0 0 150 110', style: { width: '100%', maxHeight: '65%' } }, [bgArc].concat(zones, [needle, centerDot])),
-        h('div', { key: 'val', style: { fontSize: 28, fontWeight: 700, color: '#f1f5f9', marginTop: -4, fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(decimals) : '--'),
-        h('div', { key: 'label', style: { fontSize: 12, color: '#94a3b8', marginTop: 2 } }, (config.label || '') + (config.unit ? ' (' + config.unit + ')' : '')),
+        h('div', { key: 'val', style: { fontSize: 28, fontWeight: 700, color: token('color-neutral-100'), marginTop: -4, fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(decimals) : '--'),
+        h('div', { key: 'label', style: { fontSize: 12, color: token('color-neutral-400'), marginTop: 2 } }, (config.label || '') + (config.unit ? ' (' + config.unit + ')' : '')),
         h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 6 } }),
       ]);
     }
@@ -587,11 +785,11 @@
       var tag = tagStore[config.tag] || {};
       var decimals = config.decimals != null ? config.decimals : 1;
       var value = tag.value != null ? tag.value.toFixed(decimals) : '--';
-      var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
+      var qualityColor = tag.quality === 'good' ? token('color-success-500') : token('color-error-500');
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
-        h('div', { key: 'label', style: { fontSize: 12, color: '#94a3b8', marginBottom: 4 } }, config.label || config.tag),
-        h('div', { key: 'value', style: { fontSize: 36, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, value),
-        h('div', { key: 'unit', style: { fontSize: 14, color: '#64748b' } }, config.unit || ''),
+        h('div', { key: 'label', style: { fontSize: 12, color: token('color-neutral-400'), marginBottom: 4 } }, config.label || config.tag),
+        h('div', { key: 'value', style: { fontSize: 36, fontWeight: 700, color: token('color-neutral-100'), fontVariantNumeric: 'tabular-nums' } }, value),
+        h('div', { key: 'unit', style: { fontSize: 14, color: token('color-neutral-500') } }, config.unit || ''),
         h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 8 } }),
       ]);
     }
@@ -623,10 +821,10 @@
       };
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 } }, [
-        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
-        h('input', { key: 'input', type: 'number', value: inputVal, onChange: function(e) { setInputVal(e.target.value); }, disabled: emergencyActive, style: { width: '80%', padding: '10px 12px', borderRadius: 8, border: '1px solid #475569', background: '#0f172a', color: '#f1f5f9', fontSize: 18, fontWeight: 600, textAlign: 'center', fontVariantNumeric: 'tabular-nums', outline: 'none' }, min: config.min, max: config.max, step: config.step }),
-        config.unit && h('div', { key: 'unit', style: { fontSize: 12, color: '#64748b' } }, config.unit),
-        h('button', { key: 'send', onClick: handleSubmit, disabled: emergencyActive, style: { padding: '8px 24px', borderRadius: 8, border: 'none', background: emergencyActive ? '#475569' : '#3b82f6', color: '#fff', fontWeight: 600, fontSize: 13, cursor: emergencyActive ? 'not-allowed' : 'pointer' } }, 'Gonder'),
+        h('div', { key: 'label', style: { fontSize: 13, color: token('color-neutral-400') } }, config.label || config.tag),
+        h('input', { key: 'input', type: 'number', value: inputVal, onChange: function(e) { setInputVal(e.target.value); }, disabled: emergencyActive, style: { width: '80%', padding: '10px 12px', borderRadius: 8, border: ('1px solid ' + token('color-neutral-600')), background: token('color-neutral-900'), color: token('color-neutral-100'), fontSize: 18, fontWeight: 600, textAlign: 'center', fontVariantNumeric: 'tabular-nums', outline: 'none' }, min: config.min, max: config.max, step: config.step }),
+        config.unit && h('div', { key: 'unit', style: { fontSize: 12, color: token('color-neutral-500') } }, config.unit),
+        h('button', { key: 'send', onClick: handleSubmit, disabled: emergencyActive, style: { padding: '8px 24px', borderRadius: 8, border: 'none', background: emergencyActive ? token('color-neutral-600') : token('color-info-500'), color: token('color-white'), fontWeight: 600, fontSize: 13, cursor: emergencyActive ? 'not-allowed' : 'pointer' } }, 'Gonder'),
       ]);
     }
 
@@ -658,11 +856,11 @@
       };
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', cursor: emergencyActive ? 'not-allowed' : 'pointer', opacity: emergencyActive ? 0.5 : 1 }, onClick: handleClick }, [
-        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8', marginBottom: 12 } }, config.label || config.tag),
-        h('div', { key: 'switch', style: { width: 64, height: 32, borderRadius: 16, background: isOn ? '#22c55e' : '#475569', position: 'relative', transition: 'background 0.2s' } },
-          h('div', { style: { width: 24, height: 24, borderRadius: 12, background: '#fff', position: 'absolute', top: 4, left: isOn ? 36 : 4, transition: 'left 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' } })
+        h('div', { key: 'label', style: { fontSize: 13, color: token('color-neutral-400'), marginBottom: 12 } }, config.label || config.tag),
+        h('div', { key: 'switch', style: { width: 64, height: 32, borderRadius: 16, background: isOn ? token('color-success-500') : token('color-neutral-600'), position: 'relative', transition: 'background 0.2s' } },
+          h('div', { style: { width: 24, height: 24, borderRadius: 12, background: token('color-white'), position: 'absolute', top: 4, left: isOn ? 36 : 4, transition: 'left 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' } })
         ),
-        h('div', { key: 'status', style: { fontSize: 12, fontWeight: 600, marginTop: 8, color: isOn ? '#86efac' : '#94a3b8' } },
+        h('div', { key: 'status', style: { fontSize: 12, fontWeight: 600, marginTop: 8, color: isOn ? token('color-success-300') : token('color-neutral-400') } },
           isOn ? (config.onLabel || 'ACIK') : (config.offLabel || 'KAPALI')),
       ]);
     }
@@ -705,13 +903,13 @@
       var maxVal = config.max || 100;
       return h('div', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', padding: '0 8px' } }, [
         h('div', { key: 'header', style: { display: 'flex', justifyContent: 'space-between', marginBottom: 8 } }, [
-          h('span', { key: 'l', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
-          h('span', { key: 'v', style: { fontSize: 18, fontWeight: 600, color: '#f1f5f9' } }, localValue.toFixed(0) + (config.unit ? ' ' + config.unit : '')),
+          h('span', { key: 'l', style: { fontSize: 13, color: token('color-neutral-400') } }, config.label || config.tag),
+          h('span', { key: 'v', style: { fontSize: 18, fontWeight: 600, color: token('color-neutral-100') } }, localValue.toFixed(0) + (config.unit ? ' ' + config.unit : '')),
         ]),
-        h('input', { key: 'slider', type: 'range', min: minVal, max: maxVal, step: config.step || 1, value: localValue, onChange: handleChange, disabled: emergencyActive, style: { width: '100%', accentColor: '#3b82f6', height: 8 } }),
-        h('div', { key: 'range', style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#64748b', marginTop: 4 } }, [
-          h('span', { key: 'min' }, minVal + ''),
-          h('span', { key: 'max' }, maxVal + ''),
+        h('input', { key: 'slider', type: 'range', min: minVal, max: maxVal, step: config.step || 1, value: localValue, onChange: handleChange, disabled: emergencyActive, style: { width: '100%', accentColor: token('color-info-500'), height: 8 } }),
+        h('div', { key: 'range', style: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: token('color-neutral-500'), marginTop: 4 } }, [
+          h('span', { key: 'min' }, minVal),
+          h('span', { key: 'max' }, maxVal),
         ]),
       ]);
     }
@@ -728,7 +926,12 @@
       var range = rangeState[0], setRange = rangeState[1];
       var dataState = useState([]);
       var chartData = dataState[0], setChartData = dataState[1];
-      var colors = ['#3b82f6', '#22c55e', '#eab308', '#ef4444', '#a855f7', '#ec4899'];
+      // The product's categorical palette, in its order: two series of the
+      // same shape get the same colour here and in every other chart.
+      var colors = [
+        token('chart-1'), token('chart-2'), token('chart-3'),
+        token('chart-4'), token('chart-5'), token('chart-6'),
+      ];
       var tags = config.tags || [];
 
       // Fetch historical trend data from server when range changes
@@ -784,22 +987,22 @@
         return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
       };
 
-      if (!RC) return h('div', { style: { color: '#64748b', padding: 16 } }, 'Recharts yuklenemedi');
+      if (!RC) return h('div', { style: { color: token('color-neutral-500'), padding: 16 } }, 'Recharts yuklenemedi');
 
       var ranges = config.ranges || ['1h', '6h', '24h', '7d'];
       return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
         h('div', { key: 'ranges', style: { display: 'flex', gap: 4, marginBottom: 8 } },
           ranges.map(function(r) {
-            return h('button', { key: r, onClick: function() { setRange(r); }, style: { padding: '4px 12px', borderRadius: 6, border: 'none', fontSize: 12, cursor: 'pointer', background: range === r ? '#3b82f6' : '#334155', color: range === r ? '#fff' : '#94a3b8', fontFamily: 'inherit' } }, r);
+            return h('button', { key: r, onClick: function() { setRange(r); }, style: { padding: '4px 12px', borderRadius: 6, border: 'none', fontSize: 12, cursor: 'pointer', background: range === r ? token('color-info-500') : token('color-neutral-700'), color: range === r ? token('color-white') : token('color-neutral-400'), fontFamily: 'inherit' } }, r);
           })
         ),
         h('div', { key: 'chart', style: { flex: 1, minHeight: 0 } },
           h(RC.ResponsiveContainer, { width: '100%', height: '100%' },
             h(RC.LineChart, { data: chartData, margin: { top: 5, right: 10, left: 0, bottom: 5 } }, [
-              h(RC.CartesianGrid, { key: 'grid', strokeDasharray: '3 3', stroke: '#334155' }),
-              h(RC.XAxis, { key: 'x', dataKey: 'time', tickFormatter: formatTime, stroke: '#64748b', fontSize: 10 }),
-              h(RC.YAxis, { key: 'y', stroke: '#64748b', fontSize: 10 }),
-              h(RC.Tooltip, { key: 'tip', contentStyle: { background: '#1e293b', border: '1px solid #475569', borderRadius: 8 }, labelFormatter: function(v) { return new Date(v).toLocaleTimeString(); } }),
+              h(RC.CartesianGrid, { key: 'grid', strokeDasharray: '3 3', stroke: token('color-neutral-700') }),
+              h(RC.XAxis, { key: 'x', dataKey: 'time', tickFormatter: formatTime, stroke: token('color-neutral-500'), fontSize: 10 }),
+              h(RC.YAxis, { key: 'y', stroke: token('color-neutral-500'), fontSize: 10 }),
+              h(RC.Tooltip, { key: 'tip', contentStyle: { background: token('color-neutral-800'), border: ('1px solid ' + token('color-neutral-600')), borderRadius: 8 }, labelFormatter: function(v) { return new Date(v).toLocaleTimeString(); } }),
               config.showLegend !== false ? h(RC.Legend, { key: 'legend', wrapperStyle: { fontSize: 11 } }) : null,
             ].concat(tags.map(function(tag, i) {
               return h(RC.Line, { key: tag, type: 'monotone', dataKey: tag, stroke: colors[i % colors.length], dot: false, strokeWidth: 2, name: tag });
@@ -825,19 +1028,19 @@
       }, [activeAlarms.length, interval]);
 
       if (activeAlarms.length === 0) {
-        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#22c55e', fontSize: 13 } }, '\u2713 Aktif alarm yok');
+        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: token('color-success-500'), fontSize: 13 } }, '\u2713 Aktif alarm yok');
       }
 
-      var severityColors = { critical: '#ef4444', high: '#f97316', warning: '#eab308', info: '#3b82f6' };
+      var severityColors = { critical: token('color-error-500'), high: token('color-accent-500'), warning: token('color-warning-500'), info: token('color-info-500') };
       var alarm = activeAlarms[visibleIdx % activeAlarms.length];
       if (!alarm) return null;
 
       return h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, height: '100%', padding: '0 16px' } }, [
-        h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: severityColors[alarm.severity] || '#eab308', animation: 'pulse 1.5s infinite', flexShrink: 0 } }),
-        h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: '#f1f5f9' } }, alarm.message),
-        h('div', { key: 'tag', style: { fontSize: 11, color: '#94a3b8' } }, alarm.tag),
-        h('div', { key: 'time', style: { fontSize: 11, color: '#64748b' } }, new Date(alarm.triggeredAt || alarm.triggered_at).toLocaleTimeString()),
-        activeAlarms.length > 1 && h('div', { key: 'count', style: { fontSize: 11, color: '#64748b' } }, (visibleIdx % activeAlarms.length + 1) + '/' + activeAlarms.length),
+        h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: severityColors[alarm.severity] || token('color-warning-500'), animation: 'pulse 1.5s infinite', flexShrink: 0 } }),
+        h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: token('color-neutral-100') } }, alarm.message),
+        h('div', { key: 'tag', style: { fontSize: 11, color: token('color-neutral-400') } }, alarm.tag),
+        h('div', { key: 'time', style: { fontSize: 11, color: token('color-neutral-500') } }, new Date(alarm.triggeredAt || alarm.triggered_at).toLocaleTimeString()),
+        activeAlarms.length > 1 && h('div', { key: 'count', style: { fontSize: 11, color: token('color-neutral-500') } }, (visibleIdx % activeAlarms.length + 1) + '/' + activeAlarms.length),
       ]);
     }
 
@@ -849,20 +1052,20 @@
       var send = props.send;
       var showActive = config.showActive !== false;
       var items = showActive ? activeAlarms : [];
-      var severityColors = { critical: '#ef4444', high: '#f97316', warning: '#eab308', info: '#3b82f6' };
+      var severityColors = { critical: token('color-error-500'), high: token('color-accent-500'), warning: token('color-warning-500'), info: token('color-info-500') };
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
-        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8, padding: '0 4px' } }, config.title || 'Alarmlar'),
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 8, padding: '0 4px' } }, config.title || 'Alarmlar'),
         h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
           items.length === 0
-            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Alarm yok')
+            ? h('div', { style: { textAlign: 'center', color: token('color-neutral-500'), padding: 24 } }, 'Alarm yok')
             : items.map(function(a, idx) {
-              return h('div', { key: a.alarmId || a.alarm_id || a.id || idx, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', borderBottom: '1px solid #1e293b' } }, [
-                h('div', { key: 'sev', style: { width: 8, height: 8, borderRadius: '50%', background: severityColors[a.severity] || '#eab308', flexShrink: 0 } }),
-                h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: '#e2e8f0' } }, a.message),
-                h('div', { key: 'tag', style: { fontSize: 11, color: '#94a3b8', minWidth: 60 } }, a.tag),
-                h('div', { key: 'time', style: { fontSize: 11, color: '#64748b', minWidth: 60 } }, new Date(a.triggeredAt || a.triggered_at).toLocaleTimeString()),
-                showActive && !(a.acked || a.acknowledged) && h('button', { key: 'ack', onClick: function() { send({ type: 'alarmAck', alarmId: a.alarmId || a.alarm_id }); }, style: { padding: '4px 8px', borderRadius: 4, border: 'none', background: '#334155', color: '#94a3b8', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
+              return h('div', { key: a.alarmId || a.alarm_id || a.id || idx, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px', borderBottom: ('1px solid ' + token('color-neutral-800')) } }, [
+                h('div', { key: 'sev', style: { width: 8, height: 8, borderRadius: '50%', background: severityColors[a.severity] || token('color-warning-500'), flexShrink: 0 } }),
+                h('div', { key: 'msg', style: { flex: 1, fontSize: 13, color: token('color-neutral-200') } }, a.message),
+                h('div', { key: 'tag', style: { fontSize: 11, color: token('color-neutral-400'), minWidth: 60 } }, a.tag),
+                h('div', { key: 'time', style: { fontSize: 11, color: token('color-neutral-500'), minWidth: 60 } }, new Date(a.triggeredAt || a.triggered_at).toLocaleTimeString()),
+                showActive && !(a.acked || a.acknowledged) && h('button', { key: 'ack', onClick: function() { send({ type: 'alarmAck', alarmId: a.alarmId || a.alarm_id }); }, style: { padding: '4px 8px', borderRadius: 4, border: 'none', background: token('color-neutral-700'), color: token('color-neutral-400'), fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
               ]);
             })
         ),
@@ -910,24 +1113,24 @@
       };
 
       if (emergencyActive) {
-        return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgba(239,68,68,0.15)', borderRadius: 12, border: '2px solid #ef4444' } }, [
-          h('div', { key: 't', style: { fontSize: 18, fontWeight: 700, color: '#ef4444', animation: 'pulse 1s infinite' } }, '\u26A0 ACIL DURUM AKTIF'),
+        return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'rgb(' + token('rgb-error-500') + ' / 0.15)', borderRadius: 12, border: ('2px solid ' + token('color-error-500')) } }, [
+          h('div', { key: 't', style: { fontSize: 18, fontWeight: 700, color: token('color-error-500'), animation: 'pulse 1s infinite' } }, '\u26A0 ACIL DURUM AKTIF'),
           h('button', { key: 'reset', onClick: function() {
             if (onPin) onPin({ tag: '_emergency_reset', onSuccess: function(pin) { send({ type: 'emergencyReset', pin: pin }); } });
-          }, style: { marginTop: 16, padding: '8px 24px', borderRadius: 8, background: '#334155', color: '#e2e8f0', border: '1px solid #475569', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' } }, 'Sifirla (PIN Gerekli)'),
+          }, style: { marginTop: 16, padding: '8px 24px', borderRadius: 8, background: token('color-neutral-700'), color: token('color-neutral-200'), border: ('1px solid ' + token('color-neutral-600')), cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' } }, 'Sifirla (PIN Gerekli)'),
         ]);
       }
 
       var circumference = 2 * Math.PI * 60;
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
-        h('div', { key: 'btn', onMouseDown: startHold, onMouseUp: stopHold, onMouseLeave: stopHold, onTouchStart: startHold, onTouchEnd: stopHold, style: { width: 120, height: 120, borderRadius: '50%', background: holding ? '#dc2626' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 4px 20px rgba(239,68,68,0.4)', userSelect: 'none', transition: 'transform 0.1s', transform: holding ? 'scale(0.95)' : 'scale(1)' } }, [
+        h('div', { key: 'btn', onMouseDown: startHold, onMouseUp: stopHold, onMouseLeave: stopHold, onTouchStart: startHold, onTouchEnd: stopHold, style: { width: 120, height: 120, borderRadius: '50%', background: holding ? token('color-error-600') : token('color-error-500'), display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative', boxShadow: '0 4px 20px ' + 'rgb(' + token('rgb-error-500') + ' / 0.4)', userSelect: 'none', transition: 'transform 0.1s', transform: holding ? 'scale(0.95)' : 'scale(1)' } }, [
           holding && h('svg', { key: 'ring', style: { position: 'absolute', inset: -4 }, viewBox: '0 0 128 128' },
-            h('circle', { cx: 64, cy: 64, r: 60, fill: 'none', stroke: '#fca5a5', strokeWidth: 4, strokeDasharray: circumference, strokeDashoffset: circumference * (1 - progress), strokeLinecap: 'round', transform: 'rotate(-90 64 64)' })
+            h('circle', { cx: 64, cy: 64, r: 60, fill: 'none', stroke: token('color-error-300'), strokeWidth: 4, strokeDasharray: circumference, strokeDashoffset: circumference * (1 - progress), strokeLinecap: 'round', transform: 'rotate(-90 64 64)' })
           ),
-          h('div', { key: 'text', style: { textAlign: 'center', color: '#fff', fontWeight: 700, fontSize: 11, lineHeight: '1.3', pointerEvents: 'none', whiteSpace: 'pre-line' } },
+          h('div', { key: 'text', style: { textAlign: 'center', color: token('color-white'), fontWeight: 700, fontSize: 11, lineHeight: '1.3', pointerEvents: 'none', whiteSpace: 'pre-line' } },
             holding ? Math.ceil((holdDuration - progress * holdDuration) / 1000) + 's' : (config.label || 'ACIL\nDURDURMA')),
         ]),
-        h('div', { key: 'hint', style: { fontSize: 11, color: '#64748b', marginTop: 12 } }, (holdDuration / 1000) + ' saniye basili tutun'),
+        h('div', { key: 'hint', style: { fontSize: 11, color: token('color-neutral-500'), marginTop: 12 } }, (holdDuration / 1000) + ' saniye basili tutun'),
       ]);
     }
 
@@ -943,21 +1146,21 @@
 
       if (!calibState) {
         return h('div', { style: { padding: 16, overflow: 'auto', height: '100%' } }, [
-          h('div', { key: 'title', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 16 } }, 'Kalibrasyon'),
+          h('div', { key: 'title', style: { fontSize: 16, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 16 } }, 'Kalibrasyon'),
         ].concat(sensors.map(function(s) {
           return h('button', { key: s.tag, onClick: function() {
             setCalibState({ tag: s.tag, step: 0, totalSteps: s.points || 2, state: 'starting' });
             send({ type: 'calibrate', tag: s.tag, action: 'start' });
-          }, style: { display: 'block', width: '100%', padding: '12px 16px', marginBottom: 8, borderRadius: 8, border: '1px solid #334155', background: '#0f172a', color: '#e2e8f0', cursor: 'pointer', textAlign: 'left', fontSize: 14, fontFamily: 'inherit' } }, [
+          }, style: { display: 'block', width: '100%', padding: '12px 16px', marginBottom: 8, borderRadius: 8, border: ('1px solid ' + token('color-neutral-700')), background: token('color-neutral-900'), color: token('color-neutral-200'), cursor: 'pointer', textAlign: 'left', fontSize: 14, fontFamily: 'inherit' } }, [
             h('div', { key: 'name', style: { fontWeight: 600 } }, s.sensorType + ' (' + s.tag + ')'),
-            h('div', { key: 'method', style: { fontSize: 12, color: '#64748b' } }, (s.method || 'standart') + ' kalibrasyon'),
+            h('div', { key: 'method', style: { fontSize: 12, color: token('color-neutral-500') } }, (s.method || 'standart') + ' kalibrasyon'),
           ]);
         })));
       }
 
       var stepsArr = [];
       for (var si = 0; si < (calibState.totalSteps || 2); si++) {
-        stepsArr.push(h('div', { key: si, style: { flex: 1, height: 4, borderRadius: 2, background: si < calibState.step ? '#3b82f6' : '#334155' } }));
+        stepsArr.push(h('div', { key: si, style: { flex: 1, height: 4, borderRadius: 2, background: si < calibState.step ? token('color-info-500') : token('color-neutral-700') } }));
       }
 
       var stablePercent = 0;
@@ -968,27 +1171,27 @@
 
       return h('div', { style: { padding: 16, display: 'flex', flexDirection: 'column', height: '100%' } }, [
         h('div', { key: 'steps', style: { display: 'flex', gap: 8, marginBottom: 16 } }, stepsArr),
-        calibState.instruction && h('div', { key: 'inst', style: { fontSize: 14, color: '#e2e8f0', marginBottom: 16, padding: 12, background: '#0f172a', borderRadius: 8 } }, calibState.instruction),
+        calibState.instruction && h('div', { key: 'inst', style: { fontSize: 14, color: token('color-neutral-200'), marginBottom: 16, padding: 12, background: token('color-neutral-900'), borderRadius: 8 } }, calibState.instruction),
         calibState.currentRaw != null && h('div', { key: 'raw', style: { textAlign: 'center', marginBottom: 16 } }, [
-          h('div', { key: 'v', style: { fontSize: 32, fontWeight: 700, color: '#f1f5f9' } }, calibState.currentRaw.toFixed(4)),
-          h('div', { key: 'l', style: { fontSize: 12, color: '#64748b' } }, 'Ham Deger'),
+          h('div', { key: 'v', style: { fontSize: 32, fontWeight: 700, color: token('color-neutral-100') } }, calibState.currentRaw.toFixed(4)),
+          h('div', { key: 'l', style: { fontSize: 12, color: token('color-neutral-500') } }, 'Ham Deger'),
         ]),
         calibState.stableProgress && h('div', { key: 'stab', style: { marginBottom: 16 } }, [
-          h('div', { key: 'bar', style: { height: 6, borderRadius: 3, background: '#1e293b', overflow: 'hidden' } },
-            h('div', { style: { height: '100%', width: (calibState.stable ? 100 : stablePercent) + '%', background: calibState.stable ? '#22c55e' : '#3b82f6', transition: 'width 0.5s' } })
+          h('div', { key: 'bar', style: { height: 6, borderRadius: 3, background: token('color-neutral-800'), overflow: 'hidden' } },
+            h('div', { style: { height: '100%', width: (calibState.stable ? 100 : stablePercent) + '%', background: calibState.stable ? token('color-success-500') : token('color-info-500'), transition: 'width 0.5s' } })
           ),
-          h('div', { key: 'txt', style: { fontSize: 11, color: '#64748b', marginTop: 4 } }, calibState.stable ? '\u2713 Stabil' : 'Stabilite: ' + calibState.stableProgress),
+          h('div', { key: 'txt', style: { fontSize: 11, color: token('color-neutral-500'), marginTop: 4 } }, calibState.stable ? '\u2713 Stabil' : 'Stabilite: ' + calibState.stableProgress),
         ]),
-        calibState.result && h('div', { key: 'result', style: { padding: 12, background: '#14532d', borderRadius: 8, border: '1px solid #22c55e' } }, [
-          h('div', { key: 't', style: { fontWeight: 600, color: '#86efac', marginBottom: 8 } }, '\u2713 Kalibrasyon Tamamlandi'),
-          h('div', { key: 's', style: { fontSize: 13, color: '#e2e8f0' } }, 'Egim: ' + calibState.result.slope.toFixed(6)),
-          h('div', { key: 'o', style: { fontSize: 13, color: '#e2e8f0' } }, 'Ofset: ' + calibState.result.offset.toFixed(6)),
-          h('div', { key: 'r', style: { fontSize: 13, color: '#e2e8f0' } }, 'R\u00B2: ' + calibState.result.r_squared.toFixed(4)),
-          calibState.result.nextCalibration && h('div', { key: 'next', style: { fontSize: 12, color: '#94a3b8', marginTop: 4 } }, 'Sonraki: ' + calibState.result.nextCalibration),
+        calibState.result && h('div', { key: 'result', style: { padding: 12, background: token('color-success-900'), borderRadius: 8, border: ('1px solid ' + token('color-success-500')) } }, [
+          h('div', { key: 't', style: { fontWeight: 600, color: token('color-success-300'), marginBottom: 8 } }, '\u2713 Kalibrasyon Tamamlandi'),
+          h('div', { key: 's', style: { fontSize: 13, color: token('color-neutral-200') } }, 'Egim: ' + calibState.result.slope.toFixed(6)),
+          h('div', { key: 'o', style: { fontSize: 13, color: token('color-neutral-200') } }, 'Ofset: ' + calibState.result.offset.toFixed(6)),
+          h('div', { key: 'r', style: { fontSize: 13, color: token('color-neutral-200') } }, 'R\u00B2: ' + calibState.result.r_squared.toFixed(4)),
+          calibState.result.nextCalibration && h('div', { key: 'next', style: { fontSize: 12, color: token('color-neutral-400'), marginTop: 4 } }, 'Sonraki: ' + calibState.result.nextCalibration),
         ]),
         h('div', { key: 'actions', style: { marginTop: 'auto', display: 'flex', gap: 8 } }, [
-          calibState.state === 'waiting_point' && calibState.stable && h('button', { key: 'confirm', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'confirm_point', pointIndex: calibState.step }); }, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
-          h('button', { key: 'cancel', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'cancel' }); setCalibState(null); }, style: { padding: '12px 16px', borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
+          calibState.state === 'waiting_point' && calibState.stable && h('button', { key: 'confirm', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'confirm_point', pointIndex: calibState.step }); }, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: token('color-success-500'), color: token('color-white'), fontWeight: 600, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' } }, 'Onayla'),
+          h('button', { key: 'cancel', onClick: function() { send({ type: 'calibrate', tag: calibState.tag, action: 'cancel' }); setCalibState(null); }, style: { padding: '12px 16px', borderRadius: 8, border: ('1px solid ' + token('color-neutral-600')), background: 'transparent', color: token('color-neutral-400'), fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
         ]),
       ]);
     }
@@ -1000,15 +1203,15 @@
       var config = props.config || {};
       var history = config.history || [];
       return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
-        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 } }, config.title || 'Kalibrasyon Gecmisi'),
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 8 } }, config.title || 'Kalibrasyon Gecmisi'),
         h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
           history.length === 0
-            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Gecmis kayit yok')
+            ? h('div', { style: { textAlign: 'center', color: token('color-neutral-500'), padding: 24 } }, 'Gecmis kayit yok')
             : history.map(function(item, i) {
-              return h('div', { key: i, style: { padding: '8px 4px', borderBottom: '1px solid #1e293b', fontSize: 13 } }, [
-                h('div', { key: 'date', style: { color: '#94a3b8', fontSize: 11 } }, new Date(item.date).toLocaleString()),
-                h('div', { key: 'info', style: { color: '#e2e8f0' } }, item.tag + ' - Egim: ' + (item.slope || '--') + ', Ofset: ' + (item.offset || '--')),
-                item.r_squared && h('div', { key: 'r2', style: { color: '#64748b', fontSize: 11 } }, 'R\u00B2: ' + item.r_squared),
+              return h('div', { key: i, style: { padding: '8px 4px', borderBottom: ('1px solid ' + token('color-neutral-800')), fontSize: 13 } }, [
+                h('div', { key: 'date', style: { color: token('color-neutral-400'), fontSize: 11 } }, new Date(item.date).toLocaleString()),
+                h('div', { key: 'info', style: { color: token('color-neutral-200') } }, item.tag + ' - Egim: ' + (item.slope || '--') + ', Ofset: ' + (item.offset || '--')),
+                item.r_squared && h('div', { key: 'r2', style: { color: token('color-neutral-500'), fontSize: 11 } }, 'R\u00B2: ' + item.r_squared),
               ]);
             })
         ),
@@ -1022,22 +1225,22 @@
       var config = props.config || {};
       var sensors = config.sensors || [];
       return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%' } }, [
-        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 } }, config.title || 'Kalibrasyon Durumu'),
+        h('div', { key: 'title', style: { fontSize: 14, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 8 } }, config.title || 'Kalibrasyon Durumu'),
         h('div', { key: 'list', style: { flex: 1, overflow: 'auto' } },
           sensors.length === 0
-            ? h('div', { style: { textAlign: 'center', color: '#64748b', padding: 24 } }, 'Sensor yok')
+            ? h('div', { style: { textAlign: 'center', color: token('color-neutral-500'), padding: 24 } }, 'Sensor yok')
             : sensors.map(function(s, i) {
               var tag = tagStore[s.tag] || {};
               var lastCal = s.lastCalibration ? new Date(s.lastCalibration).toLocaleDateString() : 'Yok';
               var nextCal = s.nextCalibration ? new Date(s.nextCalibration).toLocaleDateString() : '--';
               var isOverdue = s.nextCalibration && new Date(s.nextCalibration) < new Date();
-              return h('div', { key: s.tag || i, style: { padding: '10px 8px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: 12 } }, [
-                h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: isOverdue ? '#ef4444' : '#22c55e', flexShrink: 0 } }),
+              return h('div', { key: s.tag || i, style: { padding: '10px 8px', borderBottom: ('1px solid ' + token('color-neutral-800')), display: 'flex', alignItems: 'center', gap: 12 } }, [
+                h('div', { key: 'dot', style: { width: 10, height: 10, borderRadius: '50%', background: isOverdue ? token('color-error-500') : token('color-success-500'), flexShrink: 0 } }),
                 h('div', { key: 'info', style: { flex: 1 } }, [
-                  h('div', { key: 'name', style: { fontSize: 13, fontWeight: 600, color: '#e2e8f0' } }, s.sensorType || s.tag),
-                  h('div', { key: 'dates', style: { fontSize: 11, color: '#64748b' } }, 'Son: ' + lastCal + ' | Sonraki: ' + nextCal),
+                  h('div', { key: 'name', style: { fontSize: 13, fontWeight: 600, color: token('color-neutral-200') } }, s.sensorType || s.tag),
+                  h('div', { key: 'dates', style: { fontSize: 11, color: token('color-neutral-500') } }, 'Son: ' + lastCal + ' | Sonraki: ' + nextCal),
                 ]),
-                h('div', { key: 'val', style: { fontSize: 14, fontWeight: 600, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, tag.value != null ? tag.value.toFixed(2) : '--'),
+                h('div', { key: 'val', style: { fontSize: 14, fontWeight: 600, color: token('color-neutral-100'), fontVariantNumeric: 'tabular-nums' } }, tag.value != null ? tag.value.toFixed(2) : '--'),
               ]);
             })
         ),
@@ -1079,8 +1282,8 @@
         fitView: true, minZoom: 0.1, maxZoom: 3,
       }, [
         h(Controls, { key: 'c', position: 'bottom-left', showInteractive: false }),
-        h(MiniMap, { key: 'm', position: 'bottom-right', style: { width: 120, height: 80, background: '#1e293b' } }),
-        h(Background, { key: 'b', variant: 'dots', gap: 24, size: 1, color: '#1e293b' }),
+        h(MiniMap, { key: 'm', position: 'bottom-right', style: { width: 120, height: 80, background: token('color-neutral-800') } }),
+        h(Background, { key: 'b', variant: 'dots', gap: 24, size: 1, color: token('color-neutral-800') }),
       ]);
     }
 
@@ -1114,7 +1317,7 @@
       };
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
-        h('button', { key: 'btn', onClick: handleClick, disabled: emergencyActive, style: { padding: '14px 32px', borderRadius: 12, border: 'none', background: emergencyActive ? '#475569' : pressed ? '#2563eb' : '#3b82f6', color: '#fff', fontWeight: 600, fontSize: 15, cursor: emergencyActive ? 'not-allowed' : 'pointer', transition: 'transform 0.1s, background 0.2s', transform: pressed ? 'scale(0.95)' : 'scale(1)', boxShadow: '0 2px 8px rgba(59,130,246,0.3)', opacity: emergencyActive ? 0.5 : 1, fontFamily: 'inherit' } }, config.label || config.tag),
+        h('button', { key: 'btn', onClick: handleClick, disabled: emergencyActive, style: { padding: '14px 32px', borderRadius: 12, border: 'none', background: emergencyActive ? token('color-neutral-600') : pressed ? token('color-info-600') : token('color-info-500'), color: token('color-white'), fontWeight: 600, fontSize: 15, cursor: emergencyActive ? 'not-allowed' : 'pointer', transition: 'transform 0.1s, background 0.2s', transform: pressed ? 'scale(0.95)' : 'scale(1)', boxShadow: '0 2px 8px ' + 'rgb(' + token('rgb-info-500') + ' / 0.3)', opacity: emergencyActive ? 0.5 : 1, fontFamily: 'inherit' } }, config.label || config.tag),
       ]);
     }
 
@@ -1127,15 +1330,15 @@
       var hasValue = tag.value != null;
       var isOn = hasValue && tag.value > 0;
       var isFault = hasValue && tag.quality && tag.quality !== 'good';
-      var ledColor = isFault ? '#ef4444' : isOn ? '#22c55e' : '#475569';
-      var ledShadow = isFault ? '0 0 10px #ef4444' : isOn ? '0 0 10px #22c55e' : 'none';
+      var ledColor = isFault ? token('color-error-500') : isOn ? token('color-success-500') : token('color-neutral-600');
+      var ledShadow = isFault ? ('0 0 10px ' + token('color-error-500')) : isOn ? ('0 0 10px ' + token('color-success-500')) : 'none';
       var onLabel = config.onLabel || 'ACIK';
       var offLabel = config.offLabel || 'KAPALI';
       var statusText = isFault ? 'HATA' : isOn ? onLabel : offLabel;
-      var statusColor = isFault ? '#fca5a5' : isOn ? '#86efac' : '#94a3b8';
+      var statusColor = isFault ? token('color-error-300') : isOn ? token('color-success-300') : token('color-neutral-400');
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }, [
-        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8', marginBottom: 12 } }, config.label || config.tag),
+        h('div', { key: 'label', style: { fontSize: 13, color: token('color-neutral-400'), marginBottom: 12 } }, config.label || config.tag),
         h('div', { key: 'led', style: { width: 32, height: 32, borderRadius: '50%', background: ledColor, boxShadow: ledShadow, transition: 'background 0.3s, box-shadow 0.3s' } }),
         h('div', { key: 'status', style: { fontSize: 12, fontWeight: 600, marginTop: 10, color: statusColor } }, statusText),
       ]);
@@ -1154,15 +1357,15 @@
       var pct = Math.max(0, Math.min(100, ((value - min) / range) * 100));
       var unit = config.unit || '';
 
-      var fillColor = pct > 80 ? 'linear-gradient(to top, #2563eb, #60a5fa)' : pct > 50 ? 'linear-gradient(to top, #2563eb, #3b82f6)' : 'linear-gradient(to top, #1d4ed8, #2563eb)';
+      var fillColor = pct > 80 ? ('linear-gradient(to top, ' + token('color-info-600') + ', ' + token('color-info-400') + ')') : pct > 50 ? ('linear-gradient(to top, ' + token('color-info-600') + ', ' + token('color-info-500') + ')') : ('linear-gradient(to top, ' + token('color-info-700') + ', ' + token('color-info-600') + ')');
 
       return h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 } }, [
-        h('div', { key: 'label', style: { fontSize: 13, color: '#94a3b8' } }, config.label || config.tag),
-        h('div', { key: 'tank', style: { width: 48, height: '50%', minHeight: 60, maxHeight: 120, borderRadius: 6, border: '2px solid #475569', background: '#0f172a', position: 'relative', overflow: 'hidden' } },
+        h('div', { key: 'label', style: { fontSize: 13, color: token('color-neutral-400') } }, config.label || config.tag),
+        h('div', { key: 'tank', style: { width: 48, height: '50%', minHeight: 60, maxHeight: 120, borderRadius: 6, border: ('2px solid ' + token('color-neutral-600')), background: token('color-neutral-900'), position: 'relative', overflow: 'hidden' } },
           h('div', { key: 'fill', style: { position: 'absolute', bottom: 0, left: 0, right: 0, height: pct + '%', background: fillColor, transition: 'height 0.5s ease', borderRadius: '0 0 4px 4px' } })
         ),
-        h('div', { key: 'pct', style: { fontSize: 20, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, pct.toFixed(0) + '%'),
-        h('div', { key: 'val', style: { fontSize: 12, color: '#64748b' } }, value.toFixed(1) + (unit ? ' ' + unit : '')),
+        h('div', { key: 'pct', style: { fontSize: 20, fontWeight: 700, color: token('color-neutral-100'), fontVariantNumeric: 'tabular-nums' } }, pct.toFixed(0) + '%'),
+        h('div', { key: 'val', style: { fontSize: 12, color: token('color-neutral-500') } }, value.toFixed(1) + (unit ? ' ' + unit : '')),
       ]);
     }
 
@@ -1190,7 +1393,7 @@
       if (t === 'pushButton') return h(PushButtonWidget, common);
       if (t === 'statusIndicator') return h(StatusIndicatorWidget, common);
       if (t === 'tankLevel') return h(TankLevelWidget, common);
-      return h('div', { style: { color: '#64748b', padding: 8, fontSize: 12 } }, 'Bilinmeyen widget: ' + t);
+      return h('div', { style: { color: token('color-neutral-500'), padding: 8, fontSize: 12 } }, 'Bilinmeyen widget: ' + t);
     }
 
     // ============================================
@@ -1220,7 +1423,7 @@
           style: {
             gridColumn: ((pos.col || 0) + 1) + ' / span ' + (pos.w || 3),
             gridRow: ((pos.row || 0) + 1) + ' / span ' + (pos.h || 2),
-            background: '#1e293b', borderRadius: 12, border: '1px solid #334155',
+            background: token('color-neutral-800'), borderRadius: 12, border: ('1px solid ' + token('color-neutral-700')),
             padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column',
           }
         }, h(WidgetRouter, { widget: w, tagStore: tagStore, send: send, onConfirm: onConfirm, onPin: onPin, calibState: calibState, setCalibState: setCalibState, tick: props.tick }));
@@ -1257,16 +1460,16 @@
       var ts = props.tagStore || {};
       var tags = Object.entries(ts).sort(function(a, b) { return a[0].localeCompare(b[0]); });
       if (tags.length === 0) {
-        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b', fontSize: 14 } }, 'Henuz tag verisi yok...');
+        return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: token('color-neutral-500'), fontSize: 14 } }, 'Henuz tag verisi yok...');
       }
       return h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, padding: 16, overflow: 'auto', height: '100%' } },
         tags.map(function(entry) {
           var name = entry[0], tag = entry[1];
-          var qualityColor = tag.quality === 'good' ? '#22c55e' : '#ef4444';
-          return h('div', { key: name, style: { background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' } }, [
-            h('div', { key: 'n', style: { fontSize: 12, color: '#94a3b8', marginBottom: 8, wordBreak: 'break-all', textAlign: 'center' } }, name),
-            h('div', { key: 'v', style: { fontSize: 28, fontWeight: 700, color: '#f1f5f9', fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(2) : '--'),
-            h('div', { key: 'u', style: { fontSize: 12, color: '#64748b', marginTop: 4 } }, tag.unit || ''),
+          var qualityColor = tag.quality === 'good' ? token('color-success-500') : token('color-error-500');
+          return h('div', { key: name, style: { background: token('color-neutral-800'), borderRadius: 12, border: ('1px solid ' + token('color-neutral-700')), padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center' } }, [
+            h('div', { key: 'n', style: { fontSize: 12, color: token('color-neutral-400'), marginBottom: 8, wordBreak: 'break-all', textAlign: 'center' } }, name),
+            h('div', { key: 'v', style: { fontSize: 28, fontWeight: 700, color: token('color-neutral-100'), fontVariantNumeric: 'tabular-nums' } }, typeof tag.value === 'number' ? tag.value.toFixed(2) : '--'),
+            h('div', { key: 'u', style: { fontSize: 12, color: token('color-neutral-500'), marginTop: 4 } }, tag.unit || ''),
             h('div', { key: 'q', style: { width: 8, height: 8, borderRadius: '50%', background: qualityColor, marginTop: 8 } }),
           ]);
         })
@@ -1281,12 +1484,12 @@
       var onYes = props.onYes;
       var onNo = props.onNo;
       return h('div', { style: { position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' } },
-        h('div', { style: { background: '#1e293b', borderRadius: 16, padding: 24, maxWidth: 400, border: '1px solid #334155', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' } }, [
-          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 16 } }, 'Onay'),
-          h('div', { key: 'm', style: { fontSize: 14, color: '#e2e8f0', marginBottom: 24 } }, text),
+        h('div', { style: { background: token('color-neutral-800'), borderRadius: 16, padding: 24, maxWidth: 400, border: ('1px solid ' + token('color-neutral-700')), boxShadow: '0 8px 32px rgba(0,0,0,0.5)' } }, [
+          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 16 } }, 'Onay'),
+          h('div', { key: 'm', style: { fontSize: 14, color: token('color-neutral-200'), marginBottom: 24 } }, text),
           h('div', { key: 'btns', style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } }, [
-            h('button', { key: 'no', onClick: onNo, style: { padding: '10px 20px', borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontFamily: 'inherit' } }, 'Hayir'),
-            h('button', { key: 'yes', onClick: onYes, style: { padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Evet'),
+            h('button', { key: 'no', onClick: onNo, style: { padding: '10px 20px', borderRadius: 8, border: ('1px solid ' + token('color-neutral-600')), background: 'transparent', color: token('color-neutral-400'), cursor: 'pointer', fontFamily: 'inherit' } }, 'Hayir'),
+            h('button', { key: 'yes', onClick: onYes, style: { padding: '10px 20px', borderRadius: 8, border: 'none', background: token('color-info-500'), color: token('color-white'), fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Evet'),
           ]),
         ])
       );
@@ -1309,23 +1512,23 @@
       var digits = [1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, '\u232B'];
       var dots = [];
       for (var di = 0; di < maxLen; di++) {
-        dots.push(h('div', { key: di, style: { width: 16, height: 16, borderRadius: '50%', background: di < pin.length ? '#3b82f6' : '#475569' } }));
+        dots.push(h('div', { key: di, style: { width: 16, height: 16, borderRadius: '50%', background: di < pin.length ? token('color-info-500') : token('color-neutral-600') } }));
       }
 
       return h('div', { style: { position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' } },
-        h('div', { style: { background: '#1e293b', borderRadius: 16, padding: 24, maxWidth: 320, border: '1px solid #334155' } }, [
-          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 8, textAlign: 'center' } }, 'PIN Girisi'),
+        h('div', { style: { background: token('color-neutral-800'), borderRadius: 16, padding: 24, maxWidth: 320, border: ('1px solid ' + token('color-neutral-700')) } }, [
+          h('div', { key: 't', style: { fontSize: 16, fontWeight: 600, color: token('color-neutral-100'), marginBottom: 8, textAlign: 'center' } }, 'PIN Girisi'),
           h('div', { key: 'display', style: { display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 16 } }, dots),
-          error && h('div', { key: 'err', style: { color: '#ef4444', fontSize: 12, textAlign: 'center', marginBottom: 8 } }, error),
+          error && h('div', { key: 'err', style: { color: token('color-error-500'), fontSize: 12, textAlign: 'center', marginBottom: 8 } }, error),
           h('div', { key: 'pad', style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 } },
             digits.map(function(d, i) {
               if (d === null) return h('div', { key: i });
-              return h('button', { key: i, onClick: function() { if (d === '\u232B') { setPin(pin.slice(0, -1)); } else { addDigit(d); } }, style: { padding: 16, borderRadius: 8, border: 'none', background: '#334155', color: '#e2e8f0', fontSize: 20, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, d + '');
+              return h('button', { key: i, onClick: function() { if (d === '\u232B') { setPin(pin.slice(0, -1)); } else { addDigit(d); } }, style: { padding: 16, borderRadius: 8, border: 'none', background: token('color-neutral-700'), color: token('color-neutral-200'), fontSize: 20, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, d);
             })
           ),
           h('div', { key: 'acts', style: { display: 'flex', gap: 8, marginTop: 16 } }, [
-            h('button', { key: 'cancel', onClick: onCancel, style: { flex: 1, padding: 12, borderRadius: 8, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
-            h('button', { key: 'ok', onClick: submit, disabled: pin.length < 4, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: pin.length >= 4 ? '#3b82f6' : '#475569', color: '#fff', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Giris'),
+            h('button', { key: 'cancel', onClick: onCancel, style: { flex: 1, padding: 12, borderRadius: 8, border: ('1px solid ' + token('color-neutral-600')), background: 'transparent', color: token('color-neutral-400'), cursor: 'pointer', fontFamily: 'inherit' } }, 'Iptal'),
+            h('button', { key: 'ok', onClick: submit, disabled: pin.length < 4, style: { flex: 1, padding: 12, borderRadius: 8, border: 'none', background: pin.length >= 4 ? token('color-info-500') : token('color-neutral-600'), color: token('color-white'), fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' } }, 'Giris'),
           ]),
         ])
       );
@@ -1338,9 +1541,9 @@
       var toasts = props.toasts || [];
       return h('div', { style: { position: 'fixed', top: 60, right: 16, zIndex: 999, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 320 } },
         toasts.map(function(t, i) {
-          var bg = t.type === 'success' ? '#14532d' : t.type === 'error' ? '#7f1d1d' : '#1e293b';
-          var border = t.type === 'success' ? '#22c55e' : t.type === 'error' ? '#ef4444' : '#334155';
-          return h('div', { key: t.id || i, style: { padding: '10px 16px', borderRadius: 8, background: bg, border: '1px solid ' + border, color: '#e2e8f0', fontSize: 13, animation: 'fadeIn 0.2s' } }, t.message);
+          var bg = t.type === 'success' ? token('color-success-900') : t.type === 'error' ? token('color-error-900') : token('color-neutral-800');
+          var border = t.type === 'success' ? token('color-success-500') : t.type === 'error' ? token('color-error-500') : token('color-neutral-700');
+          return h('div', { key: t.id || i, style: { padding: '10px 16px', borderRadius: 8, background: bg, border: '1px solid ' + border, color: token('color-neutral-200'), fontSize: 13, animation: 'fadeIn 0.2s' } }, t.message);
         })
       );
     }
@@ -1575,7 +1778,7 @@
               ? h('div', { key: 'alarm', className: 'alarm-badge has-alarms' }, '\uD83D\uDD34 ' + activeAlarms.length + ' alarm')
               : h('div', { key: 'alarm', className: 'alarm-badge no-alarms' }, '\u2713'),
             h('span', { key: 'dot', className: 'status-dot ' + status }),
-            h('span', { key: 'label', style: { color: status === 'connected' ? '#86efac' : '#94a3b8' } }, statusLabel),
+            h('span', { key: 'label', style: { color: status === 'connected' ? token('color-success-300') : token('color-neutral-400') } }, statusLabel),
             h(Clock, { key: 'clock' }),
           ]),
         ]),
@@ -1593,9 +1796,9 @@
         !showWaiting && h('div', { key: 'footer', className: 'status-footer' }, [
           h('div', { key: 'left', className: 'status-footer-left' }, [
             activeAlarms.length > 0
-              ? h('span', { key: 'alarm', style: { color: '#fca5a5' } }, '\u26A0 ' + activeAlarms.length + ' aktif alarm')
-              : h('span', { key: 'alarm', style: { color: '#22c55e' } }, '\u2713 Alarm yok'),
-            h('span', { key: 'sep', style: { color: '#334155' } }, '|'),
+              ? h('span', { key: 'alarm', style: { color: token('color-error-300') } }, '\u26A0 ' + activeAlarms.length + ' aktif alarm')
+              : h('span', { key: 'alarm', style: { color: token('color-success-500') } }, '\u2713 Alarm yok'),
+            h('span', { key: 'sep', style: { color: token('color-neutral-700') } }, '|'),
             h('span', { key: 'tags' }, tagCount + ' tag'),
           ]),
           h('div', { key: 'right', className: 'status-footer-right' }, [

@@ -23,7 +23,7 @@
 // both stacks: the browser reads it through `theme.ts`, the HTML e-mail
 // builders read it directly, so a customer's first sight of the product is
 // painted in the product's colours rather than each service's private hex list.
-export { colors } from './design/color-tokens';
+export { colors, chartPalette, chartChrome } from './design/color-tokens';
 export type { ColorTokens } from './design/color-tokens';
 
 // The one HTML e-mail layout every service renders through (FE-MEDIUM-093).

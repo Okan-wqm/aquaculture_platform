@@ -27,27 +27,7 @@ import { colors } from '@aquaculture/shared-contracts';
 export { colors };
 export type { ColorTokens } from '@aquaculture/shared-contracts';
 
-/**
- * Ordered categorical palette for chart series (recharts, pies, gauges):
- * brand first, then the semantic accents, then the deep brand shades.
- */
-export const chartPalette: readonly string[] = [
-  colors.primary[500],
-  colors.secondary[600],
-  colors.accent[500],
-  colors.warning[500],
-  colors.info[600],
-  colors.error[500],
-  colors.primary[700],
-  colors.accent[700],
-];
-
-/** Chart chrome shared by every chart: grid lines, axis strokes, tooltip borders. */
-export const chartChrome: Readonly<{ grid: string; axis: string; border: string }> = {
-  grid: colors.neutral[200],
-  axis: colors.gray[400],
-  border: colors.neutral[200],
-};
+export { chartPalette, chartChrome } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Tipografi

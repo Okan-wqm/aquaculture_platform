@@ -47799,6 +47799,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/edge-theme-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-v2-plan-contract.spec.ts",
       "prettier_managed": true
     },
@@ -49659,6 +49665,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/generate-edge-theme.ts",
       "prettier_managed": true
     },
     {

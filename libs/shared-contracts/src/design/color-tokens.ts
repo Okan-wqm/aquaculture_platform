@@ -154,3 +154,65 @@ export const colors: ColorTokens = {
   black: '#000000',
   transparent: 'transparent',
 };
+
+/**
+ * Ordered categorical palette for chart series (recharts, pies, gauges) and
+ * for any list of things that needs one colour each: brand first, then the
+ * semantic accents, then the deep brand shades.
+ *
+ * WHY here and not in the chart primitives: the admin analytics service picks
+ * the colours for the charts it serves, and a printed report, a PDF export and
+ * an e-mail summary all need the same order. One list, read by both stacks.
+ */
+export const chartPalette: readonly string[] = [
+  colors.primary[500],
+  colors.secondary[600],
+  colors.accent[500],
+  colors.warning[500],
+  colors.info[600],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[700],
+];
+
+/** Chart chrome shared by every chart: grid lines, axis strokes, tooltip borders. */
+export const chartChrome: Readonly<{ grid: string; axis: string; border: string }> = {
+  grid: colors.neutral[200],
+  axis: colors.gray[400],
+  border: colors.neutral[200],
+};
+
+/** The ten steps every semantic scale declares, in order. */
+const SCALE_STEPS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
+
+const SCALE_NAMES = [
+  'primary',
+  'secondary',
+  'accent',
+  'neutral',
+  'success',
+  'warning',
+  'error',
+  'info',
+] as const;
+
+/**
+ * Every token as a flat `name -> hex` pair, in declaration order.
+ *
+ * WHY the module publishes its own enumeration: the surfaces that cannot
+ * import it — the Rust edge gateway's SCADA page and its PWA manifest — are
+ * generated from these tokens, and a generator walking the nested object has
+ * to widen the numeric-keyed scales to `any` to do it. Enumerating here keeps
+ * the generators typed and makes a new scale reach them by construction.
+ *
+ * `transparent` is left out: it is not a colour a generator can turn into
+ * channels or a swatch.
+ */
+export const colorTokenEntries: ReadonlyArray<readonly [string, string]> = [
+  ...SCALE_NAMES.flatMap((scale) =>
+    SCALE_STEPS.map((step) => [`${scale}-${step}`, colors[scale][step]] as const),
+  ),
+  ['gray-400', colors.gray[400]] as const,
+  ['white', colors.white] as const,
+  ['black', colors.black] as const,
+];

@@ -36,6 +36,37 @@ ci_executor:
     - ARIA_LEASE_TOKEN
     - CLAUDE_CLI_MOCK
     - CLAUDE_CLI_MOCK_SOURCE
+ci_executor_read_contained:
+  # ARIA-HIGH-162 — the READ shape: profiles judge_opus, judge_glm, arbiter
+  # (claude_runtime.read_contained_profile: pinned id, tools inside Read/Grep/Glob,
+  # no MCP server, not write-capable). Same sandbox as the write shape with the
+  # workspace bound read-only and nothing writable under it; no bypass flag.
+  binary: claude
+  argv:
+    - claude
+    - -p
+    - --output-format
+    - stream-json
+    - --verbose
+    - --model
+    - "<the profile's model; the fleet rung that answered is stamped on the envelope>"
+    - --effort
+    - max
+    - --restricted
+    - --permission-prompts
+    - none
+    - --tools
+    - "<the profile's grant, comma-joined: Read,Grep,Glob for the judges, Read for the arbiter>"
+    - --disallowedTools
+    - "<derived from the agent's kernel runtime profile: ungranted tools + external-write rules + mcp__<server> for servers the profile does not name>"
+    - --strict-mcp-config
+    - --mcp-config
+    - "<per-spawn document: empty — no read profile names an MCP server>"
+  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
+  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+  governance: claude_spawn_read_contained {request_id, subagent_type, profile_id, tools}
+  raw_jsonl_persisted: false
+  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
 worker_executor:
   binary: claude
   argv:

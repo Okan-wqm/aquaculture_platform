@@ -51,6 +51,13 @@ RUNTIME_PROFILE_FRONTMATTER_KEY = "runtime_profile"
 CLAUDE_TOOL_UNIVERSE: tuple[str, ...] = (
     "Read", "Grep", "Glob", "Edit", "Write", "MultiEdit", "NotebookEdit",
     "Bash", "Agent", "WebFetch", "WebSearch", "TodoWrite",
+    # ARIA-HIGH-162 — tools the CLI (2.1.278) exposes that no ARIA profile
+    # grants and the deny list never named: a skill loader, a tool-schema
+    # loader, a worktree creator (a filesystem write), an artifact publisher
+    # (network egress through the CLI's own auth) and a session messenger.
+    # Under bwrap the gap was harmless; the read shape's `--tools` allowlist
+    # closes it first, and naming them here keeps the deny list the belt.
+    "Skill", "ToolSearch", "EnterWorktree", "Artifact", "SendMessage",
 )
 # Tools that never appear in an ARIA profile and are therefore denied on every
 # spawn: network reach through tools is not something a repo-scoped agent needs

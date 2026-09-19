@@ -519,6 +519,8 @@ def build_claude_exec_argv(
     # Plan 032 Faz 032g — MCP: the kernel's config, strictly (repo .mcp.json never loads).
     mcp_config_path: str | Path | None = None,
     strict_mcp_config: bool = False,
+    read_shape: bool = False,
+    read_shape_tools: Sequence[str] = (),
 ) -> list[str]:
     """Build the live Claude Code CLI invocation argv.
 
@@ -560,6 +562,13 @@ def build_claude_exec_argv(
         argv.extend(["--permission-mode", permission_mode])
     elif skip_permissions:
         argv.append("--dangerously-skip-permissions")
+    if read_shape:
+        # ARIA-HIGH-162 — the read shape never carries the bypass flag; the
+        # CLI's own restriction, a denied prompt target and the profile's
+        # grant as the positive tool list are the three flags that make it.
+        if skip_permissions or permission_mode is not None:
+            raise ClaudePolicyViolation("claude_read_shape_with_write_permissions")
+        argv.extend(["--restricted", "--permission-prompts", "none", "--tools", ",".join(read_shape_tools)])
     # Plan 032 Faz 032b — the profile's tool envelope, enforced by the CLI
     # itself. Bare names remove tools the profile does not grant; scoped
     # `Bash(...)` rules close the external-write channels. Deny rules bind in
@@ -619,6 +628,44 @@ def assert_write_runner_ok(*, skip_permissions: bool, permission_mode: str | Non
         )
 
 
+# ARIA-HIGH-162 — the READ shape. A profile that cannot write does not spawn
+# with `--dangerously-skip-permissions` under the write containment; it spawns
+# read-contained: the workspace bound read-only with no writable scope and no
+# commit containment, the CLI in `--restricted` mode (the code-running tools
+# removed, user/project/local settings ignored, file tools confined to the
+# working directory), every prompt denied by name (`--permission-prompts
+# none`), and the profile's grant as a POSITIVE allowlist (`--tools`) with the
+# deny list kept as the belt. Measured 2026-09-19: an unconfined `-p` run
+# inherits the host's real `~/.claude` (this host: `permissions.defaultMode:
+# auto`, four plugins, session persistence under `~/.claude/projects/`), and
+# `--disallowedTools` is a deny-list over a twelve-name universe that does not
+# name `Skill`, `EnterWorktree`, `Artifact` or `SendMessage` — so the read
+# shape keeps bwrap and adds the CLI's own restriction rather than dropping
+# either. Eligibility is a pinned set, not a derivation: the planner profiles
+# are read-only too but carry the `aria` MCP server and stay on the write
+# containment path until that server is contained for a read spawn.
+READ_CONTAINED_PROFILE_IDS: tuple[str, ...] = ("judge_opus", "judge_glm", "arbiter")
+READ_CONTAINED_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob"})
+
+
+def read_contained_profile(agent_profile: Any | None) -> bool:
+    """True when this spawn takes the read shape (ARIA-HIGH-162).
+
+    Every clause is a fact of the kernel profile, none of the agent file:
+    the id is in the pinned set, the grant is inside the read tool set, no
+    MCP server is named, and the profile cannot write.
+    """
+    kernel = _kernel_profile(agent_profile)
+    if kernel is None:
+        return False
+    return (
+        str(getattr(kernel, "profile_id", "")) in READ_CONTAINED_PROFILE_IDS
+        and set(getattr(kernel, "tools", ())) <= READ_CONTAINED_TOOLS
+        and not tuple(getattr(kernel, "mcp_servers", ()))
+        and not bool(getattr(kernel, "write_capable", False))
+    )
+
+
 # ORPHAN-CRITICAL-427 — operator escape hatch for a host with no sandbox
 # backend. Named explicitly rather than inferred, and audited in the refusal
 # message, so running a write-capable agent unconfined is a recorded decision
@@ -652,8 +699,15 @@ def _apply_write_containment(
     git_containment: Any | None = None,
     hook_broker_socket: Path | None = None,
     mcp_broker_socket: Path | None = None,
+    read_containment: bool = False,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
+
+    ARIA-HIGH-162 — ``read_containment`` selects the READ shape for a
+    read-only spawn: the same sandbox with the workspace bound read-only,
+    no writable scope, git binds derived read-only, no MCP broker socket.
+    Fail-closed like the write shape: no sandbox backend, no spawn — the
+    read shape has no unconfined acknowledgement.
 
     ``executable`` is the CLI resolved outside the sandbox (run by absolute
     path inside it), ``spawn_files`` the documents this spawn wrote for the
@@ -690,6 +744,11 @@ def _apply_write_containment(
     if not _is_write_capable(
         skip_permissions=skip_permissions, permission_mode=permission_mode,
     ):
+        if read_containment:
+            return _apply_read_containment(
+                argv, workspace_root=workspace_root, executable=executable, spawn_files=spawn_files,
+                managed_login_dir=managed_login_dir, hook_broker_socket=hook_broker_socket,
+            )
         return argv
     workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
     try:
@@ -741,6 +800,50 @@ def _apply_write_containment(
             f"read-only shape (skip_permissions=False), or set "
             f"{UNCONFINED_ACK_ENV_VAR}=1 to accept an unconfined "
             f"write-capable agent on this host."
+        ) from exc
+
+
+def _apply_read_containment(
+    argv: list[str],
+    *,
+    workspace_root: str | Path | None,
+    executable: Path | None,
+    spawn_files: Sequence[Path] = (),
+    managed_login_dir: Path | None = None,
+    hook_broker_socket: Path | None = None,
+) -> list[str]:
+    """The READ shape's sandbox (ARIA-HIGH-162).
+
+    ``wrap_managed_claude_in_sandbox`` with an EMPTY write scope binds the
+    workspace read-only and nothing writable under it; the git binds are
+    derived read-only; the private home carries only the managed login
+    (writable for the OAuth refresh, ARIA-HIGH-157) and ``CLAUDE_CONFIG_DIR``
+    points inside it, so the host's own settings, plugins and session store
+    are out of reach; the hook broker keeps its socket so the turn budget
+    and the journal stay outside. No MCP broker: no read profile names one.
+    """
+    workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
+    if executable is None:
+        raise ClaudePolicyViolation("claude_read_containment_without_executable")
+    from aria_kernel.git_containment import GitContainmentRefusal, derive_git_containment
+    from aria_kernel.implementation_safety import SandboxUnavailable, wrap_managed_claude_in_sandbox
+    try:
+        git = derive_git_containment(workspace, commit_capable=False)
+    except GitContainmentRefusal as exc:
+        raise ClaudePolicyViolation(
+            f"claude_read_containment_git_refused: {exc.reason}; refusing to spawn a "
+            f"read-contained agent whose git binds cannot be derived from {workspace}"
+        ) from exc
+    try:
+        return wrap_managed_claude_in_sandbox(
+            argv, workspace_root=workspace, write_scope=(), executable=executable,
+            spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
+            hook_broker_socket=hook_broker_socket, mcp_broker_socket=None,
+        )
+    except SandboxUnavailable as exc:
+        raise ClaudePolicyViolation(
+            f"claude_read_containment_required: {exc}. The read shape runs under bwrap "
+            f"or not at all; install bwrap on the runner and give it unprivileged user namespaces."
         ) from exc
 
 
@@ -1277,9 +1380,15 @@ def run_claude_exec(
     # derived while holding the implementer's identity; None for every
     # spawn that holds no identity (its git binds are derived read-only).
     git_containment: Any | None = None,
+    # ARIA-HIGH-162 — the read shape (`read_contained_profile`): no bypass
+    # flag, `--restricted --permission-prompts none --tools <grant>`, and the
+    # workspace bound read-only under the same sandbox the write shape uses.
+    read_containment: bool = False,
 ) -> ClaudeRunResult:
     assert_model_served_by_claude_runtime(model)
     preflight_claude_auth()
+    if read_containment and (skip_permissions or permission_mode is not None):
+        raise ClaudePolicyViolation("claude_read_containment_with_write_permissions")
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
     timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
@@ -1296,6 +1405,8 @@ def run_claude_exec(
         disallowed_tools=disallowed_tools,
         session_id=session_id,
         resume=resume,
+        read_shape=read_containment,
+        read_shape_tools=tuple(getattr(_kernel_profile(agent_profile), "tools", ()) or ()),
     )
     # Plan 032 Faz 032b-2 — the per-spawn settings file: permission rules
     # compiled from the command policy + the kernel hooks. A write-capable
@@ -1402,6 +1513,7 @@ def run_claude_exec(
             git_containment=git_containment,
             hook_broker_socket=broker.socket_path if broker is not None else None,
             mcp_broker_socket=mcp_broker.socket_path if mcp_broker is not None else None,
+            read_containment=read_containment,
         )
         # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
         # reason containment is. `apply_resource_limits` shipped with the sandbox

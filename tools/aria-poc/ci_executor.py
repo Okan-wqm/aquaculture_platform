@@ -77,6 +77,7 @@ from claude_runtime import (
     parse_claude_jsonl,
     preflight_claude_auth,
     run_claude_exec,
+    read_contained_profile,
     run_with_model_fallback,
 )
 from dispatch_failure import (
@@ -1957,6 +1958,20 @@ def invoke_claude_cli(
     # unknown agent → most expensive tier.
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
+    read_containment = read_contained_profile(agent_profile)
+    if tools_dir is not None and read_containment:
+        try:
+            from aria_kernel.tool_registry import (
+                append_tools_governance as _rc_gov,
+                ensure_tools_dir as _rc_ens,
+            )
+            _rc_gov(_rc_ens(tools_dir), "claude_spawn_read_contained", {
+                "request_id": request_id, "subagent_type": subagent_type,
+                "profile_id": getattr(agent_profile, "profile_id", None),
+                "tools": list(getattr(agent_profile, "tools", ()) or ()),
+            })
+        except Exception:
+            pass
     # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
     # the trusted request envelope names the agent/role, the frontmatter SSoT
     # resolves the model, the redirect SSoT resolves the provider, and a
@@ -2021,6 +2036,10 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # ARIA-HIGH-162 — a read-contained profile never carries the
+                # bypass flag: `read_contained_profile` is the one rule.
+                skip_permissions=not read_containment,
+                read_containment=read_containment,
                 # Plan 032 Faz 032b — the workspace is EXPLICIT: the sandbox
                 # binds it and the agent runs in it. Pre-fix no cwd was passed
                 # and containment bound whatever Path.cwd() happened to be.

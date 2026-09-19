@@ -916,12 +916,42 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: authenticatedSnapshot.role,
           tenantId: authenticatedSnapshot.tenantId,
           isActive: true,
-          updatedAt: authenticatedAt,
+          // Fence freshness is a millisecond-truncated SQL comparison
+          // (timestamptz(6) sub-ms noise vs JS Date ms — 2026-09-19 fix).
+          updatedAt: expect.objectContaining({
+            getSql: expect.any(Function),
+          }),
         },
         lock: { mode: 'pessimistic_write' },
       });
+      // The fence timestamp itself must be the ms-truncated snapshot value.
+      const fencePredicate = credentialUserLockFindOne.mock.calls[0][0].where.updatedAt;
+      expect(typeof fencePredicate.getSql).toBe('function');
+      expect(fencePredicate.getSql()).toContain("date_trunc('milliseconds'");
       expect(refreshSave).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
+    });
+
+    it('mints after the login flow bumps lastLoginAt (sub-ms timestamptz noise)', async () => {
+      // REGRESSION (2026-09-19 live finding): authentication.service saves
+      // user.lastLoginAt right before minting; Postgres bumps updatedAt with
+      // MICROS precision while the in-memory snapshot carries milliseconds.
+      // Exact equality made every real login fail closed with 'User
+      // credentials changed during token issuance'. The ms-truncated fence
+      // must keep minting for sub-ms drift while still failing for a
+      // genuinely different (>=1ms) committed mutation.
+      service = await createService();
+      const snapshot = buildUser({ updatedAt: new Date('2026-09-19T08:00:00.123Z') });
+      credentialUserLockFindOne.mockResolvedValueOnce({ id: snapshot.id });
+
+      await expect(service.generateTokens(snapshot)).resolves.toBeDefined();
+      expect(signAsync).toHaveBeenCalled();
+      // And the fail-closed side is untouched: a resolving fence read of
+      // null still rejects with the same error.
+      credentialUserLockFindOne.mockResolvedValueOnce(null);
+      await expect(service.generateTokens(snapshot)).rejects.toThrow(
+        'User credentials changed during token issuance',
+      );
     });
 
     it('waits for the real next clock second and performs two authoritative revocation reads', async () => {

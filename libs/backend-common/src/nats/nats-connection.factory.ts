@@ -233,7 +233,13 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     // nats-core appends a per-connection unique suffix after the prefix,
     // so replicas of the same service do NOT cross-talk.
     ...(serviceName
-      ? { inboxPrefix: `_INBOX${serviceName.toUpperCase().replace(/-/g, '_')}.` }
+      // NO trailing dot: @nats-io/nats-core appends `.<NUID>` itself, so a
+      // trailing dot here produced an EMPTY subject token (`_INBOXFOO..NUID`)
+      // that NATS permission wildcards can never match — every JetStream
+      // request died as a Permissions Violation (2026-09-19 live finding).
+      // The single-dot form `_INBOXFOO.<NUID>` matches the ACL's
+      // `_INBOXFOO.>` rule, preserving the SEC-HIGH-098 per-service scope.
+      ? { inboxPrefix: `_INBOX${serviceName.toUpperCase().replace(/-/g, '_')}` }
       : {}),
   };
 

@@ -20,7 +20,7 @@ import {
   type PlatformCapability,
 } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Raw, Repository } from 'typeorm';
 
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
@@ -225,7 +225,23 @@ export class TokenService {
           role: user.role,
           tenantId: user.tenantId ?? IsNull(),
           isActive: true,
-          ...(user.updatedAt ? { updatedAt: user.updatedAt } : {}),
+          // Fence freshness compares at MILLISECOND granularity: Postgres
+          // timestamptz(6) stores sub-ms values (e.g. a lastLoginAt save in
+          // the same login flow), and an in-memory JS Date only carries
+          // milliseconds — exact equality made EVERY mint fail with
+          // 'User credentials changed during token issuance' (2026-09-19
+          // live finding). date_trunc on the column side keeps the
+          // fail-closed property (a committed credential/role/tenant/
+          // deactivation change still breaks equality) while tolerating
+          // sub-ms write noise.
+          ...(user.updatedAt
+            ? {
+                updatedAt: Raw(
+                  (alias) => `date_trunc('milliseconds', ${alias}) = :fenceUpdatedAt`,
+                  { fenceUpdatedAt: new Date(Math.floor(user.updatedAt.getTime())) },
+                ),
+              }
+            : {}),
         },
         lock: { mode: 'pessimistic_write' },
       });

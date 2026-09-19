@@ -1313,7 +1313,20 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         main: this.streamName,
         telemetry: this.telemetryStreamName,
       });
-      await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
+      try {
+        await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
+      } catch (addError) {
+        // @nats-io/jetstream's add() CREATEs; it does not upsert, so a
+        // durable consumer left by a previous instance (rolling restart,
+        // crash loop) rejects with 'consumer already exists'. The durable
+        // below re-attaches to it — the exact ARCH-020 intent (never lose
+        // the ack position by deleting/recreating).
+        const message = addError instanceof Error ? addError.message : String(addError);
+        if (!/already exists/i.test(message)) throw addError;
+        this.logger.log(
+          `Durable consumer ${consumerName} already exists on ${owningStream} — re-attaching`,
+        );
+      }
 
       // Get the consumer and create a pull subscription
       const consumer = await this.jetStream.consumers.get(owningStream, consumerName);

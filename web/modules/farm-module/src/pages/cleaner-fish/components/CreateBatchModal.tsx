@@ -96,25 +96,18 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
       <div className="space-y-6">
         {/* Species Selection */}
         <div>
-          <label
-            htmlFor="species"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Species <span className="text-error-500">*</span>
-          </label>
-          <select
+          <Select
             id="species"
+            label="Species"
+            required
+            placeholder="Select a species..."
             value={speciesId}
             onChange={(e) => setSpeciesId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">Select a species...</option>
-            {species.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.commonName} ({s.code})
-              </option>
-            ))}
-          </select>
+            options={species.map((s) => ({
+              value: s.id,
+              label: `${s.commonName} (${s.code})`,
+            }))}
+          />
           {species.length === 0 && (
             <p className="mt-1 text-xs text-warning-600 dark:text-warning-400">
               No cleaner fish species found. Add species with "isCleanerFish" enabled in Setup.
@@ -177,26 +170,16 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
 
         {/* Source Type */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="sourceType"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Source Type
-            </label>
-            <select
-              id="sourceType"
-              value={sourceType}
-              onChange={(e) => setSourceType(e.target.value as CleanerFishSourceType)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {Object.entries(SourceTypeLabels).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="sourceType"
+            label="Source Type"
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value as CleanerFishSourceType)}
+            options={Object.entries(SourceTypeLabels).map(([key, label]) => ({
+              value: key,
+              label,
+            }))}
+          />
           <div>
             <label
               htmlFor="sourceLocation"

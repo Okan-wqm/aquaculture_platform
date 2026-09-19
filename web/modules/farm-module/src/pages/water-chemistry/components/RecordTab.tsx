@@ -19,6 +19,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  Select,
 } from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
@@ -228,19 +229,16 @@ export const RecordTab: React.FC = () => {
             >
               System (optional)
             </label>
-            <select
+            <Select
               id="record-system-select"
+              size="sm"
               value={selectedSystemId ?? ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-            >
-              <option value="">All Systems</option>
-              {systems.map((sys) => (
-                <option key={sys.id} value={sys.id}>
-                  {sys.name} ({sys.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'All Systems' },
+                ...systems.map((sys) => ({ value: sys.id, label: `${sys.name} (${sys.code})` })),
+              ]}
+            />
           </div>
 
           {/* Equipment selector */}
@@ -251,19 +249,19 @@ export const RecordTab: React.FC = () => {
             >
               Equipment
             </label>
-            <select
+            <Select
               id="record-equipment-select"
+              size="sm"
               value={selectedEquipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-            >
-              <option value="">Select equipment...</option>
-              {sortedEquipment.map((eq) => (
-                <option key={eq.id} value={eq.id}>
-                  {eq.name} ({eq.code}){eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'Select equipment...' },
+                ...sortedEquipment.map((eq) => ({
+                  value: eq.id,
+                  label: `${eq.name} (${eq.code})${eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}`,
+                })),
+              ]}
+            />
           </div>
         </div>
       </div>

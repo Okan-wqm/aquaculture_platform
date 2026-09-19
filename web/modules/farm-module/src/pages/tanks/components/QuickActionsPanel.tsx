@@ -4,6 +4,7 @@
  * Provides quick access to tank operations: Mortality, Transfer, Cull
  */
 import React from 'react';
+import { Select } from '@aquaculture/shared-ui';
 import { TankWithBatch } from '../types';
 import { ArrowLeftRight, Scissors, TriangleAlert, Zap } from 'lucide-react';
 
@@ -38,19 +39,23 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         </h3>
 
         {/* Tank Selector */}
-        <select
+        <Select
+          aria-label="Quick action tank"
+          fullWidth={false}
+          size="sm"
+          className="min-w-[200px]"
           value={selectedTankId || ''}
           onChange={(e) => onTankSelect(e.target.value || null)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm min-w-[200px] focus:ring-2 focus:ring-info-500 focus:border-info-500"
-        >
-          <option value="">Select Tank...</option>
-          {tanksWithFish.map((tank) => (
-            <option key={tank.id} value={tank.id}>
-              {tank.name} ({tank.code}){tank.batchNumber ? ' - Production' : ''}
-              {tank.hasCleanerFish ? ' - CF' : ''}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'Select Tank...' },
+            ...tanksWithFish.map((tank) => ({
+              value: tank.id,
+              label: `${tank.name} (${tank.code})${tank.batchNumber ? ' - Production' : ''}${
+                tank.hasCleanerFish ? ' - CF' : ''
+              }`,
+            })),
+          ]}
+        />
       </div>
 
       {/* Selected Tank Info */}

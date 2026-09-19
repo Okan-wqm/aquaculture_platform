@@ -405,18 +405,16 @@ export const ConsumablesTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+            ]}
+          />
         </div>
         <Button variant="primary" onClick={openCreate}>
           <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
@@ -521,31 +519,15 @@ export const ConsumablesTab: React.FC = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Category *
-                    </label>
-                    <FormField
-                      error={formData.category ? undefined : fieldErrors.category}
-                      className="mb-0"
-                    >
-                      <select
-                        required
-                        value={formData.category}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, category: e.target.value }))
-                        }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                      >
-                        <option value="">Select</option>
-                        {CATEGORIES.map((c) => (
-                          <option key={c.value} value={c.value}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
+                  <Select
+                    label="Category"
+                    required
+                    placeholder="Select"
+                    value={formData.category}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
+                    error={formData.category ? undefined : fieldErrors.category}
+                    options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+                  />
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Unit
@@ -579,25 +561,18 @@ export const ConsumablesTab: React.FC = () => {
                       onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Supplier
-                    </label>
-                    <select
-                      value={formData.supplierId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select Supplier</option>
-                      {suppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Supplier"
+                    placeholder="Select Supplier"
+                    value={formData.supplierId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                    }
+                    options={suppliers.map((supplier) => ({
+                      value: supplier.id,
+                      label: supplier.name,
+                    }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -796,22 +771,12 @@ export const ConsumablesTab: React.FC = () => {
                     rows={3}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(statusLabels).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                />
               </div>
             </CollapsibleSection>
           </div>

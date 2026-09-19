@@ -19,7 +19,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   BatchFeedAssignment,
@@ -203,19 +203,17 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Feed
                 </label>
-                <select
+                <Select
                   id={`feed-${entry.key}`}
+                  size="sm"
+                  placeholder="— Choose a feed —"
                   value={entry.feedId}
                   onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-                >
-                  <option value="">— Choose a feed —</option>
-                  {feedList.data?.items.map((feed) => (
-                    <option key={feed.id} value={feed.id}>
-                      {feed.code} — {feed.name}
-                    </option>
-                  ))}
-                </select>
+                  options={(feedList.data?.items ?? []).map((feed) => ({
+                    value: feed.id,
+                    label: `${feed.code} — ${feed.name}`,
+                  }))}
+                />
               </div>
 
               <div className="col-span-2">

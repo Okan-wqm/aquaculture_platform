@@ -11,6 +11,7 @@ import {
   type DataTableColumn,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -317,20 +318,21 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
               Items *
             </label>
             <div className="flex gap-2">
-              <select
+              <Select
+                aria-label="Item to add"
+                className="flex-1"
                 value={selectedItemId}
                 onChange={(e) => setSelectedItemId(e.target.value)}
-                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-info-500 focus:border-info-500"
-              >
-                <option value="">Select item to add...</option>
-                {itemOptions
-                  .filter((o) => !items.some((i) => i.itemId === o.id))
-                  .map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name} {opt.code ? `(${opt.code})` : ''}
-                    </option>
-                  ))}
-              </select>
+                options={[
+                  { value: '', label: 'Select item to add...' },
+                  ...itemOptions
+                    .filter((o) => !items.some((i) => i.itemId === o.id))
+                    .map((opt) => ({
+                      value: opt.id,
+                      label: `${opt.name} ${opt.code ? `(${opt.code})` : ''}`,
+                    })),
+                ]}
+              />
               <Button variant="primary" type="button" onClick={addItem} disabled={!selectedItemId}>
                 Add
               </Button>

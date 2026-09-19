@@ -388,21 +388,18 @@ export const BulkRecordTab: React.FC = () => {
       {/* Shared header */}
       <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Sistem (filtre)
-          </label>
-          <select
+          <Select
+            label="Sistem (filtre)"
             value={selectedSystemId ?? ''}
             onChange={(e) => setSelectedSystemId(e.target.value || null)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
-          >
-            <option value="">Tümü</option>
-            {(systemsQuery.data?.items ?? []).map((sys) => (
-              <option key={sys.id} value={sys.id}>
-                {sys.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'Tümü' },
+              ...(systemsQuery.data?.items ?? []).map((sys) => ({
+                value: sys.id,
+                label: sys.name,
+              })),
+            ]}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -438,24 +435,25 @@ export const BulkRecordTab: React.FC = () => {
       <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[260px]">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Ekipman ekle
-            </label>
-            <select
+            <Select
+              label="Ekipman ekle"
               value=""
               onChange={(e) => handleAddEquipment(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
               disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
-            >
-              <option value="">
-                {availableEquipment.length === 0 ? 'Eklenebilecek ekipman yok' : 'Bir ekipman seç…'}
-              </option>
-              {availableEquipment.map((eq) => (
-                <option key={eq.id} value={eq.id}>
-                  {eq.name} ({eq.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label:
+                    availableEquipment.length === 0
+                      ? 'Eklenebilecek ekipman yok'
+                      : 'Bir ekipman seç…',
+                },
+                ...availableEquipment.map((eq) => ({
+                  value: eq.id,
+                  label: `${eq.name} (${eq.code})`,
+                })),
+              ]}
+            />
           </div>
           <button
             type="button"

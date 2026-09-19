@@ -20,6 +20,7 @@ import {
   useToast,
   useConfirm,
   parseGraphQLError,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 
@@ -163,26 +164,14 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label
-              htmlFor="close-reason"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Close reason <span className="text-accent-500">*</span>
-            </label>
-            <select
-              id="close-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value as BatchCloseReason)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              {REASON_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="close-reason"
+            label="Close reason"
+            required
+            value={reason}
+            onChange={(e) => setReason(e.target.value as BatchCloseReason)}
+            options={REASON_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
 
           <div>
             <label

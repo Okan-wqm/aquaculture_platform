@@ -16,6 +16,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -576,18 +577,16 @@ export const FeedsTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Type filter"
+            fullWidth={false}
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Types</option>
-            {feedTypes.map((type) => (
-              <option key={type.id} value={type.code}>
-                {type.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Types' },
+              ...feedTypes.map((type) => ({ value: type.code, label: type.name })),
+            ]}
+          />
         </div>
         <Button
           variant="primary"
@@ -884,68 +883,36 @@ export const FeedsTab: React.FC = () => {
                     />
                   </FormField>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Category *
-                  </label>
-                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                    <select
-                      required
-                      value={formData.type}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select</option>
-                      {feedTypes.map((type) => (
-                        <option key={type.id} value={type.code}>
-                          {type.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Site *
-                  </label>
-                  <FormField
-                    error={formData.siteId ? undefined : fieldErrors.siteId}
-                    className="mb-0"
-                  >
-                    <select
-                      required
-                      value={formData.siteId}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select Site</option>
-                      {sites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Supplier
-                  </label>
-                  <select
-                    value={formData.supplierId}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select</option>
-                    {suppliers.map((supplier) => (
-                      <option key={supplier.id} value={supplier.id}>
-                        {supplier.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Category"
+                  required
+                  placeholder="Select"
+                  value={formData.type}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
+                  error={formData.type ? undefined : fieldErrors.type}
+                  options={feedTypes.map((type) => ({ value: type.code, label: type.name }))}
+                />
+                <Select
+                  label="Site"
+                  required
+                  placeholder="Select Site"
+                  value={formData.siteId}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
+                  error={formData.siteId ? undefined : fieldErrors.siteId}
+                  options={sites.map((site) => ({ value: site.id, label: site.name }))}
+                />
+                <Select
+                  label="Supplier"
+                  value={formData.supplierId}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
+                  options={[
+                    { value: '', label: 'Select' },
+                    ...suppliers.map((supplier) => ({
+                      value: supplier.id,
+                      label: supplier.name,
+                    })),
+                  ]}
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Brand
@@ -1008,24 +975,17 @@ export const FeedsTab: React.FC = () => {
                     }
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Floating Type
-                  </label>
-                  <select
-                    value={formData.floatingType}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, floatingType: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(floatingTypeLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Floating Type"
+                  value={formData.floatingType}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, floatingType: e.target.value }))
+                  }
+                  options={Object.entries(floatingTypeLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Product Stage
@@ -1461,20 +1421,22 @@ export const FeedsTab: React.FC = () => {
                     className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg"
                   >
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
+                      <label
+                        htmlFor={`feed-document-type-${index}`}
+                        className="block text-xs font-medium text-gray-500 dark:text-gray-400"
+                      >
                         Type
                       </label>
-                      <select
+                      <Select
+                        id={`feed-document-type-${index}`}
+                        size="sm"
                         value={doc.type}
                         onChange={(e) => updateDocument(index, 'type', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-1 px-2 text-sm"
-                      >
-                        {Object.entries(documentTypeLabels).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
+                        options={Object.entries(documentTypeLabels).map(([value, label]) => ({
+                          value,
+                          label,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -1672,22 +1634,12 @@ export const FeedsTab: React.FC = () => {
                     onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(statusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                />
               </div>
             </CollapsibleSection>
           </div>

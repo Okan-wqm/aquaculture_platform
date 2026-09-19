@@ -3,7 +3,7 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, Select } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 // WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
@@ -159,18 +159,14 @@ const InputPanel: React.FC<InputPanelProps> = ({
               >
                 Fish Type
               </label>
-              <select
+              <Select
                 id="water-chemistry-fish-type"
                 value={inputs.fishType}
                 onChange={(e) => update('fishType', e.target.value)}
-                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-              >
-                {FISH_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                fullWidth={false}
+                size="xs"
+                options={FISH_TYPES.map((t) => ({ value: t, label: t }))}
+              />
             </div>
             <div className="flex items-center gap-1.5 mr-4">
               <label
@@ -179,18 +175,14 @@ const InputPanel: React.FC<InputPanelProps> = ({
               >
                 Fish Size
               </label>
-              <select
+              <Select
                 id="water-chemistry-fish-size"
                 value={inputs.fishSize}
                 onChange={(e) => update('fishSize', e.target.value)}
-                className="px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-info-500"
-              >
-                {FISH_SIZES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                fullWidth={false}
+                size="xs"
+                options={FISH_SIZES.map((size) => ({ value: size, label: size }))}
+              />
             </div>
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input

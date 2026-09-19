@@ -12,7 +12,14 @@ import { useStockMovements, useLotTrace } from '../../../hooks/useStorageInvento
 import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
-import { DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 import { Search as SearchIcon } from 'lucide-react';
 
 const typeBadge: Record<string, string> = {
@@ -199,18 +206,15 @@ export const StockMovementsTab: React.FC = () => {
           onChange={(e) => setToDate(e.target.value)}
           aria-label="Filter movements to date"
         />
-        <select
+        <Select
+          aria-label="Filter movements by type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-        >
-          <option value="all">All Types</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: 'all', label: 'All Types' },
+            ...TYPES.map((t) => ({ value: t, label: t })),
+          ]}
+        />
 
         {/* Action buttons for recording new stock movements and transfers.
             These are the primary entry points for warehouse staff to record

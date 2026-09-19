@@ -12,6 +12,7 @@
  */
 
 import React, { useCallback } from 'react';
+import { Select } from '@aquaculture/shared-ui';
 import { VfdBrand, VFD_BRAND_NAMES } from '../../../types/vfd.types';
 
 /* ------------------------------------------------------------------ */
@@ -114,37 +115,23 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
       </div>
 
       {/* Brand */}
-      <div>
-        <label className={LABEL_CLS}>Brand</label>
-        <select
-          value={(config.brand as string) || VfdBrand.ABB}
-          onChange={handleChange('brand')}
-          className={SELECT_CLS}
-          data-testid="vfd-config-brand"
-        >
-          {BRAND_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Brand"
+        size="sm"
+        value={(config.brand as string) || VfdBrand.ABB}
+        onChange={handleChange('brand')}
+        data-testid="vfd-config-brand"
+        options={BRAND_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Size Preset */}
-      <div>
-        <label className={LABEL_CLS}>Size Preset</label>
-        <select
-          value={(config.sizePreset as string) || 'standard'}
-          onChange={handleChange('sizePreset')}
-          className={SELECT_CLS}
-        >
-          {SIZE_PRESETS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        label="Size Preset"
+        size="sm"
+        value={(config.sizePreset as string) || 'standard'}
+        onChange={handleChange('sizePreset')}
+        options={SIZE_PRESETS.map((opt) => ({ value: opt.value, label: opt.label }))}
+      />
 
       {/* Max Frequency */}
       <div>
@@ -237,34 +224,30 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({ config, onCh
 
       {/* Demo State (for builder preview) */}
       <div className={SECTION_CLS}>
-        <label className={LABEL_CLS}>Preview State (builder only)</label>
-        <select
+        <Select
+          label="Preview State (builder only)"
+          size="sm"
           value={(config.demoState as string) || ''}
           onChange={handleChange('demoState')}
-          className={SELECT_CLS}
-        >
-          {DEMO_STATES.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          options={DEMO_STATES.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
       </div>
 
       {/* Risk Level (read-only display from last changeset) */}
       <div className={SECTION_CLS}>
-        <label className={LABEL_CLS}>Last Change Risk Level</label>
-        <select
+        <Select
+          label="Last Change Risk Level"
+          size="sm"
           value={(config.riskLevel as string) || 'none'}
           onChange={handleChange('riskLevel')}
-          className={SELECT_CLS}
-        >
-          <option value="none">None</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-          <option value="critical">Critical</option>
-        </select>
+          options={[
+            { value: 'none', label: 'None' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' },
+            { value: 'critical', label: 'Critical' },
+          ]}
+        />
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -362,18 +363,16 @@ export const SystemsTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Site filter"
+            fullWidth={false}
             value={filterSiteId}
             onChange={(e) => setFilterSiteId(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="">All Sites</option>
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Sites' },
+              ...sites.map((site) => ({ value: site.id, label: site.name })),
+            ]}
+          />
           <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
             <input
               type="checkbox"
@@ -611,107 +610,71 @@ export const SystemsTab: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Type *
-              </label>
-              <select
-                value={formData.type}
-                onChange={(e) => handleFormChange('type', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {systemTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Status
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => handleFormChange('status', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-              >
-                {systemStatuses.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Type"
+              required
+              value={formData.type}
+              onChange={(e) => handleFormChange('type', e.target.value)}
+              options={systemTypes.map((type) => ({ value: type.value, label: type.label }))}
+            />
+            <Select
+              label="Status"
+              value={formData.status}
+              onChange={(e) => handleFormChange('status', e.target.value)}
+              options={systemStatuses.map((status) => ({
+                value: status.value,
+                label: status.label,
+              }))}
+            />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Site *
-            </label>
-            <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
-              <select
-                value={formData.siteId}
-                onChange={(e) => handleFormChange('siteId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                disabled={!!editingSystem}
-              >
-                <option value="">Select a site</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          </div>
+          <Select
+            label="Site"
+            required
+            placeholder="Select a site"
+            value={formData.siteId}
+            onChange={(e) => handleFormChange('siteId', e.target.value)}
+            disabled={!!editingSystem}
+            error={formData.siteId ? undefined : fieldErrors.siteId}
+            options={sites.map((site) => ({ value: site.id, label: site.name }))}
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Department
-              </label>
-              <select
+              <Select
+                label="Department"
                 value={formData.departmentId}
                 onChange={(e) => handleFormChange('departmentId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
                 disabled={!formData.siteId}
-              >
-                <option value="">
-                  {deptError
-                    ? 'Departmanlar yüklenemedi'
-                    : departments.length === 0 && formData.siteId
-                      ? 'Bu site için departman bulunamadı'
-                      : 'Departman seçin'}
-                </option>
-                {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  {
+                    value: '',
+                    label: deptError
+                      ? 'Departmanlar yüklenemedi'
+                      : departments.length === 0 && formData.siteId
+                        ? 'Bu site için departman bulunamadı'
+                        : 'Departman seçin',
+                  },
+                  ...departments.map((dept) => ({ value: dept.id, label: dept.name })),
+                ]}
+              />
               {deptError && (
                 <p className="text-xs text-error-500 mt-1">Departmanlar yüklenirken hata oluştu</p>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Parent System
-              </label>
-              <select
-                value={formData.parentSystemId}
-                onChange={(e) => handleFormChange('parentSystemId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                disabled={!formData.siteId}
-              >
-                <option value="">No parent (root system)</option>
-                {availableParentSystems.map((sys) => (
-                  <option key={sys.id} value={sys.id}>
-                    {sys.name} ({sys.code})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Parent System"
+              value={formData.parentSystemId}
+              onChange={(e) => handleFormChange('parentSystemId', e.target.value)}
+              disabled={!formData.siteId}
+              options={[
+                { value: '', label: 'No parent (root system)' },
+                ...availableParentSystems.map((sys) => ({
+                  value: sys.id,
+                  label: `${sys.name} (${sys.code})`,
+                })),
+              ]}
+            />
           </div>
 
           <div>

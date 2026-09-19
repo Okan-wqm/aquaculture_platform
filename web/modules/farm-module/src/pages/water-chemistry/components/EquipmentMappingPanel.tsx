@@ -5,7 +5,14 @@
  * adding/removing mappings with frequency and alert configuration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
   useCreateParamEquipmentMapping,
@@ -288,10 +295,9 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Category filter */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Category Filter
-                </label>
-                <select
+                <Select
+                  label="Category Filter"
+                  size="sm"
                   value={addForm.categoryFilter}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -300,23 +306,21 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       equipmentId: '',
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                >
-                  <option value="">All Categories</option>
-                  {EQUIPMENT_CATEGORY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'All Categories' },
+                    ...EQUIPMENT_CATEGORY_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    })),
+                  ]}
+                />
               </div>
 
               {/* Equipment selector */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Equipment
-                </label>
-                <select
+                <Select
+                  label="Equipment"
+                  size="sm"
                   value={addForm.equipmentId}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -325,23 +329,21 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                     }))
                   }
                   disabled={equipmentLoading}
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                >
-                  <option value="">{equipmentLoading ? 'Loading...' : 'Select equipment'}</option>
-                  {filteredEquipment.map((eq) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} ({eq.code}){eq.equipmentType ? ` - ${eq.equipmentType.name}` : ''}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: equipmentLoading ? 'Loading...' : 'Select equipment' },
+                    ...filteredEquipment.map((eq) => ({
+                      value: eq.id,
+                      label: `${eq.name} (${eq.code})${eq.equipmentType ? ` - ${eq.equipmentType.name}` : ''}`,
+                    })),
+                  ]}
+                />
               </div>
 
               {/* Frequency */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Monitoring Frequency
-                </label>
-                <select
+                <Select
+                  label="Monitoring Frequency"
+                  size="sm"
                   value={addForm.monitoringFrequency}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -349,14 +351,11 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       monitoringFrequency: e.target.value as MonitoringFrequency,
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                >
-                  {MONITORING_FREQUENCY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={MONITORING_FREQUENCY_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                  }))}
+                />
               </div>
 
               {/* Alert toggle */}

@@ -436,74 +436,43 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Supplier */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Supplier / Hatchery <span className="text-error-500">*</span>
-                  </label>
-                  <select
-                    value={formData.supplierId}
-                    onChange={(e) => handleInputChange('supplierId', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
-                      errors.supplierId
-                        ? 'border-error-500'
-                        : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                  >
-                    <option value="">Select a supplier...</option>
-                    {suppliers?.items?.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.code})
-                      </option>
-                    ))}
-                  </select>
-                  {errors.supplierId && (
-                    <p className="mt-1 text-sm text-error-500">{errors.supplierId}</p>
-                  )}
-                </div>
+                <Select
+                  label="Supplier / Hatchery"
+                  required
+                  placeholder="Select a supplier..."
+                  value={formData.supplierId}
+                  onChange={(e) => handleInputChange('supplierId', e.target.value)}
+                  error={errors.supplierId}
+                  options={(suppliers?.items ?? []).map((s) => ({
+                    value: s.id,
+                    label: `${s.name} (${s.code})`,
+                  }))}
+                />
 
                 {/* Species */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Species <span className="text-error-500">*</span>
-                  </label>
-                  <select
-                    value={formData.speciesId}
-                    onChange={(e) => handleInputChange('speciesId', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
-                      errors.speciesId ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                  >
-                    <option value="">Select a species...</option>
-                    {species?.items?.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.commonName} ({s.scientificName})
-                      </option>
-                    ))}
-                  </select>
-                  {errors.speciesId && (
-                    <p className="mt-1 text-sm text-error-500">{errors.speciesId}</p>
-                  )}
-                </div>
+                <Select
+                  label="Species"
+                  required
+                  placeholder="Select a species..."
+                  value={formData.speciesId}
+                  onChange={(e) => handleInputChange('speciesId', e.target.value)}
+                  error={errors.speciesId}
+                  options={(species?.items ?? []).map((s) => ({
+                    value: s.id,
+                    label: `${s.commonName} (${s.scientificName})`,
+                  }))}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Input Type */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Unit Type <span className="text-error-500">*</span>
-                  </label>
-                  <select
-                    value={formData.inputType}
-                    onChange={(e) => handleInputChange('inputType', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                  >
-                    {inputTypeOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Unit Type"
+                  required
+                  value={formData.inputType}
+                  onChange={(e) => handleInputChange('inputType', e.target.value)}
+                  options={inputTypeOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+                />
 
                 {/* Total Quantity */}
                 <div>
@@ -579,30 +548,18 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Arrival Method */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Arrival Method <span className="text-error-500">*</span>
-                  </label>
-                  <select
-                    value={formData.arrivalMethod}
-                    onChange={(e) => handleInputChange('arrivalMethod', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent ${
-                      errors.arrivalMethod
-                        ? 'border-error-500'
-                        : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                  >
-                    <option value="">Select method...</option>
-                    {arrivalMethodOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.arrivalMethod && (
-                    <p className="mt-1 text-sm text-error-500">{errors.arrivalMethod}</p>
-                  )}
-                </div>
+                <Select
+                  label="Arrival Method"
+                  required
+                  placeholder="Select method..."
+                  value={formData.arrivalMethod}
+                  onChange={(e) => handleInputChange('arrivalMethod', e.target.value)}
+                  error={errors.arrivalMethod}
+                  options={arrivalMethodOptions.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                  }))}
+                />
 
                 {/* Target FCR */}
                 <div>

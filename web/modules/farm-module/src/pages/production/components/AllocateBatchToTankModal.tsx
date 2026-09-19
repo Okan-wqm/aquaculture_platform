@@ -13,7 +13,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   AllocationType,
@@ -147,30 +147,19 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label
-              htmlFor="target-tank"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Destination tank <span className="text-accent-500">*</span>
-            </label>
-            <select
-              id="target-tank"
-              value={tankId}
-              onChange={(e) => setTankId(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              <option value="">— Choose a tank —</option>
-              {availableTanks.data?.map((tank) => (
-                <option key={tank.id} value={tank.id}>
-                  {tank.name} ({tank.code}) — {tank.availableCapacity.toFixed(0)} kg free
-                </option>
-              ))}
-            </select>
-            {availableTanks.isLoading && (
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Loading tanks…</p>
-            )}
-          </div>
+          <Select
+            id="target-tank"
+            label="Destination tank"
+            required
+            placeholder="— Choose a tank —"
+            value={tankId}
+            onChange={(e) => setTankId(e.target.value)}
+            helperText={availableTanks.isLoading ? 'Loading tanks…' : undefined}
+            options={(availableTanks.data ?? []).map((tank) => ({
+              value: tank.id,
+              label: `${tank.name} (${tank.code}) — ${tank.availableCapacity.toFixed(0)} kg free`,
+            }))}
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -208,26 +197,13 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
             </div>
           </div>
 
-          <div>
-            <label
-              htmlFor="alloc-type"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Allocation type
-            </label>
-            <select
-              id="alloc-type"
-              value={allocationType}
-              onChange={(e) => setAllocationType(e.target.value as AllocationType)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              {ALLOCATION_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="alloc-type"
+            label="Allocation type"
+            value={allocationType}
+            onChange={(e) => setAllocationType(e.target.value as AllocationType)}
+            options={ALLOCATION_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
 
           <div>
             <label

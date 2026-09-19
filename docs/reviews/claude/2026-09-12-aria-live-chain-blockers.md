@@ -1840,3 +1840,38 @@ expired and could not be refreshed`. The managed spawn binds the login's one fil
   a queue that interleaves healthy routes keeps draining. Pinned in
   `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
   selections; a dispatch between skips resets it.
+
+## ARIA-HIGH-161 — the fleet's first member outranked the judge's own provider
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-26
+- **Evidence (executor run 35444645590, 2026-09-19 13:20–13:30Z, request
+  `AIR-aria-adversarial-judge-8281c4e19fd1`):** the adversarial judge's frontmatter declares
+  `glm-5.3` (profile `judge_glm`, the second model the anchor grade needs). Admission observed
+  `anthropic` available and `zai` available and took `eligible_routes[0]` — `anthropic/opus`,
+  the fleet's first member — because the ladder walked `_FLEET` in its fixed preference order
+  for every profile. The claude wrapper re-resolved the model from the profile, ran the Z.ai
+  transport as its cross-vendor rung (`_run_zai_as_claude_result`), and built the envelope from
+  a plain-text stdout that carries no stream-json usage: `claude_cli_usage` absent, the wrapper
+  raised `usage_unavailable`, the handler renamed it `control_or_transport_unavailable`, and a
+  sound verdict (false_positive at 0.6, counter-evidence cited) was released
+  `native_runtime_execution_unavailable` at requeue budget zero — a harness-class release that
+  repeats every night for every adversarial judge. Historically 2 of 11 folded adversarial
+  verdicts carry `model: claude-opus-5`; the anchor grade's distinct-model requirement was
+  structurally unmeetable whenever the Claude session was logged in.
+- **Rule:** a profile's declared provider leads its admission ladder; the fleet's preference
+  order is the failover behind it. A run that finished with usage on its result seals an
+  envelope the wrapper accepts. A cause the wrapper named is the cause the attempt row carries.
+- **What is now true (2026-09-19):** `fleet_ladder_for(declared_provider_for_profile(profile))`
+  orders the ladder with the profile's own provider first and the fleet order behind it; the
+  halting semantics (undecided or unbindable first member halts) are unchanged, so a stalled
+  Z.ai probe halts a GLM judge instead of admitting it on opus. The admission row names
+  `declared_provider`. `_build_envelope_from_claude_output` and `_record_claude_cli_usage`
+  take the run result's own `usage` (the stream parse stays the fallback), so the cross-vendor
+  rung's envelope carries `claude_cli_usage`. `_result_admission_for` keeps a
+  `result_admission` the wrapper already named. Pinned in
+  `test_declared_provider_leads_admission.py`: zai leads a GLM profile with every vendor up;
+  a logged-out zai fails over in fleet order; an undecided zai halts with anthropic available;
+  an opus profile's ladder is unchanged; a plain-text reply with result usage seals
+  `claude_cli_usage`; a named admission survives the handler. Still open, by name: the
+  dispatch-model stamp comes from the profile, not from the rung that ran (typed-judgment plan
+  F10).

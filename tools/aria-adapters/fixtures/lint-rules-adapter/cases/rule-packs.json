@@ -1,0 +1,27 @@
+{
+  "name": "rule-packs",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/lint-rules-adapter/workspaces/rule-packs/apps/sample-service/src"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": [
+      "sonarjs/no-all-duplicated-branches",
+      "sonarjs/no-identical-conditions",
+      "security/detect-eval-with-expression"
+    ],
+    "required_observations": ["lint_rules_summary"],
+    "max_findings": 12
+  },
+  "curation": {
+    "curator": "claude/ARIA-MEDIUM-178 (2026-09-19)",
+    "gold_set": {
+      "true_positive_count": 5,
+      "known_false_positive_count": 0,
+      "false_positive_rules": []
+    }
+  }
+}

@@ -3,7 +3,13 @@
  * TanStack Query hooks for weekly workforce planning
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useQueries,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
@@ -31,6 +37,7 @@ import type {
   CreateWeeklyPlanInput,
   UpdatePlanEntryInput,
   BulkAssignShiftsInput,
+  ShiftAssignmentInput,
   UpdateSchedulingSettingsInput,
   WeeklyPlanFilter,
   WeeklyPlanStatus,
@@ -44,8 +51,11 @@ export const schedulingKeys = {
   weeklyPlanList: (filter?: WeeklyPlanFilter, limit?: number, page?: number) =>
     [...schedulingKeys.weeklyPlans(), { filter, limit, page }] as const,
   weeklyPlan: (id: string) => [...schedulingKeys.weeklyPlans(), id] as const,
+  /** Every overview of one week, whatever its department / site filter — the invalidation prefix. */
+  teamOverviewWeek: (weekStartDate: string) =>
+    [...schedulingKeys.all, 'teamOverview', weekStartDate] as const,
   teamOverview: (weekStartDate: string, departmentId?: string, siteId?: string) =>
-    [...schedulingKeys.all, 'teamOverview', weekStartDate, departmentId, siteId] as const,
+    [...schedulingKeys.teamOverviewWeek(weekStartDate), departmentId, siteId] as const,
   settings: () => [...schedulingKeys.all, 'settings'] as const,
   overtimeSummary: (month: number, year: number, employeeId?: string, departmentId?: string) =>
     [...schedulingKeys.all, 'overtime', month, year, employeeId, departmentId] as const,
@@ -55,29 +65,21 @@ export const schedulingKeys = {
 // Weekly Plan Queries
 // =====================
 
-export function useWeeklyPlans(
-  filter?: WeeklyPlanFilter,
-  limit = 20,
-  page = 1
-) {
+export function useWeeklyPlans(filter?: WeeklyPlanFilter, limit = 20, page = 1) {
   const client = useGraphQLClient();
 
   return useQuery({
     queryKey: schedulingKeys.weeklyPlanList(filter, limit, page),
     queryFn: () =>
-      graphqlRequest<{ weeklyPlans: WeeklyPlanConnection }, unknown>(
-        client,
-        GET_WEEKLY_PLANS,
-        {
-          employeeId: filter?.employeeId,
-          departmentId: filter?.departmentId,
-          siteId: filter?.siteId,
-          weekStartDate: filter?.weekStartDate,
-          status: filter?.status,
-          limit,
-          page,
-        }
-      ),
+      graphqlRequest<{ weeklyPlans: WeeklyPlanConnection }, unknown>(client, GET_WEEKLY_PLANS, {
+        employeeId: filter?.employeeId,
+        departmentId: filter?.departmentId,
+        siteId: filter?.siteId,
+        weekStartDate: filter?.weekStartDate,
+        status: filter?.status,
+        limit,
+        page,
+      }),
     select: (data) => data.weeklyPlans,
   });
 }
@@ -88,11 +90,7 @@ export function useWeeklyPlan(id: string) {
   return useQuery({
     queryKey: schedulingKeys.weeklyPlan(id),
     queryFn: () =>
-      graphqlRequest<{ weeklyPlan: WeeklyPlan }, unknown>(
-        client,
-        GET_WEEKLY_PLAN,
-        { id }
-      ),
+      graphqlRequest<{ weeklyPlan: WeeklyPlan }, unknown>(client, GET_WEEKLY_PLAN, { id }),
     select: (data) => data.weeklyPlan,
     enabled: !!id,
   });
@@ -101,7 +99,7 @@ export function useWeeklyPlan(id: string) {
 export function useTeamWeeklyOverview(
   weekStartDate: string,
   departmentId?: string,
-  siteId?: string
+  siteId?: string,
 ) {
   const client = useGraphQLClient();
 
@@ -111,10 +109,36 @@ export function useTeamWeeklyOverview(
       graphqlRequest<{ teamWeeklyOverview: TeamWeeklyOverview }, unknown>(
         client,
         GET_TEAM_WEEKLY_OVERVIEW,
-        { weekStartDate, departmentId, siteId }
+        { weekStartDate, departmentId, siteId },
       ),
     select: (data) => data.teamWeeklyOverview,
     enabled: !!weekStartDate,
+  });
+}
+
+/**
+ * One overview per visible week, under the same keys `useTeamWeeklyOverview`
+ * uses: the roster's month view spans up to six weeks, and a cell saved from
+ * either view repaints in the other from the shared cache.
+ */
+export function useTeamWeeklyOverviews(
+  weekStartDates: readonly string[],
+  departmentId?: string,
+  siteId?: string,
+): UseQueryResult<TeamWeeklyOverview>[] {
+  const client = useGraphQLClient();
+
+  return useQueries({
+    queries: weekStartDates.map((weekStartDate) => ({
+      queryKey: schedulingKeys.teamOverview(weekStartDate, departmentId, siteId),
+      queryFn: () =>
+        graphqlRequest<{ teamWeeklyOverview: TeamWeeklyOverview }, unknown>(
+          client,
+          GET_TEAM_WEEKLY_OVERVIEW,
+          { weekStartDate, departmentId, siteId },
+        ),
+      select: (data: { teamWeeklyOverview: TeamWeeklyOverview }) => data.teamWeeklyOverview,
+    })),
   });
 }
 
@@ -127,7 +151,7 @@ export function useSchedulingSettings() {
       graphqlRequest<{ schedulingSettings: SchedulingSettings }, unknown>(
         client,
         GET_SCHEDULING_SETTINGS,
-        {}
+        {},
       ),
     select: (data) => data.schedulingSettings,
   });
@@ -137,18 +161,19 @@ export function useOvertimeSummary(
   month: number,
   year: number,
   employeeId?: string,
-  departmentId?: string
+  departmentId?: string,
 ) {
   const client = useGraphQLClient();
 
   return useQuery({
     queryKey: schedulingKeys.overtimeSummary(month, year, employeeId, departmentId),
     queryFn: () =>
-      graphqlRequest<{ overtimeSummary: OvertimeSummary }, unknown>(
-        client,
-        GET_OVERTIME_SUMMARY,
-        { month, year, employeeId, departmentId }
-      ),
+      graphqlRequest<{ overtimeSummary: OvertimeSummary }, unknown>(client, GET_OVERTIME_SUMMARY, {
+        month,
+        year,
+        employeeId,
+        departmentId,
+      }),
     select: (data) => data.overtimeSummary,
     // BUG-013: !!year is falsy for year=0 which won't happen in practice, but use
     // explicit null checks so month=0 (January) is correctly handled
@@ -167,11 +192,9 @@ export function useCreateWeeklyPlan() {
   return useFeedbackMutation({
     feedback: { success: 'Weekly plan created' },
     mutationFn: (input: CreateWeeklyPlanInput) =>
-      graphqlRequest<{ createWeeklyPlan: WeeklyPlan }, unknown>(
-        client,
-        CREATE_WEEKLY_PLAN,
-        { input }
-      ),
+      graphqlRequest<{ createWeeklyPlan: WeeklyPlan }, unknown>(client, CREATE_WEEKLY_PLAN, {
+        input,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() });
       queryClient.invalidateQueries({ queryKey: schedulingKeys.all });
@@ -186,11 +209,9 @@ export function useUpdatePlanEntry() {
   return useFeedbackMutation({
     feedback: { success: 'Plan entry updated' },
     mutationFn: (input: UpdatePlanEntryInput) =>
-      graphqlRequest<{ updatePlanEntry: WeeklyPlanEntry }, unknown>(
-        client,
-        UPDATE_PLAN_ENTRY,
-        { input }
-      ),
+      graphqlRequest<{ updatePlanEntry: WeeklyPlanEntry }, unknown>(client, UPDATE_PLAN_ENTRY, {
+        input,
+      }),
     onSuccess: (_data, variables) => {
       // Invalidate the specific weekly plan and list
       queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() });
@@ -206,11 +227,9 @@ export function useBulkAssignShifts() {
   return useFeedbackMutation({
     feedback: { success: 'Shifts assigned' },
     mutationFn: (input: BulkAssignShiftsInput) =>
-      graphqlRequest<{ bulkAssignShifts: BulkAssignResult }, unknown>(
-        client,
-        BULK_ASSIGN_SHIFTS,
-        { input }
-      ),
+      graphqlRequest<{ bulkAssignShifts: BulkAssignResult }, unknown>(client, BULK_ASSIGN_SHIFTS, {
+        input,
+      }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: schedulingKeys.weeklyPlan(variables.weeklyPlanId),
@@ -233,11 +252,10 @@ export function useCopyWeeklyPlan() {
       sourceId: string;
       targetWeekStartDate: string;
     }) =>
-      graphqlRequest<{ copyWeeklyPlan: WeeklyPlan }, unknown>(
-        client,
-        COPY_WEEKLY_PLAN,
-        { sourceId, targetWeekStartDate }
-      ),
+      graphqlRequest<{ copyWeeklyPlan: WeeklyPlan }, unknown>(client, COPY_WEEKLY_PLAN, {
+        sourceId,
+        targetWeekStartDate,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() });
     },
@@ -251,16 +269,121 @@ export function usePublishWeeklyPlan() {
   return useFeedbackMutation({
     feedback: { success: 'Weekly plan published' },
     mutationFn: (id: string) =>
-      graphqlRequest<{ publishWeeklyPlan: WeeklyPlan }, unknown>(
-        client,
-        PUBLISH_WEEKLY_PLAN,
-        { id }
-      ),
+      graphqlRequest<{ publishWeeklyPlan: WeeklyPlan }, unknown>(client, PUBLISH_WEEKLY_PLAN, {
+        id,
+      }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: schedulingKeys.weeklyPlan(data.publishWeeklyPlan.id),
       });
       queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() });
+    },
+  });
+}
+
+// =====================
+// Roster cell mutations (WeeklySchedulePage)
+// =====================
+
+/** One roster cell's new value: a shift, or `null` for an off day. */
+export interface ScheduleCellAssignment {
+  employeeId: string;
+  /** ISO Monday of the cell's week. */
+  weekStartDate: string;
+  /** The employee's plan for that week; `undefined` when the week has none yet, so one is created first. */
+  weeklyPlanId: string | undefined;
+  /** ISO date of the cell. */
+  date: string;
+  shiftId: string | null;
+}
+
+/**
+ * Saves one roster cell through the scheduling API: creates the employee's
+ * weekly plan when the week has none, then assigns the day. The refetched
+ * overview repaints the cell, so success is silent; the API's per-entry
+ * refusals (a leave day, an inactive shift) become the error toast.
+ */
+export function useAssignScheduleCell(): UseMutationResult<
+  BulkAssignResult,
+  Error,
+  ScheduleCellAssignment
+> {
+  const client = useGraphQLClient();
+  const queryClient = useQueryClient();
+
+  return useFeedbackMutation<BulkAssignResult, Error, ScheduleCellAssignment>({
+    feedback: { success: null, error: 'The shift was not assigned' },
+    mutationFn: async (input) => {
+      let weeklyPlanId = input.weeklyPlanId;
+      if (weeklyPlanId === undefined) {
+        const created = await graphqlRequest<{ createWeeklyPlan: WeeklyPlan }, unknown>(
+          client,
+          CREATE_WEEKLY_PLAN,
+          { input: { employeeId: input.employeeId, weekStartDate: input.weekStartDate } },
+        );
+        weeklyPlanId = created.createWeeklyPlan.id;
+      }
+      const assignment: ShiftAssignmentInput =
+        input.shiftId === null
+          ? { date: input.date, isOffDay: true }
+          : { date: input.date, shiftId: input.shiftId, isOffDay: false };
+      const result = await graphqlRequest<{ bulkAssignShifts: BulkAssignResult }, unknown>(
+        client,
+        BULK_ASSIGN_SHIFTS,
+        { input: { weeklyPlanId, assignments: [assignment] } },
+      );
+      if (result.bulkAssignShifts.errors.length > 0) {
+        throw new Error(result.bulkAssignShifts.errors.join('\n'));
+      }
+      return result.bulkAssignShifts;
+    },
+    // A refused assignment may still have created the plan: refetch either way.
+    onSettled: async (_data, _error, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: schedulingKeys.teamOverviewWeek(variables.weekStartDate),
+        }),
+        queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() }),
+      ]);
+    },
+  });
+}
+
+export interface PublishWeekPlansInput {
+  weekStartDate: string;
+  planIds: readonly string[];
+}
+
+/** Publishes every draft plan of one week, one after another; a published plan is read-only from then on. */
+export function usePublishWeekPlans(): UseMutationResult<number, Error, PublishWeekPlansInput> {
+  const client = useGraphQLClient();
+  const queryClient = useQueryClient();
+
+  return useFeedbackMutation<number, Error, PublishWeekPlansInput>({
+    feedback: {
+      success: (count) =>
+        count === 1 ? 'Weekly plan published' : `${count} weekly plans published`,
+      error: 'The week was not published',
+    },
+    mutationFn: async ({ planIds }) => {
+      let published = 0;
+      for (const id of planIds) {
+        await graphqlRequest<{ publishWeeklyPlan: WeeklyPlan }, unknown>(
+          client,
+          PUBLISH_WEEKLY_PLAN,
+          { id },
+        );
+        published += 1;
+      }
+      return published;
+    },
+    onSettled: async (_data, _error, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: schedulingKeys.teamOverviewWeek(variables.weekStartDate),
+        }),
+        queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() }),
+      ]);
     },
   });
 }
@@ -272,11 +395,7 @@ export function useDeleteWeeklyPlan() {
   return useFeedbackMutation({
     feedback: { success: 'Weekly plan deleted' },
     mutationFn: (id: string) =>
-      graphqlRequest<{ deleteWeeklyPlan: boolean }, unknown>(
-        client,
-        DELETE_WEEKLY_PLAN,
-        { id }
-      ),
+      graphqlRequest<{ deleteWeeklyPlan: boolean }, unknown>(client, DELETE_WEEKLY_PLAN, { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schedulingKeys.weeklyPlans() });
     },
@@ -297,7 +416,7 @@ export function useUpdateSchedulingSettings() {
       graphqlRequest<{ updateSchedulingSettings: SchedulingSettings }, unknown>(
         client,
         UPDATE_SCHEDULING_SETTINGS,
-        { input }
+        { input },
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: schedulingKeys.settings() });

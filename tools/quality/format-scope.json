@@ -56161,6 +56161,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/pages/scheduling/__tests__/WeeklySchedulePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/pages/scheduling/index.ts",
       "prettier_managed": true
     },

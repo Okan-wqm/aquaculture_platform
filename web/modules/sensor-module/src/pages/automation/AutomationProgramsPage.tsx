@@ -45,6 +45,7 @@ import {
   Spinner,
   PageHeader,
   Button,
+  Select,
 } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
@@ -642,37 +643,39 @@ const AutomationProgramsPage: React.FC = () => {
           />
         </div>
 
-        <select
+        <Select
+          aria-label="All Statuses"
+          fullWidth={false}
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value as ProgramStatus | '');
             setPage(1);
           }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-        >
-          <option value="">All Statuses</option>
-          {Object.values(ProgramStatus).map((status) => (
-            <option key={status} value={status}>
-              {getStatusText(status)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'All Statuses' },
+            ...Object.values(ProgramStatus).map((status) => ({
+              value: status,
+              label: getStatusText(status),
+            })),
+          ]}
+        />
 
-        <select
+        <Select
+          aria-label="All Types"
+          fullWidth={false}
           value={typeFilter}
           onChange={(e) => {
             setTypeFilter(e.target.value as ProgramType | '');
             setPage(1);
           }}
-          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-        >
-          <option value="">All Types</option>
-          {Object.values(ProgramType).map((type) => (
-            <option key={type} value={type}>
-              {getProgramTypeText(type)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'All Types' },
+            ...Object.values(ProgramType).map((type) => ({
+              value: type,
+              label: getProgramTypeText(type),
+            })),
+          ]}
+        />
 
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <button

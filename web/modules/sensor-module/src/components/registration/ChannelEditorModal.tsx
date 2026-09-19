@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, colors as themeColors, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  colors as themeColors,
+  Button,
+  Input,
+  Select,
+  Textarea,
+  type SelectOption,
+} from '@aquaculture/shared-ui';
 import {
   DataChannelConfig,
   ChannelDataType,
@@ -15,7 +23,23 @@ interface ChannelEditorModalProps {
   onSave: (channel: DataChannelConfig) => void | Promise<void>;
 }
 
-const UNIT_OPTIONS = [
+const CHANNEL_DATA_TYPE_OPTIONS: readonly SelectOption[] = [
+  { value: ChannelDataType.NUMBER, label: 'Number' },
+  { value: ChannelDataType.BOOLEAN, label: 'Boolean' },
+  { value: ChannelDataType.STRING, label: 'String' },
+  { value: ChannelDataType.ENUM, label: 'Enum' },
+];
+
+/** Stored readings are rendered at a fixed number of decimals. */
+const PRECISION_OPTIONS: readonly SelectOption[] = [
+  { value: 0, label: '0 (Integer)' },
+  { value: 1, label: '1 decimal' },
+  { value: 2, label: '2 decimals' },
+  { value: 3, label: '3 decimals' },
+  { value: 4, label: '4 decimals' },
+];
+
+const UNIT_OPTIONS: readonly SelectOption[] = [
   { value: '', label: 'None' },
   { value: '°C', label: '°C (Celsius)' },
   { value: '°F', label: '°F (Fahrenheit)' },
@@ -242,49 +266,30 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="channel-editor-data-type"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                >
-                  Data Type
-                </label>
-                <select
-                  id="channel-editor-data-type"
-                  value={formData.dataType}
-                  onChange={(e) => handleChange('dataType', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
-                  disabled={isPersisted}
-                >
-                  <option value={ChannelDataType.NUMBER}>Number</option>
-                  <option value={ChannelDataType.BOOLEAN}>Boolean</option>
-                  <option value={ChannelDataType.STRING}>String</option>
-                  <option value={ChannelDataType.ENUM}>Enum</option>
-                </select>
-                {isPersisted && (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Fixed after creation — stored readings were parsed as this type.
-                  </p>
-                )}
-              </div>
+              <Select
+                id="channel-editor-data-type"
+                label="Data Type"
+                value={formData.dataType}
+                onChange={(e) => handleChange('dataType', e.target.value)}
+                disabled={isPersisted}
+                helperText={
+                  isPersisted
+                    ? 'Fixed after creation — stored readings were parsed as this type.'
+                    : undefined
+                }
+                options={[...CHANNEL_DATA_TYPE_OPTIONS]}
+              />
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Unit
-                </label>
-                <select
+                <Select
+                  id="channel-editor-unit"
+                  label="Unit"
                   value={
                     UNIT_OPTIONS.find((u) => u.value === formData.unit) ? formData.unit : 'custom'
                   }
                   onChange={(e) => handleChange('unit', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                >
-                  {UNIT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={[...UNIT_OPTIONS]}
+                />
                 {(formData.unit === 'custom' ||
                   (formData.unit && !UNIT_OPTIONS.find((u) => u.value === formData.unit))) && (
                   <Input
@@ -578,24 +583,13 @@ export function ChannelEditorModal({ channel, isOpen, onClose, onSave }: Channel
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Decimal Precision
-                </label>
-                <select
-                  value={formData.displaySettings?.precision ?? 2}
-                  onChange={(e) =>
-                    handleDisplaySettingChange('precision', parseInt(e.target.value))
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                >
-                  <option value={0}>0 (Integer)</option>
-                  <option value={1}>1 decimal</option>
-                  <option value={2}>2 decimals</option>
-                  <option value={3}>3 decimals</option>
-                  <option value={4}>4 decimals</option>
-                </select>
-              </div>
+              <Select
+                id="channel-editor-precision"
+                label="Decimal Precision"
+                value={formData.displaySettings?.precision ?? 2}
+                onChange={(e) => handleDisplaySettingChange('precision', parseInt(e.target.value))}
+                options={[...PRECISION_OPTIONS]}
+              />
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Icon

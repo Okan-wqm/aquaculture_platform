@@ -18,6 +18,7 @@ import {
   severityClasses,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -209,79 +210,41 @@ const ConditionEditor: React.FC<{
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {/* Parameter */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Parametre
-              </label>
-              <select
-                value={condition.parameter}
-                onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {PARAMETER_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-parameter`}
+              label="Parametre"
+              value={condition.parameter}
+              onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
+              options={PARAMETER_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
+            />
 
-            {/* Operator */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Operator
-              </label>
-              <select
-                value={condition.operator}
-                onChange={(e) =>
-                  updateCondition(index, 'operator', e.target.value as AlertOperator)
-                }
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {OPERATOR_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.symbol} {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-operator`}
+              label="Operator"
+              value={condition.operator}
+              onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
+              options={OPERATOR_OPTIONS.map((o) => ({
+                value: o.value,
+                label: `${o.symbol} ${o.label}`,
+              }))}
+            />
 
-            {/* Threshold */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Eşik Değer
-              </label>
-              <Input
-                fullWidth
-                type="number"
-                step="any"
-                value={condition.threshold}
-                onChange={(e) =>
-                  updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)
-                }
-              />
-            </div>
+            <Input
+              id={`alert-condition-${index}-threshold`}
+              label="Eşik Değer"
+              type="number"
+              step="any"
+              value={condition.threshold}
+              onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)}
+            />
 
-            {/* Severity */}
-            <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                Önem Derecesi
-              </label>
-              <select
-                value={condition.severity}
-                onChange={(e) =>
-                  updateCondition(index, 'severity', e.target.value as AlertSeverity)
-                }
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
-              >
-                {SEVERITY_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              id={`alert-condition-${index}-severity`}
+              label="Önem Derecesi"
+              value={condition.severity}
+              onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
+              options={SEVERITY_OPTIONS.map((s) => ({ value: s.value, label: s.label }))}
+            />
           </div>
         </div>
       ))}

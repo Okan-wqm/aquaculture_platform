@@ -21,6 +21,10 @@ import {
   qualityColor,
   normalizeQuality,
   Button,
+  Checkbox,
+  Input,
+  Select,
+  type SelectOption,
 } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -88,6 +92,19 @@ import { AutoDetectResultsPanel } from '../components/fleet/AutoDetectResultsPan
 import { useEdgeIoSocket, type IoTagValue } from '../hooks/useEdgeIoSocket';
 import LoRaDevicesPanel from '../components/lora/LoRaDevicesPanel';
 import LoRaStatsCard from '../components/lora/LoRaStatsCard';
+
+/** I/O yonu — donanim baglantisi, olusturulduktan sonra degistirilemez. */
+const IO_TYPE_OPTIONS: SelectOption[] = [
+  { value: IoType.DI, label: 'Digital Input (DI)' },
+  { value: IoType.DO, label: 'Digital Output (DO)' },
+  { value: IoType.AI, label: 'Analog Input (AI)' },
+  { value: IoType.AO, label: 'Analog Output (AO)' },
+];
+
+const GPIO_MODE_OPTIONS: SelectOption[] = [
+  { value: 'input', label: 'Input' },
+  { value: 'output', label: 'Output' },
+];
 import { useLoRaDevices } from '../hooks/useLoRaDevices';
 
 // ============================================================================
@@ -597,10 +614,6 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     }
   };
 
-  const inputCls =
-    'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400';
-  const labelCls = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
-
   return (
     <Modal
       isOpen={isOpen}
@@ -626,94 +639,77 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
 
         {/* Basic Fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Tag Adi *</label>
-            <input
-              className={inputCls}
-              value={form.tagName}
-              onChange={(e) => set('tagName', e.target.value.toUpperCase())}
-              required
-              disabled={isEdit}
-              placeholder="TANK_LEVEL_01"
-              pattern="[A-Z][A-Z0-9_]{1,63}"
-              title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
-            />
-          </div>
-          <div>
-            <label className={labelCls}>Açıklama</label>
-            <input
-              className={inputCls}
-              value={form.description}
-              onChange={(e) => set('description', e.target.value)}
-              placeholder="Tank seviye sensoru"
-            />
-          </div>
+          <Input
+            id="io-tag-name"
+            label="Tag Adi"
+            required
+            value={form.tagName}
+            onChange={(e) => set('tagName', e.target.value.toUpperCase())}
+            disabled={isEdit}
+            placeholder="TANK_LEVEL_01"
+            pattern="[A-Z][A-Z0-9_]{1,63}"
+            title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
+          />
+          <Input
+            id="io-tag-description"
+            label="Açıklama"
+            value={form.description}
+            onChange={(e) => set('description', e.target.value)}
+            placeholder="Tank seviye sensoru"
+          />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>I/O Tipi *</label>
-            <select
-              className={inputCls}
-              value={form.ioType}
-              onChange={(e) => set('ioType', e.target.value as IoType)}
-              disabled={isEdit}
-            >
-              <option value={IoType.DI}>Digital Input (DI)</option>
-              <option value={IoType.DO}>Digital Output (DO)</option>
-              <option value={IoType.AI}>Analog Input (AI)</option>
-              <option value={IoType.AO}>Analog Output (AO)</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Veri Tipi *</label>
-            <select
-              className={inputCls}
-              value={form.dataType}
-              onChange={(e) => set('dataType', e.target.value as IoDataType)}
-              disabled={isEdit}
-            >
-              {Object.values(IoDataType).map((dt) => (
-                <option key={dt} value={dt}>
-                  {dt}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="io-tag-io-type"
+            label="I/O Tipi"
+            required
+            value={form.ioType}
+            onChange={(e) => set('ioType', e.target.value as IoType)}
+            disabled={isEdit}
+            options={IO_TYPE_OPTIONS}
+          />
+          <Select
+            id="io-tag-data-type"
+            label="Veri Tipi"
+            required
+            value={form.dataType}
+            onChange={(e) => set('dataType', e.target.value as IoDataType)}
+            disabled={isEdit}
+            options={Object.values(IoDataType).map((dt) => ({ value: dt, label: dt }))}
+          />
         </div>
 
         {/* Module Address / Channel — immutable after creation (hardware binding) */}
         {!isEdit && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>Modul Adresi *</label>
-              <input
-                type="number"
-                className={inputCls}
-                value={form.moduleAddress}
-                onChange={(e) => set('moduleAddress', e.target.value)}
-                required
-                min={0}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Kanal *</label>
-              <input
-                type="number"
-                className={inputCls}
-                value={form.channel}
-                onChange={(e) => set('channel', e.target.value)}
-                required
-                min={0}
-              />
-            </div>
+            <Input
+              id="io-tag-module-address"
+              label="Modul Adresi"
+              required
+              type="number"
+              value={form.moduleAddress}
+              onChange={(e) => set('moduleAddress', e.target.value)}
+              min={0}
+            />
+            <Input
+              id="io-tag-channel"
+              label="Kanal"
+              required
+              type="number"
+              value={form.channel}
+              onChange={(e) => set('channel', e.target.value)}
+              min={0}
+            />
           </div>
         )}
 
         {/* Protocol Selection — immutable after creation (hardware binding) */}
         {!isEdit && (
           <div>
-            <label className={labelCls}>Protokol</label>
+            <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Protokol
+            </p>
             <div className="flex gap-3 mt-1">
               {(['modbus', 'gpio', 'manual'] as const).map((p) => (
                 <button
@@ -737,42 +733,39 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         {!isEdit && form.protocolMode === 'modbus' && (
           <div className="p-4 bg-info-50 dark:bg-info-900/20 rounded-lg space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className={labelCls}>Slave ID</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.modbusSlaveId}
-                  onChange={(e) => set('modbusSlaveId', e.target.value)}
-                  min={1}
-                  max={247}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Register</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.modbusRegister}
-                  onChange={(e) => set('modbusRegister', e.target.value)}
-                  min={0}
-                  max={65535}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Function Code</label>
-                <select
-                  className={`${inputCls} ${currentFcIncompatible ? 'border-warning-400 bg-warning-50 dark:bg-warning-900/20' : ''}`}
-                  value={form.modbusFunction}
-                  onChange={(e) => set('modbusFunction', e.target.value)}
-                >
-                  {filteredFunctionCodes.map((fc) => (
-                    <option key={fc.value} value={String(fc.value)}>
-                      {fc.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Input
+                id="io-tag-modbus-slave-id"
+                label="Slave ID"
+                type="number"
+                value={form.modbusSlaveId}
+                onChange={(e) => set('modbusSlaveId', e.target.value)}
+                min={1}
+                max={247}
+              />
+              <Input
+                id="io-tag-modbus-register"
+                label="Register"
+                type="number"
+                value={form.modbusRegister}
+                onChange={(e) => set('modbusRegister', e.target.value)}
+                min={0}
+                max={65535}
+              />
+              <Select
+                id="io-tag-modbus-function"
+                label="Function Code"
+                value={form.modbusFunction}
+                onChange={(e) => set('modbusFunction', e.target.value)}
+                className={
+                  currentFcIncompatible
+                    ? '[&_select]:border-warning-400 [&_select]:bg-warning-50 dark:[&_select]:bg-warning-900/20'
+                    : ''
+                }
+                options={filteredFunctionCodes.map((fc) => ({
+                  value: String(fc.value),
+                  label: fc.label,
+                }))}
+              />
             </div>
             {/* Warning banner for legacy configs with incompatible function code */}
             {currentFcIncompatible && (
@@ -795,37 +788,28 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
         {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
         {!isEdit && form.protocolMode === 'gpio' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-success-50 dark:bg-success-900/20 rounded-lg">
-            <div>
-              <label className={labelCls}>GPIO Pin</label>
-              <input
-                type="number"
-                className={inputCls}
-                value={form.gpioPin}
-                onChange={(e) => set('gpioPin', e.target.value)}
-                min={0}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>GPIO Modu</label>
-              <select
-                className={inputCls}
-                value={form.gpioMode}
-                onChange={(e) => set('gpioMode', e.target.value)}
-              >
-                <option value="input">Input</option>
-                <option value="output">Output</option>
-              </select>
-            </div>
+            <Input
+              id="io-tag-gpio-pin"
+              label="GPIO Pin"
+              type="number"
+              value={form.gpioPin}
+              onChange={(e) => set('gpioPin', e.target.value)}
+              min={0}
+            />
+            <Select
+              id="io-tag-gpio-mode"
+              label="GPIO Modu"
+              value={form.gpioMode}
+              onChange={(e) => set('gpioMode', e.target.value)}
+              options={GPIO_MODE_OPTIONS}
+            />
             <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.invertValue}
-                  onChange={(e) => set('invertValue', e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-                />
-                Invert Value
-              </label>
+              <Checkbox
+                id="io-tag-invert-value"
+                label="Invert Value"
+                checked={form.invertValue}
+                onChange={(e) => set('invertValue', e.target.checked)}
+              />
             </div>
           </div>
         )}
@@ -837,56 +821,46 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
               Analog Olceklendirme
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Raw Min</label>
-                <input
-                  type="number"
-                  step="any"
-                  className={inputCls}
-                  value={form.rawMin}
-                  onChange={(e) => set('rawMin', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Raw Max</label>
-                <input
-                  type="number"
-                  step="any"
-                  className={inputCls}
-                  value={form.rawMax}
-                  onChange={(e) => set('rawMax', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Eng Min</label>
-                <input
-                  type="number"
-                  step="any"
-                  className={inputCls}
-                  value={form.engMin}
-                  onChange={(e) => set('engMin', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Eng Max</label>
-                <input
-                  type="number"
-                  step="any"
-                  className={inputCls}
-                  value={form.engMax}
-                  onChange={(e) => set('engMax', e.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <label className={labelCls}>Muhendislik Birimi</label>
-              <input
-                className={inputCls}
-                value={form.engUnit}
-                onChange={(e) => set('engUnit', e.target.value)}
-                placeholder="pH, mg/L, °C ..."
+              <Input
+                id="io-tag-raw-min"
+                label="Raw Min"
+                type="number"
+                step="any"
+                value={form.rawMin}
+                onChange={(e) => set('rawMin', e.target.value)}
+              />
+              <Input
+                id="io-tag-raw-max"
+                label="Raw Max"
+                type="number"
+                step="any"
+                value={form.rawMax}
+                onChange={(e) => set('rawMax', e.target.value)}
+              />
+              <Input
+                id="io-tag-eng-min"
+                label="Eng Min"
+                type="number"
+                step="any"
+                value={form.engMin}
+                onChange={(e) => set('engMin', e.target.value)}
+              />
+              <Input
+                id="io-tag-eng-max"
+                label="Eng Max"
+                type="number"
+                step="any"
+                value={form.engMax}
+                onChange={(e) => set('engMax', e.target.value)}
               />
             </div>
+            <Input
+              id="io-tag-eng-unit"
+              label="Muhendislik Birimi"
+              value={form.engUnit}
+              onChange={(e) => set('engUnit', e.target.value)}
+              placeholder="pH, mg/L, °C ..."
+            />
           </div>
         )}
 
@@ -896,70 +870,57 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
             Alarm Esikleri (ISA-18.2)
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            <div>
-              <label className={labelCls}>HH</label>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={form.alarmHH}
-                onChange={(e) => set('alarmHH', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>H</label>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={form.alarmH}
-                onChange={(e) => set('alarmH', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>L</label>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={form.alarmL}
-                onChange={(e) => set('alarmL', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>LL</label>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={form.alarmLL}
-                onChange={(e) => set('alarmLL', e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Deadband</label>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={form.deadband}
-                onChange={(e) => set('deadband', e.target.value)}
-                min={0}
-              />
-            </div>
+            <Input
+              id="io-tag-alarm-hh"
+              label="HH"
+              type="number"
+              step="any"
+              value={form.alarmHH}
+              onChange={(e) => set('alarmHH', e.target.value)}
+            />
+            <Input
+              id="io-tag-alarm-h"
+              label="H"
+              type="number"
+              step="any"
+              value={form.alarmH}
+              onChange={(e) => set('alarmH', e.target.value)}
+            />
+            <Input
+              id="io-tag-alarm-l"
+              label="L"
+              type="number"
+              step="any"
+              value={form.alarmL}
+              onChange={(e) => set('alarmL', e.target.value)}
+            />
+            <Input
+              id="io-tag-alarm-ll"
+              label="LL"
+              type="number"
+              step="any"
+              value={form.alarmLL}
+              onChange={(e) => set('alarmLL', e.target.value)}
+            />
+            <Input
+              id="io-tag-deadband"
+              label="Deadband"
+              type="number"
+              step="any"
+              value={form.deadband}
+              onChange={(e) => set('deadband', e.target.value)}
+              min={0}
+            />
           </div>
         </div>
 
         {/* Active Toggle */}
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.isActive}
-            onChange={(e) => set('isActive', e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
-          />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Aktif</span>
-        </label>
+        <Checkbox
+          id="io-tag-is-active"
+          label="Aktif"
+          checked={form.isActive}
+          onChange={(e) => set('isActive', e.target.checked)}
+        />
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">
@@ -1746,33 +1707,28 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
 
       {/* Version selector */}
       <div className="mt-4">
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-          Hedef Surum
-        </label>
-        <select
+        <Select
+          id="edge-target-firmware"
+          label="Hedef Surum"
           value={selectedVersion}
           onChange={(e) => setSelectedVersion(e.target.value)}
           disabled={versionsLoading}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
-        >
-          <option value="">Surum secin...</option>
-          {versions.map((v) => {
+          placeholder={versionsLoading ? 'Surumler yukleniyor...' : 'Surum secin...'}
+          options={versions.map((v) => {
             const isCurrent = v.tag === currentVersion;
             const isLower =
-              currentVersion &&
+              Boolean(currentVersion) &&
               v.tag
                 .replace(/^v/, '')
                 .localeCompare(currentVersion.replace(/^v/, ''), undefined, { numeric: true }) < 0;
-            return (
-              <option key={v.tag} value={v.tag}>
-                {v.tag}
-                {isCurrent ? ' (Yuklu)' : ''}
-                {!isCurrent && isLower ? ' (Downgrade)' : ''}
-                {v.prerelease ? ' [pre-release]' : ''}
-              </option>
-            );
+            return {
+              value: v.tag,
+              label: `${v.tag}${isCurrent ? ' (Yuklu)' : ''}${
+                !isCurrent && isLower ? ' (Downgrade)' : ''
+              }${v.prerelease ? ' [pre-release]' : ''}`,
+            };
           })}
-        </select>
+        />
       </div>
 
       {/* Downgrade warning */}

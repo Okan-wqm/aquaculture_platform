@@ -48,6 +48,7 @@ import {
   PageHeader,
   Button,
   Select,
+  type SelectOption,
 } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
@@ -193,27 +194,16 @@ const StatCard: React.FC<{
 const EdgeFilterDropdown: React.FC<{
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: SelectOption[];
   onChange: (value: string) => void;
 }> = ({ label, value, options, onChange }) => (
-  <div className="relative">
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="appearance-none px-4 py-2 pr-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 text-sm"
-    >
-      <option value="">{label}</option>
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-    <ChevronDown
-      size={16}
-      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none"
-    />
-  </div>
+  <Select
+    aria-label={label}
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    fullWidth={false}
+    options={[{ value: '', label }, ...options]}
+  />
 );
 
 const DeviceCard: React.FC<{
@@ -1274,18 +1264,16 @@ const DevicesPage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                <select
+                <Select
+                  aria-label="Tüm Durumlar"
                   value={vfdStatusFilter}
                   onChange={(e) => applyVfdFilter(() => setVfdStatusFilter(e.target.value))}
-                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
-                >
-                  <option value="">Tüm Durumlar</option>
-                  {Object.values(VfdDeviceStatus).map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                  fullWidth={false}
+                  options={[
+                    { value: '', label: 'Tüm Durumlar' },
+                    ...Object.values(VfdDeviceStatus).map((s) => ({ value: s, label: s })),
+                  ]}
+                />
               </div>
               {hasVfdFilters && (
                 <Button variant="ghost" size="sm" onClick={clearVfdFilters}>
@@ -1468,22 +1456,17 @@ const DevicesPage: React.FC = () => {
 
           {/* Version selector */}
           <div className="mb-4">
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Hedef Surum
-            </label>
-            <select
+            <Select
+              id="bulk-firmware-version"
+              label="Hedef Surum"
               value={bulkFirmwareVersion}
               onChange={(e) => setBulkFirmwareVersion(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
-            >
-              <option value="">Surum secin...</option>
-              {firmwareVersions.map((v) => (
-                <option key={v.tag} value={v.tag}>
-                  {v.tag}
-                  {v.prerelease ? ' [pre-release]' : ''}
-                </option>
-              ))}
-            </select>
+              placeholder="Surum secin..."
+              options={firmwareVersions.map((v) => ({
+                value: v.tag,
+                label: `${v.tag}${v.prerelease ? ' [pre-release]' : ''}`,
+              }))}
+            />
           </div>
 
           {/* Result summary */}

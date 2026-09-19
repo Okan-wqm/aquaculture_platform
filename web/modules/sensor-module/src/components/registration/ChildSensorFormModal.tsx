@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
+import { Modal, colors, Button, Input, Select, type SelectOption } from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
@@ -259,23 +259,14 @@ export function ChildSensorFormModal({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Data Type <span className="text-error-500">*</span>
-                </label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => handleChange('type', e.target.value as SensorType)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                  required
-                >
-                  {SENSOR_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                id="child-sensor-type"
+                label="Data Type"
+                required
+                value={formData.type}
+                onChange={(e) => handleChange('type', e.target.value as SensorType)}
+                options={SENSOR_TYPE_OPTIONS}
+              />
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Unit
@@ -293,28 +284,22 @@ export function ChildSensorFormModal({
             {/* SENSOR-MEDIUM-071: optional custom type-definition picker. When
                     set, the backend bootstraps its default channels for this child. */}
             {typeDefinitions.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Custom Type (optional)
-                </label>
-                <select
-                  value={formData.typeDefinitionId || ''}
-                  onChange={handleTypeDefinitionChange}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
-                >
-                  <option value="">None — use the data type above</option>
-                  {typeDefinitions.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.icon ? `${t.icon} ` : ''}
-                      {t.displayName}
-                      {t.isSystem ? '' : ' (custom)'}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Attaches a predefined channel set; its parameters are created automatically.
-                </p>
-              </div>
+              <Select
+                id="child-sensor-type-definition"
+                label="Custom Type (optional)"
+                value={formData.typeDefinitionId || ''}
+                onChange={handleTypeDefinitionChange}
+                helperText="Attaches a predefined channel set; its parameters are created automatically."
+                options={[
+                  { value: '', label: 'None — use the data type above' },
+                  ...typeDefinitions.map(
+                    (t): SelectOption => ({
+                      value: t.id,
+                      label: `${t.icon ? `${t.icon} ` : ''}${t.displayName}${t.isSystem ? '' : ' (custom)'}`,
+                    }),
+                  ),
+                ]}
+              />
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

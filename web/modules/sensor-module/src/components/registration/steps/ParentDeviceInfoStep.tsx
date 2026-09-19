@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Input, Textarea } from '@aquaculture/shared-ui';
+import { Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { ParentDeviceInfo } from '../../../types/registration.types';
 import {
   useSiteList,
@@ -172,116 +172,92 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Site - Required */}
           <div>
-            <label
-              htmlFor="siteId"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              Site <span className="text-error-500">*</span>
-            </label>
-            <select
+            <Select
               id="siteId"
+              label="Site"
+              required
+              placeholder={sitesLoading ? 'Loading sites...' : 'Select Site...'}
               value={values.siteId || ''}
               onChange={(e) => handleSiteChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
               disabled={sitesLoading}
-            >
-              <option value="">{sitesLoading ? 'Loading sites...' : 'Select Site...'}</option>
-              {sites.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name} ({site.code})
-                </option>
-              ))}
-            </select>
+              options={sites.map((site) => ({
+                value: site.id,
+                label: `${site.name} (${site.code})`,
+              }))}
+            />
           </div>
 
           {/* Department - Required */}
           <div>
-            <label
-              htmlFor="departmentId"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              Department <span className="text-error-500">*</span>
-            </label>
-            <select
+            <Select
               id="departmentId"
-              value={values.departmentId || ''}
-              onChange={(e) => handleDepartmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-              disabled={!values.siteId || deptLoading}
-            >
-              <option value="">
-                {!values.siteId
+              label="Department"
+              required
+              placeholder={
+                !values.siteId
                   ? 'Select Site first...'
                   : deptLoading
                     ? 'Loading departments...'
-                    : 'Select Department...'}
-              </option>
-              {departments?.map((dept) => (
-                <option key={dept.id} value={dept.id}>
-                  {dept.name} ({dept.code})
-                </option>
-              ))}
-            </select>
+                    : 'Select Department...'
+              }
+              value={values.departmentId || ''}
+              onChange={(e) => handleDepartmentChange(e.target.value)}
+              disabled={!values.siteId || deptLoading}
+              options={(departments ?? []).map((dept) => ({
+                value: dept.id,
+                label: `${dept.name} (${dept.code})`,
+              }))}
+            />
           </div>
 
           {/* System - Optional */}
           <div>
-            <label
-              htmlFor="systemId"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              System
-            </label>
-            <select
+            <Select
               id="systemId"
+              label="System"
               value={values.systemId || ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || sysLoading}
-            >
-              <option value="">
-                {!values.departmentId
-                  ? 'Select Department first...'
-                  : sysLoading
-                    ? 'Loading systems...'
-                    : 'Select System (optional)...'}
-              </option>
-              {systems?.map((sys) => (
-                <option key={sys.id} value={sys.id}>
-                  {sys.name} ({sys.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label: !values.departmentId
+                    ? 'Select Department first...'
+                    : sysLoading
+                      ? 'Loading systems...'
+                      : 'Select System (optional)...',
+                },
+                ...(systems ?? []).map((sys) => ({
+                  value: sys.id,
+                  label: `${sys.name} (${sys.code})`,
+                })),
+              ]}
+            />
           </div>
 
           {/* Equipment - Optional */}
           <div>
-            <label
-              htmlFor="equipmentId"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              Equipment
-            </label>
-            <select
+            <Select
               id="equipmentId"
+              label="Equipment"
               value={values.equipmentId || ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || equipLoading}
-            >
-              <option value="">
-                {!values.departmentId
-                  ? 'Select Department first...'
-                  : equipLoading
-                    ? 'Loading equipment...'
-                    : 'Select Equipment (optional)...'}
-              </option>
-              {filteredEquipment.map((equip) => (
-                <option key={equip.id} value={equip.id}>
-                  {equip.name} ({equip.code})
-                </option>
-              ))}
-            </select>
+              options={[
+                {
+                  value: '',
+                  label: !values.departmentId
+                    ? 'Select Department first...'
+                    : equipLoading
+                      ? 'Loading equipment...'
+                      : 'Select Equipment (optional)...',
+                },
+                ...filteredEquipment.map((equip) => ({
+                  value: equip.id,
+                  label: `${equip.name} (${equip.code})`,
+                })),
+              ]}
+            />
           </div>
         </div>
       </div>

@@ -1674,68 +1674,57 @@ const AutomationProgramEditorPage: React.FC = () => {
                     I/O Tag Binding
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Edge Device
-                      </label>
-                      <select
-                        value={ioDeviceId}
-                        onChange={(e) => {
-                          setIoDeviceId(e.target.value);
-                          setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
-                        }}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
-                      >
-                        <option value="">Select device...</option>
-                        {allActiveDevices.map((device: EdgeDevice) => (
-                          <option key={device.id} value={device.id}>
-                            {device.deviceName} ({device.deviceCode}) -{' '}
-                            {getDeviceModelText(device.deviceModel)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        I/O Tag
-                      </label>
-                      <select
-                        value={newVariable.ioConfigId}
-                        onChange={(e) => {
-                          const selectedTag = ioTags.find((t) => t.id === e.target.value);
-                          if (selectedTag) {
-                            // Auto-map hardware data type to IEC 61131-3 type so the
-                            // PLC variable matches the physical I/O channel width
-                            setNewVariable({
-                              ...newVariable,
-                              ioConfigId: selectedTag.id,
-                              ioTagName: selectedTag.tagName,
-                              dataType:
-                                IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
-                            });
-                          } else {
-                            setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
-                          }
-                        }}
-                        disabled={!ioDeviceId || ioTags.length === 0}
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                      >
-                        <option value="">
-                          {!ioDeviceId
-                            ? 'Select device first...'
-                            : ioTags.length === 0
-                              ? 'No I/O tags found'
-                              : 'Select tag...'}
-                        </option>
-                        {ioTags.map((tag) => (
-                          <option key={tag.id} value={tag.id}>
-                            {tag.tagName} ({tag.ioType} - {tag.dataType})
-                            {tag.modbusRegister != null ? ` Modbus R${tag.modbusRegister}` : ''}
-                            {tag.gpioPin != null ? ` GPIO ${tag.gpioPin}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <Select
+                      id="io-binding-device"
+                      label="Edge Device"
+                      value={ioDeviceId}
+                      onChange={(e) => {
+                        setIoDeviceId(e.target.value);
+                        setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
+                      }}
+                      placeholder="Select device..."
+                      options={allActiveDevices.map((device: EdgeDevice) => ({
+                        value: device.id,
+                        label: `${device.deviceName} (${device.deviceCode}) - ${getDeviceModelText(
+                          device.deviceModel,
+                        )}`,
+                      }))}
+                    />
+                    <Select
+                      id="io-binding-tag"
+                      label="I/O Tag"
+                      value={newVariable.ioConfigId}
+                      onChange={(e) => {
+                        const selectedTag = ioTags.find((t) => t.id === e.target.value);
+                        if (selectedTag) {
+                          // Auto-map hardware data type to IEC 61131-3 type so the
+                          // PLC variable matches the physical I/O channel width
+                          setNewVariable({
+                            ...newVariable,
+                            ioConfigId: selectedTag.id,
+                            ioTagName: selectedTag.tagName,
+                            dataType:
+                              IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                          });
+                        } else {
+                          setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
+                        }
+                      }}
+                      disabled={!ioDeviceId || ioTags.length === 0}
+                      placeholder={
+                        !ioDeviceId
+                          ? 'Select device first...'
+                          : ioTags.length === 0
+                            ? 'No I/O tags found'
+                            : 'Select tag...'
+                      }
+                      options={ioTags.map((tag) => ({
+                        value: tag.id,
+                        label: `${tag.tagName} (${tag.ioType} - ${tag.dataType})${
+                          tag.modbusRegister != null ? ` Modbus R${tag.modbusRegister}` : ''
+                        }${tag.gpioPin != null ? ` GPIO ${tag.gpioPin}` : ''}`,
+                      }))}
+                    />
                   </div>
                   {newVariable.ioTagName && (
                     <div className="mt-2 text-xs text-info-600 dark:text-info-400">
@@ -1866,20 +1855,19 @@ const AutomationProgramEditorPage: React.FC = () => {
                 No active and online devices found
               </div>
             ) : (
-              <select
+              <Select
+                id="deploy-target-device"
+                aria-label="Select Edge Device"
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-              >
-                <option value="">Select device...</option>
-                {onlineDevices.map((device: EdgeDevice) => (
-                  <option key={device.id} value={device.id}>
-                    {device.deviceName} ({device.deviceCode}) -{' '}
-                    {getDeviceModelText(device.deviceModel)}
-                    {device.isOnline ? ' [Online]' : ' [Offline]'}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select device..."
+                options={onlineDevices.map((device: EdgeDevice) => ({
+                  value: device.id,
+                  label: `${device.deviceName} (${device.deviceCode}) - ${getDeviceModelText(
+                    device.deviceModel,
+                  )}${device.isOnline ? ' [Online]' : ' [Offline]'}`,
+                }))}
+              />
             )}
             {selectedDeviceId &&
               onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (

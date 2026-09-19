@@ -1,11 +1,11 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * TenantRoleColorDefaultFromTokens1819300000000
+ * TenantRoleColorDefaultFromTokens1810400000000
  * ============================================================================
  *
  * Moves `auth.tenant_roles.color`'s DDL default from Tailwind indigo-500
- * (`#6366f1`) to the product's brand primary (`#0073e6`), the value
+ * (`#6366F1`) to the product's brand primary (`#0073e6`), the value
  * `colors.primary[500]` carries in
  * `libs/shared-contracts/src/design/color-tokens.ts` (FE-MEDIUM-093).
  *
@@ -19,6 +19,18 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * the same role looked one colour when the API created it and another when the
  * database did. That is the two-sources-of-truth defect this wave exists to
  * remove, in its smallest form.
+ *
+ * # Why this migration lives in admin-api and not in auth-service
+ *
+ * `auth.tenant_roles` sits in the `auth` schema but its DDL is owned here:
+ * `1800200000000-CreateAdminEntitySurfaceTables` creates it, along with
+ * `tenant_role_permissions` and `user_role_assignments` (RBAC-HIGH-011 gave the
+ * three tables an `@Entity` in auth-service for drift detection only — the
+ * owning runtime for their SHAPE is this service). Shipping the ALTER from
+ * auth-service's runner fails outright on a fresh database: the runners are
+ * independent, auth's runs before admin-api has created the table, and the
+ * migration aborts with `relation "auth.tenant_roles" does not exist`. The
+ * altering migration has to sit behind the creating one, which means here.
  *
  * # Why this is not a data migration
  *
@@ -34,24 +46,24 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * always names `color` in its INSERT, so it never observes the default at all,
  * and the down path restores the previous value exactly.
  */
-export class TenantRoleColorDefaultFromTokens1819300000000 implements MigrationInterface {
-  name = 'TenantRoleColorDefaultFromTokens1819300000000';
+export class TenantRoleColorDefaultFromTokens1810400000000 implements MigrationInterface {
+  name = 'TenantRoleColorDefaultFromTokens1810400000000';
 
   /** `colors.primary[500]` — the brand blue every other surface paints with. */
   private static readonly BRAND_PRIMARY = '#0073e6';
 
-  /** Tailwind indigo-500, the value the column carried before the tokens. */
-  private static readonly PREVIOUS_DEFAULT = '#6366f1';
+  /** Tailwind indigo-500, the value `CreateAdminEntitySurfaceTables` wrote. */
+  private static readonly PREVIOUS_DEFAULT = '#6366F1';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "auth"."tenant_roles" ALTER COLUMN "color" SET DEFAULT '${TenantRoleColorDefaultFromTokens1819300000000.BRAND_PRIMARY}'`,
+      `ALTER TABLE "auth"."tenant_roles" ALTER COLUMN "color" SET DEFAULT '${TenantRoleColorDefaultFromTokens1810400000000.BRAND_PRIMARY}'`,
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `ALTER TABLE "auth"."tenant_roles" ALTER COLUMN "color" SET DEFAULT '${TenantRoleColorDefaultFromTokens1819300000000.PREVIOUS_DEFAULT}'`,
+      `ALTER TABLE "auth"."tenant_roles" ALTER COLUMN "color" SET DEFAULT '${TenantRoleColorDefaultFromTokens1810400000000.PREVIOUS_DEFAULT}'`,
     );
   }
 }

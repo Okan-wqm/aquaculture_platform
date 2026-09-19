@@ -443,18 +443,20 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
             </button>
           )}
           {availableSpecies.length > 0 && (
-            <select
+            <Select
+              aria-label="Add species"
+              fullWidth={false}
+              size="sm"
               onChange={(e) => addSpecies(e.target.value as CleanerFishSpecies)}
               value=""
-              className="px-3 py-1.5 text-sm text-info-600 dark:text-info-400 border border-info-300 dark:border-info-700 rounded-md hover:bg-info-50 dark:hover:bg-info-900/30 appearance-none cursor-pointer pr-8"
-            >
-              <option value="">+ Add Species</option>
-              {availableSpecies.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label} ({s.norwegian})
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: '+ Add Species' },
+                ...availableSpecies.map((s) => ({
+                  value: s.value,
+                  label: `${s.label} (${s.norwegian})`,
+                })),
+              ]}
+            />
           )}
         </div>
       </div>
@@ -966,22 +968,21 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <label
+                    htmlFor={`cleaner-fish-species-${index}`}
+                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                  >
                     Species
                   </label>
-                  <select
+                  <Select
+                    id={`cleaner-fish-species-${index}`}
+                    size="sm"
                     value={deployment.species}
                     onChange={(e) =>
                       updateDeployment(index, { species: e.target.value as CleanerFishSpecies })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  >
-                    {CLEANER_FISH_SPECIES.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={CLEANER_FISH_SPECIES.map((s) => ({ value: s.value, label: s.label }))}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -999,11 +1000,17 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <label
+                    htmlFor={`cleaner-fish-target-cage-${index}`}
+                    className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                  >
                     Target Cage/Tank
                   </label>
                   {tankOptions && tankOptions.length > 0 ? (
-                    <select
+                    <Select
+                      id={`cleaner-fish-target-cage-${index}`}
+                      size="sm"
+                      placeholder="Select tank..."
                       value={deployment.targetCageId || ''}
                       onChange={(e) => {
                         const tank = tankOptions.find((t) => t.id === e.target.value);
@@ -1012,15 +1019,11 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                           targetCageName: tank ? `${tank.name} (${tank.code})` : '',
                         });
                       }}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="">Select tank...</option>
-                      {tankOptions.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.code})
-                        </option>
-                      ))}
-                    </select>
+                      options={tankOptions.map((t) => ({
+                        value: t.id,
+                        label: `${t.name} (${t.code})`,
+                      }))}
+                    />
                   ) : (
                     <Input
                       fullWidth

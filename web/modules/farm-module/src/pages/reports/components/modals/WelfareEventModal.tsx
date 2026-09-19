@@ -703,32 +703,18 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Failure Type <span className="text-error-500">*</span>
-                </label>
-                <select
-                  value={formData.failureType}
-                  onChange={(e) => handleChange('failureType', e.target.value)}
-                  className={`
-                          block w-full rounded-md shadow-sm text-sm
-                          ${errors.failureType ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
-                          focus:ring-info-500 focus:border-info-500
-                        `}
-                >
-                  <option value="">Select failure type...</option>
-                  {FAILURE_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                {errors.failureType && (
-                  <p className="mt-1 text-xs text-error-600 dark:text-error-400">
-                    {errors.failureType}
-                  </p>
-                )}
-              </div>
+              <Select
+                label="Failure Type"
+                required
+                placeholder="Select failure type..."
+                value={formData.failureType}
+                onChange={(e) => handleChange('failureType', e.target.value)}
+                error={errors.failureType}
+                options={FAILURE_TYPE_OPTIONS.map((opt) => ({
+                  value: opt.value,
+                  label: opt.label,
+                }))}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

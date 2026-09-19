@@ -12,7 +12,7 @@
  * - Dynamic species list from tank data
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input, Select } from '@aquaculture/shared-ui';
 import { EscapeReport, EscapeCause } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, ESCAPE_CAUSES } from '../../utils/thresholds';
 import { useTanksList } from '../../../../hooks/useTanks';
@@ -480,53 +480,28 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
             Escape Details
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                Species <span className="text-error-500">*</span>
-              </label>
-              <select
-                value={formData.species}
-                onChange={(e) => handleChange('species', e.target.value)}
-                className={`
-                        block w-full rounded-md shadow-sm text-sm
-                        ${errors.species ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
-                        focus:ring-info-500 focus:border-info-500
-                      `}
-              >
-                {speciesOptions.map((sp) => (
-                  <option key={sp} value={sp}>
-                    {sp}
-                  </option>
-                ))}
-                <option value="Other">Other</option>
-              </select>
-              {errors.species && (
-                <p className="mt-1 text-xs text-error-600 dark:text-error-400">{errors.species}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                Escape Cause <span className="text-error-500">*</span>
-              </label>
-              <select
-                value={formData.cause}
-                onChange={(e) => handleChange('cause', e.target.value as EscapeCause)}
-                className={`
-                        block w-full rounded-md shadow-sm text-sm
-                        ${errors.cause ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
-                        focus:ring-info-500 focus:border-info-500
-                      `}
-              >
-                {causeOptions.map((option) => (
-                  <option key={option.code} value={option.code}>
-                    {option.label} - {option.description}
-                  </option>
-                ))}
-              </select>
-              {errors.cause && (
-                <p className="mt-1 text-sm text-error-600 dark:text-error-400">{errors.cause}</p>
-              )}
-            </div>
+            <Select
+              label="Species"
+              required
+              value={formData.species}
+              onChange={(e) => handleChange('species', e.target.value)}
+              error={errors.species}
+              options={[
+                ...speciesOptions.map((sp) => ({ value: sp, label: sp })),
+                { value: 'Other', label: 'Other' },
+              ]}
+            />
+            <Select
+              label="Escape Cause"
+              required
+              value={formData.cause}
+              onChange={(e) => handleChange('cause', e.target.value as EscapeCause)}
+              error={errors.cause}
+              options={causeOptions.map((option) => ({
+                value: option.code,
+                label: `${option.label} - ${option.description}`,
+              }))}
+            />
           </div>
           <div className="mt-4">
             <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
@@ -603,22 +578,18 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                         Cage/Tank <span className="text-error-500">*</span>
                       </label>
                       {hasTanks ? (
-                        <select
+                        <Select
+                          id={`escape-unit-tank-${idx}`}
+                          size="sm"
+                          placeholder="Select cage/tank..."
                           value={unit.tankId}
                           onChange={(e) => handleTankSelect(idx, e.target.value)}
-                          className={`
-                                  block w-full rounded-md shadow-sm text-sm
-                                  ${errors[`unit_${idx}_unitName`] ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
-                                  focus:ring-info-500 focus:border-info-500
-                                `}
-                        >
-                          <option value="">Select cage/tank...</option>
-                          {tankOptions.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name} ({t.code}) - {t.batchNumber || 'No batch'}
-                            </option>
-                          ))}
-                        </select>
+                          error={errors[`unit_${idx}_unitName`]}
+                          options={tankOptions.map((t) => ({
+                            value: t.id,
+                            label: `${t.name} (${t.code}) - ${t.batchNumber || 'No batch'}`,
+                          }))}
+                        />
                       ) : (
                         <input
                           type="text"

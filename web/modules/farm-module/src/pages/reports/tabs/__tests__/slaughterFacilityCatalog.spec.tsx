@@ -54,7 +54,7 @@ describe('SlaughterReportTab FacilityStep — catalog binding', () => {
   it('directs the operator to Setup when the catalog is empty — no free-text approval number', () => {
     render(<FacilityStep formData={baseFormData()} onChange={vi.fn()} />);
     expect(screen.getByText(/Setup → Slaughter\s+Facilities/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Slaughter facility')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Facility \(slakteri\)/)).not.toBeInTheDocument();
   });
 
   it('auto-seeds the default facility godkjenningsnummer from the catalog', () => {
@@ -77,7 +77,7 @@ describe('SlaughterReportTab FacilityStep — catalog binding', () => {
     const onChange = vi.fn();
     // Start already on the default so the auto-seed effect is a no-op.
     render(<FacilityStep formData={baseFormData('H-001')} onChange={onChange} />);
-    await userEvent.selectOptions(screen.getByLabelText('Slaughter facility'), 'f2');
+    await userEvent.selectOptions(screen.getByLabelText(/Facility \(slakteri\)/), 'f2');
     expect(onChange).toHaveBeenCalledWith({
       facility: { facilityName: 'Sunnmøre', approvalNumber: 'H-777' },
     });

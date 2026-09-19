@@ -414,11 +414,16 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    <label
+                      htmlFor={`smolt-unit-tank-${index}`}
+                      className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                    >
                       Unit Name / Tank
                     </label>
                     {tanks.length > 0 ? (
-                      <select
+                      <Select
+                        id={`smolt-unit-tank-${index}`}
+                        size="sm"
                         value={isFromSystem ? unit.unitId : '__manual__'}
                         onChange={(e) => {
                           if (e.target.value === '__manual__') {
@@ -441,18 +446,18 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                             }
                           }
                         }}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      >
-                        <option value="__manual__">-- Manual entry --</option>
-                        {tanks.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}{' '}
-                            {t.batchMetrics?.pieces
-                              ? `(${formatNumber(t.batchMetrics.pieces)} fish)`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
+                        options={[
+                          { value: '__manual__', label: '-- Manual entry --' },
+                          ...tanks.map((t) => ({
+                            value: t.id,
+                            label: `${t.name} ${
+                              t.batchMetrics?.pieces
+                                ? `(${formatNumber(t.batchMetrics.pieces)} fish)`
+                                : ''
+                            }`,
+                          })),
+                        ]}
+                      />
                     ) : (
                       <Input
                         fullWidth
@@ -492,20 +497,22 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    <label
+                      htmlFor={`smolt-species-code-${index}`}
+                      className="block text-xs text-gray-500 dark:text-gray-400 mb-1"
+                    >
                       Species Code (artskode)
                     </label>
-                    <select
+                    <Select
+                      id={`smolt-species-code-${index}`}
+                      size="sm"
                       value={(unit as SmoltUnitCountExtended).speciesCode || 'SAL'}
                       onChange={(e) => updateUnit(index, { speciesCode: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      {SPECIES_CODES.map((sp) => (
-                        <option key={sp.code} value={sp.code}>
-                          {sp.code} - {sp.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={SPECIES_CODES.map((sp) => ({
+                        value: sp.code,
+                        label: `${sp.code} - ${sp.label}`,
+                      }))}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

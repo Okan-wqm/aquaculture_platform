@@ -12,6 +12,7 @@ import { useStockMovements, useLotTrace } from '../../../hooks/useStorageInvento
 import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 const typeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -71,6 +72,80 @@ export const StockMovementsTab: React.FC = () => {
   const displayMovements: StockMovement[] = lotTraceMode && lotTraceData
     ? lotTraceData
     : filtered as StockMovement[];
+
+  type MRow = (typeof displayMovements)[number];
+  const mRowColumns: DataTableColumn<MRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, m) => (
+        <>
+          {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
+          <div className="text-xs text-gray-400">
+            {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, m) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
+          {m.movementType}
+        </span>
+      ),
+    },
+    {
+      key: 'item',
+      header: 'Item',
+      render: (_value, m) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
+          <div className="text-xs text-gray-500">{m.itemType}</div>
+          {/* Show lot number in standard view when available,
+              since it helps staff cross-reference delivery notes */}
+          {!lotTraceMode && m.lotNumber && (
+            <div className="text-xs text-purple-500">Lot: {m.lotNumber}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      render: (_value, m) => (
+        <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
+          {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
+        </span>
+      ),
+    },
+    {
+      key: 'fromTo',
+      header: 'From / To',
+      render: (_value, m) => (
+        <>
+          {m.fromLocationName && m.toLocationName ? (
+            <>{m.fromLocationName} <span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+          ) : m.fromLocationName ? (
+            m.fromLocationName
+          ) : m.toLocationName ? (
+            <><span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
+          ) : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'by',
+      header: 'By',
+      render: (_value, m) => m.performedByName || m.performedBy,
+    },
+    {
+      key: 'reference',
+      header: 'Reference',
+      render: (_value, m) => m.reference || m.reason || '-',
+    }
+  ];
 
   return (
     <div>
@@ -236,67 +311,15 @@ export const StockMovementsTab: React.FC = () => {
           <div className={`bg-white rounded-lg shadow-sm border overflow-hidden ${
             lotTraceMode ? 'border-purple-200' : 'border-gray-200'
           }`}>
-            <table className="min-w-full divide-y divide-gray-200">
-              {/* Table header — purple when in lot trace mode to provide
-                  a clear visual distinction from the standard movement view */}
-              <thead className={lotTraceMode ? 'bg-purple-50' : 'bg-gray-50'}>
-                <tr>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Date</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Type</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Item</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Quantity</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>From / To</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>By</th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase ${lotTraceMode ? 'text-purple-600' : 'text-gray-500'}`}>Reference</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {displayMovements.map(m => (
-                  <tr key={m.id} className={lotTraceMode ? 'hover:bg-purple-50' : 'hover:bg-gray-50'}>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
-                      <div className="text-xs text-gray-400">
-                        {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
-                        {m.movementType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
-                      <div className="text-xs text-gray-500">{m.itemType}</div>
-                      {/* Show lot number in standard view when available,
-                          since it helps staff cross-reference delivery notes */}
-                      {!lotTraceMode && m.lotNumber && (
-                        <div className="text-xs text-purple-500">Lot: {m.lotNumber}</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium">
-                      <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
-                        {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {m.fromLocationName && m.toLocationName ? (
-                        <>{m.fromLocationName} <span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
-                      ) : m.fromLocationName ? (
-                        m.fromLocationName
-                      ) : m.toLocationName ? (
-                        <><span className="text-gray-400">&rarr;</span> {m.toLocationName}</>
-                      ) : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {m.performedByName || m.performedBy}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {m.reference || m.reason || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<MRow>
+              data={displayMovements}
+              columns={mRowColumns}
+              keyExtractor={(m) => m.id}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
             {displayMovements.length === 0 && (
               <div className="text-center py-12 text-gray-500 text-sm">
                 {lotTraceMode

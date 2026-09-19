@@ -1,7 +1,7 @@
 /**
  * Purchase Orders Tab - Real GraphQL-backed PO list with filters and modals
  */
-import { parseMoney, useConfirm } from '@aquaculture/shared-ui';
+import { parseMoney, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import {
   usePurchaseOrders,
@@ -110,6 +110,118 @@ export const PurchaseOrdersTab: React.FC = () => {
     }
   };
 
+  type PoRow = (typeof orders)[number];
+  const poRowColumns: DataTableColumn<PoRow>[] = [
+    {
+      key: 'order',
+      header: 'Order #',
+      render: (_value, po) => po.orderNumber,
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, po) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 text-gray-800'}`}>
+          {po.category}
+        </span>
+      ),
+    },
+    {
+      key: 'supplier',
+      header: 'Supplier',
+      render: (_value, po) => po.supplierName,
+    },
+    {
+      key: 'items',
+      header: 'Items',
+      render: (_value, po) => (
+        <>
+          {po.items.length > 0 ? (
+            <div>
+              {po.items.slice(0, 2).map(item => (
+                <div key={item.id} className="text-xs">{item.itemName} ({item.quantity} {item.unit})</div>
+              ))}
+              {po.items.length > 2 && <div className="text-xs text-gray-400">+{po.items.length - 2} more</div>}
+            </div>
+          ) : <span className="text-gray-400">No items</span>}
+        </>
+      ),
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      render: (_value, po) => po.totalAmountDecimal != null ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency) : '-',
+    },
+    {
+      key: 'expected',
+      header: 'Expected',
+      render: (_value, po) => po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO') : '-',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, po) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 text-gray-800'}`}>
+          {po.status.replace('_', ' ')}
+        </span>
+      ),
+    },
+    {
+      key: 'approvedBy',
+      header: 'Approved By',
+      render: (_value, po) => (
+        <>
+          {po.approvedByName || po.approvedBy ? (
+            <div>
+              <div className="text-xs text-gray-700">{po.approvedByName || po.approvedBy}</div>
+              {po.approvedAt && (
+                <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
+              )}
+            </div>
+          ) : <span className="text-gray-400">-</span>}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (_value, po) => (
+        <div className="flex gap-2">
+          {po.status === 'DRAFT' && (
+            <button onClick={() => handleSubmit(po)}
+              className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
+              Submit for Approval
+            </button>
+          )}
+          {po.status === 'SUBMITTED' && (
+            <button onClick={() => handleApprove(po)}
+              className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100">
+              Approve
+            </button>
+          )}
+          {po.status === 'APPROVED' && (
+            <button onClick={() => handleMarkOrdered(po)}
+              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">
+              Mark Ordered
+            </button>
+          )}
+          {(po.status === 'ORDERED' || po.status === 'PARTIALLY_RECEIVED') && (
+            <button onClick={() => setReceiveTarget(po)}
+              className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">
+              Receive
+            </button>
+          )}
+          {po.status !== 'RECEIVED' && po.status !== 'CANCELLED' && (
+            <button onClick={() => handleCancel(po)}
+              className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">
+              Cancel
+            </button>
+          )}
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -149,99 +261,15 @@ export const PurchaseOrdersTab: React.FC = () => {
 
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order #</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expected</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {orders.map(po => (
-                <tr key={po.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 font-mono">{po.orderNumber}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 text-gray-800'}`}>
-                      {po.category}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-700">{po.supplierName}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {po.items.length > 0 ? (
-                      <div>
-                        {po.items.slice(0, 2).map(item => (
-                          <div key={item.id} className="text-xs">{item.itemName} ({item.quantity} {item.unit})</div>
-                        ))}
-                        {po.items.length > 2 && <div className="text-xs text-gray-400">+{po.items.length - 2} more</div>}
-                      </div>
-                    ) : <span className="text-gray-400">No items</span>}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {po.totalAmountDecimal != null ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO') : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 text-gray-800'}`}>
-                      {po.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {po.approvedByName || po.approvedBy ? (
-                      <div>
-                        <div className="text-xs text-gray-700">{po.approvedByName || po.approvedBy}</div>
-                        {po.approvedAt && (
-                          <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
-                        )}
-                      </div>
-                    ) : <span className="text-gray-400">-</span>}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2">
-                      {po.status === 'DRAFT' && (
-                        <button onClick={() => handleSubmit(po)}
-                          className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
-                          Submit for Approval
-                        </button>
-                      )}
-                      {po.status === 'SUBMITTED' && (
-                        <button onClick={() => handleApprove(po)}
-                          className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100">
-                          Approve
-                        </button>
-                      )}
-                      {po.status === 'APPROVED' && (
-                        <button onClick={() => handleMarkOrdered(po)}
-                          className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">
-                          Mark Ordered
-                        </button>
-                      )}
-                      {(po.status === 'ORDERED' || po.status === 'PARTIALLY_RECEIVED') && (
-                        <button onClick={() => setReceiveTarget(po)}
-                          className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">
-                          Receive
-                        </button>
-                      )}
-                      {po.status !== 'RECEIVED' && po.status !== 'CANCELLED' && (
-                        <button onClick={() => handleCancel(po)}
-                          className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<PoRow>
+            data={orders}
+            columns={poRowColumns}
+            keyExtractor={(po) => po.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {orders.length === 0 && (
             <div className="text-center py-12 text-gray-500 text-sm">No purchase orders found.</div>
           )}

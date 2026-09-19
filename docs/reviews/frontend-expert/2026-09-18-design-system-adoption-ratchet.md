@@ -261,7 +261,16 @@ matrices, the feeding-record and CSV column pickers), rows that span
 several `<tr>` (protocol bands), matrix editors (feeding matrix, meal
 board), row components with their own state (calibration, thresholds,
 water analysis, alarm and simulation panels), the storage and task tabs'
-row components, and the SCADA runtime grids. **Owner:** okan ·
+row components, and the SCADA runtime grids. Batch 17: `DataTable`
+gains a `headerRender` slot (the header cell's node; `header` stays the
+name the export, visibility menu and sort control use), and the
+server-described grids follow — the database explorer (key and sensitivity
+markers in the header, masked cells, server-side sort through `onSort`),
+the query-editor results and the tenant table-data dialog (index keys); the
+consent-history and equipment-mapping row components fold into columns,
+as do the inventory-count, purchase-order, stock-movement, completed-task
+and recurring-task lists. admin-panel 3 → 1 (the static actuation-policy
+reference), tenant-admin 1 → 0, shell 1 → 0, farm 23 → 17. **Owner:** okan ·
 **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -275,8 +284,8 @@ row components, and the SCADA runtime grids. **Owner:** okan ·
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 48 remain after batch 16 (admin-panel 3,
-  tenant-admin 1, hr 3, shell 1, hydroponics 2, sensor 15, farm 23).
+- Raw `<table>` → `DataTable`: 38 remain after batch 17 (admin-panel 1,
+  hr 3, hydroponics 2, sensor 15, farm 17).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

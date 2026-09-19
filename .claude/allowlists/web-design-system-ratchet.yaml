@@ -91,13 +91,13 @@ rawHex:
 rawTable:
   entries:
     - package: web/modules/admin-panel
-      ceiling: 3
+      ceiling: 1
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 23
+      ceiling: 17
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069
@@ -116,18 +116,6 @@ rawTable:
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
     - package: web/modules/sensor-module
       ceiling: 15
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-069
-      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
-    - package: web/modules/tenant-admin
-      ceiling: 1
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-069
-      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
-    - package: web/shell
-      ceiling: 1
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069

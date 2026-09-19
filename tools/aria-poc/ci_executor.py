@@ -404,6 +404,34 @@ def child_worst_case_seconds(
     )
 
 
+def batch_worst_case_seconds(
+    request_count: int, max_timeout_seconds: int, *, worktree_per_request: bool = False,
+) -> int:
+    """How long ONE executor child serving K read-only requests may legally run.
+
+    Typed-judgment plan Phase 4a (ARIA-MEDIUM-163). The batch child claims
+    K requests, makes ONE model call, then seals, submits and releases each
+    request on its own: the per-request terms of `child_worst_case_seconds`
+    — the claim's state write, the terminal writer, the release's state
+    write — are charged K times; the pre-claim git probe, the model call
+    and the worktree bracket once. At K = 1 this is `child_worst_case_seconds`
+    with no delivery term, by construction. The same number is every claim's
+    lease: K claims precede the call (the fused claim response is what the
+    prompt is rendered from), so the first claim's lease must outlive the
+    last request's release. Batches carry no implementation delivery term:
+    the read-only routes cannot host an implementation.
+    """
+    if request_count < 1:
+        raise ValueError(f"batch_worst_case_seconds_request_count:{request_count}")
+    per_request = STATE_WRITE_CHILD_WORST_CASE_SECONDS + TERMINAL_WRITER_TIMEOUT_SECONDS + STATE_WRITE_CHILD_WORST_CASE_SECONDS
+    return int(
+        _GIT_PROBE_WORST_CASE_SECONDS
+        + max_timeout_seconds
+        + request_count * per_request
+        + (REQUEST_WORKTREE_WORST_CASE_SECONDS if worktree_per_request else 0)
+    )
+
+
 # ARIA-HIGH-124 (round 3) — the canonical implementation term, for the
 # consumers that price a child before they know its request: the env-less
 # drain window (`ci_executor_drain.DEFAULT_DRAIN_BUDGET_SECONDS`) and the
@@ -1356,6 +1384,13 @@ def _child_worst_case_seconds(*, worktree_per_request: bool = False, implementat
     return child_worst_case_seconds(
         _max_timeout_seconds(), worktree_per_request=worktree_per_request,
         implementation_delivery_seconds=implementation_delivery_seconds,
+    )
+
+
+def _batch_worst_case_seconds(request_count: int, *, worktree_per_request: bool = False) -> int:
+    """`batch_worst_case_seconds` at this run's MAX_TIMEOUT_SECONDS."""
+    return batch_worst_case_seconds(
+        request_count, _max_timeout_seconds(), worktree_per_request=worktree_per_request,
     )
 
 
@@ -3685,56 +3720,25 @@ def _refuse_native_admission(
     )
 
 
-def _adaptive_pre_claim_admission(
-    *, repo_root: Path, tools_dir: Path, request_id: str, target_agent: str,
-    _runtime_stack: _ExitStack | None = None,
-    _inherited_claim: dict[str, Any] | None = None, _lease_token: str | None = None,
-) -> _NativeRuntimePlan | _NativeAdmissionRefusal | None:
-    """Record opt-in native unavailability before any lease is consumed.
+def _admit_native_route(
+    *, repo_root: Path, tools_dir: Path, request_id: str, request: dict[str, Any], target_agent: str,
+    policy: Any, policy_root: Path, _runtime_stack: _ExitStack | None,
+) -> tuple[Any, dict[str, Any]]:
+    """Probe the fleet ONCE for this profile and return ``(admission, contexts)``.
 
-    None when no adaptive policy is declared (the legacy spawn path); a plan
-    when a route is admitted; a NAMED refusal — summary already written —
-    when the task binding or the fleet declines. Never a bare exit code.
+    Typed-judgment plan Phase 4a (ARIA-MEDIUM-163) — the fleet probe, the
+    managed contexts and the admission row are a property of the profile
+    and the host, not of one request: a batch child admits its route once
+    and binds K requests to it (`_bind_request_to_route`). ``request`` and
+    ``request_id`` name the identity the managed Claude context records
+    usage under; for a batch the caller passes the batch's own identity.
     """
-    from aria_kernel.agent_invocations import derive_request_state, list_agent_invocation_requests
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
-    from aria_kernel.genesis_policy import _adaptive_runtime_policy
     from aria_kernel.model_fleet import Provider
-    from aria_kernel.native_admission import AdmissionOutcome, _native_runtime_admission
+    from aria_kernel.native_admission import _native_runtime_admission
     from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
-    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+    from aria_kernel.tool_registry import GovernanceError
 
-    policy_root = _operator_policy_root(tools_dir)
-    policy = _adaptive_runtime_policy(policy_root)
-    if policy is None:
-        return None
-    requests = list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
-    if len(requests) != 1 or requests[0].get("target_agent") != target_agent:
-        raise GovernanceError("adaptive_runtime_request_binding_unavailable")
-    request = requests[0]
-    if _inherited_claim is not None:
-        from aria_kernel import agent_invocations as invocations
-        from aria_kernel.ledger import state_transaction
-
-        request_path = tools_dir / "agent-invocations/requests.jsonl"
-        claims_path = tools_dir / "agent-invocations/claims.jsonl"
-        results_path = tools_dir / "agent-invocations/results.jsonl"
-        with state_transaction([request_path, claims_path, results_path]) as transaction:
-            invocations._validate_claim_dispatch_authority(
-                requests=transaction.load_declared_jsonl(request_path, expected_surface="agent_invocation_requests"),
-                claims=transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
-                results=transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results"),
-                request_id=request_id, request_ledger_hash=_inherited_claim["request_ledger_hash"],
-                claim_id=_inherited_claim["claim_id"], claim_ledger_hash=_inherited_claim["claim_ledger_hash"],
-                agent_id=_inherited_claim["agent_id"], lease_token=_lease_token or "",
-                now=invocations._utc_now_dt(),
-            )
-    elif derive_request_state(request_id=request_id, base_dir=tools_dir) not in ("PENDING", "REQUEUED"):
-        raise GovernanceError("adaptive_runtime_request_not_pending")
-    if policy.monetary_admission == "managed_subscription":
-        binding_refusal = _native_task_binding_refusal(repo_root=repo_root, tools_dir=tools_dir, request=request)
-        if binding_refusal is not None:
-            return _refuse_native_admission(request=request, reason=binding_refusal, kind=TASK_BINDING_REFUSAL)
     profile = read_agent_runtime_profile(target_agent, repo_root=_kernel_checkout_root())
     environment = dict(os.environ)
     contexts: dict[str, Any] = {}
@@ -3874,6 +3878,18 @@ def _adaptive_pre_claim_admission(
         # attempt's ClaudeCreditExhausted is refused here without a probe.
         cooled_providers=active_provider_cooldowns(tools_dir),
     )
+    return admission, contexts
+
+
+def _bind_request_to_route(
+    *, tools_dir: Path, request_id: str, request: dict[str, Any], policy: Any,
+    admission: Any, contexts: dict[str, Any],
+) -> _NativeRuntimePlan | _NativeAdmissionRefusal:
+    """One request against an admission: the plan on its route, or the
+    NAMED refusal (row + summary) when nothing was admitted."""
+    from aria_kernel.native_admission import AdmissionOutcome
+    from aria_kernel.tool_registry import append_tools_governance
+
     if admission.outcome is AdmissionOutcome.ADMITTED:
         route = admission.eligible_routes[0]
         observation = next(row for row in admission.candidate_observations if row["provider"] == route["provider"])
@@ -3903,6 +3919,64 @@ def _adaptive_pre_claim_admission(
     })
     return _refuse_native_admission(
         request=request, reason=admission.outcome.value, kind=ADMISSION_REFUSALS[admission.outcome.value],
+    )
+
+
+
+
+def _adaptive_pre_claim_admission(
+    *, repo_root: Path, tools_dir: Path, request_id: str, target_agent: str,
+    _runtime_stack: _ExitStack | None = None,
+    _inherited_claim: dict[str, Any] | None = None, _lease_token: str | None = None,
+) -> _NativeRuntimePlan | _NativeAdmissionRefusal | None:
+    """Record opt-in native unavailability before any lease is consumed.
+
+    None when no adaptive policy is declared (the legacy spawn path); a plan
+    when a route is admitted; a NAMED refusal — summary already written —
+    when the task binding or the fleet declines. Never a bare exit code.
+    """
+    from aria_kernel.agent_invocations import derive_request_state, list_agent_invocation_requests
+    from aria_kernel.genesis_policy import _adaptive_runtime_policy
+    from aria_kernel.tool_registry import GovernanceError
+
+    policy_root = _operator_policy_root(tools_dir)
+    policy = _adaptive_runtime_policy(policy_root)
+    if policy is None:
+        return None
+    requests = list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
+    if len(requests) != 1 or requests[0].get("target_agent") != target_agent:
+        raise GovernanceError("adaptive_runtime_request_binding_unavailable")
+    request = requests[0]
+    if _inherited_claim is not None:
+        from aria_kernel import agent_invocations as invocations
+        from aria_kernel.ledger import state_transaction
+
+        request_path = tools_dir / "agent-invocations/requests.jsonl"
+        claims_path = tools_dir / "agent-invocations/claims.jsonl"
+        results_path = tools_dir / "agent-invocations/results.jsonl"
+        with state_transaction([request_path, claims_path, results_path]) as transaction:
+            invocations._validate_claim_dispatch_authority(
+                requests=transaction.load_declared_jsonl(request_path, expected_surface="agent_invocation_requests"),
+                claims=transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
+                results=transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results"),
+                request_id=request_id, request_ledger_hash=_inherited_claim["request_ledger_hash"],
+                claim_id=_inherited_claim["claim_id"], claim_ledger_hash=_inherited_claim["claim_ledger_hash"],
+                agent_id=_inherited_claim["agent_id"], lease_token=_lease_token or "",
+                now=invocations._utc_now_dt(),
+            )
+    elif derive_request_state(request_id=request_id, base_dir=tools_dir) not in ("PENDING", "REQUEUED"):
+        raise GovernanceError("adaptive_runtime_request_not_pending")
+    if policy.monetary_admission == "managed_subscription":
+        binding_refusal = _native_task_binding_refusal(repo_root=repo_root, tools_dir=tools_dir, request=request)
+        if binding_refusal is not None:
+            return _refuse_native_admission(request=request, reason=binding_refusal, kind=TASK_BINDING_REFUSAL)
+    admission, contexts = _admit_native_route(
+        repo_root=repo_root, tools_dir=tools_dir, request_id=request_id, request=request,
+        target_agent=target_agent, policy=policy, policy_root=policy_root, _runtime_stack=_runtime_stack,
+    )
+    return _bind_request_to_route(
+        tools_dir=tools_dir, request_id=request_id, request=request, policy=policy,
+        admission=admission, contexts=contexts,
     )
 
 
@@ -4016,6 +4090,130 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
             # must not mask the environment refusal it is trying to record.
             sys.stderr.write(f"governance_write_failed: {exc}\n")
     return kind
+
+
+def _claim_request_via_cli(
+    *, request_id: str, agent_id: str, lease_seconds: int, tools_dir: Path,
+) -> dict[str, Any] | None:
+    """`agent claim` through the kernel CLI: the fused claim response, or None
+    after the refusal was written to stderr (the caller exits 1).
+
+    Typed-judgment plan Phase 4a — the block `_main` ran inline, moved
+    verbatim so a batch child can claim K requests through the same call.
+    The lease guard (`if not lease_token or not claim_id`) stays with the
+    caller: it is the positional anchor the lease-leak invariant reads to
+    know from which line a claim is HELD.
+    """
+    claim_proc = subprocess.run(
+        _kernel_cli_argv(
+            "agent", "claim",
+            "--request-id", request_id,
+            "--agent-id", agent_id,
+            "--lease-seconds", str(lease_seconds),
+            "--tools-dir", str(tools_dir),
+        ),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
+    )
+    if claim_proc.returncode != 0:
+        sys.stderr.write(_redact_lease_in_message(claim_proc.stderr, None) + "\n")
+        return None
+    try:
+        claim = json.loads(claim_proc.stdout)
+    except json.JSONDecodeError:
+        sys.stderr.write(f"claim output not JSON: {claim_proc.stdout[:200]}\n")
+        return None
+    return claim
+
+
+def _render_and_bind_prompt(*, request_envelope: dict[str, Any], request_id: str) -> tuple[str, str] | None:
+    """Render the request's prompt and prove it is the one the mint sealed.
+
+    Returns ``(payload, prompt_hash)``, or None after writing
+    ``prompt_hash_binding_mismatch`` to stderr (the caller releases under
+    that reason). Requires `_render_invocation_prompt`; the caller checks
+    the renderer's availability first, as it did inline.
+    """
+    payload = _render_invocation_prompt(request_envelope)
+    computed = "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    if request_envelope.get("prompt_hash") != computed:
+        sys.stderr.write(
+            f"prompt_hash_binding_mismatch: request_id={request_id} "
+            f"expected={request_envelope.get('prompt_hash')!r} "
+            f"actual={computed!r}\n"
+        )
+        return None
+    return payload, computed
+
+
+def _submit_via_cli(
+    *, claim_id: str, agent_id: str, lease_token: str, expected_output_path: Path, repo: Path,
+    tools_dir: Path, request_envelope: dict[str, Any], transcript_hash: str, transcript_output_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    """`agent submit-result` through the kernel CLI, bounded by
+    SUBMIT_RESULT_TIMEOUT_SECONDS; `subprocess.TimeoutExpired` propagates to
+    the caller, whose release reason names the bound.
+
+    ARIA-HIGH-022 — "auto": the kernel CLI resolves the workspace HEAD and
+    grounds the evidence check there when it has moved past the request
+    base — one flag, no extra subprocess on this side (the fused-envelope
+    smoke contract counts subprocess calls).
+    """
+    submit_argv = _kernel_cli_argv(
+        "agent", "submit-result",
+        "--claim-id", claim_id,
+        "--agent-id", agent_id,
+        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
+        "--output-path", str(expected_output_path),
+        "--workspace-root", str(repo),
+        "--tools-dir", str(tools_dir),
+        "--context-hash", str(request_envelope.get("context_hash") or ""),
+        "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
+        "--transcript-hash", transcript_hash,
+        "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
+    )
+    submit_argv += ["--evidence-target-sha", "auto"]
+    return subprocess.run(
+        submit_argv,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": _KERNEL_PYTHONPATH,
+            LEASE_TOKEN_ENV_VAR: lease_token,
+        },
+        timeout=SUBMIT_RESULT_TIMEOUT_SECONDS,
+    )
+
+
+def _reconcile_native_result(
+    *, tools_dir: Path, request_id: str, claim_id: str, agent_id: str, session_id: str | None,
+    policy_digest: str, request_envelope: dict[str, Any],
+) -> bool:
+    """After a native-route submit: prove the accepted row is this attempt's
+    and record `runtime_attempt_reconciled`. False after the unavailability
+    was written to stderr (the caller exits 1)."""
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+
+    try:
+        accepted, attempt = _accepted_native_runtime_result(
+            tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+            session_id=session_id, policy_digest=policy_digest,
+        )
+    except (GovernanceError, OSError, ValueError) as exc:
+        sys.stderr.write("native_runtime_result_reconciliation_unavailable:" + type(exc).__name__ + "\n")
+        return False
+    append_tools_governance(tools_dir, "runtime_attempt_reconciled", {
+        "schema_version": 1, "request_id": request_id, "claim_id": claim_id,
+        "request_ledger_hash": request_envelope["request_ledger_hash"],
+        "claim_ledger_hash": request_envelope["claim_ledger_hash"],
+        "attempt_ledger_hash": attempt["ledger_hash"],
+        "result_ledger_hash": accepted["ledger_hash"], "result_status": accepted["status"],
+        "agent_id": agent_id, "session_id": session_id,
+        "policy_digest": policy_digest,
+    })
+    return True
 
 
 def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
@@ -4179,25 +4377,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         _lease_seconds = _child_worst_case_seconds(
             implementation_delivery_seconds=_request_delivery_seconds(tools_dir=tools_dir, request_id=request_id),
         )
-        claim_proc = subprocess.run(
-            _kernel_cli_argv(
-                "agent", "claim",
-                "--request-id", request_id,
-                "--agent-id", agent_id,
-                "--lease-seconds", str(_lease_seconds),
-                "--tools-dir", str(tools_dir),
-            ),
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
+        claim = _claim_request_via_cli(
+            request_id=request_id, agent_id=agent_id, lease_seconds=_lease_seconds, tools_dir=tools_dir,
         )
-        if claim_proc.returncode != 0:
-            sys.stderr.write(_redact_lease_in_message(claim_proc.stderr, None) + "\n")
-            return 1
-        try:
-            claim = json.loads(claim_proc.stdout)
-        except json.JSONDecodeError:
-            sys.stderr.write(f"claim output not JSON: {claim_proc.stdout[:200]}\n")
+        if claim is None:
             return 1
 
         lease_token = claim.get("lease_token")
@@ -4339,20 +4522,15 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             reason="kernel_prompt_renderer_unavailable",
         )
         return 1
-    _prompt_payload = _render_invocation_prompt(request_envelope)
-    _computed_prompt_hash = "sha256:" + hashlib.sha256(_prompt_payload.encode("utf-8")).hexdigest()
-    if request_envelope.get("prompt_hash") != _computed_prompt_hash:
-        sys.stderr.write(
-            f"prompt_hash_binding_mismatch: request_id={request_id} "
-            f"expected={request_envelope.get('prompt_hash')!r} "
-            f"actual={_computed_prompt_hash!r}\n"
-        )
+    bound = _render_and_bind_prompt(request_envelope=request_envelope, request_id=request_id)
+    if bound is None:
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason="prompt_hash_binding_mismatch",
         )
         return 1
+    _prompt_payload, _computed_prompt_hash = bound
     prompt_file.write_text(_prompt_payload, encoding="utf-8")
 
     timeout = _max_timeout_seconds()
@@ -5201,35 +5379,12 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # was worktree_candidate and the submit died. Ground the evidence check
     # at this worktree's committed HEAD when it has moved past the request
     # base — submit_claim_result proves the descent fail-closed.
-    submit_argv = _kernel_cli_argv(
-        "agent", "submit-result",
-        "--claim-id", claim_id,
-        "--agent-id", agent_id,
-        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-        "--output-path", str(expected_output_path),
-        "--workspace-root", str(repo),
-        "--tools-dir", str(tools_dir),
-        "--context-hash", str(request_envelope.get("context_hash") or ""),
-        "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
-        "--transcript-hash", _transcript_hash,
-        "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
-    )
-    # "auto": the kernel CLI resolves the workspace HEAD and grounds the
-    # evidence check there when it has moved past the request base — one
-    # flag, no extra subprocess on this side (the fused-envelope smoke
-    # contract counts subprocess calls).
-    submit_argv += ["--evidence-target-sha", "auto"]
     try:
-        submit_proc = subprocess.run(
-            submit_argv,
-            capture_output=True,
-            text=True,
-            env={
-                **os.environ,
-                "PYTHONPATH": _KERNEL_PYTHONPATH,
-                LEASE_TOKEN_ENV_VAR: lease_token,
-            },
-            timeout=SUBMIT_RESULT_TIMEOUT_SECONDS,
+        submit_proc = _submit_via_cli(
+            claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+            expected_output_path=expected_output_path, repo=repo, tools_dir=tools_dir,
+            request_envelope=request_envelope, transcript_hash=_transcript_hash,
+            transcript_output_path=transcript_output_path,
         )
     except subprocess.TimeoutExpired as exc:
         _stage(f"submit_TIMEOUT after={SUBMIT_RESULT_TIMEOUT_SECONDS}s — releasing claim survivably")
@@ -5312,25 +5467,12 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 failure_class="response_schema_rejected", retryable=False, detail_code="submit_rejected",
             )
     if native_runtime is not None:
-        from aria_kernel.tool_registry import GovernanceError, append_tools_governance
-
-        try:
-            accepted, attempt = _accepted_native_runtime_result(
-                tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
-                session_id=_session_id, policy_digest=native_runtime.policy.policy_digest,
-            )
-        except (GovernanceError, OSError, ValueError) as exc:
-            sys.stderr.write("native_runtime_result_reconciliation_unavailable:" + type(exc).__name__ + "\n")
+        if not _reconcile_native_result(
+            tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+            session_id=_session_id, policy_digest=native_runtime.policy.policy_digest,
+            request_envelope=request_envelope,
+        ):
             return 1
-        append_tools_governance(tools_dir, "runtime_attempt_reconciled", {
-            "schema_version": 1, "request_id": request_id, "claim_id": claim_id,
-            "request_ledger_hash": request_envelope["request_ledger_hash"],
-            "claim_ledger_hash": request_envelope["claim_ledger_hash"],
-            "attempt_ledger_hash": attempt["ledger_hash"],
-            "result_ledger_hash": accepted["ledger_hash"], "result_status": accepted["status"],
-            "agent_id": agent_id, "session_id": _session_id,
-            "policy_digest": native_runtime.policy.policy_digest,
-        })
     return 0
 
 

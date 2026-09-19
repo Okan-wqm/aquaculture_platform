@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Upload, Trash2, AlertCircle } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
@@ -111,18 +112,10 @@ export const CustomSvgConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
             <span className="text-xs text-green-700 truncate">
               {(config.svgFileName as string) || 'custom.svg'}
             </span>
-            <button onClick={handleRemove} className="text-red-400 hover:text-red-600 ml-2">
-              <Trash2 size={14} />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Delete" className="ml-2" onClick={handleRemove}><Trash2 size={14} /></Button>
           </div>
         ) : (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:border-cyan-400 hover:text-cyan-600 transition-colors"
-          >
-            <Upload size={14} />
-            Upload SVG
-          </button>
+          <Button variant="secondary" size="xs" className="justify-center" leftIcon={<Upload size={14} />} onClick={() => fileInputRef.current?.click()}>Upload SVG</Button>
         )}
         <input
           ref={fileInputRef}

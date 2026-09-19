@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ConfirmModal, useAuth, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, useAuth, PageHeader, Button } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -294,29 +294,17 @@ const TenantUsers: React.FC = () => {
         description="Manage users and their access to modules and farm sites"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
             {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
                 export backend) yet rendered ungated to every users:view delegate —
                 a false affordance. Removed; reintroduce only together with a real
                 export path AND a capability gate. */}
             {canInviteUsers && (
-              <button
-                onClick={() => {
+              <Button variant="primary" leftIcon={<UserPlus className="w-4 h-4" />} onClick={() => {
                   setSaveError(null);
                   setEditingUser(null);
                   setIsModalOpen(true);
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <UserPlus className="w-4 h-4" />
-                Add User
-              </button>
+                }}>Add User</Button>
             )}
           </div>
         }
@@ -330,12 +318,7 @@ const TenantUsers: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load users</p>
             <p className="text-sm text-red-600">{error}</p>
           </div>
-          <button
-            onClick={handleRefresh}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={handleRefresh}>Retry</Button>
         </div>
       )}
 

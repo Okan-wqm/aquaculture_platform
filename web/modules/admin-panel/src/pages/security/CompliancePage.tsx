@@ -493,7 +493,7 @@ const DataRequestDetailModal: React.FC<{
       )}
 
       {/* Request Info */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Request Type</span>
           <div className="flex items-center gap-2 mt-1">
@@ -526,7 +526,7 @@ const DataRequestDetailModal: React.FC<{
       {/* Requester Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Requester Information</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             <span className="text-sm text-gray-900 dark:text-gray-100">{request.requesterName}</span>
@@ -1057,7 +1057,7 @@ export const CompliancePage: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-4 gap-4">
+                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
                       <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{report.totalChecks}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Total Checks</p>

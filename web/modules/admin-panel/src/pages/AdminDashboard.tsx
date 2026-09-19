@@ -128,7 +128,7 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Database</h3>
       </div>
       <div className="p-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Size</p>
             <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{database.databaseSize}</p>
@@ -293,7 +293,7 @@ const CircuitBreakerCard: React.FC<{
                   </button>
                 )}
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">Failures</span>
                   <p className="font-semibold text-gray-900 dark:text-gray-100">{info.consecutiveFailures}</p>

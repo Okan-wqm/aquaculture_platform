@@ -35,7 +35,7 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
-import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -417,21 +417,11 @@ export const HistoryTab: React.FC = () => {
             <div className="flex items-center space-x-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
-                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                />
+                <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
-                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                />
+                <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setPage(1); }} />
               </div>
             </div>
           )}
@@ -572,20 +562,8 @@ export const HistoryTab: React.FC = () => {
                   Showing {currentPageStart} to {currentPageEnd} of {totalItems} records
                 </div>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setPage((p) => p + 1)}
-                    disabled={!hasNextPage}
-                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    Next
-                  </button>
+                  <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={!hasNextPage}>Next</Button>
                 </div>
               </div>
             )}

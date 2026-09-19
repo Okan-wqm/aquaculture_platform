@@ -25,7 +25,7 @@ import {
 // ARCH-NOTE: Always use SupplierType enum, never hardcode string values. GraphQL enums are case-sensitive.
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
-import { Modal, useConfirm, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 // Predefined species tags
 const PREDEFINED_TAGS = [
@@ -468,11 +468,7 @@ export const SpeciesTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openAddModal}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -480,8 +476,7 @@ export const SpeciesTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Species
-        </button>
+          Add Species</Button>
       </div>
 
       {/* Loading State */}
@@ -495,9 +490,7 @@ export const SpeciesTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load species. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -697,18 +690,8 @@ export const SpeciesTab: React.FC = () => {
                     : species.family || species.genus || ''}
                 </span>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEdit(species)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(species.id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
+                  <Button variant="ghost" onClick={() => handleEdit(species)}>Edit</Button>
+                  <Button variant="ghost" onClick={() => handleDelete(species.id)}>Delete</Button>
                 </div>
               </div>
             </div>
@@ -734,19 +717,13 @@ export const SpeciesTab: React.FC = () => {
               </svg>
               <p className="text-sm text-red-700">{deleteError}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setDeleteError(null)}
-              className="text-red-400 hover:text-red-600"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <Button variant="ghost" type="button" onClick={() => setDeleteError(null)}><svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path
                   fillRule="evenodd"
                   d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
                   clipRule="evenodd"
                 />
-              </svg>
-            </button>
+              </svg></Button>
           </div>
         </div>
       )}
@@ -806,95 +783,55 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.basic}
               onToggle={() => toggleSection('basic')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Common Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.commonName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, commonName: e.target.value }))
-                    }
-                    placeholder="e.g., European Seabass"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" required value={formData.commonName} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, commonName: e.target.value }))
+          } placeholder="e.g., European Seabass" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Scientific Name *
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.scientificName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
-                    }
-                    placeholder="e.g., Dicentrarchus labrax"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 italic"
-                  />
+                  <Input fullWidth type="text" required value={formData.scientificName} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
+          } placeholder="e.g., Dicentrarchus labrax" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.code}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
-                    }
-                    placeholder="e.g., SEABASS"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
-                  />
+                  <Input className="uppercase" fullWidth type="text" required value={formData.code} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
+          } placeholder="e.g., SEABASS" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
                   </label>
-                  <input
-                    type="text"
-                    value={formData.officialCode}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        officialCode: e.target.value.toUpperCase(),
-                      }))
-                    }
-                    placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)"
-                    maxLength={16}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
-                  />
+                  <Input className="uppercase" fullWidth type="text" value={formData.officialCode} onChange={(e) =>
+           setFormData((prev) => ({
+            ...prev,
+            officialCode: e.target.value.toUpperCase(),
+           }))
+          } placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)" maxLength={16} />
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Required for Norwegian regulatory reports — submissions fail closed without it.
                   </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Local Name</label>
-                  <input
-                    type="text"
-                    value={formData.localName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, localName: e.target.value }))
-                    }
-                    placeholder="e.g., Levrek"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.localName} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, localName: e.target.value }))
+          } placeholder="e.g., Levrek" />
                 </div>
               </div>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  rows={2}
-                  placeholder="Brief description of the species..."
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Textarea fullWidth value={formData.description} onChange={(e) =>
+          setFormData((prev) => ({ ...prev, description: e.target.value }))
+         } rows={2} placeholder="Brief description of the species..." />
               </div>
             </CollapsibleSection>
 
@@ -929,16 +866,9 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Custom Tag Input */}
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={formData.customTag}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, customTag: e.target.value }))
-                    }
-                    onKeyDown={handleCustomTagKeyDown}
-                    placeholder="Add custom tag..."
-                    className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input type="text" value={formData.customTag} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, customTag: e.target.value }))
+          } onKeyDown={handleCustomTagKeyDown} placeholder="Add custom tag..." />
                   <button
                     type="button"
                     onClick={handleAddCustomTag}
@@ -962,13 +892,7 @@ export const SpeciesTab: React.FC = () => {
                             className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-700"
                           >
                             {tag}
-                            <button
-                              type="button"
-                              onClick={() => handleTagToggle(tag)}
-                              className="ml-2 text-green-500 hover:text-green-700"
-                            >
-                              ×
-                            </button>
+                            <Button variant="ghost" className="ml-2" type="button" onClick={() => handleTagToggle(tag)}>×</Button>
                           </span>
                         ))}
                     </div>
@@ -989,7 +913,7 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.classification}
               onToggle={() => toggleSection('classification')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                   <select
@@ -1033,26 +957,14 @@ export const SpeciesTab: React.FC = () => {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Family</label>
-                  <input
-                    type="text"
-                    value={formData.family}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
-                    placeholder="e.g., Moronidae"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.family} onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))} placeholder="e.g., Moronidae" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Genus</label>
-                  <input
-                    type="text"
-                    value={formData.genus}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
-                    placeholder="e.g., Dicentrarchus"
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.genus} onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))} placeholder="e.g., Dicentrarchus" />
                 </div>
               </div>
             </CollapsibleSection>
@@ -1094,54 +1006,33 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Temperature (°C)
                 </label>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.tempMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="18"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" value={formData.tempMin} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             tempMin: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="18" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.tempMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="28"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" value={formData.tempMax} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             tempMax: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="28" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.tempOptimal}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="24"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" value={formData.tempOptimal} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="24" />
                   </div>
                 </div>
               </div>
@@ -1149,42 +1040,24 @@ export const SpeciesTab: React.FC = () => {
               {/* pH */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">pH</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="14"
-                      value={formData.phMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          phMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" max="14" value={formData.phMin} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             phMin: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="7.0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="14"
-                      value={formData.phMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          phMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="8.5"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" max="14" value={formData.phMax} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             phMax: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="8.5" />
                   </div>
                 </div>
               </div>
@@ -1194,40 +1067,24 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Dissolved Oxygen (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.oxygenMin}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="5.0"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" value={formData.oxygenMin} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="5.0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.oxygenOptimal}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="7.0"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" value={formData.oxygenOptimal} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="7.0" />
                   </div>
                 </div>
               </div>
@@ -1237,23 +1094,15 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Ammonia (mg/L)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max Tolerable</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.ammoniaMax}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="0.02"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.01" min="0" value={formData.ammoniaMax} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="0.02" />
                   </div>
                 </div>
               </div>
@@ -1261,40 +1110,24 @@ export const SpeciesTab: React.FC = () => {
               {/* CO2 */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">CO2 (mg/L)</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.co2Min}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          co2Min: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="0"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" value={formData.co2Min} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             co2Min: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={formData.co2Max}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          co2Max: e.target.value === '' ? '' : Number(e.target.value),
-                        }))
-                      }
-                      placeholder="20"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.1" min="0" value={formData.co2Max} onChange={(e) =>
+            setFormData((prev) => ({
+             ...prev,
+             co2Max: e.target.value === '' ? '' : Number(e.target.value),
+            }))
+           } placeholder="20" />
                   </div>
                 </div>
               </div>
@@ -1304,40 +1137,22 @@ export const SpeciesTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Light Regime (hours/day)
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Light Hours</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="24"
-                      value={formData.lightHours}
-                      onChange={(e) => {
-                        const light = e.target.value === '' ? '' : Number(e.target.value);
-                        const dark = light !== '' ? 24 - light : '';
-                        setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
-                      }}
-                      placeholder="14"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.5" min="0" max="24" value={formData.lightHours} onChange={(e) => {
+            const light = e.target.value === '' ? '' : Number(e.target.value);
+            const dark = light !== '' ? 24 - light : '';
+            setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
+           }} placeholder="14" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Dark Hours</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max="24"
-                      value={formData.darkHours}
-                      onChange={(e) => {
-                        const dark = e.target.value === '' ? '' : Number(e.target.value);
-                        const light = dark !== '' ? 24 - dark : '';
-                        setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
-                      }}
-                      placeholder="10"
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="0.5" min="0" max="24" value={formData.darkHours} onChange={(e) => {
+            const dark = e.target.value === '' ? '' : Number(e.target.value);
+            const light = dark !== '' ? 24 - dark : '';
+            setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
+           }} placeholder="10" />
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Light + Dark hours should equal 24</p>
@@ -1393,7 +1208,7 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.status}
               onToggle={() => toggleSection('status')}
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                   <select
@@ -1413,35 +1228,17 @@ export const SpeciesTab: React.FC = () => {
               </div>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  rows={3}
-                  placeholder="Additional notes about this species..."
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} placeholder="Additional notes about this species..." />
               </div>
             </CollapsibleSection>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              disabled={createSpecies.isPending || updateSpecies.isPending}
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
-            >
-              {(createSpecies.isPending || updateSpecies.isPending) && (
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={createSpecies.isPending || updateSpecies.isPending}>{(createSpecies.isPending || updateSpecies.isPending) && (
                 <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
-              {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+              {editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

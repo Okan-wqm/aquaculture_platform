@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
@@ -69,14 +70,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
       <div className="p-2 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
           <Search className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search widget..."
-            className="flex-1 text-xs bg-transparent outline-hidden"
-            autoFocus
-          />
+          <Input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search widget..." autoFocus />
         </div>
       </div>
       <div className="overflow-y-auto flex-1">
@@ -86,26 +80,18 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
           </p>
         ) : (
           filtered.map((w) => (
-            <button
-              key={w.widgetId}
-              onClick={() => { onSelect(w.widgetId, variableTag); onClose(); }}
-              className="w-full text-left px-3 py-2 text-xs hover:bg-cyan-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
-            >
-              <div className="flex-1 min-w-0">
+            <Button variant="secondary" size="xs" key={w.widgetId} onClick={() => { onSelect(w.widgetId, variableTag); onClose(); }}><div className="flex-1 min-w-0">
                 <span className="font-medium text-gray-700 dark:text-gray-300 truncate block">{w.label}</span>
                 {w.tag && (
                   <span className="text-[10px] text-cyan-600 font-mono truncate block">tag: {w.tag}</span>
                 )}
               </div>
-              <span className="text-gray-500 dark:text-gray-400 truncate text-[10px] shrink-0">{w.widgetType}</span>
-            </button>
+              <span className="text-gray-500 dark:text-gray-400 truncate text-[10px] shrink-0">{w.widgetType}</span></Button>
           ))
         )}
       </div>
       <div className="p-1.5 border-t border-gray-100 dark:border-gray-700">
-        <button onClick={onClose} className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 py-1">
-          Close
-        </button>
+        <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
       </div>
     </div>
   );
@@ -140,12 +126,7 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
           </p>
         ) : (
           available.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => { onSelect(p.id); onClose(); }}
-              className="w-full text-left px-3 py-2.5 hover:bg-cyan-50 border-b border-gray-50 last:border-0"
-            >
-              <div className="flex items-center justify-between">
+            <Button variant="secondary" size="sm" key={p.id} onClick={() => { onSelect(p.id); onClose(); }}><div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{p.programName}</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(p.status)}`}>
                   {getStatusText(p.status)}
@@ -154,15 +135,12 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">{p.programCode}</span>
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">{p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}</span>
-              </div>
-            </button>
+              </div></Button>
           ))
         )}
       </div>
       <div className="p-1.5 border-t border-gray-100 dark:border-gray-700">
-        <button onClick={onClose} className="w-full text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 py-1">
-          Cancel
-        </button>
+        <Button variant="ghost" size="xs" onClick={onClose}>Cancel</Button>
       </div>
     </div>
   );
@@ -191,9 +169,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 flex items-center gap-2">
-        <button onClick={() => setExpanded(!expanded)} className="text-gray-500 dark:text-gray-400">
-          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
+        <Button variant="ghost" onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</Button>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{binding.programName}</div>
           <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">{binding.programCode}</span>
@@ -201,13 +177,7 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
         <span className="text-[10px] text-gray-500 dark:text-gray-400">
           {boundCount}/{totalCount}
         </span>
-        <button
-          onClick={() => removeAutomationProgram(binding.programId)}
-          className="text-red-400 hover:text-red-600 p-0.5"
-          title="Remove program"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" iconOnly aria-label="Remove program" onClick={() => removeAutomationProgram(binding.programId)} title="Remove program"><Trash2 className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Variable List */}
@@ -227,25 +197,13 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
                   <div className="flex items-center gap-1.5">
                     <Check className="w-3 h-3 text-green-500" />
                     <span className="text-[10px] text-green-700 font-mono flex-1 truncate">{v.boundTag}</span>
-                    <button
-                      onClick={() => unbindVariable(binding.programId, v.variableId)}
-                      className="text-gray-500 dark:text-gray-400 hover:text-red-500 p-0.5"
-                      title="Remove binding"
-                    >
-                      <Unlink className="w-3 h-3" />
-                    </button>
+                    <Button variant="ghost" iconOnly aria-label="Remove binding" onClick={() => unbindVariable(binding.programId, v.variableId)} title="Remove binding"><Unlink className="w-3 h-3" /></Button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
                     <AlertTriangle className="w-3 h-3 text-amber-500" />
                     <span className="text-[10px] text-amber-600 flex-1">Unbound</span>
-                    <button
-                      onClick={() => setPickerVarId(v.variableId)}
-                      className="text-xs text-cyan-600 hover:text-cyan-700 flex items-center gap-0.5"
-                    >
-                      <Link className="w-3 h-3" />
-                      Bind
-                    </button>
+                    <Button variant="ghost" size="xs" leftIcon={<Link className="w-3 h-3" />} onClick={() => setPickerVarId(v.variableId)}>Bind</Button>
                   </div>
                 )}
                 {v.ioTagName && (
@@ -327,13 +285,7 @@ export const AutomationBindingPanel: React.FC = () => {
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Automation Programs</h4>
         <div className="relative">
-          <button
-            onClick={() => setShowSelector(!showSelector)}
-            className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-          >
-            <Plus className="w-3 h-3" />
-            Add Program
-          </button>
+          <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={() => setShowSelector(!showSelector)}>Add Program</Button>
           {showSelector && (
             <ProgramSelector
               onSelect={handleSelectProgram}
@@ -364,7 +316,7 @@ export const AutomationBindingPanel: React.FC = () => {
 
       {/* Summary */}
       {automationBindings.length > 0 && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="px-3 py-2 bg-green-50 border border-green-100 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
               <Check className="w-3 h-3 text-green-600" />

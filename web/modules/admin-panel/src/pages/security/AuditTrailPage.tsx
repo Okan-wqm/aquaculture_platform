@@ -313,7 +313,7 @@ const AuditDetailModal: React.FC<{
       }
     >
       {/* Basic Info */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ID</span>
           <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.id}</p>
@@ -344,7 +344,7 @@ const AuditDetailModal: React.FC<{
       {/* Entity Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Entity Information</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
             <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityType}</p>
@@ -354,7 +354,7 @@ const AuditDetailModal: React.FC<{
             <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.entityId}</p>
           </div>
           {entry.entityName && (
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
               <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityName}</p>
             </div>
@@ -365,7 +365,7 @@ const AuditDetailModal: React.FC<{
       {/* User Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
             <p className="text-sm text-gray-900 dark:text-gray-100">{entry.userName || 'System'}</p>
@@ -393,7 +393,7 @@ const AuditDetailModal: React.FC<{
             {entry.changes.map((change, idx) => (
               <div key={idx} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{change.field}</p>
-                <div className="grid grid-cols-2 gap-4 mt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
                   <div>
                     <span className="text-xs text-red-600">Old:</span>
                     <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
@@ -951,7 +951,7 @@ export const AuditTrailPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-4 gap-4 text-sm">
+                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500 dark:text-gray-400">Threshold:</span>{' '}
                       <span className="text-gray-900 dark:text-gray-100 font-medium">{rule.threshold || 'N/A'}</span>

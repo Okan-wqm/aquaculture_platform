@@ -13,6 +13,8 @@
 
 import React, { useId } from 'react';
 
+import { cn } from '../../utils';
+
 export interface FormFieldProps {
   label?: string;
   htmlFor?: string;
@@ -47,7 +49,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   const describedBy = showError ? errorId : helperText ? helperId : undefined;
 
   return (
-    <div className={`mb-4 ${className}`}>
+    <div className={cn('mb-4', className)}>
       {label && (
         <label
           htmlFor={htmlFor}

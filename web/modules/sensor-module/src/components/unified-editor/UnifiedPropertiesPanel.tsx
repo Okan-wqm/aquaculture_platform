@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 import {
   Settings,
   Tag,
@@ -209,13 +210,7 @@ const HmiWidgetPanel: React.FC = () => {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Kurallari</h4>
-              <button
-                onClick={handleAddAlarm}
-                className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-              >
-                <Plus className="w-3 h-3" />
-                Alarm Ekle
-              </button>
+              <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={handleAddAlarm}>Alarm Ekle</Button>
             </div>
 
             {alarmRules.length === 0 && (
@@ -246,20 +241,9 @@ const HmiWidgetPanel: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <button
-                    onClick={() => removeAlarmRule(rule.id)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => removeAlarmRule(rule.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
-                <input
-                  type="text"
-                  value={rule.tag}
-                  onChange={(e) => storeUpdateAlarmRule(rule.id, { tag: e.target.value })}
-                  placeholder="Tag"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                />
+                <Input fullWidth type="text" value={rule.tag} onChange={(e) => storeUpdateAlarmRule(rule.id, { tag: e.target.value })} placeholder="Tag" />
                 <div className="flex gap-1">
                   <select
                     value={rule.condition}
@@ -272,20 +256,9 @@ const HmiWidgetPanel: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={rule.value}
-                    onChange={(e) => storeUpdateAlarmRule(rule.id, { value: Number(e.target.value) })}
-                    className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input type="number" value={rule.value} onChange={(e) => storeUpdateAlarmRule(rule.id, { value: Number(e.target.value) })} />
                 </div>
-                <input
-                  type="text"
-                  value={rule.message}
-                  onChange={(e) => storeUpdateAlarmRule(rule.id, { message: e.target.value })}
-                  placeholder="Alarm mesaji"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                />
+                <Input fullWidth type="text" value={rule.message} onChange={(e) => storeUpdateAlarmRule(rule.id, { message: e.target.value })} placeholder="Alarm mesaji" />
               </div>
             ))}
           </div>
@@ -297,54 +270,26 @@ const HmiWidgetPanel: React.FC = () => {
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Ayarlari</h4>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Saklama Suresi (gun)</label>
-              <input
-                type="number"
-                min={1}
-                value={trendConfig.retentionDays}
-                onChange={(e) =>
-                  updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
-                }
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              />
+              <Input fullWidth type="number" min={1} value={trendConfig.retentionDays} onChange={(e) =>
+         updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
+        } />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ornekleme Araligi (sn)</label>
-              <input
-                type="number"
-                min={1}
-                value={trendConfig.sampleIntervalSec}
-                onChange={(e) =>
-                  updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
-                }
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              />
+              <Input fullWidth type="number" min={1} value={trendConfig.sampleIntervalSec} onChange={(e) =>
+         updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
+        } />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-gray-500 dark:text-gray-400">Tag'ler</label>
-                <button
-                  onClick={handleAddTrendTag}
-                  className="text-xs text-cyan-600 hover:text-cyan-700"
-                >
-                  + Tag Ekle
-                </button>
+                <Button variant="ghost" size="xs" onClick={handleAddTrendTag}>+ Tag Ekle</Button>
               </div>
               <div className="space-y-1">
                 {trendConfig.tags.map((tag, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <input
-                      type="text"
-                      value={tag}
-                      onChange={(e) => handleUpdateTrendTag(i, e.target.value)}
-                      placeholder="sensor.temperature"
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                    <button
-                      onClick={() => handleRemoveTrendTag(i)}
-                      className="text-red-400 hover:text-red-600 text-xs px-1"
-                    >
-                      X
-                    </button>
+                    <Input type="text" value={tag} onChange={(e) => handleUpdateTrendTag(i, e.target.value)} placeholder="sensor.temperature" />
+                    <Button variant="ghost" size="xs" onClick={() => handleRemoveTrendTag(i)}>X</Button>
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (

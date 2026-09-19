@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -111,12 +111,7 @@ const ScadaPackageListPage: React.FC = () => {
             <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
             <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load packages</p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
-            <button
-              onClick={refetch}
-              className="mt-4 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
-            >
-              Retry
-            </button>
+            <Button variant="primary" className="mt-4" onClick={refetch}>Retry</Button>
           </div>
         </div>
       </div>
@@ -196,14 +191,9 @@ const ScadaPackageListPage: React.FC = () => {
       align: 'right',
       render: (_value, pkg) => (
         <div className="relative inline-block">
-          <button
-            onClick={() =>
+          <Button variant="ghost" iconOnly aria-label="More actions" onClick={() =>
               setActiveDropdown(activeDropdown === pkg.id ? null : pkg.id)
-            }
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-          >
-            <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          </button>
+            }><MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
 
           {activeDropdown === pkg.id && (
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
@@ -214,24 +204,12 @@ const ScadaPackageListPage: React.FC = () => {
                 <Edit className="w-4 h-4" />
                 Edit
               </Link>
-              <button
-                onClick={() => {
+              <Button variant="ghost" leftIcon={<Upload className="w-4 h-4" />} onClick={() => {
                   setActiveDropdown(null);
                   navigate(`/sensor/scada-builder/${pkg.id}?deploy=true`);
-                }}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Upload className="w-4 h-4" />
-                Deploy
-              </button>
+                }}>Deploy</Button>
               <hr className="my-1 border-gray-200 dark:border-gray-700" />
-              <button
-                onClick={() => handleDelete(pkg)}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
+              <Button variant="ghost" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => handleDelete(pkg)}>Delete</Button>
             </div>
           )}
         </div>
@@ -247,13 +225,7 @@ const ScadaPackageListPage: React.FC = () => {
         description="Deployable SCADA HMI packages for edge devices"
         actions={
           <div className="flex gap-3">
-            <button
-              onClick={refetch}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+            <Button variant="secondary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={refetch}>Refresh</Button>
             <Link
               to="/sensor/scada-builder/new"
               className="flex items-center gap-2 px-4 py-2 text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
@@ -283,16 +255,7 @@ const ScadaPackageListPage: React.FC = () => {
         {/* Status Filter */}
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 appearance-none bg-white dark:bg-gray-900"
-          >
-            <option value="all">All Statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="PUBLISHED">Published</option>
-            <option value="ARCHIVED">Archived</option>
-          </select>
+          <Select options={[{ value: 'all', label: 'All Statuses' }, { value: 'DRAFT', label: 'Draft' }, { value: 'PUBLISHED', label: 'Published' }, { value: 'ARCHIVED', label: 'Archived' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </div>
 

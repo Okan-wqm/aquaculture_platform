@@ -23,7 +23,7 @@ import React, { Suspense } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 
 import { useBatch } from '../../hooks/useBatches';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button } from '@aquaculture/shared-ui';
 
 const BatchOverviewTab = React.lazy(
   () => import('./tabs/BatchOverviewTab'),
@@ -82,13 +82,7 @@ const BatchDetailPage: React.FC = () => {
             Parti ID <code>{batchId}</code> sistemde mevcut değil veya
             erişiminiz yok.
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/sites/tanks')}
-            className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Listeye dön
-          </button>
+          <Button variant="danger" size="sm" className="mt-3" type="button" onClick={() => navigate('/sites/tanks')}>Listeye dön</Button>
         </div>
       </div>
     );
@@ -109,13 +103,7 @@ const BatchDetailPage: React.FC = () => {
           </>
         }
         eyebrow={
-          <button
-            type="button"
-            onClick={() => navigate('/sites/tanks')}
-            className="text-sm text-blue-600 hover:underline"
-          >
-            ← Parti Listesi
-          </button>
+          <Button variant="ghost" type="button" onClick={() => navigate('/sites/tanks')}>← Parti Listesi</Button>
         }
         actions={
           <BatchStatusPill status={batch.status} />

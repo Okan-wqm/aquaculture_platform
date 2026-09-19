@@ -4,6 +4,7 @@
  * per-parameter source table (sensor dropdown filtered to the scope | manual value).
  */
 import { type ReactElement } from 'react';
+import { Button, Input, Select } from '@aquaculture/shared-ui';
 
 import {
   LOOPS,
@@ -51,7 +52,7 @@ const WcCardConfigDrawer = ({
     <div className="fixed inset-y-0 right-0 z-50 flex w-96 flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl">
       <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Configure card</h3>
-        <button type="button" onClick={onClose} className="text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-100">✕</button>
+        <Button variant="ghost" type="button" onClick={onClose}>✕</Button>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -59,11 +60,7 @@ const WcCardConfigDrawer = ({
         <section className="space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Scope</h4>
           <div className="flex gap-2 text-xs">
-            <select value={card.scope.kind} onChange={(e) => setScope({ kind: e.target.value as CardScope['kind'], id: e.target.value === 'tank' ? TANKS[0].id : LOOPS[0].id })}
-              className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1">
-              <option value="tank">Tank</option>
-              <option value="biofilter">Biofilter (loop)</option>
-            </select>
+            <Select options={[{ value: 'tank', label: 'Tank' }, { value: 'biofilter', label: 'Biofilter (loop)' }]} value={card.scope.kind} onChange={(e) => setScope({ kind: e.target.value as CardScope['kind'], id: e.target.value === 'tank' ? TANKS[0].id : LOOPS[0].id })} />
             <select value={card.scope.id} onChange={(e) => setScope({ kind: card.scope.kind, id: e.target.value })}
               className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1">
               {(card.scope.kind === 'tank' ? TANKS : LOOPS).map((o) => (
@@ -73,9 +70,7 @@ const WcCardConfigDrawer = ({
           </div>
           <label className="flex items-center gap-2 text-xs">
             <span className="text-gray-600 dark:text-gray-400">Sampling</span>
-            <input list="wc-sampling-presets" value={card.samplingLabel}
-              onChange={(e) => onChange({ samplingLabel: e.target.value })}
-              className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1" />
+            <Input list="wc-sampling-presets" value={card.samplingLabel} onChange={(e) => onChange({ samplingLabel: e.target.value })} />
             <datalist id="wc-sampling-presets">
               {SAMPLING_PRESETS.map((s) => <option key={s} value={s} />)}
             </datalist>
@@ -126,8 +121,7 @@ const WcCardConfigDrawer = ({
                     </select>
                   ) : (
                     <span className="flex flex-1 items-center gap-1">
-                      <input type="number" step={0.1} value={src.value ?? 0} onChange={(e) => setSource(p, { value: Number(e.target.value) })}
-                        className="w-full rounded border border-gray-300 dark:border-gray-600 px-1 py-0.5 text-right" />
+                      <Input className="text-right" fullWidth type="number" step={0.1} value={src.value ?? 0} onChange={(e) => setSource(p, { value: Number(e.target.value) })} />
                       <span className="w-8 text-gray-400 dark:text-gray-500">{UNITS[p]}</span>
                     </span>
                   )}

@@ -305,7 +305,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
           <div className="flex justify-center mb-4">
             <div className="w-20 h-20 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
           </div>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded"></div>
             ))}
@@ -389,7 +389,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
       )}
 
       {/* Parameter Grid */}
-      <div className={`grid ${compact ? 'grid-cols-3' : 'grid-cols-5'} gap-2`}>
+      <div className={`grid ${compact ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-5'} gap-2`}>
         {parameterValues.slice(0, compact ? 3 : 5).map((param) => (
           <div
             key={param.key}

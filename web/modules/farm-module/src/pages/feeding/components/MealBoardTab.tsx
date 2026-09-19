@@ -11,7 +11,7 @@
  * komut olduğundan zarf ZORUNLUDUR (C-17) — hook zarfı üretir.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
@@ -310,16 +310,10 @@ export function MealBoardTab(): React.ReactElement {
             <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
               {pour.kg} kg
               {canCorrect && meal.status !== 'CANCELLED' && (
-                <button
-                  type="button"
-                  onClick={() => {
+                <Button variant="ghost" type="button" onClick={() => {
                     setCorrectModal({ meal, pourIndex: pour.pourIndex });
                     setCorrectedKg(String(pour.kg));
-                  }}
-                  className="text-blue-600 underline"
-                >
-                  {t('feedingV2.mealBoard.correctPour')}
-                </button>
+                  }}>{t('feedingV2.mealBoard.correctPour')}</Button>
               )}
             </span>
           ))}
@@ -334,13 +328,7 @@ export function MealBoardTab(): React.ReactElement {
         return (
           <>
             {open && canRecord && (
-              <button
-                type="button"
-                onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}
-                className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
-              >
-                {t('feedingV2.mealBoard.addPour')}
-              </button>
+              <Button variant="primary" size="xs" className="mr-2" type="button" onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}>{t('feedingV2.mealBoard.addPour')}</Button>
             )}
             {/*
               W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
@@ -350,25 +338,12 @@ export function MealBoardTab(): React.ReactElement {
               olmayan öğünün doğru fiili "atla"dır.
             */}
             {meal.status === 'PARTIALLY_FED' && canFinalize && (
-              <button
-                type="button"
-                disabled={finalizeMeal.isPending}
-                onClick={() => {
+              <Button variant="secondary" size="xs" className="mr-2" type="button" disabled={finalizeMeal.isPending} onClick={() => {
                   void finalizeMeal.mutateAsync({ mealId: meal.id });
-                }}
-                className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
-              >
-                {t('feedingV2.mealBoard.finalizeMeal')}
-              </button>
+                }}>{t('feedingV2.mealBoard.finalizeMeal')}</Button>
             )}
             {meal.status === 'SCHEDULED' && canSkip && (
-              <button
-                type="button"
-                onClick={() => setSkipModalMeal(meal)}
-                className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                {t('feedingV2.mealBoard.skip')}
-              </button>
+              <Button variant="secondary" size="xs" type="button" onClick={() => setSkipModalMeal(meal)}>{t('feedingV2.mealBoard.skip')}</Button>
             )}
           </>
         );
@@ -386,12 +361,7 @@ export function MealBoardTab(): React.ReactElement {
         <div className="flex items-end gap-3">
           <label className="block text-sm">
             <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.date')}</span>
-            <input
-              type="date"
-              value={planDate}
-              onChange={(event) => setPlanDate(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
-            />
+            <Input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} />
           </label>
           <label className="block text-sm">
             <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.site')}</span>
@@ -513,13 +483,7 @@ export function MealBoardTab(): React.ReactElement {
                   </span>
                 )}
                 {canRegenerate && (
-                  <button
-                    type="button"
-                    onClick={() => void onRegenerate(plan)}
-                    className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  >
-                    {t('feedingV2.mealBoard.regenerate')}
-                  </button>
+                  <Button variant="secondary" size="xs" type="button" onClick={() => void onRegenerate(plan)}>{t('feedingV2.mealBoard.regenerate')}</Button>
                 )}
               </div>
             </div>
@@ -583,14 +547,7 @@ export function MealBoardTab(): React.ReactElement {
           <div className="space-y-4">
             <label className="block text-sm">
               <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.pourKg')}</span>
-              <input
-                type="number"
-                min={0.001}
-                step={0.1}
-                value={pourKg}
-                onChange={(event) => setPourKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
-              />
+              <Input fullWidth type="number" min={0.001} step={0.1} value={pourKg} onChange={(event) => setPourKg(event.target.value)} />
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -602,21 +559,8 @@ export function MealBoardTab(): React.ReactElement {
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400">{t('feedingV2.mealBoard.finalizeHint')}</p>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPourModal(null)}
-                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
-              >
-                {t('feedingV2.mealBoard.cancel')}
-              </button>
-              <button
-                type="button"
-                disabled={recordMeal.isPending}
-                onClick={() => void submitPour()}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {t('feedingV2.mealBoard.save')}
-              </button>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setPourModal(null)}>{t('feedingV2.mealBoard.cancel')}</Button>
+              <Button variant="primary" size="sm" type="button" disabled={recordMeal.isPending} onClick={() => void submitPour()}>{t('feedingV2.mealBoard.save')}</Button>
             </div>
           </div>
         </Modal>
@@ -627,30 +571,11 @@ export function MealBoardTab(): React.ReactElement {
           <div className="space-y-4">
             <label className="block text-sm">
               <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.skipReason')}</span>
-              <input
-                type="text"
-                maxLength={500}
-                value={skipReason}
-                onChange={(event) => setSkipReason(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
-              />
+              <Input fullWidth type="text" maxLength={500} value={skipReason} onChange={(event) => setSkipReason(event.target.value)} />
             </label>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setSkipModalMeal(null)}
-                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
-              >
-                {t('feedingV2.mealBoard.cancel')}
-              </button>
-              <button
-                type="button"
-                disabled={skipMeal.isPending || !skipReason.trim()}
-                onClick={() => void submitSkip()}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {t('feedingV2.mealBoard.save')}
-              </button>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setSkipModalMeal(null)}>{t('feedingV2.mealBoard.cancel')}</Button>
+              <Button variant="primary" size="sm" type="button" disabled={skipMeal.isPending || !skipReason.trim()} onClick={() => void submitSkip()}>{t('feedingV2.mealBoard.save')}</Button>
             </div>
           </div>
         </Modal>
@@ -665,31 +590,11 @@ export function MealBoardTab(): React.ReactElement {
           <div className="space-y-4">
             <label className="block text-sm">
               <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.correctedKg')}</span>
-              <input
-                type="number"
-                min={0.001}
-                step={0.1}
-                value={correctedKg}
-                onChange={(event) => setCorrectedKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
-              />
+              <Input fullWidth type="number" min={0.001} step={0.1} value={correctedKg} onChange={(event) => setCorrectedKg(event.target.value)} />
             </label>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setCorrectModal(null)}
-                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
-              >
-                {t('feedingV2.mealBoard.cancel')}
-              </button>
-              <button
-                type="button"
-                disabled={correctPour.isPending}
-                onClick={() => void submitCorrection()}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {t('feedingV2.mealBoard.save')}
-              </button>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setCorrectModal(null)}>{t('feedingV2.mealBoard.cancel')}</Button>
+              <Button variant="primary" size="sm" type="button" disabled={correctPour.isPending} onClick={() => void submitCorrection()}>{t('feedingV2.mealBoard.save')}</Button>
             </div>
           </div>
         </Modal>

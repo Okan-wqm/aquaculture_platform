@@ -21,7 +21,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import {
   useWorkRotations,
   useEmployees,
@@ -333,10 +333,7 @@ export function OffshoreRotationsPage() {
               <Users className="h-4 w-4" />
               Crew
             </Link>
-            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              <Plus className="h-4 w-4" />
-              New Rotation
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>New Rotation</Button>
           </div>
         }
       />
@@ -437,18 +434,7 @@ export function OffshoreRotationsPage() {
           <div className="flex items-center gap-4">
             {/* WHY: GraphQL RotationType enum values are UPPERCASE keys.
                 Using lowercase values causes the filter query to return a 400 error. */}
-            <select
-              value={rotationFilter}
-              onChange={(e) => setRotationFilter(e.target.value as RotationType | '')}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-            >
-              <option value="">All Rotation Types</option>
-              <option value="OFFSHORE">Offshore</option>
-              <option value="ONSHORE">Onshore</option>
-              <option value="FIELD">Field</option>
-              <option value="VESSEL">Vessel</option>
-              <option value="MIXED">Mixed</option>
-            </select>
+            <Select options={[{ value: '', label: 'All Rotation Types' }, { value: 'OFFSHORE', label: 'Offshore' }, { value: 'ONSHORE', label: 'Onshore' }, { value: 'FIELD', label: 'Field' }, { value: 'VESSEL', label: 'Vessel' }, { value: 'MIXED', label: 'Mixed' }]} value={rotationFilter} onChange={(e) => setRotationFilter(e.target.value as RotationType | '')} />
           </div>
 
           {/* Rotations Table */}
@@ -475,24 +461,9 @@ export function OffshoreRotationsPage() {
               {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </h3>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigateMonth('prev')}
-                className="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => setCalendarMonth(new Date())}
-                className="rounded-lg px-3 py-1 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-              >
-                Today
-              </button>
-              <button
-                onClick={() => navigateMonth('next')}
-                className="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Previous" onClick={() => navigateMonth('prev')}><ChevronLeft className="h-5 w-5" /></Button>
+              <Button variant="ghost" size="sm" onClick={() => setCalendarMonth(new Date())}>Today</Button>
+              <Button variant="ghost" iconOnly aria-label="Next" onClick={() => navigateMonth('next')}><ChevronRight className="h-5 w-5" /></Button>
             </div>
           </div>
 

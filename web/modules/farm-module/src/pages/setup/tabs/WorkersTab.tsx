@@ -11,7 +11,7 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -57,6 +57,8 @@ export const WorkersTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<WorkerFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const workerList = workers || [];
@@ -74,6 +76,7 @@ export const WorkersTab: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     setFormData(initialFormData);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -106,10 +109,13 @@ export const WorkersTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.position) {
-      toast({ title: 'First name, last name, email, and position are required.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.firstName) errors.firstName = 'Please enter a first name.';
+    if (!formData.lastName) errors.lastName = 'Please enter a last name.';
+    if (!formData.email) errors.email = 'Please enter an email address.';
+    if (!formData.position) errors.position = 'Please enter a position.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsSaving(true);
     try {
@@ -137,6 +143,7 @@ export const WorkersTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save worker:', err);
@@ -194,18 +201,8 @@ export const WorkersTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <button
-            onClick={() => openEdit(item)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>Edit</Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Delete</Button>
         </>
       ),
     }
@@ -239,11 +236,7 @@ export const WorkersTab: React.FC = () => {
             </svg>
           </div>
         </div>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -251,8 +244,7 @@ export const WorkersTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Worker
-        </button>
+          Add Worker</Button>
       </div>
 
       {/* Loading */}
@@ -266,9 +258,7 @@ export const WorkersTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load workers. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -315,57 +305,35 @@ export const WorkersTab: React.FC = () => {
       >
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">First Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.firstName}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <FormField error={formData.firstName ? undefined : fieldErrors.firstName} className="mb-0">
+                <Input fullWidth type="text" required value={formData.firstName} onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))} />
+                </FormField>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.lastName}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <FormField error={formData.lastName ? undefined : fieldErrors.lastName} className="mb-0">
+                <Input fullWidth type="text" required value={formData.lastName} onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))} />
+                </FormField>
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email *</label>
-              <input
-                type="email"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <FormField error={formData.email ? undefined : fieldErrors.email} className="mb-0">
+              <Input fullWidth type="email" required value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} />
+              </FormField>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-              <input
-                type="text"
-                value={formData.phone}
-                onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Input fullWidth type="text" value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Position *</label>
-              <input
-                type="text"
-                required
-                value={formData.position}
-                onChange={(e) => setFormData((prev) => ({ ...prev, position: e.target.value }))}
-                placeholder="e.g., Farm Technician, Feed Operator"
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <FormField error={formData.position ? undefined : fieldErrors.position} className="mb-0">
+              <Input fullWidth type="text" required value={formData.position} onChange={(e) => setFormData((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g., Farm Technician, Feed Operator" />
+              </FormField>
             </div>
             <div>
               <label className="flex items-center gap-2">
@@ -387,37 +355,18 @@ export const WorkersTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinary licence number
                 </label>
-                <input
-                  type="text"
-                  maxLength={50}
-                  value={formData.veterinaryLicenseNumber}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      veterinaryLicenseNumber: e.target.value,
-                    }))
-                  }
-                  placeholder="Professional licence / registration number"
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Input fullWidth type="text" maxLength={50} value={formData.veterinaryLicenseNumber} onChange={(e) =>
+          setFormData((prev) => ({
+           ...prev,
+           veterinaryLicenseNumber: e.target.value,
+          }))
+         } placeholder="Professional licence / registration number" />
               </div>
             )}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
-            </button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}</Button>
           </div>
         </form>
       </Modal>

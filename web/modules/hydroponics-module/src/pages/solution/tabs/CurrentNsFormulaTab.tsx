@@ -72,7 +72,7 @@ const CurrentNsFormulaTab: React.FC = () => {
           Enter the nutrient solution formula currently being applied. This is used as the baseline for readjustment calculations.
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberInput
             label="Target EC DS Mixer (mS/cm)"
             value={formula.targetEcDsMixer}

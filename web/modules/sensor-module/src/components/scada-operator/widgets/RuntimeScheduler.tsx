@@ -34,7 +34,7 @@ import type {
   RuntimeWidgetProps,
   SchedulerEvent,
 } from '../../../types/scada-runtime.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                                 */
@@ -172,14 +172,7 @@ const EventDetail = memo<EventDetailProps>(({ event, color, anchorRef, onClose }
           />
           <span className="font-semibold text-gray-800 dark:text-gray-200 leading-tight">{event.name}</span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0 leading-none"
-          aria-label="Close detail"
-        >
-          ✕
-        </button>
+        <Button variant="ghost" className="flex-shrink-0" type="button" onClick={onClose} aria-label="Close detail">✕</Button>
       </div>
       <div className="space-y-1 text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-1">
@@ -232,16 +225,7 @@ const EventBlock = memo<EventBlockProps>(
       // Monthly view pill
       return (
         <div className="relative">
-          <button
-            ref={anchorRef as React.RefObject<HTMLButtonElement | null>}
-            type="button"
-            onClick={handleClick}
-            aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`}
-            className="w-full text-left px-1 py-0.5 rounded text-[9px] font-medium truncate leading-tight cursor-pointer hover:opacity-80 transition-opacity"
-            style={{ backgroundColor: color + '33', color, borderLeft: `2px solid ${color}` }}
-          >
-            {event.name}
-          </button>
+          <Button variant="ghost" ref={anchorRef as React.RefObject<HTMLButtonElement | null>} type="button" onClick={handleClick} aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`} style={{ backgroundColor: color + '33', color, borderLeft: `2px solid ${color}` }}>{event.name}</Button>
           {showDetail && (
             <EventDetail
               event={event}
@@ -264,21 +248,12 @@ const EventBlock = memo<EventBlockProps>(
           minHeight: 18,
         }}
       >
-        <button
-          ref={anchorRef as React.RefObject<HTMLButtonElement | null>}
-          type="button"
-          onClick={handleClick}
-          aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`}
-          className="w-full h-full rounded px-1 text-left overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
-          style={{
+        <Button variant="ghost" ref={anchorRef as React.RefObject<HTMLButtonElement | null>} type="button" onClick={handleClick} aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`} style={{
             backgroundColor: color + '33',
             borderLeft: `3px solid ${color}`,
             color,
-          }}
-        >
-          <div className="text-[9px] font-semibold leading-tight truncate">{event.name}</div>
-          <div className="text-[8px] opacity-80 leading-tight">{event.startTime}–{event.endTime}</div>
-        </button>
+          }}><div className="text-[9px] font-semibold leading-tight truncate">{event.name}</div>
+          <div className="text-[8px] opacity-80 leading-tight">{event.startTime}–{event.endTime}</div></Button>
         {showDetail && (
           <EventDetail
             event={event}
@@ -626,30 +601,9 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
 
         {/* Navigation */}
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={navPrev}
-            aria-label="Previous"
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-600 dark:text-gray-400"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            onClick={navToday}
-            className="px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
-            aria-label="Go to today"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={navNext}
-            aria-label="Next"
-            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-600 dark:text-gray-400"
-          >
-            <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly type="button" onClick={navPrev} aria-label="Previous"><ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" /></Button>
+          <Button variant="ghost" type="button" onClick={navToday} aria-label="Go to today">Today</Button>
+          <Button variant="ghost" size="sm" iconOnly type="button" onClick={navNext} aria-label="Next"><ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></Button>
         </div>
 
         {/* Period label */}

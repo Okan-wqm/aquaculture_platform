@@ -2,15 +2,11 @@ import {
   createTenantQueryKey,
   getSessionSnapshot,
   hasSameTenantSessionBoundary,
-  useAuth,
-} from '@aquaculture/shared-ui';
-import {
-  useMutation,
-  useQuery,
+  useAuth, useFeedbackMutation } from '@aquaculture/shared-ui';
+import { useQuery,
   useQueryClient,
   type UseMutationResult,
-  type UseQueryResult,
-} from '@tanstack/react-query';
+  type UseQueryResult, } from '@tanstack/react-query';
 
 import {
   assignUserToSite,
@@ -100,7 +96,8 @@ function useUserSiteMutation(
     }
   };
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: kind === 'assign' ? 'Site access granted' : 'Site access removed' },
     onMutate: (variables): UserSiteMutationContext => {
       assertCurrentOwnerSession();
       return {

@@ -4,7 +4,7 @@
  * Modal for transferring cleaner fish between tanks.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import { useTransferCleanerFish, useTankCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
 import type { TankOption } from '../types';
 
@@ -165,16 +165,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Quantity to Transfer <span className="text-red-500">*</span>
           </label>
-          <input
-            type="number"
-            id="quantity"
-            min="1"
-            max={maxQuantity}
-            value={quantity || ''}
-            onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Enter quantity"
-          />
+          <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Max: {maxQuantity.toLocaleString()}
           </p>
@@ -185,14 +176,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Transfer Date
           </label>
-          <input
-            type="date"
-            id="transferredAt"
-            value={transferredAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setTransferredAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          />
+          <Input fullWidth type="date" id="transferredAt" value={transferredAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setTransferredAt(e.target.value)} />
         </div>
 
         {/* Reason */}
@@ -200,14 +184,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Transfer Reason
           </label>
-          <input
-            type="text"
-            id="reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="e.g., Rebalancing, Production needs..."
-          />
+          <Input fullWidth type="text" id="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g., Rebalancing, Production needs..." />
         </div>
 
         {/* Notes */}
@@ -215,15 +192,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
-          <textarea
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Optional notes..."
-          />
+          <Textarea fullWidth id="notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." />
         </div>
 
         {/* Validation Error */}

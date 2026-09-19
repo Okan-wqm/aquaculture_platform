@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -90,16 +90,7 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
         />
 
         {/* Hex text input */}
-        <input
-          type="text"
-          value={color}
-          onChange={(e) => handleHexInput(e.target.value)}
-          maxLength={7}
-          placeholder={colors.black}
-          className="w-20 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
-          aria-label={label ? `${label} hex value` : 'Hex color value'}
-          data-testid="color-hex-input"
-        />
+        <Input className="font-mono" type="text" value={color} onChange={(e) => handleHexInput(e.target.value)} maxLength={7} placeholder={colors.black} aria-label={label ? `${label} hex value` : 'Hex color value'} data-testid="color-hex-input" />
 
         {/* Alpha slider */}
         <input
@@ -115,17 +106,7 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
         />
 
         {/* Alpha percentage text input */}
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step={1}
-          value={alphaPercent}
-          onChange={(e) => handleAlphaText(e.target.value)}
-          className="w-12 px-1.5 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-center"
-          aria-label={label ? `${label} opacity percent` : 'Opacity percent'}
-          data-testid="alpha-percent"
-        />
+        <Input className="text-center" type="number" min={0} max={100} step={1} value={alphaPercent} onChange={(e) => handleAlphaText(e.target.value)} aria-label={label ? `${label} opacity percent` : 'Opacity percent'} data-testid="alpha-percent" />
         <span className="text-[10px] text-gray-400 dark:text-gray-500">%</span>
       </div>
     </div>

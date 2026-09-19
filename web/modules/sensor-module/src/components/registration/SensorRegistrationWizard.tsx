@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { ProtocolSelectionStep } from './steps/ProtocolSelectionStep';
 import { ProtocolConfigurationStep } from './steps/ProtocolConfigurationStep';
 import { ConnectionTestStep } from './steps/ConnectionTestStep';
@@ -301,37 +301,20 @@ export function SensorRegistrationWizard({
       bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       footer={
         <div className="flex w-full items-center justify-between">
-          <button
-            onClick={currentStep === 0 ? handleClose : prevStep}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
-          >
-            {currentStep === 0 ? 'Cancel' : 'Back'}
-          </button>
+          <Button variant="secondary" onClick={currentStep === 0 ? handleClose : prevStep}>{currentStep === 0 ? 'Cancel' : 'Back'}</Button>
 
           <div className="flex items-center space-x-3">
             {currentStep === STEPS.length - 1 ? (
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
+              <Button variant="primary" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
                   <span className="flex items-center">
                     <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                     Registering...
                   </span>
                 ) : (
                   'Register Device & Sensors'
-                )}
-              </button>
+                )}</Button>
             ) : (
-              <button
-                onClick={nextStep}
-                disabled={!canProceed}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
+              <Button variant="primary" onClick={nextStep} disabled={!canProceed}>Next</Button>
             )}
           </div>
         </div>

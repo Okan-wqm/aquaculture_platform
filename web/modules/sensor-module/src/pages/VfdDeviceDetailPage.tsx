@@ -27,7 +27,7 @@ import {
 import { useVfdDevice, useVfdRegistration } from '../hooks/useVfdRegistration';
 import { VfdControlPanel } from '../components/vfd/VfdControlPanel';
 import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES, VfdDeviceStatus } from '../types/vfd.types';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -175,20 +175,12 @@ export const VfdDeviceDetailPage: React.FC = () => {
               Devre Dışı Bırak
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => void runLifecycle('activate')}
-              disabled={lifecycleBusy || !connected}
-              data-testid="vfd-activate"
-              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-              {lifecycleBusy ? (
+            <Button variant="primary" size="sm" type="button" onClick={() => void runLifecycle('activate')} disabled={lifecycleBusy || !connected} data-testid="vfd-activate">{lifecycleBusy ? (
                 <Spinner size="sm" color="inherit" />
               ) : (
                 <Power className="w-4 h-4" />
               )}
-              Etkinleştir
-            </button>
+              Etkinleştir</Button>
           )}
           {/* The server refuses activation without a passed connection test; say so up front. */}
           {device.status !== VfdDeviceStatus.ACTIVE && !connected && (

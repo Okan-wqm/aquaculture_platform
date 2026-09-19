@@ -623,7 +623,7 @@ const UserManagementPage: React.FC = () => {
         <div className="space-y-4">
           {formError && <Alert type="error">{formError}</Alert>}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="First Name"
               value={formData.firstName}
@@ -719,7 +719,7 @@ const UserManagementPage: React.FC = () => {
       >
         {selectedUser && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Full Name</p>
                 <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
@@ -854,7 +854,7 @@ const UserManagementPage: React.FC = () => {
             required
           />
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="First Name"
               value={inviteFormData.firstName}

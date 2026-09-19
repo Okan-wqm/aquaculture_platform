@@ -3,7 +3,7 @@
  * Body: the SHARED SSoT chart — identical to the farm calculator (DeffeyesChart / the
  * secondary UIA·H₂S·CO₂ charts), engineReady-guarded. No lean fork.
  */
-import { buildDeffeyesData, computeWaterChemistryOutputs } from '@aquaculture/shared-ui';
+import { buildDeffeyesData, computeWaterChemistryOutputs, Button } from '@aquaculture/shared-ui';
 import type { CalculatedOutputs, WaterChemistryInputs } from '@aquaculture/shared-ui';
 import {
   CarbonateVsPhChart,
@@ -69,8 +69,8 @@ const WcChartCard = ({
             <option key={t} value={t}>{CHART_LABELS[t]}</option>
           ))}
         </select>
-        <button type="button" onClick={onConfigure} title="Configure" className="text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-100">⚙</button>
-        <button type="button" onClick={onRemove} title="Remove" className="text-gray-400 dark:text-gray-500 hover:text-red-600">✕</button>
+        <Button variant="ghost" type="button" onClick={onConfigure} title="Configure">⚙</Button>
+        <Button variant="ghost" type="button" onClick={onRemove} title="Remove">✕</Button>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-auto p-2">
         {inputs && outputs ? (

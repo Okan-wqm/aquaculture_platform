@@ -2,7 +2,7 @@
  * HR Expenses tab — manual HR expense ledger (training, recruitment,
  * PPE, travel, custom) with dynamic category management.
  */
-import { DataTable, parseMoney, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, parseMoney, useConfirm, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 import {
@@ -32,6 +32,22 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
   const handleDeleteEntry = async (id: string): Promise<void> => {
     if (!(await confirm({ title: 'Delete this HR expense?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
     deleteEntry.mutate(id);
+  };
+
+  // FE-HIGH-086: archiving a category hides it from every new entry; it asks
+  // first, like deleting an entry does.
+  const handleArchiveCategory = async (category: { id: string; name: string }): Promise<void> => {
+    if (
+      !(await confirm({
+        title: `Archive category "${category.name}"?`,
+        message: 'Existing entries keep it; new entries can no longer use it.',
+        confirmText: 'Archive',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    )
+      return;
+    archiveCategory.mutate(category.id);
   };
 
   const [modal, setModal] = useState<{ open: boolean; entry?: HrFinanceEntry }>({ open: false });
@@ -90,18 +106,8 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
       align: 'right',
       render: (_value, entry) => (
         <span className="space-x-3 whitespace-nowrap">
-          <button
-            onClick={() => setModal({ open: true, entry })}
-            className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => void handleDeleteEntry(entry.id)}
-            className="font-medium text-red-600 hover:text-red-800 dark:text-red-400"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" onClick={() => setModal({ open: true, entry })}>Edit</Button>
+          <Button variant="ghost" onClick={() => void handleDeleteEntry(entry.id)}>Delete</Button>
         </span>
       ),
     },
@@ -117,28 +123,11 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
               <label htmlFor="hr-new-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 New expense category
               </label>
-              <input
-                id="hr-new-category"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                className="mt-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-                placeholder="e.g. Uniforms"
-              />
+              <Input id="hr-new-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="e.g. Uniforms" />
             </div>
-            <button
-              type="submit"
-              disabled={createCategory.isPending || !newCategory.trim()}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              Add
-            </button>
+            <Button variant="primary" size="sm" type="submit" disabled={createCategory.isPending || !newCategory.trim()}>Add</Button>
           </form>
-          <button
-            onClick={() => setModal({ open: true })}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            + Add expense
-          </button>
+          <Button variant="primary" onClick={() => setModal({ open: true })}>+ Add expense</Button>
         </div>
         {errorMessage && (
           <div className="mt-3 rounded-md bg-red-50 p-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -156,13 +145,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
                 <span className="text-purple-600 dark:text-purple-300">{c.computedRule.percent}%</span>
               )}
               {canArchive(c) && (
-                <button
-                  onClick={() => archiveCategory.mutate(c.id)}
-                  className="text-red-500 hover:text-red-700"
-                  aria-label={`Archive ${c.name}`}
-                >
-                  ×
-                </button>
+                <Button variant="ghost" onClick={() => { void handleArchiveCategory(c); }} aria-label={`Archive ${c.name}`}>×</Button>
               )}
             </span>
           ))}

@@ -188,7 +188,7 @@ export function SeaLandSplitView({
         {variant === 'summary' ? (
           <SummaryView data={data} />
         ) : variant === 'compact' ? (
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="text-center">
               <div className="flex items-center justify-center">
                 <Ship className="h-5 w-5 text-blue-500" />

@@ -22,7 +22,7 @@ import {
   Anchor,
   Clock,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import {
   useEmployees,
   useWorkAreas,
@@ -273,10 +273,7 @@ export function CrewAssignmentsPage() {
               <RefreshCw className="h-4 w-4" />
               Rotations
             </Link>
-            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              <Plus className="h-4 w-4" />
-              New Assignment
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>New Assignment</Button>
           </div>
         }
       />
@@ -443,16 +440,7 @@ export function CrewAssignmentsPage() {
             <div className="flex items-center gap-2">
               {/* WHY: GraphQL PersonnelCategory enum values are UPPERCASE keys.
                   Using lowercase values causes the filter to silently fail. */}
-              <select
-                value={personnelFilter}
-                onChange={(e) => setPersonnelFilter(e.target.value as PersonnelCategory | '')}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-              >
-                <option value="">All Categories</option>
-                <option value="OFFSHORE">Offshore</option>
-                <option value="ONSHORE">Onshore</option>
-                <option value="HYBRID">Hybrid</option>
-              </select>
+              <Select options={[{ value: '', label: 'All Categories' }, { value: 'OFFSHORE', label: 'Offshore' }, { value: 'ONSHORE', label: 'Onshore' }, { value: 'HYBRID', label: 'Hybrid' }]} value={personnelFilter} onChange={(e) => setPersonnelFilter(e.target.value as PersonnelCategory | '')} />
             </div>
           </div>
 
@@ -479,10 +467,7 @@ export function CrewAssignmentsPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {workAreas?.length || 0} work areas configured
             </p>
-            <button className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700">
-              <Plus className="h-4 w-4" />
-              Add Work Area
-            </button>
+            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />}>Add Work Area</Button>
           </div>
 
           {/* Work Areas Grid */}

@@ -481,7 +481,7 @@ const EventDetailModal: React.FC<{
       }
     >
       {/* Basic Info */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Event ID</span>
           <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{event.id}</p>
@@ -514,7 +514,7 @@ const EventDetailModal: React.FC<{
       {/* Source Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Source Information</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Source</span>
             <p className="text-sm text-gray-900 dark:text-gray-100">{event.source}</p>
@@ -540,7 +540,7 @@ const EventDetailModal: React.FC<{
       {event.userId && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
               <p className="text-sm text-gray-900 dark:text-gray-100">{event.userName}</p>

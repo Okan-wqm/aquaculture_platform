@@ -19,7 +19,7 @@ import type { AnimationRule, AnimationRuleType, AnimationOptions, ColorRange } f
 import { TagBrowser } from '../TagBrowser';
 import { RangeColorMapping } from './RangeColorMapping';
 import { TagValueBus } from '../../../engine/tags/TagValueBus';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 /**
  * Animation type options extended with FUXA-parity types.
@@ -204,13 +204,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
               Preview
             </button>
           )}
-          <button
-            onClick={addAnimation}
-            className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-          >
-            <Plus className="w-3 h-3" />
-            Add Animation
-          </button>
+          <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={addAnimation}>Add Animation</Button>
         </div>
       </div>
 
@@ -263,12 +257,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
         >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase">Animation</span>
-            <button
-              onClick={() => removeAnimation(anim.id)}
-              className="text-red-400 hover:text-red-600"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => removeAnimation(anim.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
 
           {/* Tag Name — uses TagBrowser for validated device tag selection */}
@@ -283,7 +272,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           </div>
 
           {/* Range */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Range Min</label>
               <input
@@ -325,7 +314,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* rotate — continuous rotation driven by tag threshold */}
           {anim.type === 'rotate' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Speed (ms)</label>
                 <input
@@ -363,7 +352,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   className={INPUT_CLASS}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color A</label>
                   <div className="flex items-center gap-1">
@@ -373,12 +362,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
                       className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                     />
-                    <input
-                      type="text"
-                      value={anim.options.fillA || themeColors.error[500]}
-                      onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
-                      className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input type="text" value={anim.options.fillA || themeColors.error[500]} onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })} />
                   </div>
                 </div>
                 <div>
@@ -390,12 +374,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
                       className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                     />
-                    <input
-                      type="text"
-                      value={anim.options.fillB || themeColors.success[500]}
-                      onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
-                      className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    <Input type="text" value={anim.options.fillB || themeColors.success[500]} onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })} />
                   </div>
                 </div>
               </div>
@@ -407,41 +386,19 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Color Ranges</label>
-                <button
-                  onClick={() => addColorRange(anim.id, anim.options.ranges ?? [])}
-                  className="text-xs text-cyan-600 hover:text-cyan-700"
-                >
-                  + Add Range
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => addColorRange(anim.id, anim.options.ranges ?? [])}>+ Add Range</Button>
               </div>
               {(anim.options.ranges ?? []).map((cr, idx) => (
                 <div key={idx} className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    value={cr.min}
-                    onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'min', Number(e.target.value))}
-                    className="w-14 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                    placeholder="Min"
-                  />
-                  <input
-                    type="number"
-                    value={cr.max}
-                    onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'max', Number(e.target.value))}
-                    className="w-14 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                    placeholder="Max"
-                  />
+                  <Input type="number" value={cr.min} onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'min', Number(e.target.value))} placeholder="Min" />
+                  <Input type="number" value={cr.max} onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'max', Number(e.target.value))} placeholder="Max" />
                   <input
                     type="color"
                     value={cr.fill}
                     onChange={(e) => updateColorRange(anim.id, anim.options.ranges ?? [], idx, 'fill', e.target.value)}
                     className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                   />
-                  <button
-                    onClick={() => removeColorRange(anim.id, anim.options.ranges ?? [], idx)}
-                    className="text-red-400 hover:text-red-600 text-xs px-1"
-                  >
-                    X
-                  </button>
+                  <Button variant="ghost" size="xs" onClick={() => removeColorRange(anim.id, anim.options.ranges ?? [], idx)}>X</Button>
                 </div>
               ))}
             </div>
@@ -450,7 +407,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* fillLevel — tank/vessel fill visualization */}
           {anim.type === 'fillLevel' && (
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Min</label>
                   <input
@@ -470,7 +427,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Warning %</label>
                   <input
@@ -500,7 +457,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* move — translate widget position based on tag value */}
           {anim.type === 'move' && (
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To X</label>
                   <input
@@ -536,7 +493,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
           {/* valueMappedRotation — linear mapping from tag value range to angle range */}
           {anim.type === 'valueMappedRotation' && (
             <div className="space-y-2" data-testid="value-mapped-rotation-config">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Angle</label>
                   <input
@@ -586,7 +543,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* piston — vertical oscillation for pump/compressor symbols */}
           {anim.type === 'piston' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="piston-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="piston-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Distance (px)</label>
                 <input
@@ -619,14 +576,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
             <div className="space-y-2" data-testid="image-along-path-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Motion Path (SVG d-attribute)</label>
-                <textarea
-                  value={anim.options.motionPath ?? ''}
-                  onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })}
-                  placeholder="M 0,50 C 25,0 75,100 100,50"
-                  rows={3}
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono resize-y"
-                  data-testid="motion-path-textarea"
-                />
+                <Textarea className="font-mono resize-y" fullWidth value={anim.options.motionPath ?? ''} onChange={(e) => updateAnimationOptions(anim.id, { motionPath: e.target.value })} placeholder="M 0,50 C 25,0 75,100 100,50" rows={3} data-testid="motion-path-textarea" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Duration (ms)</label>
@@ -666,7 +616,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* scale — tag value to scale factor mapping */}
           {anim.type === 'scale' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="scale-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="scale-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Scale</label>
                 <input
@@ -698,7 +648,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* opacity — gradual fade based on tag value range */}
           {anim.type === 'opacity' && (
-            <div className="grid grid-cols-2 gap-2" data-testid="opacity-config">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="opacity-config">
               <div>
                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Opacity</label>
                 <input
@@ -769,17 +719,12 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
           {/* Bitmask (collapsible) — optional bitwise filter for multi-flag tags */}
           <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => toggleBitmask(anim.id)}
-              className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              {expandedBitmask[anim.id] ? (
+            <Button variant="ghost" onClick={() => toggleBitmask(anim.id)}>{expandedBitmask[anim.id] ? (
                 <ChevronDown className="w-3 h-3" />
               ) : (
                 <ChevronRight className="w-3 h-3" />
               )}
-              Bitmask (optional)
-            </button>
+              Bitmask (optional)</Button>
             {expandedBitmask[anim.id] && (
               <div className="mt-1">
                 <input

@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   Cpu,
   HardDrive,
@@ -229,7 +230,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
 
       {/* Device Info */}
       <div className="p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Model:</span>
             <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
@@ -294,7 +295,7 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
         )}
 
         {/* Stats Summary */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <div className="text-center">
             <div className="text-lg font-semibold text-cyan-600">
               {device.sensorCount ?? 0}
@@ -322,28 +323,10 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({
 
       {/* Actions */}
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 flex gap-2">
-        <button
-          onClick={() => onConfigure?.(device)}
-          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          <Settings size={14} />
-          Configure
-        </button>
-        <button
-          onClick={() => onViewDetail?.(device)}
-          className="flex-1 flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-        >
-          <Eye size={14} />
-          Detail
-        </button>
+        <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<Settings size={14} />} onClick={() => onConfigure?.(device)}>Configure</Button>
+        <Button variant="primary" size="sm" className="flex-1 justify-center" leftIcon={<Eye size={14} />} onClick={() => onViewDetail?.(device)}>Detail</Button>
         {device.isOnline && (
-          <button
-            onClick={() => onReboot?.(device)}
-            className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            title="Reboot Device"
-          >
-            <RefreshCw size={14} />
-          </button>
+          <Button variant="secondary" size="sm" iconOnly aria-label="Reboot Device" className="justify-center" onClick={() => onReboot?.(device)} title="Reboot Device"><RefreshCw size={14} /></Button>
         )}
       </div>
     </div>

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Calendar, AlertTriangle } from 'lucide-react';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 
@@ -107,14 +107,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
             <label htmlFor="cs-desc" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Description *
             </label>
-            <textarea
-              id="cs-desc"
-              value={draftDescription}
-              onChange={(e) => setDraftDescription(e.target.value)}
-              rows={3}
-              placeholder="Describe the purpose of these parameter changes..."
-              className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
-            />
+            <Textarea fullWidth id="cs-desc" value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} rows={3} placeholder="Describe the purpose of these parameter changes..." />
           </div>
 
           {/* Schedule */}
@@ -130,13 +123,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
               Schedule for later
             </label>
             {scheduleEnabled && (
-              <input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                className="mt-2 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
-                aria-label="Scheduled date and time"
-              />
+              <Input fullWidth type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} aria-label="Scheduled date and time" />
             )}
           </div>
 
@@ -168,21 +155,9 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
 
           {/* Actions */}
           <div className="flex justify-end gap-3 border-t pt-4">
-            <button
-              type="button"
-              onClick={closeCreateDialog}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || items.length === 0}
-              className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {submitting && <Spinner size="sm" color="inherit" />}
-              Create Change Set
-            </button>
+            <Button variant="secondary" type="button" onClick={closeCreateDialog}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={submitting || items.length === 0}>{submitting && <Spinner size="sm" color="inherit" />}
+              Create Change Set</Button>
           </div>
         </form>
     </Modal>

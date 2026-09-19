@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { AlertCircle, Check, Clock, RefreshCw, Save } from 'lucide-react';
 
 import {
@@ -159,12 +160,7 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
               {saveError}
             </p>
           )}
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving || isLoading}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saved ? (
+          <Button variant="primary" onClick={() => void handleSave()} disabled={saving || isLoading}>{saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -179,8 +175,7 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}
-          </button>
+            )}</Button>
         </div>
       )}
     </div>

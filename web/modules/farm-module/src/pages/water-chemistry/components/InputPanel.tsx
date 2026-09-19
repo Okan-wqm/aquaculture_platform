@@ -3,6 +3,7 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
+import { Button, Input } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 // WaterChemistryInputs is the SSoT shape in shared-ui; re-exported so existing
@@ -80,16 +81,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
     return (
       <div className="flex items-center gap-1.5 mr-4">
         <label className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap" htmlFor={inputId}>{label}</label>
-        <input
-          id={inputId}
-          type="number"
-          value={inputs[field] ?? ''}
-          min={min}
-          max={max}
-          step={step}
-          onChange={(e) => updateNumeric(field, e.target.value)}
-          className="w-[72px] px-1.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input id={inputId} type="number" value={inputs[field] ?? ''} min={min} max={max} step={step} onChange={(e) => updateNumeric(field, e.target.value)} />
         <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{unit}</span>
       </div>
     );
@@ -239,12 +231,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
               );
             })}
             {Object.keys(onDemandAmounts).length > 0 && (
-              <button
-                onClick={() => onDemandAmountsChange?.({})}
-                className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-red-500 ml-1 whitespace-nowrap"
-              >
-                Clear all
-              </button>
+              <Button variant="ghost" className="ml-1" onClick={() => onDemandAmountsChange?.({})}>Clear all</Button>
             )}
           </div>
         )}

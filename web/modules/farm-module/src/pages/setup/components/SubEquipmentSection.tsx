@@ -42,8 +42,7 @@ import {
   ConfirmModal,
   formatErrorForToast,
   useCanMutate,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Button } from '@aquaculture/shared-ui';
 
 import {
   type SubEquipment,
@@ -143,23 +142,10 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       render: (_value, item) => (
         <div className="flex items-center justify-end gap-3">
           {canUpdate && (
-            <button
-              type="button"
-              onClick={() => setEditing(item)}
-              className="text-indigo-600 hover:text-indigo-900"
-            >
-              Düzenle
-            </button>
+            <Button variant="ghost" type="button" onClick={() => setEditing(item)}>Düzenle</Button>
           )}
           {canDelete && (
-            <button
-              type="button"
-              onClick={() => setDeleting(item)}
-              className="text-red-600 hover:text-red-800"
-              disabled={deleteMutation.isPending}
-            >
-              Sil
-            </button>
+            <Button variant="ghost" type="button" onClick={() => setDeleting(item)} disabled={deleteMutation.isPending}>Sil</Button>
           )}
         </div>
       ),
@@ -173,13 +159,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
           Alt Ekipmanlar
         </label>
         {canCreate && (
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            + Yeni Alt Ekipman
-          </button>
+          <Button variant="ghost" type="button" onClick={() => setCreateOpen(true)}>+ Yeni Alt Ekipman</Button>
         )}
       </div>
 

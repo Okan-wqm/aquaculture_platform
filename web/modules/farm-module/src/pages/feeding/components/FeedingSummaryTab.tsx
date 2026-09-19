@@ -4,7 +4,7 @@
  * Shows feeding summary statistics including totals, variance analysis,
  * FCR calculation, and feed type breakdown for a selected batch.
  */
-import { parseMoney, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, Spinner, Input } from '@aquaculture/shared-ui';
 import React, { useState, useMemo } from 'react';
 import {
   useFeedingSummary,
@@ -186,21 +186,11 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </div>
         </div>
       </div>

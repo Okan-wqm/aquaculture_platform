@@ -21,7 +21,7 @@
 import React, { useCallback } from 'react';
 import type { ChartLine, HistoricalDataPoint } from '../../types/scada-runtime.types';
 import type { TrendTimeRange } from '../../hooks/useTrendData';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -286,27 +286,11 @@ export const ChartExport: React.FC<ChartExportProps> = ({
       role="menu"
       aria-label="Export options"
     >
-      <button
-        type="button"
-        role="menuitem"
-        onClick={handleExportCsv}
-        disabled={!hasData}
-        className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-      >
-        <span className="text-base leading-none">&#11015;</span>
-        Export as CSV
-      </button>
+      <Button variant="ghost" size="xs" type="button" role="menuitem" onClick={handleExportCsv} disabled={!hasData}><span className="text-base leading-none">&#11015;</span>
+        Export as CSV</Button>
 
-      <button
-        type="button"
-        role="menuitem"
-        onClick={handleExportPng}
-        disabled={!hasPngTarget}
-        className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-      >
-        <span className="text-base leading-none">📷</span>
-        Export as PNG
-      </button>
+      <Button variant="ghost" size="xs" type="button" role="menuitem" onClick={handleExportPng} disabled={!hasPngTarget}><span className="text-base leading-none">📷</span>
+        Export as PNG</Button>
 
       {!hasData && !hasPngTarget && (
         <p className="px-3 py-1 text-xs text-gray-400 dark:text-gray-500 italic">No data to export</p>
@@ -314,14 +298,7 @@ export const ChartExport: React.FC<ChartExportProps> = ({
 
       <hr className="my-1 border-gray-100 dark:border-gray-700" />
 
-      <button
-        type="button"
-        role="menuitem"
-        onClick={onClose}
-        className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-      >
-        Cancel
-      </button>
+      <Button variant="ghost" size="xs" type="button" role="menuitem" onClick={onClose}>Cancel</Button>
     </div>
   );
 };

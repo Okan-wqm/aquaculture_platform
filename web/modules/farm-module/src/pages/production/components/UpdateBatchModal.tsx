@@ -24,8 +24,7 @@ import {
   Button,
   Modal,
   formatErrorForToast,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Input, Textarea } from '@aquaculture/shared-ui';
 
 import { Batch, useUpdateBatch } from '../../../hooks/useBatches';
 
@@ -43,7 +42,7 @@ const TARGET_FCR_MAX = 5.0;
 
 function toDateInputValue(iso?: string): string {
   if (!iso) return '';
-  // YYYY-MM-DD slice for `<input type="date">`
+  // YYYY-MM-DD slice for `<Input type="date" />`
   return iso.length >= 10 ? iso.slice(0, 10) : '';
 }
 
@@ -215,15 +214,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           >
             İsim
           </label>
-          <input
-            id="update-batch-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={NAME_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            placeholder="(opsiyonel) parti için anlamlı bir isim"
-          />
+          <Input fullWidth id="update-batch-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={NAME_MAX} placeholder="(opsiyonel) parti için anlamlı bir isim" />
         </div>
 
         <div>
@@ -233,14 +224,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           >
             Beklenen Hasat Tarihi
           </label>
-          <input
-            id="update-batch-harvest-date"
-            type="date"
-            value={expectedHarvestDate}
-            onChange={(e) => setExpectedHarvestDate(e.target.value)}
-            min={batch.stockedAt.slice(0, 10)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-          />
+          <Input fullWidth id="update-batch-harvest-date" type="date" value={expectedHarvestDate} onChange={(e) => setExpectedHarvestDate(e.target.value)} min={batch.stockedAt.slice(0, 10)} />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Stok tarihi: {new Date(batch.stockedAt).toLocaleDateString('tr-TR')}
           </p>
@@ -253,17 +237,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           >
             Hedef FCR
           </label>
-          <input
-            id="update-batch-fcr"
-            type="number"
-            step="0.01"
-            min={TARGET_FCR_MIN}
-            max={TARGET_FCR_MAX}
-            value={targetFCRRaw}
-            onChange={(e) => setTargetFCRRaw(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            placeholder={`${TARGET_FCR_MIN.toFixed(1)} – ${TARGET_FCR_MAX.toFixed(1)}`}
-          />
+          <Input fullWidth id="update-batch-fcr" type="number" step="0.01" min={TARGET_FCR_MIN} max={TARGET_FCR_MAX} value={targetFCRRaw} onChange={(e) => setTargetFCRRaw(e.target.value)} placeholder={`${TARGET_FCR_MIN.toFixed(1)} – ${TARGET_FCR_MAX.toFixed(1)}`} />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Mevcut: hedef {batch.fcr.target.toFixed(2)} / gerçek{' '}
             {(batch.fcr.actual ?? 0).toFixed(2)}
@@ -277,14 +251,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
           >
             Notlar
           </label>
-          <textarea
-            id="update-batch-notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            maxLength={NOTES_MAX}
-            rows={4}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-          />
+          <Textarea fullWidth id="update-batch-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={NOTES_MAX} rows={4} />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 text-right">
             {notes.length} / {NOTES_MAX}
           </p>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 import {
@@ -190,12 +191,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
               {saveError}
             </p>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving || timeoutError !== null}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving || timeoutError !== null}>{saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -210,8 +206,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}
-          </button>
+            )}</Button>
         </div>
       )}
     </div>

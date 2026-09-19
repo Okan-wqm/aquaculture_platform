@@ -34,7 +34,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useConfirm, usePrompt, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey, createTenantInvalidationKey, useConfirm, usePrompt, DataTable, type DataTableColumn, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
   ProgramStatus,
@@ -145,39 +145,14 @@ const ProgramCard: React.FC<{
           </span>
         </div>
         <div className="relative">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <MoreVertical className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="More actions" onClick={() => setShowMenu(!showMenu)}><MoreVertical className="h-4 w-4 text-gray-500 dark:text-gray-400" /></Button>
           {showMenu && (
             <div className="absolute right-0 top-8 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-              <button
-                onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-              >
-                <Edit className="h-4 w-4" /> Edit
-              </button>
-              <button
-                onClick={() => { onClone(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-              >
-                <Copy className="h-4 w-4" /> Clone
-              </button>
-              <button
-                onClick={() => { onArchive(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-              >
-                <Archive className="h-4 w-4" /> Archive
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Edit className="h-4 w-4" />} onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}>Edit</Button>
+              <Button variant="ghost" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={() => { onClone(); setShowMenu(false); }}>Clone</Button>
+              <Button variant="ghost" size="sm" leftIcon={<Archive className="h-4 w-4" />} onClick={() => { onArchive(); setShowMenu(false); }}>Archive</Button>
               <hr className="my-1 border-gray-200 dark:border-gray-700" />
-              <button
-                onClick={() => { onDelete(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </button>
+              <Button variant="ghost" size="sm" leftIcon={<Trash2 className="h-4 w-4" />} onClick={() => { onDelete(); setShowMenu(false); }}>Delete</Button>
             </div>
           )}
         </div>
@@ -420,50 +395,14 @@ const AutomationProgramsPage: React.FC = () => {
         <div className="flex items-center gap-1">
           {program.status === ProgramStatus.PENDING_REVIEW && (
             <>
-              <button
-                onClick={() => void handleApprove(program)}
-                className="p-1.5 rounded hover:bg-green-100"
-                title="Approve"
-              >
-                <ThumbsUp className="h-4 w-4 text-green-600" />
-              </button>
-              <button
-                onClick={() => void handleReject(program)}
-                className="p-1.5 rounded hover:bg-red-100"
-                title="Reject"
-              >
-                <ThumbsDown className="h-4 w-4 text-red-500" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Approve" onClick={() => void handleApprove(program)} title="Approve"><ThumbsUp className="h-4 w-4 text-green-600" /></Button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Reject" onClick={() => void handleReject(program)} title="Reject"><ThumbsDown className="h-4 w-4 text-red-500" /></Button>
             </>
           )}
-          <button
-            onClick={() => navigate(`/sensor/automation/${program.id}`)}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Edit"
-          >
-            <Edit className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </button>
-          <button
-            onClick={() => handleClone(program)}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Clone"
-          >
-            <Copy className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </button>
-          <button
-            onClick={() => handleArchive(program)}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Archive"
-          >
-            <Archive className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </button>
-          <button
-            onClick={() => void handleDelete(program)}
-            className="p-1.5 rounded hover:bg-red-100"
-            title="Delete"
-          >
-            <Trash2 className="h-4 w-4 text-red-500" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Edit" onClick={() => navigate(`/sensor/automation/${program.id}`)} title="Edit"><Edit className="h-4 w-4 text-gray-500 dark:text-gray-400" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Clone" onClick={() => handleClone(program)} title="Clone"><Copy className="h-4 w-4 text-gray-500 dark:text-gray-400" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Archive" onClick={() => handleArchive(program)} title="Archive"><Archive className="h-4 w-4 text-gray-500 dark:text-gray-400" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => void handleDelete(program)} title="Delete"><Trash2 className="h-4 w-4 text-red-500" /></Button>
         </div>
       ),
     },
@@ -481,13 +420,7 @@ const AutomationProgramsPage: React.FC = () => {
         }
         description="Manage IEC 61131-3 compliant automation programs"
         actions={
-          <button
-            onClick={() => navigate('/sensor/automation/new')}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            New Program
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => navigate('/sensor/automation/new')}>New Program</Button>
         }
         className="mb-6"
       />
@@ -557,12 +490,7 @@ const AutomationProgramsPage: React.FC = () => {
           </button>
         </div>
 
-        <button
-          onClick={() => refetch()}
-          className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <Button variant="secondary" iconOnly aria-label="Refresh" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
       </div>
 
       {/* Content */}
@@ -579,13 +507,7 @@ const AutomationProgramsPage: React.FC = () => {
           <p className="text-red-600 text-sm mb-4">
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Retry
-          </button>
+          <Button variant="primary" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => refetch()}>Retry</Button>
         </div>
       ) : filteredPrograms.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -596,13 +518,7 @@ const AutomationProgramsPage: React.FC = () => {
           <p className="text-gray-500 dark:text-gray-400 mb-4">
             Create a new automation program
           </p>
-          <button
-            onClick={() => navigate('/sensor/automation/new')}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            New Program
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => navigate('/sensor/automation/new')}>New Program</Button>
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -639,25 +555,11 @@ const AutomationProgramsPage: React.FC = () => {
               : `${filteredPrograms.length} programs`}
           </span>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </button>
+            <Button variant="secondary" size="sm" leftIcon={<ChevronLeft className="h-4 w-4" />} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Previous</Button>
             <span className="text-sm text-gray-700 dark:text-gray-300 px-2">
               {page} / {totalPages}
             </span>
-            <button
-              onClick={() => setPage((p) => p + 1)}
-              disabled={isLastPage}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </button>
+            <Button variant="secondary" size="sm" rightIcon={<ChevronRight className="h-4 w-4" />} onClick={() => setPage((p) => p + 1)} disabled={isLastPage}>Next</Button>
           </div>
         </div>
       )}

@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
+import { Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Trash2, Play, ChevronDown, ChevronRight, Power, BookOpen } from 'lucide-react';
 import type { ScadaScript } from '../../../engine/events/types';
 
@@ -115,14 +116,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
     <div className="space-y-2" data-testid="script-editor">
       {/* Header: name + enabled toggle + delete */}
       <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={script.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="Script name"
-          className="flex-1 px-2 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          data-testid="script-name-input"
-        />
+        <Input type="text" value={script.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="Script name" data-testid="script-name-input" />
         <button
           onClick={() => onChange({ enabled: !script.enabled })}
           className={`p-1.5 rounded-lg border transition-colors ${
@@ -135,14 +129,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
         >
           <Power className="w-3.5 h-3.5" />
         </button>
-        <button
-          onClick={onDelete}
-          className="p-1.5 text-red-400 hover:text-red-600 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-red-200 transition-colors"
-          title="Delete script"
-          data-testid="script-delete-btn"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="secondary" size="sm" iconOnly aria-label="Delete script" onClick={onDelete} title="Delete script" data-testid="script-delete-btn"><Trash2 className="w-3.5 h-3.5" /></Button>
       </div>
 
       {/* Code editor with line number gutter */}
@@ -157,17 +144,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
             <div key={i}>{i + 1}</div>
           ))}
         </div>
-        <textarea
-          ref={textareaRef}
-          value={script.code}
-          onChange={(e) => onChange({ code: e.target.value })}
-          onKeyDown={handleKeyDown}
-          rows={12}
-          spellCheck={false}
-          className="flex-1 px-3 py-2 text-xs font-mono leading-[1.375rem] resize-y border-none focus:outline-hidden focus:ring-0"
-          placeholder="// Write your script here..."
-          data-testid="script-code-textarea"
-        />
+        <Textarea className="font-mono resize-y" ref={textareaRef} value={script.code} onChange={(e) => onChange({ code: e.target.value })} onKeyDown={handleKeyDown} rows={12} spellCheck={false} placeholder="// Write your script here..." data-testid="script-code-textarea" />
       </div>
 
       {/* Footer: Test Run + status */}
@@ -194,19 +171,13 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 
       {/* Collapsible API reference */}
       <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
-        <button
-          onClick={() => setShowApiRef(!showApiRef)}
-          className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          data-testid="api-ref-toggle"
-        >
-          {showApiRef ? (
+        <Button variant="ghost" onClick={() => setShowApiRef(!showApiRef)} data-testid="api-ref-toggle">{showApiRef ? (
             <ChevronDown className="w-3 h-3" />
           ) : (
             <ChevronRight className="w-3 h-3" />
           )}
           <BookOpen className="w-3 h-3" />
-          Sandbox API Reference
-        </button>
+          Sandbox API Reference</Button>
         {showApiRef && (
           <div className="mt-1 space-y-0.5" data-testid="api-ref-panel">
             {API_REFERENCE.map((item) => (

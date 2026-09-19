@@ -59,6 +59,8 @@ export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
 export { PageHeader } from './Layout/PageHeader';
 export type { PageHeaderProps } from './Layout/PageHeader';
+export { DesktopOnlyNotice } from './Layout/DesktopOnlyNotice';
+export type { DesktopOnlyNoticeProps } from './Layout/DesktopOnlyNotice';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';

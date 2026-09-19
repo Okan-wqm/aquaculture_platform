@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import {
   X, Search, ChevronRight, ChevronDown, Package,
   Plus, Hash, Tag, Layers,
@@ -128,16 +128,10 @@ const CategoryTree: React.FC<{
           <div className="flex items-center">
             {/* Expand/collapse toggle */}
             {cat.children.length > 0 && (
-              <button
-                onClick={() => toggle(cat.name)}
-                className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                aria-label={`Toggle ${cat.name}`}
-              >
-                {expanded.has(cat.name)
+              <Button variant="ghost" onClick={() => toggle(cat.name)} aria-label={`Toggle ${cat.name}`}>{expanded.has(cat.name)
                   ? <ChevronDown className="w-3 h-3" />
                   : <ChevronRight className="w-3 h-3" />
-                }
-              </button>
+                }</Button>
             )}
             {/* Category button */}
             <button
@@ -251,14 +245,7 @@ const DetailPanel: React.FC<{
           </div>
         )}
       </div>
-      <button
-        onClick={onAdd}
-        className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 transition-colors"
-        data-testid="fuxa-add-to-canvas"
-      >
-        <Plus className="w-4 h-4" />
-        Add to Canvas
-      </button>
+      <Button variant="primary" className="flex-shrink-0" leftIcon={<Plus className="w-4 h-4" />} onClick={onAdd} data-testid="fuxa-add-to-canvas">Add to Canvas</Button>
     </div>
   </div>
 );
@@ -405,12 +392,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
             data-testid="fuxa-search-input"
           />
           {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-500"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Close" className="absolute right-3 top-1/2" onClick={() => setSearchQuery('')}><X className="w-3.5 h-3.5" /></Button>
           )}
         </div>
       </div>

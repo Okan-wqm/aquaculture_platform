@@ -16,7 +16,7 @@ import {
   computeYDomain, niceStep, exportCsv,
 } from './trendChartUtils';
 import type { SimPoint, TimeRangeKey } from './trendChartUtils';
-import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, chartChrome, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
   const label = (config.label as string) ?? 'Trend';
@@ -150,17 +150,17 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: TOOLBAR_H, fontSize: 10 }}>
             <span style={{ fontWeight: 600, color: colors.neutral[700], marginRight: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
             {TIME_RANGES.map((r) => (
-              <button key={r.key} onClick={() => setSelectedRange(r.key)} style={{
+              <Button variant="ghost" key={r.key} onClick={() => setSelectedRange(r.key)} style={{
                 padding: '1px 5px', fontSize: 9, border: '1px solid', lineHeight: '14px', borderRadius: 3, cursor: 'pointer',
                 borderColor: selectedRange === r.key ? colors.primary[400] : colors.neutral[300],
                 background: selectedRange === r.key ? colors.primary[50] : '#fff',
                 color: selectedRange === r.key ? colors.primary[600] : colors.gray[400],
-              }}>{r.label}</button>
+              }}>{r.label}</Button>
             ))}
-            <button onClick={() => exportCsv(chartData, tags)} title="Export CSV" style={{
+            <Button variant="ghost" onClick={() => exportCsv(chartData, tags)} title="Export CSV" style={{
               padding: '1px 4px', fontSize: 9, border: `1px solid ${themeColors.neutral[300]}`, background: '#fff',
               color: colors.gray[400], borderRadius: 3, cursor: 'pointer', lineHeight: '14px',
-            }}>CSV</button>
+            }}>CSV</Button>
             {isEditing && <span style={{ fontSize: 8, color: colors.neutral[400], fontStyle: 'italic' }}>demo</span>}
           </div>
         </foreignObject>

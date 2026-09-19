@@ -280,7 +280,7 @@ export const MessagingPage: React.FC = () => {
 
         {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-6 gap-4 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mt-4">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Total Threads</div>
               <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.totalThreads}</div>

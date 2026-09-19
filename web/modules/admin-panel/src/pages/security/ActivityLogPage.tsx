@@ -291,7 +291,7 @@ const ActivityDetailModal: React.FC<{
       }
     >
       {/* Basic Info */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ID</span>
           <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{activity.id}</p>
@@ -329,7 +329,7 @@ const ActivityDetailModal: React.FC<{
       {/* User Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
             <p className="text-sm text-gray-900 dark:text-gray-100">{activity.userName || 'N/A'}</p>
@@ -356,7 +356,7 @@ const ActivityDetailModal: React.FC<{
             <MapPin className="w-4 h-4" />
             Location
           </h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Country</span>
               <p className="text-sm text-gray-900 dark:text-gray-100">{activity.geoLocation.country || 'N/A'}</p>
@@ -373,7 +373,7 @@ const ActivityDetailModal: React.FC<{
       {activity.entityType && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Target Entity</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
               <p className="text-sm text-gray-900 dark:text-gray-100">{activity.entityType}</p>
@@ -630,7 +630,7 @@ export const ActivityLogPage: React.FC = () => {
   ];
 
   const renderActivityDetails = (activity: ActivityLog): React.ReactNode => (
-    <div className="grid grid-cols-4 gap-4 text-sm">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
       <div>
         <span className="text-gray-500 dark:text-gray-400">Target:</span>{' '}
         <span className="text-gray-900 dark:text-gray-100">
@@ -795,7 +795,7 @@ export const ActivityLogPage: React.FC = () => {
 
         {/* Advanced Filters */}
         {showFilters && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-4 gap-4">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <span className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Start Date

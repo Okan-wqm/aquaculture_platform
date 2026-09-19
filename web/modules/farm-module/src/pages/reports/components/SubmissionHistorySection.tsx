@@ -11,6 +11,7 @@
  * an expandable payload view of exactly what was submitted.
  */
 import React, { useMemo, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   useRegulatoryReport,
   useRegulatoryReports,
@@ -152,7 +153,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
       <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Submissions</div>
@@ -231,13 +232,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xs text-gray-500 dark:text-gray-400">{formatTimestamp(row.submittedAt)}</p>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
-                    className="mt-1 text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    {expandedId === row.id ? 'Hide payload' : 'View payload'}
-                  </button>
+                  <Button variant="ghost" size="xs" className="mt-1" type="button" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>{expandedId === row.id ? 'Hide payload' : 'View payload'}</Button>
                 </div>
               </div>
               {expandedId === row.id && (

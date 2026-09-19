@@ -3,7 +3,7 @@
  * Full form for creating new batches with documents and tank allocations
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useGenerateBatchNumber,
   useAvailableTanks,
@@ -398,17 +398,11 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {/* Basic Info Tab */}
           {activeTab === 'basic' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Name (optional) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch Name</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Optional display name"
-                  />
+                  <Input fullWidth type="text" value={formData.name} onChange={(e) => handleInputChange('name', e.target.value)} placeholder="Optional display name" />
                 </div>
 
                 {/* Input Date */}
@@ -430,7 +424,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Supplier */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -480,7 +474,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Input Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -565,7 +559,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Arrival Method */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -618,17 +612,11 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Strain */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Strain</label>
-                  <input
-                    type="text"
-                    value={formData.strain}
-                    onChange={(e) => handleInputChange('strain', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., AquaGen"
-                  />
+                  <Input fullWidth type="text" value={formData.strain} onChange={(e) => handleInputChange('strain', e.target.value)} placeholder="e.g., AquaGen" />
                 </div>
 
                 {/* Supplier Batch Number */}
@@ -636,13 +624,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Supplier Batch #
                   </label>
-                  <input
-                    type="text"
-                    value={formData.supplierBatchNumber}
-                    onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., HTC-2024-001"
-                  />
+                  <Input fullWidth type="text" value={formData.supplierBatchNumber} onChange={(e) => handleInputChange('supplierBatchNumber', e.target.value)} placeholder="e.g., HTC-2024-001" />
                 </div>
 
                 {/* Expected Harvest Date */}
@@ -650,46 +632,24 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Expected Harvest
                   </label>
-                  <input
-                    type="date"
-                    value={formData.expectedHarvestDate}
-                    onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <Input fullWidth type="date" value={formData.expectedHarvestDate} onChange={(e) => handleInputChange('expectedHarvestDate', e.target.value)} />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Purchase Cost */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Purchase Cost
                   </label>
                   <div className="flex">
-                    <select
-                      value={formData.currency}
-                      onChange={(e) => handleInputChange('currency', e.target.value)}
-                      className="px-3 py-2 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg bg-gray-50 dark:bg-gray-800"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="TRY">TRY</option>
-                      <option value="NOK">NOK</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.purchaseCost}
-                      onChange={(e) =>
-                        handleInputChange(
-                          'purchaseCost',
-                          e.target.value ? parseFloat(e.target.value) : '',
-                        )
-                      }
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-r-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="0.00"
-                    />
+                    <Select options={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'TRY', label: 'TRY' }, { value: 'NOK', label: 'NOK' }]} value={formData.currency} onChange={(e) => handleInputChange('currency', e.target.value)} />
+                    <Input type="number" step="0.01" min="0" value={formData.purchaseCost} onChange={(e) =>
+            handleInputChange(
+             'purchaseCost',
+             e.target.value ? parseFloat(e.target.value) : '',
+            )
+           } placeholder="0.00" />
                   </div>
                 </div>
               </div>
@@ -754,14 +714,7 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
           {activeTab === 'notes' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => handleInputChange('notes', e.target.value)}
-                rows={8}
-                maxLength={5000}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Additional notes about this batch..."
-              />
+              <Textarea fullWidth value={formData.notes} onChange={(e) => handleInputChange('notes', e.target.value)} rows={8} maxLength={5000} placeholder="Additional notes about this batch..." />
             </div>
           )}
         </div>
@@ -790,24 +743,11 @@ export const BatchFormModal: React.FC<BatchFormModalProps> = ({ isOpen, onClose,
               )}
             </div>
             <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting || isLoadingBatchNumber}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                {isSubmitting && (
+              <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+              <Button variant="primary" type="submit" disabled={isSubmitting || isLoadingBatchNumber}>{isSubmitting && (
                   <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                 )}
-                {isSubmitting ? 'Creating...' : 'Create Batch'}
-              </button>
+                {isSubmitting ? 'Creating...' : 'Create Batch'}</Button>
             </div>
           </div>
         </div>

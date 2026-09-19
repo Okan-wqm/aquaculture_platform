@@ -97,6 +97,42 @@ const RAW_PALETTE =
  * states, export. Counted per package the same way as raw hex.
  */
 const RAW_TABLE = /<table\b/g;
+/**
+ * A TanStack `useMutation(` called directly by a module (FE-HIGH-086). A
+ * mutation that reports nothing is the silent-save defect; modules declare
+ * their outcome messages through shared-ui `useFeedbackMutation`, and the
+ * admin panel through `useAdminMutation` (the one wrapper allowed to call
+ * `useMutation` itself).
+ */
+const RAW_MUTATION = /\buseMutation\s*(?:<[^(]*>)?\(/g;
+/**
+ * Raw `<button>` and raw `<input>` / `<select>` / `<textarea>` outside the
+ * primitives (FE-HIGH-079): each re-derives padding, radius, focus ring,
+ * disabled state, label binding and error display that shared-ui Button /
+ * Input / Select / Textarea (AquaMobil: Button / Field) already own.
+ */
+const RAW_BUTTON = /<button\b/g;
+const RAW_FIELD = /<(?:input|select|textarea)\b/g;
+/**
+ * A class attribute that fixes `grid-cols-N` (N in 2–6 or 8–11) with no
+ * breakpoint variant (FE-HIGH-088): on a 375 px phone the N columns share the
+ * width and every cell wraps or overflows. Seven (a week) and twelve (a layout
+ * grid whose children set `col-span`) are intentional and not counted; the
+ * responsive shape is `grid-cols-1 sm:grid-cols-2 lg:grid-cols-N`. AquaMobil
+ * is phone-first by construction and is not counted.
+ */
+const CLASS_ATTRIBUTE = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
+const FIXED_GRID = /(?<![\w:-])grid-cols-(?:[2-6]|8|9|1[01])(?![\w-])/;
+const RESPONSIVE_GRID = /\b(?:sm|md|lg|xl|2xl):grid-cols-/;
+function fixedGrids(source: string): number {
+  let count = 0;
+  for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
+    const value = match[1] ?? match[2] ?? '';
+    if (FIXED_GRID.test(value) && !RESPONSIVE_GRID.test(value)) count += 1;
+  }
+  return count;
+}
+const MUTATION_WRAPPERS = ['web/modules/admin-panel/src/hooks/useAdminMutation.ts'];
 
 /** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
 const LOADER_ICON_SPINNER = /<(?:Loader2|LoaderCircle|Loader)\b[^>]*className="[^"]*\banimate-spin\b/g;
@@ -246,6 +282,10 @@ interface Allowlist {
   rawPalette: { entries: PackageCeiling[] };
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
+  rawMutation: { entries: PackageCeiling[] };
+  rawButton: { entries: PackageCeiling[] };
+  rawField: { entries: PackageCeiling[] };
+  fixedGrid: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
   darkSurface: { entries: PackageCeiling[] };
@@ -280,10 +320,11 @@ function expiryIso(value: string | Date): string {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
 }
 
-function countByPackage(files: string[], pattern: RegExp): Map<string, number> {
+function countByPackage(files: string[], pattern: RegExp | ((source: string) => number)): Map<string, number> {
   const counts = new Map<string, number>();
   for (const file of files) {
-    const hits = read(file).match(pattern)?.length ?? 0;
+    const source = read(file);
+    const hits = typeof pattern === 'function' ? pattern(source) : (source.match(pattern)?.length ?? 0);
     if (hits === 0) continue;
     const pkg = packageOf(file);
     counts.set(pkg, (counts.get(pkg) ?? 0) + hits);
@@ -409,6 +450,113 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
           : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
       ).toBe('');
     }
+  });
+
+  it('ratchets direct useMutation calls per package — feedback belongs to the hook layer (FE-HIGH-086)', () => {
+    const actual = countByPackage(
+      files.filter((file) => !file.startsWith('web/apps/') && !MUTATION_WRAPPERS.includes(file)),
+      RAW_MUTATION,
+    );
+    const ceilings = new Map(doc.rawMutation.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} direct useMutation calls, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} direct useMutation calls, ceiling ${entry.ceiling}. Declare the outcome through useFeedbackMutation({ feedback: { success, error? } }) (admin-panel: useAdminMutation feedback) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawMutation.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets raw <button> elements per package (FE-HIGH-079)', () => {
+    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_BUTTON);
+    const ceilings = new Map(doc.rawButton.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw buttons, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} raw <button> elements, ceiling ${entry.ceiling}. Render through shared-ui Button (AquaMobil: Button / IconButton) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawButton.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets grids fixed at N columns for every viewport per package (FE-HIGH-088)', () => {
+    const actual = countByPackage(
+      files.filter((file) => !file.startsWith('web/apps/')),
+      fixedGrids,
+    );
+    const ceilings = new Map(doc.fixedGrid.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} fixed grids, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} grids fixed at N columns with no breakpoint variant, ceiling ${entry.ceiling}. Give the grid a phone shape (grid-cols-1 sm:grid-cols-2 lg:grid-cols-N) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.fixedGrid.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets raw <input>, <select> and <textarea> elements per package (FE-HIGH-079)', () => {
+    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_FIELD);
+    const ceilings = new Map(doc.rawField.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw fields, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} raw form controls, ceiling ${entry.ceiling}. Render through shared-ui Input / Select / Textarea / Checkbox (AquaMobil: Field) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawField.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('never answers a required-field miss with a toast (FE-HIGH-086)', () => {
+    // farm validated 22 required fields through toasts ("Please enter a
+    // name.") while the form kept no error state; a miss belongs on the
+    // field, as FormField error. A single-field or ||-combined empty check
+    // that opens a toast is that defect exactly.
+    const REQUIRED_FIELD_TOAST = /if \(!formData\.\w+(?: \|\| !formData\.\w+)*\) \{\s*toast\(/g;
+    const offenders = files
+      .filter((file) => !file.startsWith('web/apps/'))
+      .flatMap((file) => (read(file).match(REQUIRED_FIELD_TOAST) ?? []).map(() => file));
+    expect(offenders).toEqual([]);
   });
 
   it('ratchets hand-rolled loading spinners per package (FE-MEDIUM-070)', () => {

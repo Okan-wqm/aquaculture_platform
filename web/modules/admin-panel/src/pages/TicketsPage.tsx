@@ -381,7 +381,7 @@ export const TicketsPage: React.FC = () => {
 
         {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-8 gap-3 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3 mt-4">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
               <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>

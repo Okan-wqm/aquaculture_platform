@@ -928,7 +928,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           </Alert>
 
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {recoveryCodes.map((code, index) => (
                 <code key={index} className="text-sm font-mono text-gray-800 dark:text-gray-200 p-1 select-all">
                   {code}
@@ -1220,7 +1220,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 max-w-md">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-md">
             {[
               { id: 'light', label: 'Light' },
               { id: 'dark', label: 'Dark' },

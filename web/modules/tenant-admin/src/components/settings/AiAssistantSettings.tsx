@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
 import {
   useAiProviderSettings,
@@ -248,12 +249,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
               {saveError}
             </p>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving}>{saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -268,8 +264,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}
-          </button>
+            )}</Button>
         </div>
       )}
     </div>

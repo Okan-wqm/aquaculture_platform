@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
@@ -134,7 +134,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
           {step === 'type' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {PROCESS_WIDGET_TYPES.map((wt) => (
                 <button
                   key={wt.type}
@@ -160,23 +160,12 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                 <span className="font-medium text-gray-700 dark:text-gray-300">
                   {PROCESS_WIDGET_TYPES.find((t) => t.type === selectedType)?.label || 'Widget'}
                 </span>
-                <button
-                  onClick={() => setStep('type')}
-                  className="ml-auto text-xs text-cyan-600 hover:underline"
-                >
-                  Change
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => setStep('type')}>Change</Button>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                  placeholder="Widget title (auto-fills from channel)"
-                />
+                <Input fullWidth type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Widget title (auto-fills from channel)" />
               </div>
 
               <div>
@@ -308,26 +297,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Y-Axis Range (optional)
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Value</label>
-                        <input
-                          type="number"
-                          value={yAxisMin}
-                          onChange={(e) => setYAxisMin(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
-                          placeholder="Auto"
-                        />
+                        <Input fullWidth type="number" value={yAxisMin} onChange={(e) => setYAxisMin(e.target.value)} placeholder="Auto" />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max Value</label>
-                        <input
-                          type="number"
-                          value={yAxisMax}
-                          onChange={(e) => setYAxisMax(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
-                          placeholder="Auto"
-                        />
+                        <Input fullWidth type="number" value={yAxisMax} onChange={(e) => setYAxisMax(e.target.value)} placeholder="Auto" />
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -342,21 +319,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         {/* Footer */}
         <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
           {step === 'config' && (
-            <button
-              onClick={() => setStep('type')}
-              className="text-sm text-cyan-600 hover:text-cyan-700 hover:underline"
-            >
-              ← Change widget type
-            </button>
+            <Button variant="ghost" onClick={() => setStep('type')}>← Change widget type</Button>
           )}
           {step === 'type' && <div />}
           <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
             {step === 'config' && (
               <button
                 onClick={handleSave}

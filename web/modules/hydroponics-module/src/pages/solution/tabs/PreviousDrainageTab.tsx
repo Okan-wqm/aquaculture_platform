@@ -69,7 +69,7 @@ const PreviousDrainageTab: React.FC = () => {
           Enter the drainage composition from the previous sampling period. This helps calculate trends for better readjustment.
         </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <NumberInput
             label="EC (mS/cm)"
             value={drainage.ec}

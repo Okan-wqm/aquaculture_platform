@@ -141,7 +141,7 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
       <Card className={`p-4 ${className}`}>
         <div className="animate-pulse">
           <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-3" />
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded" />
             ))}

@@ -20,7 +20,7 @@
  *    retries do not create duplicate movements — critical for accurate inventory.
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useRecordStockMovement,
   StorageItemType,
@@ -378,7 +378,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           {/* Item Type — determines which item list is loaded */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
-            <div className="mt-1 grid grid-cols-4 gap-2">
+            <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -418,19 +418,11 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity *</label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="0.00"
-              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="number" min="0.01" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0.00" />
           </div>
 
           {/* Location fields — shown/hidden based on movement type */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {showFromLocation && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Location *</label>
@@ -472,15 +464,9 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Lot Number {isLotNumberRequired ? '*' : ''}
             </label>
-            <input
-              type="text"
-              value={lotNumber}
-              onChange={(e) => setLotNumber(e.target.value)}
-              placeholder={
-                isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
-              }
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="text" value={lotNumber} onChange={(e) => setLotNumber(e.target.value)} placeholder={
+        isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
+       } />
           </div>
 
           {/* Expiry Date — required for FEED and HEALTHCARE per HACCP food safety */}
@@ -488,57 +474,28 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expiry Date {isExpiryDateRequired ? '*' : ''}
             </label>
-            <input
-              type="date"
-              value={expiryDate}
-              onChange={(e) => setExpiryDate(e.target.value)}
-              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
           </div>
 
           {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
           {isReasonRequired && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason *</label>
-              <textarea
-                rows={2}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Document the reason for this movement (audit trail)"
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              />
+              <Textarea fullWidth rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Document the reason for this movement (audit trail)" />
             </div>
           )}
 
           {/* Reference — optional link to external documents (delivery note, PO number) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference</label>
-            <input
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="PO number, delivery note, etc. (optional)"
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="PO number, delivery note, etc. (optional)" />
           </div>
         </div>
 
         {/* Footer with cancel/submit actions */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!isFormValid || recordMovement.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {recordMovement.isPending ? 'Recording...' : 'Record Movement'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!isFormValid || recordMovement.isPending}>{recordMovement.isPending ? 'Recording...' : 'Record Movement'}</Button>
         </div>
       </form>
     </Modal>

@@ -20,7 +20,7 @@ import { useSiteList } from '../../../hooks/useSites';
 import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSensors } from '../../../hooks/useSensors';
-import { Modal, DynamicSpecificationForm, SpecificationSchema, validateSpecifications, getDefaultSpecificationValues, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, DynamicSpecificationForm, SpecificationSchema, validateSpecifications, getDefaultSpecificationValues, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
@@ -209,6 +209,8 @@ export const EquipmentTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<EquipmentFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<Equipment | null>(null);
 
@@ -402,30 +404,16 @@ export const EquipmentTab: React.FC = () => {
     e.preventDefault();
 
     // Validate required fields
-    if (!formData.siteId) {
-      toast({ title: 'Validation Error', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
-    if (!formData.departmentId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select a department.',
-        variant: 'error',
-      });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    if (!formData.departmentId) errors.departmentId = 'Please select a department.';
+    if (!formData.equipmentTypeId) errors.equipmentTypeId = 'Please select an equipment type.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     if (formData.systemIds.length === 0) {
       toast({
         title: 'Validation Error',
         description: 'Please select at least one system.',
-        variant: 'error',
-      });
-      return;
-    }
-    if (!formData.equipmentTypeId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select an equipment type.',
         variant: 'error',
       });
       return;
@@ -511,6 +499,7 @@ export const EquipmentTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to save equipment:', err);
@@ -736,18 +725,8 @@ export const EquipmentTab: React.FC = () => {
       align: 'right',
       render: (_value, eq) => (
         <>
-          <button
-            onClick={() => handleEdit(eq)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => handleDelete(eq)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(eq)}>Edit</Button>
+          <Button variant="ghost" onClick={() => handleDelete(eq)}>Delete</Button>
         </>
       ),
     }
@@ -854,15 +833,12 @@ export const EquipmentTab: React.FC = () => {
               </svg>
             </button>
           </div>
-          <button
-            onClick={() => {
+          <Button variant="primary" onClick={() => {
               setEditingId(null);
               setFormData(initialFormData);
+              setFieldErrors({});
               setIsModalOpen(true);
-            }}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            }}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -870,8 +846,7 @@ export const EquipmentTab: React.FC = () => {
                 d="M12 6v6m0 0v6m0-6h6m-6 0H6"
               />
             </svg>
-            Add Equipment
-          </button>
+            Add Equipment</Button>
         </div>
       </div>
 
@@ -886,9 +861,7 @@ export const EquipmentTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load equipment. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -1076,18 +1049,8 @@ export const EquipmentTab: React.FC = () => {
                     : 'No warranty info'}
                 </span>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEdit(eq)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(eq)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
+                  <Button variant="ghost" onClick={() => handleEdit(eq)}>Edit</Button>
+                  <Button variant="ghost" onClick={() => handleDelete(eq)}>Delete</Button>
                 </div>
               </div>
             </div>
@@ -1146,31 +1109,19 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   General Information
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.code}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" required value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
                   </div>
                 </div>
 
                 {/* Two-stage type selection */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
                     <select
@@ -1189,6 +1140,7 @@ export const EquipmentTab: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type *</label>
+                    <FormField error={formData.equipmentTypeId ? undefined : fieldErrors.equipmentTypeId} className="mb-0">
                     <select
                       value={formData.equipmentTypeId}
                       onChange={(e) => handleTypeChange(e.target.value)}
@@ -1205,10 +1157,11 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status *</label>
                     <select
@@ -1261,9 +1214,10 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Location
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
+                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                     <select
                       value={formData.siteId}
                       onChange={(e) => handleSiteChange(e.target.value)}
@@ -1277,9 +1231,11 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department *</label>
+                    <FormField error={formData.departmentId ? undefined : fieldErrors.departmentId} className="mb-0">
                     <select
                       value={formData.departmentId}
                       onChange={(e) => handleDepartmentChange(e.target.value)}
@@ -1302,6 +1258,7 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                     {deptError && (
                       <p className="text-xs text-red-500 mt-1">
                         Departmanlar yüklenirken hata oluştu
@@ -1444,63 +1401,38 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Details
                 </h4>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Manufacturer</label>
-                    <input
-                      type="text"
-                      value={formData.manufacturer}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.manufacturer} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Model</label>
-                    <input
-                      type="text"
-                      value={formData.model}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.model} onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Serial Number</label>
-                    <input
-                      type="text"
-                      value={formData.serialNumber}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.serialNumber} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
+           } />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Purchase Date</label>
-                    <input
-                      type="date"
-                      value={formData.purchaseDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="date" value={formData.purchaseDate} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
+           } />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Warranty Expiry
                     </label>
-                    <input
-                      type="date"
-                      value={formData.warrantyEndDate}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="date" value={formData.warrantyEndDate} onChange={(e) =>
+            setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
+           } />
                   </div>
                 </div>
               </div>
@@ -1569,19 +1501,8 @@ export const EquipmentTab: React.FC = () => {
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              {editingId ? 'Update Equipment' : 'Save Equipment'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit">{editingId ? 'Update Equipment' : 'Save Equipment'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

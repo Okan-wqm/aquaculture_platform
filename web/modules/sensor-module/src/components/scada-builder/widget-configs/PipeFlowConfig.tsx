@@ -1,5 +1,5 @@
 import React from 'react';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Input, Select } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -11,21 +11,13 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
   <div className="space-y-3">
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-      <select value={(config.direction as string) || 'horizontal'} onChange={(e) => onChange({ direction: e.target.value })}
-        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
-        <option value="horizontal">Horizontal</option>
-        <option value="vertical">Vertical</option>
-      </select>
+      <Select fullWidth options={[{ value: 'horizontal', label: 'Horizontal' }, { value: 'vertical', label: 'Vertical' }]} value={(config.direction as string) || 'horizontal'} onChange={(e) => onChange({ direction: e.target.value })} />
     </div>
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Flow Direction</label>
-      <select value={(config.flowDirection as string) || 'forward'} onChange={(e) => onChange({ flowDirection: e.target.value })}
-        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500">
-        <option value="forward">Forward</option>
-        <option value="reverse">Reverse</option>
-      </select>
+      <Select fullWidth options={[{ value: 'forward', label: 'Forward' }, { value: 'reverse', label: 'Reverse' }]} value={(config.flowDirection as string) || 'forward'} onChange={(e) => onChange({ flowDirection: e.target.value })} />
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pipe Color</label>
         <input type="color" value={(config.pipeColor as string) || colors.gray[400]}
@@ -39,18 +31,14 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
           className="w-full h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer" />
       </div>
     </div>
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pipe Width</label>
-        <input type="number" min={4} max={32} value={(config.pipeWidth as number) || 12}
-          onChange={(e) => onChange({ pipeWidth: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg" />
+        <Input fullWidth type="number" min={4} max={32} value={(config.pipeWidth as number) || 12} onChange={(e) => onChange({ pipeWidth: Number(e.target.value) })} />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Flow Speed (s)</label>
-        <input type="number" min={0.1} max={5} step={0.1} value={(config.flowSpeed as number) || 0.6}
-          onChange={(e) => onChange({ flowSpeed: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg" />
+        <Input fullWidth type="number" min={0.1} max={5} step={0.1} value={(config.flowSpeed as number) || 0.6} onChange={(e) => onChange({ flowSpeed: Number(e.target.value) })} />
       </div>
     </div>
   </div>

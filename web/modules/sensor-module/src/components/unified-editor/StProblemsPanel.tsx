@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   XCircle,
   AlertTriangle,
@@ -159,14 +160,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
 
             <div className="w-px h-3 bg-gray-700 mx-1" />
 
-            <button
-              onClick={toggleSort}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-800"
-              title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}
-            >
-              <ArrowUpDown className="w-3 h-3" />
-              {sortKey === 'severity' ? 'Severity' : 'Line'}
-            </button>
+            <Button variant="ghost" leftIcon={<ArrowUpDown className="w-3 h-3" />} onClick={toggleSort} title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}>{sortKey === 'severity' ? 'Severity' : 'Line'}</Button>
           </div>
 
           {/* Diagnostics list */}
@@ -181,12 +175,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
               const cfg = SEVERITY_CONFIG[diag.severity];
               const Icon = cfg.icon;
               return (
-                <button
-                  key={`${diag.code}-${diag.range.startLine}-${i}`}
-                  onClick={() => onNavigate(diag.range.startLine)}
-                  className="w-full text-left px-3 py-1 text-xs hover:bg-gray-800 flex items-center gap-2 border-b border-gray-800/50"
-                >
-                  <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${cfg.color}`} />
+                <Button variant="secondary" size="xs" key={`${diag.code}-${diag.range.startLine}-${i}`} onClick={() => onNavigate(diag.range.startLine)}><Icon className={`w-3.5 h-3.5 flex-shrink-0 ${cfg.color}`} />
                   <span className="text-gray-500 dark:text-gray-400 w-16 flex-shrink-0 truncate font-mono">
                     {diag.code}
                   </span>
@@ -198,8 +187,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
                   </span>
                   <span className="text-gray-600 dark:text-gray-400 text-[10px] flex-shrink-0">
                     {diag.source}
-                  </span>
-                </button>
+                  </span></Button>
               );
             })}
           </div>

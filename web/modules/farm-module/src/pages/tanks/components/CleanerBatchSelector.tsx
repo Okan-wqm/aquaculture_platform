@@ -5,7 +5,7 @@
  * this modal lets the user choose which batch to operate on.
  */
 import React from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { TankWithBatch } from '../types';
 import { OperationType } from './FishTypeSelector';
 
@@ -62,13 +62,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
 
         <div className="space-y-3 max-h-80 overflow-y-auto">
           {batches.map((batch) => (
-            <button
-              key={batch.batchId}
-              onClick={() => onSelect(batch)}
-              className="w-full p-4 border-2 border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50
-                         transition-colors text-left group"
-            >
-              <div className="flex items-center justify-between mb-2">
+            <Button variant="secondary" key={batch.batchId} onClick={() => onSelect(batch)}><div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
                     {batch.batchNumber}
@@ -88,7 +82,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <div>
                   <div className="text-xs text-gray-400 dark:text-gray-500">Quantity</div>
                   <div className="font-medium text-gray-700 dark:text-gray-300">
@@ -113,8 +107,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
                     {formatDate(batch.deployedAt)}
                   </div>
                 </div>
-              </div>
-            </button>
+              </div></Button>
           ))}
         </div>
 
@@ -125,12 +118,7 @@ export const CleanerBatchSelector: React.FC<CleanerBatchSelectorProps> = ({
         )}
 
         <div className="mt-6 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-          >
-            Cancel
-          </button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>
     </Modal>

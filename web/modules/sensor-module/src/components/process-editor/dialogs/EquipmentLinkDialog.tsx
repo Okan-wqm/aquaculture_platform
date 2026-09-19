@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input } from '@aquaculture/shared-ui';
 import { Link2, CheckCircle } from 'lucide-react';
 import { AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
@@ -96,16 +96,7 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
             >
               Node Name
             </label>
-            <input
-              id="equipment-name"
-              type="text"
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
-              placeholder="Edit equipment name..."
-              autoFocus
-            />
+            <Input fullWidth id="equipment-name" type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Edit equipment name..." autoFocus />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
               This name will be displayed on the canvas. You can edit it later.
             </p>
@@ -114,20 +105,8 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
 
         {/* Actions */}
         <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!customName.trim()}
-            className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <CheckCircle className="w-4 h-4" />
-            Link
-          </button>
+          <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" size="lg" className="flex-1 justify-center" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={handleConfirm} disabled={!customName.trim()}>Link</Button>
         </div>
     </Modal>
   );

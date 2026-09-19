@@ -19,6 +19,7 @@
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   Eye,
   EyeOff,
@@ -163,34 +164,18 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       onMouseLeave={() => onHighlight(null)}
     >
       {/* Visibility toggle */}
-      <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        onClick={handleVisibilityToggle}
-        aria-label={isVisible ? 'Hide widget' : 'Show widget'}
-        title={isVisible ? 'Hide widget' : 'Show widget'}
-        data-testid={`layer-visibility-${widget.id}`}
-      >
-        {isVisible ? (
+      <Button variant="ghost" className="flex-shrink-0" onClick={handleVisibilityToggle} aria-label={isVisible ? 'Hide widget' : 'Show widget'} title={isVisible ? 'Hide widget' : 'Show widget'} data-testid={`layer-visibility-${widget.id}`}>{isVisible ? (
           <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
           <EyeOff className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        )}
-      </button>
+        )}</Button>
 
       {/* Lock toggle */}
-      <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        onClick={handleLockToggle}
-        aria-label={isLocked ? 'Unlock widget' : 'Lock widget'}
-        title={isLocked ? 'Unlock widget' : 'Lock widget'}
-        data-testid={`layer-lock-${widget.id}`}
-      >
-        {isLocked ? (
+      <Button variant="ghost" className="flex-shrink-0" onClick={handleLockToggle} aria-label={isLocked ? 'Unlock widget' : 'Lock widget'} title={isLocked ? 'Unlock widget' : 'Lock widget'} data-testid={`layer-lock-${widget.id}`}>{isLocked ? (
           <Lock className="w-3.5 h-3.5 text-amber-500" />
         ) : (
           <Unlock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100" />
-        )}
-      </button>
+        )}</Button>
 
       {/* Widget type icon */}
       <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
@@ -201,24 +186,8 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       </span>
 
       {/* Move up / Move down buttons (visible on hover) */}
-      <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={handleMoveUp}
-        aria-label="Move up (bring forward)"
-        title="Move up (bring forward)"
-        data-testid={`layer-up-${widget.id}`}
-      >
-        <ChevronUp className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-      </button>
-      <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={handleMoveDown}
-        aria-label="Move down (send backward)"
-        title="Move down (send backward)"
-        data-testid={`layer-down-${widget.id}`}
-      >
-        <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-      </button>
+      <Button variant="ghost" iconOnly className="flex-shrink-0" onClick={handleMoveUp} aria-label="Move up (bring forward)" title="Move up (bring forward)" data-testid={`layer-up-${widget.id}`}><ChevronUp className="w-3 h-3 text-gray-500 dark:text-gray-400" /></Button>
+      <Button variant="ghost" iconOnly className="flex-shrink-0" onClick={handleMoveDown} aria-label="Move down (send backward)" title="Move down (send backward)" data-testid={`layer-down-${widget.id}`}><ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" /></Button>
     </div>
   );
 });

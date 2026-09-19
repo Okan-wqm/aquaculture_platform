@@ -4,6 +4,7 @@
  * Shows urgency indicator for large-scale escapes per Norwegian regulatory requirements
  */
 import React, { useMemo, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { useRegulatorySettings, useSubmitEscapeReport } from '../../../hooks/useRegulatory';
 import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/useReportPrefill';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
@@ -217,16 +218,10 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
             Immediate reporting required for fish escapes to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleCreateReport}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="danger" type="button" onClick={handleCreateReport}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          Report Escape
-        </button>
+          Report Escape</Button>
       </div>
 
       {/* Escape Info */}

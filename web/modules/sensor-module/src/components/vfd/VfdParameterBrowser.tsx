@@ -22,7 +22,7 @@ import {
   VfdRiskLevel,
 } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -185,15 +185,7 @@ function ParameterCard({
             aria-label={`New value for ${param.parameterName}`}
             aria-invalid={!!validationError}
           />
-          <button
-            type="button"
-            onClick={handleAddToDraft}
-            disabled={!!validationError || inputValue === '' || parseFloat(inputValue) === currentVal}
-            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={`Add ${param.parameterName} to draft`}
-          >
-            <Plus className="h-3 w-3" /> Add to Draft
-          </button>
+          <Button variant="primary" size="xs" leftIcon={<Plus className="h-3 w-3" />} type="button" onClick={handleAddToDraft} disabled={!!validationError || inputValue === '' || parseFloat(inputValue) === currentVal} aria-label={`Add ${param.parameterName} to draft`}>Add to Draft</Button>
           {validationError && (
             <span className="text-xs text-red-600" role="alert">
               {validationError}

@@ -12,7 +12,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Textarea } from '@aquaculture/shared-ui';
 
 import {
   BatchStatus,
@@ -139,15 +139,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             >
               Reason (optional)
             </label>
-            <textarea
-              id="status-reason"
-              rows={3}
-              maxLength={500}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Explain the transition (written to the audit log)"
-            />
+            <Textarea fullWidth id="status-reason" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain the transition (written to the audit log)" />
           </div>
         </div>
 

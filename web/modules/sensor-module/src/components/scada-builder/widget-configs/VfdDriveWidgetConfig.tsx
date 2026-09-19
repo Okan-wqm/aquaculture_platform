@@ -185,7 +185,7 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({
       {/* ---- Thresholds ---- */}
       <div className={SECTION_CLS}>
         <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Warning Thresholds</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label className={LABEL_CLS}>Temp (&#176;C)</label>
             <input

@@ -253,14 +253,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
       )}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => handleSetPreferred(null)}
-          disabled={preferredSiteId === null}
-          className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-40"
-        >
-          Tercihten kaldır
-        </button>
+        <Button variant="ghost" size="xs" type="button" onClick={() => handleSetPreferred(null)} disabled={preferredSiteId === null}>Tercihten kaldır</Button>
         <Button
           type="button"
           variant="primary"

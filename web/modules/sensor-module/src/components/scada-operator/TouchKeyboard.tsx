@@ -23,7 +23,7 @@ import React, {
   memo,
 } from 'react';
 import { X, Delete, CornerDownLeft } from 'lucide-react';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -365,14 +365,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               >
                 {internalValue || '\u00A0'}
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
-                aria-label="Close keyboard"
-              >
-                <X size={14} />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly type="button" onClick={onClose} aria-label="Close keyboard"><X size={14} /></Button>
             </div>
           </div>
 

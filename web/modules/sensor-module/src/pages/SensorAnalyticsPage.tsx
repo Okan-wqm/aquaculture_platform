@@ -17,7 +17,7 @@ import {
   Database,
   Zap,
 } from 'lucide-react';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sensor Analytics Page
@@ -57,15 +57,8 @@ const SensorAnalyticsPage: React.FC = () => {
         description="Performans metrikleri ve trend analizi"
         actions={
           <div className="flex items-center gap-2">
-            <select className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500">
-              <option value="7d">Son 7 Gün</option>
-              <option value="30d">Son 30 Gün</option>
-              <option value="90d">Son 90 Gün</option>
-            </select>
-            <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
-              <Download className="w-4 h-4" />
-              Rapor İndir
-            </button>
+            <Select options={[{ value: '7d', label: 'Son 7 Gün' }, { value: '30d', label: 'Son 30 Gün' }, { value: '90d', label: 'Son 90 Gün' }]} />
+            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />}>Rapor İndir</Button>
           </div>
         }
       />

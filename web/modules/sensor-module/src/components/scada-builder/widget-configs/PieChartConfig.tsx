@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button, Input } from '@aquaculture/shared-ui';
 
 interface PieSource {
   tagName: string;
@@ -54,13 +54,7 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Pie Chart"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Pie Chart" />
       </div>
 
       {/* Inner radius (0 = pie, >0 = donut) */}
@@ -68,27 +62,13 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
           Inner Radius (0 = Pie, &gt;0 = Donut)
         </label>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          value={(config.innerRadius as number) ?? 0}
-          onChange={(e) => onChange({ innerRadius: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={0} max={100} value={(config.innerRadius as number) ?? 0} onChange={(e) => onChange({ innerRadius: Number(e.target.value) })} />
       </div>
 
       {/* Start angle */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle (degrees)</label>
-        <input
-          type="number"
-          min={-360}
-          max={360}
-          value={(config.startAngle as number) ?? -90}
-          onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={-360} max={360} value={(config.startAngle as number) ?? -90} onChange={(e) => onChange({ startAngle: Number(e.target.value) })} />
       </div>
 
       {/* Display toggles */}
@@ -135,36 +115,20 @@ export const PieChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Data Sources (Slices)</label>
-          <button
-            onClick={addSource}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
-          >
-            + Add Slice
-          </button>
+          <Button variant="ghost" size="xs" onClick={addSource}>+ Add Slice</Button>
         </div>
         <div className="space-y-2">
           {sources.map((source, i) => (
             <div key={i} className="p-2 border border-gray-200 dark:border-gray-700 rounded-md space-y-1.5">
               <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={source.label}
-                  onChange={(e) => updateSource(i, 'label', e.target.value)}
-                  placeholder="Slice label"
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                />
+                <Input type="text" value={source.label} onChange={(e) => updateSource(i, 'label', e.target.value)} placeholder="Slice label" />
                 <input
                   type="color"
                   value={source.color}
                   onChange={(e) => updateSource(i, 'color', e.target.value)}
                   className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                 />
-                <button
-                  onClick={() => removeSource(i)}
-                  className="text-red-400 hover:text-red-600 text-xs px-1"
-                >
-                  X
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => removeSource(i)}>X</Button>
               </div>
               <TagBrowser
                 deviceId={deviceId || null}

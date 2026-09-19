@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import { Settings, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
 import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
@@ -216,13 +217,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-                  <input
-                    type="text"
-                    value={selectedEdge.data.label || ''}
-                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })}
-                    placeholder="Connection label"
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input fullWidth type="text" value={selectedEdge.data.label || ''} onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })} placeholder="Connection label" />
                 </div>
                 <div className="flex items-center gap-2">
                   <input

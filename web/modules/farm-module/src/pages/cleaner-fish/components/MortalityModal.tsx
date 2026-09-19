@@ -4,7 +4,7 @@
  * Modal for recording cleaner fish mortality.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useRecordCleanerMortality,
   useTankCleanerFish,
@@ -133,16 +133,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Dead Fish Count <span className="text-red-500">*</span>
           </label>
-          <input
-            type="number"
-            id="quantity"
-            min="1"
-            max={maxQuantity}
-            value={quantity || ''}
-            onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-            placeholder="Enter number of dead fish"
-          />
+          <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of dead fish" />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Max: {maxQuantity.toLocaleString()}
           </p>
@@ -184,14 +175,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           <label htmlFor="detail" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Detail / Diagnosis
           </label>
-          <input
-            type="text"
-            id="detail"
-            value={detail}
-            onChange={(e) => setDetail(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-            placeholder="e.g., Specific disease name..."
-          />
+          <Input fullWidth type="text" id="detail" value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="e.g., Specific disease name..." />
         </div>
 
         {/* Observation Date */}
@@ -199,14 +183,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           <label htmlFor="observedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Observation Date
           </label>
-          <input
-            type="date"
-            id="observedAt"
-            value={observedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setObservedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-          />
+          <Input fullWidth type="date" id="observedAt" value={observedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setObservedAt(e.target.value)} />
         </div>
 
         {/* Notes */}
@@ -214,15 +191,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
           <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Why did the fish die? <span className="text-red-500">*</span>
           </label>
-          <textarea
-            id="notes"
-            rows={3}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-            placeholder="Describe the circumstances of the mortality..."
-          />
+          <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe the circumstances of the mortality..." />
         </div>
 
         {/* Validation Errors */}

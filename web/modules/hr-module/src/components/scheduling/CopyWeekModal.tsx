@@ -85,7 +85,7 @@ export function CopyWeekModal({
           <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Hedef Hafta
           </legend>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Hedef hafta secimi">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Hedef hafta secimi">
             {[1, 2, 3, 4].map((offset) => {
               const target = new Date(sourceWeekStart);
               target.setDate(target.getDate() + offset * 7);

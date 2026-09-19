@@ -18,7 +18,7 @@
  * WaterTemperatureService. Client-side we only guard NaN + physical bounds.
  */
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input } from '@aquaculture/shared-ui';
 import { useRecordWaterTemperature } from '../../../hooks/useWaterQuality';
 
 interface WaterTemperatureModalProps {
@@ -111,17 +111,7 @@ export const WaterTemperatureModal: React.FC<WaterTemperatureModalProps> = ({
           <label htmlFor="water-temperature" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Water Temperature (°C) <span className="text-red-500">*</span>
           </label>
-          <input
-            type="number"
-            id="water-temperature"
-            step="0.1"
-            min={MIN_TEMPERATURE_C}
-            max={MAX_TEMPERATURE_C}
-            value={temperature}
-            onChange={(e) => setTemperature(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="e.g. 12.5"
-          />
+          <Input fullWidth type="number" id="water-temperature" step="0.1" min={MIN_TEMPERATURE_C} max={MAX_TEMPERATURE_C} value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="e.g. 12.5" />
         </div>
 
         {/* Actions */}

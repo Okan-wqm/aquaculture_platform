@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useConfirm, Spinner } from '@aquaculture/shared-ui';
+import { useConfirm, Spinner, DesktopOnlyNotice } from '@aquaculture/shared-ui';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   GitBranch,
@@ -365,8 +365,10 @@ const ScadaPackageBuilderPage: React.FC = () => {
         onLoadDemo={() => void handleLoadDemo()}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <DesktopOnlyNotice tool="The SCADA builder" />
+
+      {/* Main Content — three panels side by side; below md the row keeps its width and scrolls sideways */}
+      <div className="flex-1 flex overflow-hidden min-w-[64rem]">
         {/* Left Panel — Unified: Scene Tree + Widget Palette + Layers (hidden in preview/simulation) */}
         {mode === 'edit' && (
           <CollapsiblePanel

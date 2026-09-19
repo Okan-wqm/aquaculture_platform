@@ -18,8 +18,8 @@ import {
   Modal,
   Button,
   useToast,
-  parseGraphQLError,
-} from '@aquaculture/shared-ui';
+  useConfirm,
+  parseGraphQLError, Textarea } from '@aquaculture/shared-ui';
 
 import {
   ActiveTreatmentInfo,
@@ -89,6 +89,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
   const [blocker, setBlocker] = useState<WithdrawalBlock | null>(null);
 
   const closeBatch = useCloseBatch();
+  const confirm = useConfirm();
   const { toast } = useToast();
 
   const errors = useMemo(() => {
@@ -113,6 +114,18 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
 
   const handleSubmit = async () => {
     if (!isValid) return;
+    // FE-HIGH-086: closing a batch ends its production record for good; the
+    // form collects the reason, this asks for the decision.
+    if (
+      !(await confirm({
+        title: `Close batch ${batchNumber}?`,
+        message: 'A closed batch cannot be reopened.',
+        confirmText: 'Close batch',
+        cancelText: 'Keep open',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await closeBatch.mutateAsync({
         id: batchId,
@@ -177,15 +190,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             <label htmlFor="close-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes (optional)
             </label>
-            <textarea
-              id="close-notes"
-              rows={3}
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Contextual notes (written to the audit log)"
-            />
+            <Textarea fullWidth id="close-notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Contextual notes (written to the audit log)" />
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 interface ScheduleEntry {
   id: string;
@@ -67,13 +67,7 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
       {/* Title */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Schedule"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Schedule" />
       </div>
 
       {/* Show Hour Labels */}
@@ -109,25 +103,12 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
             <div key={entry.id} className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2">
               {/* Header row with label + remove */}
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={entry.label}
-                  onChange={(e) => updateEntry(idx, { label: e.target.value })}
-                  placeholder="Block label"
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeEntry(idx)}
-                  className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
-                  title="Remove entry"
-                >
-                  Remove
-                </button>
+                <Input type="text" value={entry.label} onChange={(e) => updateEntry(idx, { label: e.target.value })} placeholder="Block label" />
+                <Button variant="ghost" size="xs" type="button" onClick={() => removeEntry(idx)} title="Remove entry">Remove</Button>
               </div>
 
               {/* Day + Hours */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Day</label>
                   <select
@@ -176,36 +157,19 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
                     className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
                   />
-                  <input
-                    type="text"
-                    value={entry.color || themeColors.info[500]}
-                    onChange={(e) => updateEntry(idx, { color: e.target.value })}
-                    className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input type="text" value={entry.color || themeColors.info[500]} onChange={(e) => updateEntry(idx, { color: e.target.value })} />
                 </div>
               </div>
 
               {/* Optional: Tag Name + Tag Value */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Tag Name (optional)</label>
-                  <input
-                    type="text"
-                    value={entry.tagName ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
-                    placeholder="e.g. pump1.schedule"
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input fullWidth type="text" value={entry.tagName ?? ''} onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })} placeholder="e.g. pump1.schedule" />
                 </div>
                 <div>
                   <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Tag Value (optional)</label>
-                  <input
-                    type="text"
-                    value={entry.tagValue ?? ''}
-                    onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
-                    placeholder="e.g. ON"
-                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                  />
+                  <Input fullWidth type="text" value={entry.tagValue ?? ''} onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })} placeholder="e.g. ON" />
                 </div>
               </div>
             </div>

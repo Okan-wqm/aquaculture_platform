@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useId } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -302,14 +303,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
             <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />
           )}
         </button>
-        <button
-          type="button"
-          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:ring-inset"
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-expanded={isExpanded}
-          aria-controls={contentId}
-        >
-          <span className="flex items-center gap-3">
+        <Button variant="ghost" className="flex-1" type="button" onClick={() => setIsExpanded(!isExpanded)} aria-expanded={isExpanded} aria-controls={contentId}><span className="flex items-center gap-3">
             <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400" aria-hidden="true">
               {getCategoryIcon(category.categoryKey)}
             </span>
@@ -324,8 +318,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
             ) : (
               <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             )}
-          </span>
-        </button>
+          </span></Button>
       </div>
 
       {/* Category Content */}
@@ -511,22 +504,8 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => handleSelectAll(true)}
-            disabled={disabled || readOnly}
-            className="px-3 py-1.5 text-xs font-medium text-green-700 bg-white dark:bg-gray-900 border border-green-200 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
-          >
-            Select All
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSelectAll(false)}
-            disabled={disabled || readOnly}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-          >
-            Clear All
-          </button>
+          <Button variant="secondary" size="xs" type="button" onClick={() => handleSelectAll(true)} disabled={disabled || readOnly}>Select All</Button>
+          <Button variant="secondary" size="xs" type="button" onClick={() => handleSelectAll(false)} disabled={disabled || readOnly}>Clear All</Button>
         </div>
       </div>
 

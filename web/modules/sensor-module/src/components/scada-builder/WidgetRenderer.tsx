@@ -9,7 +9,7 @@
 
 import React, { Suspense, useMemo, Component, ErrorInfo } from 'react';
 import type { AnimationState } from '../../engine/animation/types';
-import { colors, colors as themeColors, severityColor } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors, severityColor, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Shared severity color palette for alarm widgets                    */
@@ -214,16 +214,11 @@ class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps, WidgetErro
           <span className="text-lg">&#9888;</span>
           <span>Widget error: {this.props.widgetType}</span>
           {canRetry ? (
-            <button
-              onClick={this.handleRetry}
-              style={{
+            <Button variant="ghost" onClick={this.handleRetry} style={{
                 marginTop: 4, padding: '3px 10px', fontSize: 10, fontWeight: 600,
                 background: '#fff', color: colors.error[700], border: `1px solid ${themeColors.error[100]}`,
                 borderRadius: 4, cursor: 'pointer',
-              }}
-            >
-              Retry ({MAX_RETRIES - this.state.errorCount} left)
-            </button>
+              }}>Retry ({MAX_RETRIES - this.state.errorCount} left)</Button>
           ) : (
             /* 3 deneme sonrası kalıcı hata — sayfa yenilenmeli */
             /* After 3 retries, permanent failure — page must be refreshed */

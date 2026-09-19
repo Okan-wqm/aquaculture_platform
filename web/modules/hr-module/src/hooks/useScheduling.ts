@@ -3,7 +3,8 @@
  * TanStack Query hooks for weekly workforce planning
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useFeedbackMutation } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_WEEKLY_PLANS,
@@ -163,7 +164,8 @@ export function useCreateWeeklyPlan() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Weekly plan created' },
     mutationFn: (input: CreateWeeklyPlanInput) =>
       graphqlRequest<{ createWeeklyPlan: WeeklyPlan }, unknown>(
         client,
@@ -181,7 +183,8 @@ export function useUpdatePlanEntry() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Plan entry updated' },
     mutationFn: (input: UpdatePlanEntryInput) =>
       graphqlRequest<{ updatePlanEntry: WeeklyPlanEntry }, unknown>(
         client,
@@ -200,7 +203,8 @@ export function useBulkAssignShifts() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Shifts assigned' },
     mutationFn: (input: BulkAssignShiftsInput) =>
       graphqlRequest<{ bulkAssignShifts: BulkAssignResult }, unknown>(
         client,
@@ -220,7 +224,8 @@ export function useCopyWeeklyPlan() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Weekly plan copied' },
     mutationFn: ({
       sourceId,
       targetWeekStartDate,
@@ -243,7 +248,8 @@ export function usePublishWeeklyPlan() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Weekly plan published' },
     mutationFn: (id: string) =>
       graphqlRequest<{ publishWeeklyPlan: WeeklyPlan }, unknown>(
         client,
@@ -263,7 +269,8 @@ export function useDeleteWeeklyPlan() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Weekly plan deleted' },
     mutationFn: (id: string) =>
       graphqlRequest<{ deleteWeeklyPlan: boolean }, unknown>(
         client,
@@ -284,7 +291,8 @@ export function useUpdateSchedulingSettings() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Scheduling settings saved' },
     mutationFn: (input: UpdateSchedulingSettingsInput) =>
       graphqlRequest<{ updateSchedulingSettings: SchedulingSettings }, unknown>(
         client,

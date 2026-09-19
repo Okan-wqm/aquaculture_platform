@@ -549,7 +549,7 @@ const ModulePricingPage: React.FC = () => {
           {/* Tier Multipliers */}
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
               {Object.entries(toTierMultiplierForm(selectedPricing.tierMultipliers ?? [])).map(([tier, multiplier]) => (
                 <div key={tier} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-center">
                   <div className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">{tier}</div>
@@ -635,7 +635,7 @@ const ModulePricingPage: React.FC = () => {
                       </Button>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Price (USD)</label>
                       <Input
@@ -688,7 +688,7 @@ const ModulePricingPage: React.FC = () => {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
               Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 = free
             </p>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               {Object.entries(editForm.tierMultipliers).map(([tier, multiplier]) => (
                 <div key={tier}>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">{tier}</label>

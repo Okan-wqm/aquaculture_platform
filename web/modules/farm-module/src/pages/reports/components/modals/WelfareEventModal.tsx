@@ -4,7 +4,7 @@
  * Contact: varsling.akva@mattilsynet.no
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   WelfareEventReport,
   WelfareEventType,
@@ -479,7 +479,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Mortality Rate (%) <span className="text-red-500">*</span>
@@ -522,17 +522,9 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             </div>
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Period</label>
-              <select
-                value={formData.mortalityPeriod}
-                onChange={(e) =>
-                  handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
-                }
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="1_day">1 Day</option>
-                <option value="3_day">3 Days</option>
-                <option value="7_day">7 Days</option>
-              </select>
+              <Select fullWidth options={[{ value: '1_day', label: '1 Day' }, { value: '3_day', label: '3 Days' }, { value: '7_day', label: '7 Days' }]} value={formData.mortalityPeriod} onChange={(e) =>
+         handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
+        } />
             </div>
 
             {/* Threshold comparison */}
@@ -656,7 +648,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Equipment Name <span className="text-red-500">*</span>
@@ -708,37 +700,19 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Injured Fish</label>
-                <input
-                  type="number"
-                  value={formData.injuredFishCount}
-                  onChange={(e) => handleChange('injuredFishCount', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0"
-                />
+                <Input fullWidth type="number" value={formData.injuredFishCount} onChange={(e) => handleChange('injuredFishCount', e.target.value)} placeholder="0" />
               </div>
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Mortality Count</label>
-                <input
-                  type="number"
-                  value={formData.mortalityCount}
-                  onChange={(e) => handleChange('mortalityCount', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0"
-                />
+                <Input fullWidth type="number" value={formData.mortalityCount} onChange={(e) => handleChange('mortalityCount', e.target.value)} placeholder="0" />
               </div>
             </div>
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => handleChange('description', e.target.value)}
-                rows={2}
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Describe the equipment failure and its impact..."
-              />
+              <Textarea fullWidth value={formData.description} onChange={(e) => handleChange('description', e.target.value)} rows={2} placeholder="Describe the equipment failure and its impact..." />
             </div>
           </div>
         )}
@@ -765,7 +739,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 <p className="mt-1 text-xs text-red-600">{errors.description}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Affected Fish Estimate <span className="text-red-500">*</span>
@@ -787,14 +761,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               </div>
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Affected Percentage (%)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={formData.affectedPercentage}
-                  onChange={(e) => handleChange('affectedPercentage', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="e.g., 15"
-                />
+                <Input fullWidth type="number" step="0.1" value={formData.affectedPercentage} onChange={(e) => handleChange('affectedPercentage', e.target.value)} placeholder="e.g., 15" />
               </div>
             </div>
 
@@ -880,37 +847,24 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             {formData.immediateActions.map((action, index) => (
               <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{action}</span>
-                <button
-                  type="button"
-                  onClick={() => removeAction(index)}
-                  className="text-gray-400 dark:text-gray-500 hover:text-red-500"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" type="button" onClick={() => removeAction(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M6 18L18 6M6 6l12 12"
                     />
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              value={formData.newAction}
-              onChange={(e) => handleChange('newAction', e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addAction();
-                }
-              }}
-              className="flex-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Add an action taken..."
-            />
+            <Input type="text" value={formData.newAction} onChange={(e) => handleChange('newAction', e.target.value)} onKeyPress={(e) => {
+        if (e.key === 'Enter') {
+         e.preventDefault();
+         addAction();
+        }
+       }} placeholder="Add an action taken..." />
             <button
               type="button"
               onClick={addAction}
@@ -930,29 +884,15 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSubmitting ? (
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
               <>
                 <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (
               'Submit Report'
-            )}
-          </button>
+            )}</Button>
         </div>
       </div>
     </Modal>

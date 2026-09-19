@@ -4,7 +4,7 @@
  * Modal for creating a new cleaner fish batch.
  */
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useCreateCleanerBatch,
   CleanerFishSpecies,
@@ -117,35 +117,18 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         </div>
 
         {/* Quantity */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Initial Quantity <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              id="quantity"
-              min="1"
-              value={initialQuantity || ''}
-              onChange={(e) => setInitialQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter quantity"
-            />
+            <Input fullWidth type="number" id="quantity" min="1" value={initialQuantity || ''} onChange={(e) => setInitialQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
           </div>
           <div>
             <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Avg Weight (g) <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              id="avgWeight"
-              min="0.1"
-              step="0.1"
-              value={initialAvgWeightG || ''}
-              onChange={(e) => setInitialAvgWeightG(parseFloat(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter weight"
-            />
+            <Input fullWidth type="number" id="avgWeight" min="0.1" step="0.1" value={initialAvgWeightG || ''} onChange={(e) => setInitialAvgWeightG(parseFloat(e.target.value) || 0)} placeholder="Enter weight" />
           </div>
         </div>
 
@@ -162,7 +145,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
         )}
 
         {/* Source Type */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="sourceType" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Source Type
@@ -184,14 +167,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
             <label htmlFor="sourceLocation" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Source Location
             </label>
-            <input
-              type="text"
-              id="sourceLocation"
-              value={sourceLocation}
-              onChange={(e) => setSourceLocation(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="e.g., Supplier name or location"
-            />
+            <Input fullWidth type="text" id="sourceLocation" value={sourceLocation} onChange={(e) => setSourceLocation(e.target.value)} placeholder="e.g., Supplier name or location" />
           </div>
         </div>
 
@@ -200,49 +176,22 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
           <label htmlFor="stockedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Stocked Date <span className="text-red-500">*</span>
           </label>
-          <input
-            type="date"
-            id="stockedAt"
-            value={stockedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setStockedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          />
+          <Input fullWidth type="date" id="stockedAt" value={stockedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setStockedAt(e.target.value)} />
         </div>
 
         {/* Purchase Cost */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="purchaseCost" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Purchase Cost
             </label>
-            <input
-              type="number"
-              id="purchaseCost"
-              min="0"
-              step="0.01"
-              value={purchaseCost || ''}
-              onChange={(e) => setPurchaseCost(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Optional"
-            />
+            <Input fullWidth type="number" id="purchaseCost" min="0" step="0.01" value={purchaseCost || ''} onChange={(e) => setPurchaseCost(parseFloat(e.target.value) || undefined)} placeholder="Optional" />
           </div>
           <div>
             <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Currency
             </label>
-            <select
-              id="currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="NOK">NOK</option>
-              <option value="EUR">EUR</option>
-              <option value="USD">USD</option>
-              <option value="GBP">GBP</option>
-              <option value="TRY">TRY</option>
-            </select>
+            <Select fullWidth options={[{ value: 'NOK', label: 'NOK' }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }, { value: 'GBP', label: 'GBP' }, { value: 'TRY', label: 'TRY' }]} id="currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
           </div>
         </div>
 
@@ -251,15 +200,7 @@ export const CreateBatchModal: React.FC<CreateBatchModalProps> = ({
           <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
-          <textarea
-            id="notes"
-            rows={3}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Optional notes about this batch..."
-          />
+          <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes about this batch..." />
         </div>
 
         {/* Actions */}

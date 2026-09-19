@@ -14,7 +14,7 @@
  *   100              [1.1]  [1.2]  [1.3]  [1.4]
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 export interface FeedingMatrix2D {
   temperatures: number[];
@@ -317,32 +317,13 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               {matrix.temperatures.map((temp, ti) => (
                 <th key={ti} className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1 min-w-[70px]">
                   <div className="flex flex-col items-center gap-1">
-                    <input
-                      type="number"
-                      value={temp}
-                      onChange={e => updateTemperature(ti, parseFloat(e.target.value) || 0)}
-                      className="w-14 text-center border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeTemperature(ti)}
-                      className="text-red-500 hover:text-red-700 text-xs"
-                      title="Remove column"
-                    >
-                      ×
-                    </button>
+                    <Input className="text-center" type="number" value={temp} onChange={e => updateTemperature(ti, parseFloat(e.target.value) || 0)} />
+                    <Button variant="ghost" size="xs" type="button" onClick={() => removeTemperature(ti)} title="Remove column">×</Button>
                   </div>
                 </th>
               ))}
               <th className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-2">
-                <button
-                  type="button"
-                  onClick={addTemperature}
-                  className="text-blue-600 hover:text-blue-800 text-lg font-bold"
-                  title="Add temperature column"
-                >
-                  +
-                </button>
+                <Button variant="ghost" type="button" onClick={addTemperature} title="Add temperature column">+</Button>
               </th>
             </tr>
           </thead>
@@ -351,20 +332,8 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               <tr key={wi}>
                 <td className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1">
                   <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      value={weight}
-                      onChange={e => updateWeight(wi, parseFloat(e.target.value) || 0)}
-                      className="w-16 text-center border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeWeight(wi)}
-                      className="text-red-500 hover:text-red-700 text-xs"
-                      title="Remove row"
-                    >
-                      ×
-                    </button>
+                    <Input className="text-center" type="number" value={weight} onChange={e => updateWeight(wi, parseFloat(e.target.value) || 0)} />
+                    <Button variant="ghost" size="xs" type="button" onClick={() => removeWeight(wi)} title="Remove row">×</Button>
                   </div>
                 </td>
                 {matrix.temperatures.map((_, ti) => {
@@ -392,22 +361,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                       className="border border-gray-300 dark:border-gray-600 px-1 py-1"
                       style={{ backgroundColor: bgColor }}
                     >
-                      <input
-                        type="number"
-                        step={editMode === 'rates' ? '0.1' : '0.01'}
-                        min="0"
-                        max={editMode === 'rates' ? '10' : '3'}
-                        value={value}
-                        onChange={e => {
-                          const newValue = parseFloat(e.target.value) || 0;
-                          if (editMode === 'rates') {
-                            updateRate(wi, ti, newValue);
-                          } else {
-                            updateFCR(wi, ti, newValue);
-                          }
-                        }}
-                        className="w-14 text-center bg-white/80 dark:bg-gray-900/80 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 text-sm font-medium"
-                      />
+                      <Input className="text-center" type="number" step={editMode === 'rates' ? '0.1' : '0.01'} min="0" max={editMode === 'rates' ? '10' : '3'} value={value} onChange={e => {
+             const newValue = parseFloat(e.target.value) || 0;
+             if (editMode === 'rates') {
+              updateRate(wi, ti, newValue);
+             } else {
+              updateFCR(wi, ti, newValue);
+             }
+            }} />
                     </td>
                   );
                 })}
@@ -416,14 +377,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
             ))}
             <tr>
               <td className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-2 py-2">
-                <button
-                  type="button"
-                  onClick={addWeight}
-                  className="text-blue-600 hover:text-blue-800 text-lg font-bold"
-                  title="Add weight row"
-                >
-                  + Row
-                </button>
+                <Button variant="ghost" type="button" onClick={addWeight} title="Add weight row">+ Row</Button>
               </td>
               <td colSpan={matrix.temperatures.length + 1} className="border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800" />
             </tr>
@@ -462,28 +416,14 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
         <h5 className="text-sm font-medium text-blue-800 mb-3">
           Interpolation Calculator (Test your matrix)
         </h5>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-xs text-blue-700 mb-1">Temperature (°C)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={testTemp}
-              onChange={e => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 13"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Input fullWidth type="number" step="0.1" value={testTemp} onChange={e => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')} placeholder="e.g. 13" />
           </div>
           <div>
             <label className="block text-xs text-blue-700 mb-1">Fish Weight (g)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={testWeight}
-              onChange={e => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
-              placeholder="e.g. 7"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Input fullWidth type="number" step="0.1" value={testWeight} onChange={e => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')} placeholder="e.g. 7" />
           </div>
           <div>
             <label className="block text-xs text-blue-700 mb-1">Feeding Rate</label>
@@ -523,13 +463,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
       {/* Notes */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Matrix Notes</label>
-        <textarea
-          rows={2}
-          placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
-          value={matrix.notes || ''}
-          onChange={e => onChange({ ...matrix, notes: e.target.value })}
-          className="w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Textarea fullWidth rows={2} placeholder="Notes about this feeding matrix (e.g., species, conditions, source)" value={matrix.notes || ''} onChange={e => onChange({ ...matrix, notes: e.target.value })} />
       </div>
     </div>
   );

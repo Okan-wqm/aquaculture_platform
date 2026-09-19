@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
 import { useChannelManagement, SensorDataChannel, CreateChannelInput, UpdateChannelInput } from '../../hooks/useChannelManagement';
 import { ChannelEditorModal } from '../registration/ChannelEditorModal';
@@ -300,28 +300,13 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       render: (_value, ch) => (
         <div className="flex items-center justify-end gap-1">
           {/* L3: aria-label */}
-          <button
-            onClick={() => handleEditChannel(ch)}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
-            aria-label="Kanali duzenle"
-            title="Kanali duzenle"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly onClick={() => handleEditChannel(ch)} aria-label="Kanali duzenle" title="Kanali duzenle"><Edit className="w-4 h-4" /></Button>
           {/* L3: aria-label */}
-          <button
-            onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
-            disabled={deletingId === ch.id}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-            aria-label="Kanali sil"
-            title="Kanali sil"
-          >
-            {deletingId === ch.id ? (
+          <Button variant="ghost" size="sm" onClick={() => handleDeleteChannel(ch.id, ch.channelKey)} disabled={deletingId === ch.id} aria-label="Kanali sil" title="Kanali sil">{deletingId === ch.id ? (
               <Spinner size="sm" color="inherit" />
             ) : (
               <Trash2 className="w-4 h-4" />
-            )}
-          </button>
+            )}</Button>
         </div>
       ),
     }
@@ -344,13 +329,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
             <Sparkles className="w-4 h-4" />
             AI Tespit
           </button>
-          <button
-            onClick={handleAddChannel}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            Kanal Ekle
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleAddChannel}>Kanal Ekle</Button>
         </div>
       </div>
 

@@ -5,7 +5,7 @@ import {
   Shield,
   RefreshCw,
 } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { useAssignModuleManager, useTenantUsers } from '../../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
 import type { DisplayModule } from './ModuleCard';
@@ -67,20 +67,9 @@ const AssignManagerModal: React.FC<{
       bodyClassName=""
       footer={
         <>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selectedUserId || assignMutation.isPending}
-            className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {assignMutation.isPending && <RefreshCw className="w-4 h-4 animate-spin" />}
-            Assign Manager
-          </button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={!selectedUserId || assignMutation.isPending}>{assignMutation.isPending && <RefreshCw className="w-4 h-4 animate-spin" />}
+            Assign Manager</Button>
         </>
       }
     >

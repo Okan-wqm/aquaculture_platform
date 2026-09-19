@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { Task, CATEGORY_CONFIG, PRIORITY_CONFIG } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
 
@@ -99,11 +99,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => (viewMode === 'week' ? navigateWeek(-1) : navigateMonth(-1))}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-          >
-            <svg
+          <Button variant="ghost" onClick={() => (viewMode === 'week' ? navigateWeek(-1) : navigateMonth(-1))}><svg
               className="w-5 h-5 text-gray-600 dark:text-gray-400"
               fill="none"
               viewBox="0 0 24 24"
@@ -115,32 +111,21 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 strokeWidth={2}
                 d="M15 19l-7-7 7-7"
               />
-            </svg>
-          </button>
+            </svg></Button>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {viewMode === 'week'
               ? `${weekDays[0].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}`
               : currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
           </h3>
-          <button
-            onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-          >
-            <svg
+          <Button variant="ghost" onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}><svg
               className="w-5 h-5 text-gray-600 dark:text-gray-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setCurrentDate(new Date())}
-            className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg"
-          >
-            Bugün
-          </button>
+            </svg></Button>
+          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Bugün</Button>
         </div>
 
         {/* View Toggle */}

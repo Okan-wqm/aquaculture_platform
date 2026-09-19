@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Type Definitions
@@ -431,12 +432,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
     </div>
     <p className="text-sm text-red-600 mb-2">{message}</p>
     {onRetry && (
-      <button
-        onClick={onRetry}
-        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-      >
-        Retry
-      </button>
+      <Button variant="ghost" onClick={onRetry}>Retry</Button>
     )}
   </div>
 );
@@ -562,13 +558,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
               week)
             </span>
             {onViewAll && (
-              <button
-                onClick={onViewAll}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                data-testid="view-all-btn"
-              >
-                View All Reports
-              </button>
+              <Button variant="ghost" onClick={onViewAll} data-testid="view-all-btn">View All Reports</Button>
             )}
           </div>
         </div>

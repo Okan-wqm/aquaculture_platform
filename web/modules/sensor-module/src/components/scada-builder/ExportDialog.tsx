@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, colors as themeColors, Spinner } from '@aquaculture/shared-ui';
+import { Modal, colors as themeColors, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { Download, Image, FileText } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -346,13 +346,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
           {/* Filename */}
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Filename</label>
-            <input
-              type="text"
-              value={filename}
-              onChange={(e) => setFilename(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-              placeholder="scada-export"
-            />
+            <Input fullWidth type="text" value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="scada-export" />
           </div>
 
           {/* Error */}
@@ -363,12 +357,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <button
             onClick={handleExport}
             disabled={isExporting || !filename.trim()}

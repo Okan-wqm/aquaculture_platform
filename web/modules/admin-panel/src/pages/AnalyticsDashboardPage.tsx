@@ -730,7 +730,7 @@ const AnalyticsDashboardPage: React.FC = () => {
               maxHeight={120}
             />
           </div>
-          <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
+          <div className="mt-4 pt-4 border-t grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Starter</p>

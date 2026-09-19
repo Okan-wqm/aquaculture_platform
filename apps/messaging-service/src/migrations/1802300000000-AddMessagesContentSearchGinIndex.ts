@@ -54,18 +54,17 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * # transaction = false (load-bearing)
  *
- * `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block. The
- * production migration authority (aqua-db-migrate orchestrator,
- * ORPHAN-CRITICAL-058 fix in apps/db-migrate/src/migration-orchestrator.ts)
- * honors the per-migration `transaction = false` opt-out and runs `up()`
- * WITHOUT the per-migration transaction wrapper. The LEGACY in-process
- * runner (libs/backend-common migration-runner.service.ts, used in dev /
- * E2E when DB_MIGRATE_AUTHORITATIVE is unset) wraps every migration in a
- * transaction unconditionally — there this migration would fail. It fails
- * FAST with a precise remediation message instead (see the guard in `up()`):
- * fresh/E2E databases have ZERO partitions, so the legacy path only ever
- * executes the transaction-safe `ON ONLY` parent stub and never a
- * CONCURRENTLY statement.
+ * `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block. Both
+ * platform runners honour the per-migration `transaction = false` opt-out
+ * and run `up()` WITHOUT the per-migration transaction wrapper: the
+ * production authority (aqua-db-migrate orchestrator, ORPHAN-CRITICAL-058
+ * fix in apps/db-migrate/src/migration-orchestrator.ts) and the in-process
+ * runner (libs/backend-common migration-runner.service.ts, dev / E2E when
+ * DB_MIGRATE_AUTHORITATIVE is unset — it had wrapped unconditionally until
+ * this migration met the E2E harness's three bootstrap partitions). The
+ * guard in `up()` stays as the fail-fast for any caller that ignores the
+ * opt-out: with partitions present a wrapper transaction can only mean the
+ * runner contract was broken, and the message names it.
  *
  * Idempotency: partition builds use IF NOT EXISTS + a self-healing drop of
  * partially-built INVALID indexes (a crashed CONCURRENTLY build leaves an
@@ -100,22 +99,22 @@ export class AddMessagesContentSearchGinIndex1802300000000 implements MigrationI
         `(${partitions.length} partition(s))`,
     );
 
-    // Legacy-runner guard: with partitions present we MUST run CONCURRENTLY,
-    // which requires no active transaction. db-migrate guarantees that
-    // (transaction=false); the legacy in-process runner does not.
+    // Runner-contract guard: with partitions present we MUST run CONCURRENTLY,
+    // which requires no active transaction. Every platform runner honours
+    // `transaction = false`; an open transaction here means the caller did not.
     if (partitions.length > 0 && queryRunner.isTransactionActive) {
       throw new Error(
         `AddMessagesContentSearchGinIndex1802300000000 cannot build partition indexes ` +
           `CONCURRENTLY inside an active transaction (schema "${schema}" has ` +
-          `${partitions.length} partitions). Run this migration via aqua-db-migrate ` +
-          `(the production migration authority — it honors transaction=false), not the ` +
-          `legacy in-process runner against a populated database.`,
+          `${partitions.length} partitions). The runner must honour this migration's ` +
+          `transaction=false opt-out (ORPHAN-CRITICAL-058 contract: db-migrate orchestrator ` +
+          `and the backend-common in-process runner both do).`,
       );
     }
 
-    // 1. Per-partition CONCURRENTLY builds (skip entirely on a fresh DB —
-    //    zero partitions, e.g. E2E bootstrap: the parent stub below is the
-    //    whole migration and later partitions inherit the index from it).
+    // 1. Per-partition CONCURRENTLY builds (a DB with zero partitions gets
+    //    only the parent stub below; partitions created later inherit the
+    //    index from it).
     for (const partition of partitions) {
       await this.healInvalidPartitionIndex(queryRunner, schema, partition);
       const indexName =

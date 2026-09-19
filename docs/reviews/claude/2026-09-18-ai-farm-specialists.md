@@ -3,7 +3,7 @@
 **Date:** 2026-09-18 · **Agent:** claude · **Cycle:** 2026-09-18 ai-farm-specialists
 **Plan:** tier × specialty persona composition; three farm-module experts (water & fish health / production / operations); read-only tools over farm-service via NATS request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
-**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-069 (formerly FE-HIGH-066), INFRA-HIGH-174 and FE-HIGH-067 (base-branch defects found by this branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner: farm-module maintainer, deadline 2026-10-16).
+**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-069 (formerly FE-HIGH-066), INFRA-HIGH-174, FE-HIGH-067 and ORPHAN-HIGH-828 (base-branch / platform defects found by this branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner: farm-module maintainer, deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -145,6 +145,30 @@ the inventory could never be loaded. The page had no spec, so the wrong state
 was undetectable. Fix: start idle (`loading: false`), delete the empty effect,
 and add the page's first spec, which drives the button and asserts the
 catalogue-derived tier / specialty column.
+
+## ORPHAN-HIGH-828 — the in-process migration runner ignored `transaction = false`
+
+Found by PR #1586's `E2E Tests` lane: every messaging E2E suite failed at
+boot because `AddMessagesContentSearchGinIndex1802300000000` (MSGFIX-FAZ3,
+`transaction = false`, per-partition `CREATE INDEX CONCURRENTLY`) threw its
+runner-contract guard — the E2E harness bootstraps three `messages`
+partitions, and the platform runner in `libs/backend-common` had opened a
+transaction around `up()` regardless. ORPHAN-CRITICAL-058 fixed exactly this
+in the db-migrate orchestrator (production); the Faz 1.1 post-condition
+barrier later rewrote the in-process runner around
+`executor.executeMigration()` with an unconditional `startTransaction()`,
+so the two runners disagreed on TypeORM's instance-level opt-out and the
+migration's docblock had to assume "E2E databases have zero partitions".
+Fix: the runner reads `migration.instance.transaction !== false` and
+starts / commits / rolls back only when it wrapped the call — the same
+contract as the orchestrator. `migration-runner.transaction-opt-out.spec.ts`
+drives the real `MigrationExecutor` (ledger I/O replaced at the prototype
+seam) and proves `up()` observes no open transaction for the opt-out and a
+wrapped one otherwise; the migration's guard stays as the fail-fast for any
+caller that ignores the contract, and its message now names both runners.
+Verified against a throwaway Postgres with the platform image: all twelve
+messaging E2E suites boot, the parent index and three partition indexes land
+`indisvalid = true`.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

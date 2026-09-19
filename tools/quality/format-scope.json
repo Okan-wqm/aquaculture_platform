@@ -41173,6 +41173,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/migration-runner/__tests__/migration-runner.transaction-opt-out.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/migration-runner/index.ts",
       "prettier_managed": true
     },

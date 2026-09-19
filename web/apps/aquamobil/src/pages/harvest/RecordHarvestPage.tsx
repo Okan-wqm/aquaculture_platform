@@ -28,7 +28,7 @@ const QUALITY_CLASSES: ReadonlyArray<{ value: QualityClass; label: string; color
 ];
 
 const HARVEST_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-violet-700 to-harvest',
+  headerTone: 'violet',
   accentText: 'text-harvest',
   summaryHeaderBg: 'bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800/50',
   summaryHeaderText: 'text-purple-700 dark:text-purple-300',

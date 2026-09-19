@@ -1,9 +1,10 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
+
+import { PageHeader } from '@/components/ui/PageHeader';
 import type { WeeklyPlanEntryType } from '@/generated/graphql';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
@@ -82,7 +83,6 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
 }
 
 export function MySchedulePage(): JSX.Element {
-  const navigate = useNavigate();
   const [weekOffset, setWeekOffset] = useState(0);
   const { data: plan, isLoading, isError } = useMySchedule(weekOffset);
 
@@ -106,16 +106,10 @@ export function MySchedulePage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Clock size={22} />
-            <h1 className="text-lg font-bold">My Schedule</h1>
-          </div>
-        </div>
+      <PageHeader
+        icon={Clock}
+        title="My Schedule"
+      >
 
         {/* Week navigation */}
         <div className="flex items-center justify-between px-4 pb-4">
@@ -171,7 +165,7 @@ export function MySchedulePage(): JSX.Element {
             <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
           </svg>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Content */}
       <div className="px-4 pt-2 pb-24">

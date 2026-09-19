@@ -10,10 +10,11 @@
  * manager who has reviewed the draft and wants to file it from the field.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
 import { type JSX, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import type {
   MobileApproveAndSubmitReportDraftMutation,
@@ -134,20 +135,12 @@ export function ReportReviewPage(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div className="bg-gradient-to-r from-indigo-700 to-indigo-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/reports')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <FileText size={22} />
-            <h1 className="text-lg font-bold">Review Draft</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="indigo"
+        icon={FileText}
+        title="Review Draft"
+        back={() => navigate('/reports')}
+      />
 
       <div className="px-4 pt-4 space-y-4 pb-28">
         {!isOnline && (

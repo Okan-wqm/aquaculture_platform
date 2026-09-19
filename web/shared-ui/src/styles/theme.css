@@ -18,6 +18,25 @@
  * tenant-admin layers its own @theme (tenant/dark palettes) ON TOP of this.
  * aquamobil stays on Tailwind 3 (Konsta preset) and does NOT import this file.
  */
+/* ============================================================================
+   Dark variant — keyed on the shell's `data-theme` (FE-MEDIUM-072)
+   ============================================================================
+   WHAT: `dark:` utilities fire under any `[data-theme='dark']` ancestor and
+   nowhere else. The shell resolves the user's preference (light / dark /
+   system, `web/shell/src/utils/theme.ts`) onto `<html data-theme>`, so a
+   `dark:` class follows the product's theme toggle rather than the OS alone.
+   A surface that is always dark (the ST editor and its dialogs) pins the same
+   attribute on its own root — shared-ui's `Modal` and `Drawer` do this for
+   `theme="dark"` — and renders the same `dark:`-aware markup as a page.
+
+   WHY not Tailwind's default `prefers-color-scheme` variant: the shell's
+   toggle and the OS scheme disagreed — a user who chose "light" still saw
+   the hr and sensor pages go dark with the OS — and no component could force
+   its own palette. One selector, defined once here (every CSS entry imports
+   this file first), means the same thing in the shell and in every remote;
+   a remote that redefined it would fork what `dark:` means. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 @theme {
   /* ============================ Colors ============================ */
   /* WCAG 2.1 AA (FE-MEDIUM-024): darken default gray-400 (#9ca3af, 2.9:1) to

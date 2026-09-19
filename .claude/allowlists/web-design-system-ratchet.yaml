@@ -22,15 +22,21 @@
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
 #                 the same way), per package. shared-ui Spinner (aquamobil:
 #                 components/ui/Spinner) is the loading indicator.
-#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl bold or
-#                 semibold), per package. shared-ui PageHeader is the title row.
+#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl/text-lg
+#                 bold or semibold), per package. shared-ui PageHeader is the
+#                 title row; AquaMobil's components/ui/PageHeader is the band.
+#   darkSurface — light-only surfaces (a class string painting bg-white,
+#                 bg-gray-50 or bg-gray-100 with no `dark:` sibling), per
+#                 package, shared-ui included. theme.css keys `dark:` on the
+#                 shell's data-theme; a surface is dark-aware when every light
+#                 class it paints has a dark counterpart.
 #
 # Per-package ceilings are EXACT live counts (the spec rejects slack), so the
 # workflow is: remove occurrences, run the spec, lower the ceiling to the number
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 8
+  ceiling: 5
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -62,24 +68,6 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: SCADA popup-view layer driven by screen navigation; nests operator views, not a dialog
-    - site: web/modules/sensor-module/src/components/unified-editor/json-bundle/ExportDialog.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: dark editor-themed dialog; needs a Modal theme variant before migrating
-    - site: web/modules/sensor-module/src/components/unified-editor/json-bundle/ImportDialog.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: dark editor-themed dialog; needs a Modal theme variant before migrating
-    - site: web/modules/sensor-module/src/pages/unified/UnifiedEditorPage.tsx
-      batch: runtime
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-065
-      reason: full-screen dark ST editor surface; needs a Modal theme variant before migrating
 rawHex:
   entries: []
 rawTable:
@@ -97,7 +85,7 @@ rawTable:
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 7
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069
@@ -107,11 +95,11 @@ rawSpinner:
 rawPageTitle:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 1
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
-      reason: the error boundary fallback — a centred message, not a page header (mobile top bars are their own primitive)
+      reason: the home and account heroes (decorated bands with stats and an avatar), the channel list whose title row swaps into a search field, and the error boundary fallback — not the page band PageHeader draws
     - package: web/modules/hr-module
       ceiling: 1
       owner: okan
@@ -125,17 +113,85 @@ rawPageTitle:
       findingId: FE-MEDIUM-071
       reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
     - package: web/modules/sensor-module
-      ceiling: 3
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
-      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor) — the title is one control in a dense strip, compact by design; a page header would break the strip
+      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
     - package: web/shell
       ceiling: 1
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
       reason: the 404 page — a centred message, not a page header
+darkSurface:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 61
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 376
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 10
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 716
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 86
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 51
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 7
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 948
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 224
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/shared-ui
+      ceiling: 75
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+    - package: web/shell
+      ceiling: 39
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
 inlineStyle:
   entries:
     - package: web/modules/sensor-module

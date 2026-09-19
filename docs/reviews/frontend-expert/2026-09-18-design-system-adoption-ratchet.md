@@ -27,7 +27,9 @@ overlay (55 without an accessible close label, 111 stacked on one `z-50`);
 2.136 raw hex colours sit outside `theme.css`; 683 inline `style={{}}` blocks
 bypass tokens; 87 call sites used the browser's `confirm()` / `alert()` /
 `prompt()`; 365 loading spinners were drawn by hand beside `Spinner`; 130
-page title rows were written by hand with no `PageHeader` to write them with.
+page title rows were written by hand with no `PageHeader` to write them with;
+2.600 light surfaces had no dark counterpart while two dark-mode mechanisms
+(the shell's `data-theme` override, the OS-keyed `dark:` variant) disagreed.
 
 The first wave closed the browser-dialog class outright (ESLint `no-alert`
 error, `useConfirm`/`usePrompt` + `ConfirmProvider`, Drawer, AquaMobil update
@@ -91,10 +93,17 @@ setpoint PIN keypad is a `Modal size=sm`, the PID faceplate a right
 `Drawer`, the operator alarm tray a bottom `Drawer` (headerless — the
 panel keeps its own header, so `Drawer` gained `ariaLabel` for the
 accessible name) and the GDPR consent gate a `Modal` with no dismissal
-path (no close control, Escape or overlay click); overlays 12 → 8. What
-remains is genuinely not a dialog (kiosk, view overlay, camera viewfinder,
-media viewers) or waits on a dark Modal theme variant (the editor's
-export/import dialogs and ST editor). Remaining
+path (no close control, Escape or overlay click); overlays 12 → 8. Batch 26
+(same cycle): `Modal` and `Drawer` take `theme="dark"`, which pins
+`data-theme="dark"` on the dialog root (FE-MEDIUM-072), so the ST
+editor's export and import dialogs and the PLC editor's floating ST
+editor (a `size="2xl"` modal that does not close on an overlay click)
+are `Modal`s; `useDialogBehavior` keeps a stack of open dialogs, so a
+dialog opened from inside another closes alone on Escape, and the body
+scroll lock lifts with the last one; `Modal` labels each instance with
+`useId` and takes a `closeLabel`; overlays 8 → 5. What remains is
+genuinely not a dialog (kiosk, view overlay, camera viewfinder, media
+viewers). Remaining
 files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
@@ -304,7 +313,16 @@ Batch 21: `DataTable` expansion can be controlled (`expandedRowIds`,
 `onExpandedChange`, and `expandToggle={false}` when a cell of the page is
 the toggle), so the protocol bands — a row plus its meal-schedule editor
 under it — and the meal board (one list per day plan, its columns a
-factory over the plan) render through it. farm 7 → 5. **Owner:** okan ·
+factory over the plan) render through it. farm 7 → 5. Batch 26:
+`DataTable` pairs every class it paints with a dark counterpart and
+takes `flush` (no card chrome, for a table that fills a panel), so the
+operator alarm tray (severity tints the row, status and severity are
+pills, the ACK column only on the active tab, sticky header inside the
+tray's own scroll) and the ST simulation watch tables (the value column
+a control for inputs, a display otherwise) render through it; its
+private loading arc is the shared `Spinner`. sensor 7 → 5: the SCADA
+runtime grid widgets, whose columns and colours are widget
+configuration, and the heat-map grid. **Owner:** okan ·
 **Expiry:** 2027-06-30.
 
 #### FE-MEDIUM-070 — Hand-rolled loading spinners beside `Spinner`
@@ -357,10 +375,49 @@ per-package `rawPageTitle` ceiling: an `h1` in `text-2xl`/`text-xl` bold or
 semibold outside shared-ui. What remains is not a page header: the SCADA
 view, widget dashboard and water-chemistry monitor toolbars and the pH
 simulator strip (the title is one control in a dense tool strip, compact by
-design), the 404 page and the HR module's load-failure state. AquaMobil's 39
-mobile top bars (back arrow, icon, title, right action on the ocean band)
-are one primitive of their own and follow in their own batch.
+design), the 404 page and the HR module's load-failure state. Batch 25:
+AquaMobil, which cannot import shared-ui, gets its own `PageHeader` under
+`components/ui/` — the feature-toned gradient band (`tone`), the back arrow
+(history pop, a handler, or none), the 22px icon, title and subtitle,
+`actions` on the row, `children` inside the band, and a `hub` variant with
+the glass icon box and the curved edge, which replaces the hub-only
+`HubHeader`. 35 of its 39 bands render through it (the converter took the
+bar and hub shapes; the record pages' theme and the stock-movement config
+name a `tone` instead of a gradient class); the four that stay are the home
+and account heroes, the channel list whose title row swaps into a search
+field, and the error boundary. The ratchet counts `text-lg` titles too, so
+the mobile band sits under the same ceiling.
 **Owner:** okan · **Expiry:** 2027-06-30.
+
+#### FE-MEDIUM-072 — Dark mode: two mechanisms, no dark-aware primitives
+
+The shell has a theme toggle (light / dark / system, resolved onto
+`<html data-theme>` by `web/shell/src/utils/theme.ts`) and implements dark
+mode as a global `!important` override of thirteen light utility classes and
+every input (`web/shell/src/styles/index.css`). hr-module (884) and
+sensor-module (120) carry `dark:` classes keyed, by Tailwind's default, on
+`prefers-color-scheme` — the OS, not the toggle — so a user who chose "light"
+still saw those pages go dark with the OS. shared-ui's primitives carried no
+dark variant at all, so the SCADA editor's always-dark dialogs could not be
+`Modal`s and the operator's dark panels could not hold a `DataTable`. 2.600
+class strings across web paint `bg-white`, `bg-gray-50` or `bg-gray-100`
+with no dark counterpart (sensor 948, farm 716, admin-panel 376,
+tenant-admin 224, hr 86, shared-ui 82, aquamobil 61, hydroponics 51,
+shell 39, dashboard 10, messaging 7).
+
+**Root cause:** no single definition of what `dark:` means; the override
+block made light-only markup look dark enough to never be fixed.
+
+**Fix (this cycle, batch 26):** `theme.css` defines the `dark` variant once,
+on `[data-theme='dark']` — the shell's toggle, or a surface that pins the
+attribute on its own root — and nowhere else; every CSS entry imports it, so
+it means the same thing in every remote, and the OS reaches it only through
+the toggle's "system" setting. `Modal` and `Drawer` take `theme="dark"`;
+`DataTable`, `Modal` (with `ConfirmModal`) and `Drawer` pair every gray or
+white class with a dark one, pinned by the strict form of the ratchet. The
+ratchet gains a per-package `darkSurface` ceiling (light-only surfaces,
+shared-ui included) so the count only shrinks; the shell's override block is
+deleted when it reaches zero. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -370,13 +427,15 @@ are one primitive of their own and follow in their own batch.
 
 ## Out of this cycle (tracked above, not done)
 
-- Remaining overlay entries (8 runtime surfaces; see allowlist entries).
+- Remaining overlay entries (5 runtime surfaces; see allowlist entries).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 15 remain after batch 21 (hr 3, sensor 7,
-  farm 5): SCADA runtime grids and dark operator panels (they wait on the
-  dark `DataTable` theme), the two feeding matrix editors (editable
+- Raw `<table>` → `DataTable`: 13 remain after batch 26 (hr 3, sensor 5,
+  farm 5): the SCADA runtime grid widgets and heat map (widget
+  configuration drives columns and colours), the two feeding matrix editors (editable
   header cells, add/remove rows and columns — a spreadsheet, not a list),
   three report-export HTML strings, two calendar grids and a print document.
+- Light-only surfaces: 2.593 after batch 26 (`darkSurface` ratchet); the
+  shell's `!important` override block goes when the count reaches zero.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
-  single palette across web + AquaMobil, dark mode reach, i18n reach) — design
+  single palette across web + AquaMobil, i18n reach) — design
   work with product decisions attached; not gated here.

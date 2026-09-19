@@ -20,8 +20,9 @@ import {
 import type { JSX } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
+import { KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStockEventsSummary } from '@/hooks/useStockEventsSummary';
 import type { StockEvent } from '@/types';
@@ -221,13 +222,15 @@ export function StockEventsHubPage(): JSX.Element {
   return (
     <ErrorBoundary fallbackTitle="Stock Events Error">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <HubHeader
-          title="Stock Events"
+        <PageHeader
+          variant="hub"
+          tone="purple"
+          back
           icon={Package}
-          gradient="from-purple-700 via-purple-600 to-violet-500"
+          title="Stock Events"
         >
           <KpiStrip items={kpiItems} />
-        </HubHeader>
+        </PageHeader>
 
         <main className="px-5 pt-4 space-y-5">
           {!isOnline && (

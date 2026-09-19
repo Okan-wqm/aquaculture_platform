@@ -14,7 +14,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Search,
   Users,
   Check,
@@ -32,6 +31,7 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -345,27 +345,22 @@ export function NewChatPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/messages')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold flex-1">
-            {showGroupNameInput ? 'Name Your Group' : 'New Message'}
-          </h1>
-          {isGroupMode && !showGroupNameInput && (
-            <button
-              onClick={handleToggleGroupMode}
-              className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={showGroupNameInput ? 'Name Your Group' : 'New Message'}
+        back={() => navigate('/messages')}
+        actions={
+          <>
+            {isGroupMode && !showGroupNameInput && (
+              <button
+                onClick={handleToggleGroupMode}
+                className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Group name input panel */}
       {showGroupNameInput ? (

@@ -18,6 +18,7 @@ import { ClipboardList, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useStaffSummary } from '@/hooks/useStaffSummary';
@@ -161,22 +162,11 @@ export function OperationsHubPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Page header -- gradient banner matching the existing app design system */}
-      <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white">
-        <div className="px-5 pt-safe-top">
-          <div className="flex items-center gap-3 py-4">
-            <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <ClipboardList size={22} className="text-white" />
-            </div>
-            <h1 className="text-lg font-bold tracking-tight">Operations</h1>
-          </div>
-        </div>
-        {/* Curved bottom edge -- consistent with HomePage */}
-        <div className="relative">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
+      <PageHeader
+        variant="hub"
+        icon={ClipboardList}
+        title="Operations"
+      />
 
       {/* Hub summary cards -- vertical stack */}
       <main className="px-5 pt-4 space-y-4">

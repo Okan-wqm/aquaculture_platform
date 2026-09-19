@@ -66,7 +66,7 @@ export interface BottomSheetProps {
 const PANEL_SIZE_CLASS: Record<BottomSheetSize, string> = {
   auto: 'max-h-[85vh] rounded-t-3xl pb-safe',
   tall: 'h-[70vh] rounded-t-3xl pb-safe',
-  full: 'h-[100dvh] rounded-none pt-safe pb-safe',
+  full: 'h-[100dvh] rounded-none pt-safe-top pb-safe',
 };
 
 export function BottomSheet({

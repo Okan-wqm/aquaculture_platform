@@ -7,6 +7,7 @@ import { AiInsightsCard } from '@/components/ai';
 import { AlertsBell } from '@/components/AlertsBell';
 import { TankCard } from '@/components/cards/TankCard';
 import { NotificationBell } from '@/components/NotificationBell';
+import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useMyTasks } from '@/hooks/useMyTasks';
@@ -103,7 +104,7 @@ const allQuickActions: QuickAction[] = [
 export function HomePage(): JSX.Element {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { data: tanks, isLoading, refetch, isRefetching } = useTanks();
+  const { data: tanks, isLoading, isError, refetch, isRefetching } = useTanks();
   const { pendingCount, isOnline } = useOfflineQueue();
   const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } = useMobilePermissions();
   // SEC-MEDIUM-050: canReach folds the entitlement flag with any feature role
@@ -364,12 +365,19 @@ export function HomePage(): JSX.Element {
               <div key={i} className="h-32 rounded-2xl skeleton" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState
+            title="Tanks could not be loaded"
+            description={isOnline ? 'Pull down or tap Retry to try again.' : 'You are offline - showing cached data'}
+            onRetry={() => { void refetch(); }}
+            retrying={isRefetching}
+          />
         ) : allTanks.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-            <Fish size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No tanks found</p>
-            {!isOnline && <p className="text-sm mt-1">You are offline - showing cached data</p>}
-          </div>
+          <EmptyState
+            icon={Fish}
+            title="No tanks found"
+            description={!isOnline ? 'You are offline - showing cached data' : undefined}
+          />
         ) : (
           <div className="space-y-3">
             {allTanks.map((tank) => (
@@ -379,8 +387,6 @@ export function HomePage(): JSX.Element {
         )}
       </div>
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

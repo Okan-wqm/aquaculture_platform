@@ -40,20 +40,6 @@ COPY libs/farm-shared /monorepo/libs/farm-shared
 # MESSAGING_MEDIA_MIME_ALLOWLIST from it). See ORPHAN-MEDIUM-130.
 COPY libs/shared-contracts /monorepo/libs/shared-contracts
 
-# Patch konsta package.json to add root "." export (needed for Vite/Rollup)
-RUN node -e " \
-  const fs = require('fs'); \
-  const p = './node_modules/konsta/package.json'; \
-  if (fs.existsSync(p)) { \
-    const pkg = JSON.parse(fs.readFileSync(p,'utf8')); \
-    if (!pkg.exports || !pkg.exports['.']) { \
-      pkg.exports = { '.': { types: './react/konsta-react.d.ts', require: './react/cjs/konsta-react.js', import: './react/esm/konsta-react.js' }, ...pkg.exports }; \
-      fs.writeFileSync(p, JSON.stringify(pkg,null,2)); \
-      console.log('Patched konsta'); \
-    } \
-  } \
-" --input-type=commonjs
-
 # Build aquamobil
 RUN npx vite build
 

@@ -2,40 +2,17 @@ import React, { useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 import type { AlarmRuleDef } from '../../store/scada';
+import { severityClasses } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  ISA-101 Severity Configuration                                     */
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_CONFIG = {
-  critical: {
-    label: 'Critical',
-    bg: 'bg-red-600',
-    text: 'text-white',
-    pillBg: 'bg-red-700',
-    pillText: 'text-white',
-  },
-  high: {
-    label: 'High',
-    bg: 'bg-orange-500',
-    text: 'text-white',
-    pillBg: 'bg-orange-600',
-    pillText: 'text-white',
-  },
-  warning: {
-    label: 'Warning',
-    bg: 'bg-yellow-400',
-    text: 'text-gray-900 dark:text-gray-100',
-    pillBg: 'bg-yellow-500',
-    pillText: 'text-gray-900 dark:text-gray-100',
-  },
-  info: {
-    label: 'Info',
-    bg: 'bg-blue-500',
-    text: 'text-white',
-    pillBg: 'bg-blue-600',
-    pillText: 'text-white',
-  },
+  critical: { label: 'Critical', bg: severityClasses('critical', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
+  high: { label: 'High', bg: severityClasses('high', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
+  warning: { label: 'Warning', bg: severityClasses('warning', 'solid'), text: '', pillBg: 'bg-black/10', pillText: 'text-inherit' },
+  info: { label: 'Info', bg: severityClasses('info', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
 } as const;
 
 type Severity = AlarmRuleDef['severity'];

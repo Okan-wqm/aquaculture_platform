@@ -29,7 +29,7 @@ import {
   AlertSeverity,
   AlertStatusFilter,
 } from '../hooks/useAlerts';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, severityClasses } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -52,12 +52,12 @@ type StatusConfig = {
 // ============================================================================
 
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
-  critical: { label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200', borderClass: 'border-l-red-500' },
-  high: { label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-l-orange-500' },
-  warning: { label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200', borderClass: 'border-l-yellow-500' },
-  medium: { label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200', borderClass: 'border-l-amber-500' },
-  low: { label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-l-blue-500' },
-  info: { label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700', borderClass: 'border-l-gray-400' },
+  critical: { label: 'Kritik', className: severityClasses('critical'), borderClass: severityClasses('critical', 'bar') },
+  high: { label: 'Yüksek', className: severityClasses('high'), borderClass: severityClasses('high', 'bar') },
+  warning: { label: 'Uyarı', className: severityClasses('warning'), borderClass: severityClasses('warning', 'bar') },
+  medium: { label: 'Orta', className: severityClasses('medium'), borderClass: severityClasses('medium', 'bar') },
+  low: { label: 'Düşük', className: severityClasses('low'), borderClass: severityClasses('low', 'bar') },
+  info: { label: 'Bilgi', className: severityClasses('info'), borderClass: severityClasses('info', 'bar') },
 };
 
 const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [

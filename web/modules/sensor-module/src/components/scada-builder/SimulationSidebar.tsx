@@ -24,7 +24,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { getTenantId, tenantScopedStorageKey, severityClasses } from '@aquaculture/shared-ui';
 import { useScadaPackageStore } from '../../store/scada';
 import { useAlarmEvaluation } from '../../hooks/useAlarmEvaluation';
 import { useSimulation } from '../../simulation';
@@ -50,10 +50,10 @@ interface Scenario {
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-400 text-gray-900',
-  info: 'bg-blue-500 text-white',
+  critical: severityClasses('critical', 'solid'),
+  high: severityClasses('high', 'solid'),
+  warning: severityClasses('warning', 'solid'),
+  info: severityClasses('info', 'solid'),
 };
 
 /* ------------------------------------------------------------------ */

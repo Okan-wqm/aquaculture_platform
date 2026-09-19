@@ -411,8 +411,6 @@ export function StorageHubPage(): JSX.Element {
           </div>
         )}
 
-        {/* Bottom spacer for tab bar */}
-        <div className="h-24" />
       </div>
     </ErrorBoundary>
   );

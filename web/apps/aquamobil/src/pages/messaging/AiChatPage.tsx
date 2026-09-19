@@ -40,6 +40,8 @@ import {
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { IconButton } from '../../components/ui';
+
 import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
@@ -145,12 +147,13 @@ function AiChannelHeader({
     <div className="bg-white dark:bg-gray-900 border-b-2 border-inherit flex-shrink-0 z-10">
       <div className={clsx('border-b-2', colors.border)}>
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
-          <button
+          <IconButton
             onClick={onBack}
-            className="p-2 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+            aria-label="Back"
+            className="-ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-          </button>
+          </IconButton>
 
           <div
             className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
@@ -193,12 +196,13 @@ function AiChannelHeader({
             <Info size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
 
-          <button
+          <IconButton
             onClick={onSettings}
-            className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+            aria-label="Assistant settings"
+            className="rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <Settings size={20} className="text-gray-500 dark:text-gray-400" />
-          </button>
+          </IconButton>
         </div>
       </div>
 
@@ -450,7 +454,7 @@ export function AiChatPage(): JSX.Element {
 
   return (
     <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
+      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
     >
       {/* AI-specific header — persona-aware */}
       <AiChannelHeader

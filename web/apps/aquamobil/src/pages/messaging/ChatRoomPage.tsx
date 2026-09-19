@@ -463,7 +463,7 @@ export function ChatRoomPage(): JSX.Element {
 
   return (
     <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
+      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
     >
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
@@ -759,7 +759,7 @@ export function ChatRoomPage(): JSX.Element {
       {offlineMediaNotice && (
         <div
           role="status"
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
+          className="fixed bottom-nav-gap left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
         >
           <AlertCircle size={16} className="flex-shrink-0 text-amber-300" />
           <span>{offlineMediaNotice}</span>

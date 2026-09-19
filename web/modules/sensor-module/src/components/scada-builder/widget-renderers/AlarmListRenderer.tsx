@@ -20,7 +20,7 @@ const SEV_COLOR_MAP: Record<string, string> = {
   critical: ALARM_SEVERITY_COLORS.critical.bg,
   high:     ALARM_SEVERITY_COLORS.high.bg,
   medium:   ALARM_SEVERITY_COLORS.medium.bg,
-  warning:  ALARM_SEVERITY_COLORS.medium.bg,
+  warning:  ALARM_SEVERITY_COLORS.warning.bg,
   low:      ALARM_SEVERITY_COLORS.low.bg,
   info:     ALARM_SEVERITY_COLORS.info.bg,
 };

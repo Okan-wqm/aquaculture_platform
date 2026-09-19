@@ -1,9 +1,9 @@
 import { clsx } from 'clsx';
-import { BlockTitle, List, ListInput } from 'konsta/react';
 import { ChevronRight, Package } from 'lucide-react';
 import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { SectionTitle, Input, Textarea } from '../../components/ui';
 import {
   RecordEntityPage,
   type RecordEntityTheme,
@@ -157,14 +157,14 @@ export function RecordHarvestPage(): JSX.Element {
       }
     >
       {/* Harvest Details */}
-      <BlockTitle>Harvest Details</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Harvest Details</SectionTitle>
+      <div className="space-y-3 px-4">
+        <Input
           label="Quantity (fish)"
           type="number"
           placeholder="Enter fish count"
           value={quantity}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const val = e.target.value.replace(/[^0-9]/g, '');
             const num = parseInt(val, 10) || 0;
             setQuantity(Math.min(num, maxQuantity).toString());
@@ -172,19 +172,19 @@ export function RecordHarvestPage(): JSX.Element {
           }}
           error={errors.quantity}
         />
-        <ListInput
+        <Input
           label="Avg Weight (g)"
           type="number"
           placeholder="Average weight in grams"
           value={avgWeight}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const val = e.target.value.replace(/[^0-9.]/g, '');
             setAvgWeight(val);
             setErrors((prev) => ({ ...prev, avgWeight: undefined }));
           }}
           error={errors.avgWeight}
         />
-      </List>
+      </div>
 
       {/* Biomass readout */}
       {quantityNum > 0 && avgWeightNum > 0 && (
@@ -226,33 +226,32 @@ export function RecordHarvestPage(): JSX.Element {
       </div>
 
       {/* Optional Fields */}
-      <BlockTitle>Additional Info (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Additional Info (Optional)</SectionTitle>
+      <div className="space-y-3 px-4">
+        <Input
           label="Price per kg"
           type="number"
           placeholder="0.00"
           value={pricePerKg}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const val = e.target.value.replace(/[^0-9.]/g, '');
             setPricePerKg(val);
           }}
         />
-        <ListInput
+        <Input
           label="Buyer Name"
           type="text"
           placeholder="Enter buyer name"
           value={buyerName}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => setBuyerName(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setBuyerName(e.target.value)}
         />
-        <ListInput
+        <Textarea
           label="Notes"
-          type="textarea"
           placeholder="Additional notes..."
           value={notes}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* Estimated value readout — second display (summary has its own) */}
       {estimatedValue > 0 && (

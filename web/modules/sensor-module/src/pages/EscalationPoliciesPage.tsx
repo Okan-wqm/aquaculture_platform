@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, Spinner, PageHeader, severityClasses } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -64,12 +64,12 @@ import {
 // ============================================================================
 
 const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string }[] = [
-  { value: 'critical', label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200' },
-  { value: 'high', label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200' },
-  { value: 'warning', label: 'Uyari', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-  { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
-  { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700' },
+  { value: 'critical', label: 'Kritik', className: severityClasses('critical') },
+  { value: 'high', label: 'Yüksek', className: severityClasses('high') },
+  { value: 'warning', label: 'Uyari', className: severityClasses('warning') },
+  { value: 'medium', label: 'Orta', className: severityClasses('medium') },
+  { value: 'low', label: 'Düşük', className: severityClasses('low') },
+  { value: 'info', label: 'Bilgi', className: severityClasses('info') },
 ];
 
 const ACTION_OPTIONS: { value: EscalationActionType; label: string }[] = [

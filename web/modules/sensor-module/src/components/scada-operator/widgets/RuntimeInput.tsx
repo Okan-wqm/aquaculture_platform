@@ -12,7 +12,7 @@
 
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock } from 'lucide-react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, QualityIndicator } from '@aquaculture/shared-ui';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
 import { useScadaPackageStore } from '../../../store/scada';
@@ -210,19 +210,16 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
 
   /* ---- quality indicator color ---- */
   const quality = tagChange?.quality ?? 'good';
-  const qualityClass =
-    quality === 'bad'
-      ? 'text-red-500'
-      : quality === 'uncertain'
-        ? 'text-yellow-500'
-        : 'text-green-500';
 
   return (
     <div className="w-full h-full flex flex-col gap-1 p-2 min-w-0" role="group" aria-label={label}>
       {/* Label row */}
       <div className="flex items-center justify-between gap-1">
         <span className="text-xs font-medium text-gray-600 dark:text-gray-400 truncate">{label}</span>
-        <span className={`text-xs font-mono ${qualityClass}`}>{unit}</span>
+        <span className="flex items-center gap-1">
+          <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{unit}</span>
+          <QualityIndicator quality={quality} size="xs" showLabel={quality !== 'good'} />
+        </span>
       </div>
 
       {/* Input row */}

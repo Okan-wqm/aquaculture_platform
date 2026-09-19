@@ -168,7 +168,7 @@ export function MySchedulePage(): JSX.Element {
       </PageHeader>
 
       {/* Content */}
-      <div className="px-4 pt-2 pb-24">
+      <div className="px-4 pt-2">
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (

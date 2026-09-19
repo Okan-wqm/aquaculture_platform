@@ -18,6 +18,40 @@
  * tests/invariants/shared-contracts-no-enum-drift.spec.ts guard keeps it narrow.
  */
 
+// ── Design colour tokens (FE-MEDIUM-093) ──
+// The palette `web/shared-ui/src/styles/theme.css` declares, mirrored once for
+// both stacks: the browser reads it through `theme.ts`, the HTML e-mail
+// builders read it directly, so a customer's first sight of the product is
+// painted in the product's colours rather than each service's private hex list.
+export { colors, chartPalette, chartChrome, colorTokenEntries } from './design/color-tokens';
+export type { ColorTokens } from './design/color-tokens';
+
+// The product's severity ladder and the colour each step is painted with.
+export { SEVERITY_TONE, severityColor } from './design/severity';
+export type { SeverityLevel } from './design/severity';
+
+// The one HTML e-mail layout every service renders through (FE-MEDIUM-093).
+export {
+  renderEmail,
+  emailRows,
+  emailButton,
+  emailCallout,
+  emailSection,
+  emailBadge,
+  emailParagraph,
+  emailLinkFallback,
+  emailPlainText,
+  emailToneColor,
+  escapeHtml,
+  safeHref,
+} from './design/email-layout';
+export type {
+  EmailDocument,
+  EmailRow,
+  EmailTone,
+  EmailToneByVariable,
+} from './design/email-layout';
+
 // ── Messaging Media MIME Allowlist (MSG-MEDIUM-057) ──
 // Single source of truth for the messaging media upload MIME allowlist, shared
 // by the server trust boundary (media.service.ts) and the client UX path

@@ -52,6 +52,7 @@ use crate::alarm_engine::{ActiveAlarm, AlarmEngine, AlarmEvent};
 use crate::calibration_engine::CalibrationEngine;
 use crate::process_image::{ProcessImage, TagQuality};
 use crate::scada_db::ScadaDb;
+use crate::theme_tokens;
 use crate::scada_types::{
     ActiveAlarmInfo, PinSession, ScadaCommand, ScadaPackage, TagInfo, TrendPoint, WsClientMessage,
 };
@@ -81,35 +82,47 @@ const MAX_PIN_FAILURES: u32 = 3;
 /// Lockout duration after too many failed PIN attempts (seconds)
 const PIN_LOCKOUT_SECS: i64 = 60;
 
-/// PWA manifest
-const PWA_MANIFEST: &str = r##"{
+/// PWA manifest — the surface colours come from the generated design tokens.
+fn pwa_manifest() -> String {
+    format!(
+        r##"{{
   "name": "Suderra SCADA",
   "short_name": "SCADA",
   "display": "standalone",
   "orientation": "landscape",
-  "theme_color": "#0f172a",
-  "background_color": "#0f172a",
+  "theme_color": "{surface}",
+  "background_color": "{surface}",
   "start_url": "/scada",
   "scope": "/",
   "icons": [
-    { "src": "/icons/scada-192.svg", "sizes": "192x192", "type": "image/svg+xml" },
-    { "src": "/icons/scada-512.svg", "sizes": "512x512", "type": "image/svg+xml" }
+    {{ "src": "/icons/scada-192.svg", "sizes": "192x192", "type": "image/svg+xml" }},
+    {{ "src": "/icons/scada-512.svg", "sizes": "512x512", "type": "image/svg+xml" }}
   ]
-}"##;
+}}"##,
+        surface = theme_tokens::NEUTRAL_900,
+    )
+}
 
-/// SVG icon for PWA (water/SCADA themed)
-const SCADA_ICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+/// SVG icon for PWA (water/SCADA themed) — painted from the design tokens.
+fn scada_icon_svg() -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="{surface}"/>
   <g transform="translate(256,256)">
-    <circle r="160" fill="none" stroke="#3b82f6" stroke-width="16" opacity="0.3"/>
-    <circle r="100" fill="none" stroke="#3b82f6" stroke-width="12" opacity="0.5"/>
-    <circle r="40" fill="#3b82f6" opacity="0.8"/>
-    <line x1="-140" y1="0" x2="-50" y2="0" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
-    <line x1="50" y1="0" x2="140" y2="0" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
-    <line x1="0" y1="-140" x2="0" y2="-50" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
-    <line x1="0" y1="50" x2="0" y2="140" stroke="#60a5fa" stroke-width="8" stroke-linecap="round"/>
+    <circle r="160" fill="none" stroke="{brand}" stroke-width="16" opacity="0.3"/>
+    <circle r="100" fill="none" stroke="{brand}" stroke-width="12" opacity="0.5"/>
+    <circle r="40" fill="{brand}" opacity="0.8"/>
+    <line x1="-140" y1="0" x2="-50" y2="0" stroke="{spoke}" stroke-width="8" stroke-linecap="round"/>
+    <line x1="50" y1="0" x2="140" y2="0" stroke="{spoke}" stroke-width="8" stroke-linecap="round"/>
+    <line x1="0" y1="-140" x2="0" y2="-50" stroke="{spoke}" stroke-width="8" stroke-linecap="round"/>
+    <line x1="0" y1="50" x2="0" y2="140" stroke="{spoke}" stroke-width="8" stroke-linecap="round"/>
   </g>
-</svg>"##;
+</svg>"##,
+        surface = theme_tokens::NEUTRAL_900,
+        brand = theme_tokens::INFO_500,
+        spoke = theme_tokens::INFO_400,
+    )
+}
 
 /// Service worker with cache-first strategy for PWA offline support
 const SERVICE_WORKER_JS: &str = r#"const CACHE_NAME = 'scada-v1';
@@ -2136,13 +2149,13 @@ async fn node_bundle_handler() -> impl IntoResponse {
 async fn manifest_handler() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/manifest+json")],
-        PWA_MANIFEST,
+        pwa_manifest(),
     )
 }
 
 /// Serve PWA icon (same SVG for both sizes)
 async fn icon_handler() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "image/svg+xml")], SCADA_ICON_SVG)
+    ([(header::CONTENT_TYPE, "image/svg+xml")], scada_icon_svg())
 }
 
 /// Serve minimal service worker

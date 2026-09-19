@@ -129,7 +129,7 @@ export class CreateWorkAreaInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
-  @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'Color code must be a valid hex color (e.g. #FF0000)' })
+  @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'Color code must be a valid hex color in #rrggbb form' })
   colorCode?: string;
 
   @Field(() => Int, { nullable: true, defaultValue: 0 })

@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-contracts';
 /**
  * Chemical Reagent Database & Dosing Calculator
  * Ported from R CarbCalc calcAdjustment() function
@@ -417,15 +418,15 @@ export function reagentDirectionLine(
 
 // Reagent color palette for visualization
 const REAGENT_COLORS: Record<string, string> = {
-  'Sodium Bicarbonate': '#2563eb',
-  'Sodium Carbonate': '#7c3aed',
-  'Sodium Hydroxide': '#059669',
-  'Calcium Carbonate': '#0891b2',
-  'Calcium Hydroxide': '#65a30d',
-  'Calcium Oxide': '#ca8a04',
-  'Add CO₂': '#ea580c',
-  'De-gas CO₂': '#dc2626',
-  'Muriatic Acid': '#be185d',
+  'Sodium Bicarbonate': colors.info[600],
+  'Sodium Carbonate': colors.accent[700],
+  'Sodium Hydroxide': colors.success[800],
+  'Calcium Carbonate': colors.info[700],
+  'Calcium Hydroxide': colors.success[900],
+  'Calcium Oxide': colors.warning[600],
+  'Add CO₂': colors.accent[600],
+  'De-gas CO₂': colors.error[600],
+  'Muriatic Acid': colors.accent[900],
 };
 
 /**
@@ -507,8 +508,8 @@ export function calcDosingVisualization(
   ];
 
   return {
-    reagentLine1: { points: line1, label: lower.formula, color: REAGENT_COLORS[lower.name] || '#6b7280' },
-    reagentLine2: { points: line2, label: higher.formula, color: REAGENT_COLORS[higher.name] || '#6b7280' },
+    reagentLine1: { points: line1, label: lower.formula, color: REAGENT_COLORS[lower.name] || colors.gray[400] },
+    reagentLine2: { points: line2, label: higher.formula, color: REAGENT_COLORS[higher.name] || colors.gray[400] },
     step1Path,
     step2Path,
     intermediatePoint: { DIC: dicStar, ALK: alkStar },

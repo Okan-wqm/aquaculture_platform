@@ -8,178 +8,26 @@
 // ============================================================================
 
 /**
- * WHY a TypeScript mirror: theme.css (`@theme`) is the single source of truth
- * for colour and every `bg-primary-*` / `text-error-*` utility resolves from
- * it — but CSS classes cannot reach chart strokes, SVG fills, canvas drawing
- * or a default role colour. Those places read this object instead of writing
- * raw hex. It carries exactly the tokens theme.css declares, in the same
- * scales and steps; `tests/invariants/web-theme-token-parity.spec.ts` fails
- * the build when the two drift, so "using the tokens" can never mean using a
- * second palette.
+ * WHY a TypeScript mirror of theme.css: every `bg-primary-*` / `text-error-*`
+ * utility resolves from the `@theme` block, but a CSS class cannot reach a
+ * chart stroke, an SVG fill, a canvas or a default role colour. Those read
+ * this object instead of writing raw hex, and
+ * `tests/invariants/web-theme-token-parity.spec.ts` fails the build when the
+ * two drift, so "using the tokens" can never mean using a second palette.
+ *
+ * WHY the values live in `@aquaculture/shared-contracts`: a NestJS service
+ * cannot import a browser module, so the three HTML e-mail builders each grew
+ * a private palette — the brand blue was `#0066cc` in one and `#3B82F6` in
+ * another (FE-MEDIUM-093). The mirror moved to that zero-dependency lib; both
+ * stacks now read the same bytes and this module re-exports them, so every
+ * `import { colors } from '../styles/theme'` keeps working.
  */
-type Scale10 = Readonly<Record<50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900, string>>;
+import { colors } from '@aquaculture/shared-contracts';
 
-export interface ColorTokens {
-  readonly primary: Scale10;
-  readonly secondary: Scale10;
-  readonly accent: Scale10;
-  readonly neutral: Scale10;
-  readonly success: Scale10;
-  readonly warning: Scale10;
-  readonly error: Scale10;
-  readonly info: Scale10;
-  readonly gray: Readonly<Record<400, string>>;
-  readonly white: string;
-  readonly black: string;
-  readonly transparent: string;
-}
+export { colors };
+export type { ColorTokens } from '@aquaculture/shared-contracts';
 
-// WHY `string` values, not `as const` literals: a token used as a default
-// parameter or a `useState` initial value would otherwise pin that field to
-// ONE hex literal type and reject every other token.
-export const colors: ColorTokens = {
-  /** Primary — Ocean Blue */
-  primary: {
-    50: '#e6f3ff',
-    100: '#b3d9ff',
-    200: '#80bfff',
-    300: '#4da6ff',
-    400: '#1a8cff',
-    500: '#0073e6',
-    600: '#005bb3',
-    700: '#004280',
-    800: '#002a4d',
-    900: '#00111a',
-  },
-
-  /** Secondary — Sea Green */
-  secondary: {
-    50: '#e6fff5',
-    100: '#b3ffe0',
-    200: '#80ffcc',
-    300: '#4dffb8',
-    400: '#1affa3',
-    500: '#00e68a',
-    600: '#00b36b',
-    700: '#00804d',
-    800: '#004d2e',
-    900: '#001a10',
-  },
-
-  /** Accent — Coral */
-  accent: {
-    50: '#fff5f2',
-    100: '#ffe0d9',
-    200: '#ffccc0',
-    300: '#ffb8a6',
-    400: '#ffa38d',
-    500: '#ff8f73',
-    600: '#cc7259',
-    700: '#995540',
-    800: '#663926',
-    900: '#331c13',
-  },
-
-  /** Neutral — slate */
-  neutral: {
-    50: '#f8fafc',
-    100: '#f1f5f9',
-    200: '#e2e8f0',
-    300: '#cbd5e1',
-    400: '#94a3b8',
-    500: '#64748b',
-    600: '#475569',
-    700: '#334155',
-    800: '#1e293b',
-    900: '#0f172a',
-  },
-
-  /** Semantic scales (50 / 100 / 500 / 600 / 700, as theme.css declares them) */
-  success: {
-    50: '#ecfdf5',
-    100: '#d1fae5',
-    200: '#a7f3d0',
-    300: '#6ee7b7',
-    400: '#34d399',
-    500: '#10b981',
-    600: '#059669',
-    700: '#047857',
-    800: '#065f46',
-    900: '#064e3b',
-  },
-  warning: {
-    50: '#fffbeb',
-    100: '#fef3c7',
-    200: '#fde68a',
-    300: '#fcd34d',
-    400: '#fbbf24',
-    500: '#f59e0b',
-    600: '#d97706',
-    700: '#b45309',
-    800: '#92400e',
-    900: '#78350f',
-  },
-  error: {
-    50: '#fef2f2',
-    100: '#fee2e2',
-    200: '#fecaca',
-    300: '#fca5a5',
-    400: '#f87171',
-    500: '#ef4444',
-    600: '#dc2626',
-    700: '#b91c1c',
-    800: '#991b1b',
-    900: '#7f1d1d',
-  },
-  info: {
-    50: '#eff6ff',
-    100: '#dbeafe',
-    200: '#bfdbfe',
-    300: '#93c5fd',
-    400: '#60a5fa',
-    500: '#3b82f6',
-    600: '#2563eb',
-    700: '#1d4ed8',
-    800: '#1e40af',
-    900: '#1e3a8a',
-  },
-
-  /**
-   * The one Tailwind default theme.css overrides: gray-400 darkened for WCAG
-   * 2.1 AA text contrast (FE-MEDIUM-024). Also the axis/helper-text grey.
-   */
-  gray: {
-    400: '#6b7280',
-  },
-
-  white: '#ffffff',
-  black: '#000000',
-  transparent: 'transparent',
-};
-
-/**
- * Ordered categorical palette for chart series (recharts, pies, gauges):
- * brand first, then the semantic accents, then the deep brand shades.
- */
-export const chartPalette: readonly string[] = [
-  colors.primary[500],
-  colors.secondary[600],
-  colors.accent[500],
-  colors.warning[500],
-  colors.info[600],
-  colors.error[500],
-  colors.primary[700],
-  colors.accent[700],
-  colors.success[700],
-  colors.info[800],
-];
-
-/** Chart chrome shared by every chart: grid lines, axis strokes, tooltip borders. */
-export const chartChrome: Readonly<{ grid: string; axis: string; border: string }> = {
-  grid: colors.neutral[200],
-  axis: colors.gray[400],
-  border: colors.neutral[200],
-};
+export { chartPalette, chartChrome } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Tipografi

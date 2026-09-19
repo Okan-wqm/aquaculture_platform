@@ -205,6 +205,7 @@ mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers 
 mod scada_db;
 #[cfg(feature = "scada-display")]
 mod scada_server; // v1.6.0: SCADA display server for local HMI
+mod theme_tokens; // Design tokens, generated from the shared palette (FE-MEDIUM-093)
 #[cfg(feature = "scada-display")]
 mod scada_types;
 mod shutdown;

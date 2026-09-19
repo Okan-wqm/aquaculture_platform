@@ -44770,6 +44770,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/email-layout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared-contracts/src/__tests__/messaging-media-mime.spec.ts",
       "prettier_managed": true
     },
@@ -44795,6 +44801,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/shared-contracts/src/ai/persona-id.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/color-tokens.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/email-layout.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/severity.ts",
       "prettier_managed": true
     },
     {
@@ -47781,6 +47805,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/edge-theme-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-v2-plan-contract.spec.ts",
       "prettier_managed": true
     },
@@ -48855,6 +48885,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/server-html-single-layout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/service-criticality-profile-contract.spec.ts",
       "prettier_managed": true
     },
@@ -49641,6 +49677,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/generate-edge-theme.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/design/tsconfig.json",
       "prettier_managed": true
     },
     {

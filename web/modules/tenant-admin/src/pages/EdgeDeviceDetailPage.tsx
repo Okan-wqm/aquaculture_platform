@@ -72,7 +72,7 @@ const DecommissionModal: React.FC<{
       <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
         Please provide a reason for decommissioning this device.
       </p>
-      <Textarea fullWidth value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for decommissioning..." rows={3} />
+      <Textarea className="resize-none" fullWidth value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for decommissioning..." rows={3} />
     </Modal>
   );
 };

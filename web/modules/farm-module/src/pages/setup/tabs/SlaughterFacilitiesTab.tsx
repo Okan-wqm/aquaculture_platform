@@ -247,7 +247,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Godkjenningsnummer *
               </label>
-              <Input fullWidth type="text" required maxLength={6} value={formData.godkjenningsnummer} onChange={(e) =>
+              <Input className="uppercase font-mono" fullWidth type="text" required maxLength={6} value={formData.godkjenningsnummer} onChange={(e) =>
          setFormData((prev) => ({
           ...prev,
           godkjenningsnummer: e.target.value.toUpperCase(),

@@ -180,7 +180,7 @@ const NewTicketModal: React.FC<{
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description
           </label>
-          <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Please provide as much detail as possible..." rows={5} required />
+          <Textarea className="resize-none" fullWidth value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Please provide as much detail as possible..." rows={5} required />
         </div>
 
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
@@ -754,7 +754,7 @@ export const TenantSupportPage: React.FC = () => {
             {selectedTicket.status !== 'closed' && selectedTicket.status !== 'resolved' && (
               <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-end gap-3">
-                  <Textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a reply..." rows={3} />
+                  <Textarea className="resize-none" value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Write a reply..." rows={3} />
                   <div className="flex flex-col gap-2">
                     <Button variant="ghost" iconOnly aria-label="Attach file"><Paperclip size={20} /></Button>
                     <Button variant="primary" iconOnly aria-label="Send" onClick={handleAddComment} disabled={!newComment.trim() || addCommentMutation.isPending}><Send size={20} /></Button>

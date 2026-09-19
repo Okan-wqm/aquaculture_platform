@@ -333,7 +333,7 @@ const TenantMessagesPage: React.FC = () => {
                 <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
-                      <Textarea fullWidth value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." rows={3} onKeyDown={(e) => {
+                      <Textarea className="resize-none" fullWidth value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." rows={3} onKeyDown={(e) => {
              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               handleSendMessage();
              }
@@ -449,7 +449,7 @@ const NewThreadModal: React.FC<{
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Message</label>
-        <Textarea fullWidth value={message} onChange={(e) => setMessage(e.target.value)} rows={5} placeholder="Describe your question or issue..." />
+        <Textarea className="resize-none" fullWidth value={message} onChange={(e) => setMessage(e.target.value)} rows={5} placeholder="Describe your question or issue..." />
       </div>
       {submitError && (
         <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">

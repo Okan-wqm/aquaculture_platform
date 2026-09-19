@@ -317,7 +317,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               {matrix.temperatures.map((temp, ti) => (
                 <th key={ti} className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1 min-w-[70px]">
                   <div className="flex flex-col items-center gap-1">
-                    <Input type="number" value={temp} onChange={e => updateTemperature(ti, parseFloat(e.target.value) || 0)} />
+                    <Input className="text-center" type="number" value={temp} onChange={e => updateTemperature(ti, parseFloat(e.target.value) || 0)} />
                     <Button variant="ghost" size="xs" type="button" onClick={() => removeTemperature(ti)} title="Remove column">×</Button>
                   </div>
                 </th>
@@ -332,7 +332,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               <tr key={wi}>
                 <td className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-1 py-1">
                   <div className="flex items-center gap-1">
-                    <Input type="number" value={weight} onChange={e => updateWeight(wi, parseFloat(e.target.value) || 0)} />
+                    <Input className="text-center" type="number" value={weight} onChange={e => updateWeight(wi, parseFloat(e.target.value) || 0)} />
                     <Button variant="ghost" size="xs" type="button" onClick={() => removeWeight(wi)} title="Remove row">×</Button>
                   </div>
                 </td>
@@ -361,7 +361,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                       className="border border-gray-300 dark:border-gray-600 px-1 py-1"
                       style={{ backgroundColor: bgColor }}
                     >
-                      <Input type="number" step={editMode === 'rates' ? '0.1' : '0.01'} min="0" max={editMode === 'rates' ? '10' : '3'} value={value} onChange={e => {
+                      <Input className="text-center" type="number" step={editMode === 'rates' ? '0.1' : '0.01'} min="0" max={editMode === 'rates' ? '10' : '3'} value={value} onChange={e => {
              const newValue = parseFloat(e.target.value) || 0;
              if (editMode === 'rates') {
               updateRate(wi, ti, newValue);

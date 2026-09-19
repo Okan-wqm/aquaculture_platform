@@ -637,7 +637,7 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
       header: 'Opening Stock',
       align: 'right',
       render: (_value, entry, index) => (
-        <Input type="number" min="0" value={entry.openingStock || ''} onChange={(e) =>
+        <Input className="text-right" type="number" min="0" value={entry.openingStock || ''} onChange={(e) =>
       updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
      } placeholder="0" />
       ),
@@ -647,7 +647,7 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
       header: 'Added',
       align: 'right',
       render: (_value, entry, index) => (
-        <Input type="number" min="0" value={entry.added || ''} onChange={(e) =>
+        <Input className="text-right" type="number" min="0" value={entry.added || ''} onChange={(e) =>
       updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
      } placeholder="0" />
       ),

@@ -215,7 +215,7 @@ const RoleModal = memo<RoleModalProps>(({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Description
               </label>
-              <Textarea fullWidth value={formData.description} onChange={handleDescriptionChange} placeholder="Describe what this role is for..." rows={2} />
+              <Textarea className="resize-none" fullWidth value={formData.description} onChange={handleDescriptionChange} placeholder="Describe what this role is for..." rows={2} />
             </div>
 
             {/* Color Selection */}

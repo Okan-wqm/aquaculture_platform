@@ -287,7 +287,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
       render: (_value, item) => (
         <>
           {isCountingMode ? (
-            <Input type="number" min="0" step="0.01" value={item.actualQuantity ?? ''} onChange={(e) => handleQuantityChange(item.itemId, e.target.value)} placeholder="0" />
+            <Input className="text-right" type="number" min="0" step="0.01" value={item.actualQuantity ?? ''} onChange={(e) => handleQuantityChange(item.itemId, e.target.value)} placeholder="0" />
           ) : (
             <span className="text-sm text-gray-900 dark:text-gray-100">
               {item.actualQuantity != null

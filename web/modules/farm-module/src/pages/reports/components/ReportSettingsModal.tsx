@@ -472,7 +472,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     Private Key (PEM){' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
-                  <Textarea fullWidth value={formData.maskinportenPrivateKey} onChange={(e) =>
+                  <Textarea className="font-mono" fullWidth value={formData.maskinportenPrivateKey} onChange={(e) =>
            setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
           } rows={3} placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" />
                 </div>

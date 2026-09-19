@@ -802,7 +802,7 @@ export const SpeciesTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                  <Input fullWidth type="text" required value={formData.code} onChange={(e) =>
+                  <Input className="uppercase" fullWidth type="text" required value={formData.code} onChange={(e) =>
            setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
           } placeholder="e.g., SEABASS" />
                 </div>
@@ -810,7 +810,7 @@ export const SpeciesTab: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
                   </label>
-                  <Input fullWidth type="text" value={formData.officialCode} onChange={(e) =>
+                  <Input className="uppercase" fullWidth type="text" value={formData.officialCode} onChange={(e) =>
            setFormData((prev) => ({
             ...prev,
             officialCode: e.target.value.toUpperCase(),

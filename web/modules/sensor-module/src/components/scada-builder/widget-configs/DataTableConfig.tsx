@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors, Button, Input } from '@aquaculture/shared-ui';
+import { Button, ColorInput, Input, colors, useI18n } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -50,6 +50,7 @@ const SMALL_INPUT_CLS =
   'w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded';
 
 export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+  const { t } = useI18n();
   const columns = (config.columns ?? []) as ColumnDef[];
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
@@ -265,44 +266,26 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
           Colors
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Header BG</label>
-            <input
-              type="color"
-              value={headerBgColor}
-              onChange={(e) => onChange({ headerBgColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-              Header Text
-            </label>
-            <input
-              type="color"
-              value={headerTextColor}
-              onChange={(e) => onChange({ headerTextColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Row BG</label>
-            <input
-              type="color"
-              value={rowBgColor}
-              onChange={(e) => onChange({ rowBgColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alt Row</label>
-            <input
-              type="color"
-              value={alternateRowColor}
-              onChange={(e) => onChange({ alternateRowColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
-            />
-          </div>
+          <ColorInput
+            label="Header BG"
+            value={headerBgColor}
+            onChange={(e) => onChange({ headerBgColor: e.target.value })}
+          />
+          <ColorInput
+            label="Header Text"
+            value={headerTextColor}
+            onChange={(e) => onChange({ headerTextColor: e.target.value })}
+          />
+          <ColorInput
+            label="Row BG"
+            value={rowBgColor}
+            onChange={(e) => onChange({ rowBgColor: e.target.value })}
+          />
+          <ColorInput
+            label="Alt Row"
+            value={alternateRowColor}
+            onChange={(e) => onChange({ alternateRowColor: e.target.value })}
+          />
         </div>
       </div>
 
@@ -337,11 +320,11 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
                 onChange={(e) => updateRule(i, 'max', Number(e.target.value))}
                 placeholder="Max"
               />
-              <input
-                type="color"
+              <ColorInput
+                aria-label={t('scada.color.rule')}
+                variant="swatch"
                 value={rule.color}
                 onChange={(e) => updateRule(i, 'color', e.target.value)}
-                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
               <Button variant="ghost" size="xs" onClick={() => removeRule(i)}>
                 X

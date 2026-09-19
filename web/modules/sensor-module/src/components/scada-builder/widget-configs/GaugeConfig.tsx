@@ -1,7 +1,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
-import { colors, Button, Input } from '@aquaculture/shared-ui';
+import { Button, ColorInput, Input, colors, useI18n } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -10,6 +10,7 @@ interface WidgetConfigProps {
 }
 
 export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
+  const { t } = useI18n();
   const zones: { min: number; max: number; color: string }[] = config.zones || [];
 
   const addZone = () => {
@@ -51,41 +52,78 @@ export const GaugeConfig: React.FC<WidgetConfigProps> = ({ config, onChange, dev
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <Input fullWidth type="number" value={config.min ?? 0} onChange={(e) => onChange({ min: Number(e.target.value) })} />
+          <Input
+            fullWidth
+            type="number"
+            value={config.min ?? 0}
+            onChange={(e) => onChange({ min: Number(e.target.value) })}
+          />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <Input fullWidth type="number" value={config.max ?? 100} onChange={(e) => onChange({ max: Number(e.target.value) })} />
+          <Input
+            fullWidth
+            type="number"
+            value={config.max ?? 100}
+            onChange={(e) => onChange({ max: Number(e.target.value) })}
+          />
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
-          <Input fullWidth type="text" value={config.unit || ''} onChange={(e) => onChange({ unit: e.target.value })} placeholder="°C" />
+          <Input
+            fullWidth
+            type="text"
+            value={config.unit || ''}
+            onChange={(e) => onChange({ unit: e.target.value })}
+            placeholder="°C"
+          />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Decimals</label>
-          <Input fullWidth type="number" min={0} max={6} value={config.decimals ?? 1} onChange={(e) => onChange({ decimals: Number(e.target.value) })} />
+          <Input
+            fullWidth
+            type="number"
+            min={0}
+            max={6}
+            value={config.decimals ?? 1}
+            onChange={(e) => onChange({ decimals: Number(e.target.value) })}
+          />
         </div>
       </div>
 
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Zones</label>
-          <Button variant="ghost" size="xs" onClick={addZone}>+ Add Zone</Button>
+          <Button variant="ghost" size="xs" onClick={addZone}>
+            + Add Zone
+          </Button>
         </div>
         <div className="space-y-2">
           {zones.map((zone, i) => (
             <div key={i} className="flex items-center gap-1">
-              <Input type="number" value={zone.min} onChange={(e) => updateZone(i, 'min', Number(e.target.value))} placeholder="Min" />
-              <Input type="number" value={zone.max} onChange={(e) => updateZone(i, 'max', Number(e.target.value))} placeholder="Max" />
-              <input
-                type="color"
+              <Input
+                type="number"
+                value={zone.min}
+                onChange={(e) => updateZone(i, 'min', Number(e.target.value))}
+                placeholder="Min"
+              />
+              <Input
+                type="number"
+                value={zone.max}
+                onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
+                placeholder="Max"
+              />
+              <ColorInput
+                aria-label={t('scada.color.zone')}
+                variant="swatch"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
-                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
-              <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>X</Button>
+              <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>
+                X
+              </Button>
             </div>
           ))}
         </div>

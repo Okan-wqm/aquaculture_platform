@@ -36,7 +36,7 @@ import type {
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { ColorInput, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -328,16 +328,12 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
         </select>
       </div>
     </div>
-    <div>
-      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Color</label>
-      <input
-        type="color"
-        value={(config.color as string) || themeColors.neutral[800]}
-        onChange={(e) => onChange({ color: e.target.value })}
-        className="w-full h-8 rounded-lg border border-gray-300 dark:border-gray-600 cursor-pointer"
-        aria-label="Text color"
-      />
-    </div>
+    <ColorInput
+      label="Color"
+      aria-label="Text color"
+      value={(config.color as string) || themeColors.neutral[800]}
+      onChange={(e) => onChange({ color: e.target.value })}
+    />
     <div>
       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Alignment</label>
       <select

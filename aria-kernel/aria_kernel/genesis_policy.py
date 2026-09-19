@@ -94,6 +94,14 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     # read. 32 per role ≈ 3 nights of drain headroom at the measured
     # ~13min/envelope CLI pace.
     "max_pending_per_role": 32,
+    # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — the batch judge child.
+    # `judge_batch_size` 1 keeps every judge on the single-request child (the
+    # opt-in is measured before it is raised); `judge_batch_runtimes` names
+    # the process-less transports a batch may ride; the input budget bounds
+    # K by the rendered prompts, under the vendor's context window.
+    "judge_batch_size": 1,
+    "judge_batch_runtimes": ["zai"],
+    "judge_batch_max_input_tokens": 24000,
 }
 
 

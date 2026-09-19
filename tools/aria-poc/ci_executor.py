@@ -4218,13 +4218,36 @@ def _reconcile_native_result(
 
 def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
+    global _MOCK_MODE_AT_ENTRY
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 1:
         print(
-            "usage: ci_executor.py <request_id> [subagent_type] | --drain",
+            "usage: ci_executor.py <request_id> [subagent_type] | --drain | "
+            "--judge-batch <role> <target_agent> <request_id>...",
             file=sys.stderr,
         )
         return 2
+
+    if args[0] == "--judge-batch":
+        # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — K judge requests
+        # that share a role, an agent and an anchor, served by ONE typed
+        # model call. The drain selected them; this child claims, asks,
+        # seals and submits each one through the same seams as the
+        # single-request path (`ci_executor_judge_batch`).
+        if len(args) < 4:
+            print("usage: ci_executor.py --judge-batch <role> <target_agent> <request_id>...", file=sys.stderr)
+            return 2
+        from ci_executor_judge_batch import run_judge_batch
+
+        _MOCK_MODE_AT_ENTRY = _is_mock_mode()
+        batch_repo = Path.cwd().resolve()
+        batch_env_tools = os.environ.get("ARIA_TOOLS_DIR")
+        batch_tools_dir = Path(batch_env_tools).resolve() if batch_env_tools else batch_repo / "aria-tools"
+        _record_mock_mode_audit(batch_tools_dir)
+        return run_judge_batch(
+            tools_dir=batch_tools_dir, repo=batch_repo, role=args[1], target_agent=args[2],
+            request_ids=list(args[3:]), _runtime_stack=_runtime_stack,
+        )
 
     if args[0] == "--drain":
         # Batch consumption for the scheduled lane. The loop lives in its own
@@ -4259,8 +4282,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # Tier-1 anchor: the variable is computed exactly once and never
     # re-read. The sentinel is intentionally module-attached (NOT a
     # function-local) so cost-attribution callers in nested helper
-    # frames can read the same frozen decision.
-    global _MOCK_MODE_AT_ENTRY
+    # frames can read the same frozen decision (declared `global` at the
+    # top of this function, once, for both entry arms).
     _MOCK_MODE_AT_ENTRY = _is_mock_mode()
 
     request_id = args[0]

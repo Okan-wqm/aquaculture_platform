@@ -45,6 +45,17 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     "LEASE_EXPIRED", "REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "REQUEST_ENVELOPE_MISSING_ROLE",
     "SUBMIT_REJECTED", "PLAN_CONTENT_INVALID", "AGENT_REFUSED",
     "OPERATOR_CANCELLED", "RECOVERY_UNRESOLVED_EXTERNAL_EFFECT",
+    # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — a batch child served
+    # K read-only requests with ONE model call. Two ways a request leaves
+    # it without a result, in two fault classes: the whole call failed
+    # (transport, auth, credit, a payload that is not the batch's JSON,
+    # an input budget the batch could not fit) — the host's or the
+    # vendor's state, harness-class, every request released under the same
+    # detail; or the call answered and THIS request's item was refused by
+    # name (`typed_judgment.PARSE_REASON_CODES`) while its siblings folded —
+    # something about the request's own prompt or evidence, request-class,
+    # its requeue budget charged.
+    "JUDGE_BATCH_CALL_FAILED", "JUDGE_BATCH_ITEM_UNANSWERED",
     # The executor's lease guard released a claim its body abandoned
     # (uncaught exception / return without release); detail names the exit.
     "EXECUTOR_UNCAUGHT_EXIT",
@@ -104,6 +115,8 @@ IMPLEMENTATION_BRANCH_COLLISION = "implementation_branch_collision"
 IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
 IMPLEMENTATION_DELIVERY_REFUSED_PREFIX = "implementation_delivery_refused:"
 HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX = "human_required_record_unavailable:"
+JUDGE_BATCH_CALL_FAILED_PREFIX = "judge_batch_call_failed:"
+JUDGE_BATCH_ITEM_UNANSWERED_PREFIX = "judge_batch_item_unanswered:"
 
 _LITERALS: dict[str, tuple[str, str]] = {
     "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
@@ -146,6 +159,8 @@ _PREFIXES: tuple[tuple[str, str, str], ...] = (
     (IMPLEMENTATION_DELIVERY_REFUSED_PREFIX, "IMPLEMENTATION_DELIVERY_REFUSED", "request"),
     # The detail is the escalation's own reason (round 3).
     (HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX, "HUMAN_REQUIRED_RECORD_UNAVAILABLE", "harness"),
+    (JUDGE_BATCH_CALL_FAILED_PREFIX, "JUDGE_BATCH_CALL_FAILED", "harness"),
+    (JUDGE_BATCH_ITEM_UNANSWERED_PREFIX, "JUDGE_BATCH_ITEM_UNANSWERED", "request"),
 )
 
 

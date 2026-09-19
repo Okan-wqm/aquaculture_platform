@@ -109,3 +109,21 @@ class TheAdmissionIsSplitIntoAProbeAndABinding(unittest.TestCase):
                          if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
         self.assertNotIn("_native_runtime_admission", binding_calls, "the binding never probes")
         self.assertIn("_refuse_native_admission", binding_calls)
+
+
+class TheBatchChildSpellsNoKernelArgvItself(unittest.TestCase):
+    """Phase 4b — `ci_executor_judge_batch` reaches the kernel CLI only
+    through the engine's helpers: no second spelling of `agent claim` or
+    `agent submit-result` exists anywhere in the module."""
+
+    def test_no_kernel_cli_literal_in_the_batch_module(self) -> None:
+        tree = ast.parse((_POC_DIR / "ci_executor_judge_batch.py").read_text(encoding="utf-8"))
+        constants = {c.value for c in ast.walk(tree) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+        for literal in ("submit-result", "next-pending", "--lease-seconds", "--lease-token-from-env"):
+            self.assertNotIn(literal, constants, literal)
+        calls = {node.func.attr for node in ast.walk(tree)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                 and isinstance(node.func.value, ast.Name) and node.func.value.id == "_engine"}
+        for helper in ("_claim_request_via_cli", "_render_and_bind_prompt", "_submit_via_cli", "_reconcile_native_result",
+                       "_admit_native_route", "_bind_request_to_route", "_batch_worst_case_seconds"):
+            self.assertIn(helper, calls, helper)

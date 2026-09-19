@@ -444,3 +444,139 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
                 )
                 self.assertEqual(rc, 0)
                 self.assertEqual(len(calls["dispatch"]), dispatched)
+
+
+class DrainJudgeBatchTests(unittest.TestCase):
+    """Typed-judgment plan Phase 4b — the drain fills a batch of judge
+    siblings, launches ONE `--judge-batch` child for them, prices it as a
+    batch, and accounts every member from its own summary."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _drain_batch(self, queue, *, batch_size, summaries_for, child_rc=0):
+        """Like `_drain`, with the batch policy on and a child that writes
+        one summary per member it was launched with (from `summaries_for`)."""
+        from dispatch_failure import DispatchRoute
+
+        calls = {"next_pending": [], "dispatch": []}
+        out_dir = Path(self._tmp.name)
+        parent_output = out_dir / "github-output.txt"
+        parent_output.write_text("", encoding="utf-8")
+
+        def fake_run(argv, **kwargs):
+            if "next-pending" in argv:
+                excluded = {argv[i + 1] for i, tok in enumerate(argv) if tok == "--exclude"}
+                role = next((argv[i + 1] for i, tok in enumerate(argv) if tok == "--role"), None)
+                agent = next((argv[i + 1] for i, tok in enumerate(argv) if tok == "--target-agent"), None)
+                calls["next_pending"].append((role, agent, tuple(sorted(excluded))))
+                row = None
+                for candidate in queue:
+                    if candidate is None or candidate.get("request_id") in excluded:
+                        continue
+                    if role is not None and candidate.get("role", "adversarial_judgment") != role:
+                        continue
+                    if agent is not None and candidate.get("target_agent") != agent:
+                        continue
+                    row = candidate
+                    break
+                return _FakeProc(stdout=json.dumps(row) if row else "null")
+            if argv[2] == "--judge-batch":
+                members = list(argv[5:])
+                calls["dispatch"].append(("batch", argv[3], argv[4], tuple(members)))
+            else:
+                members = [argv[2]]
+                calls["dispatch"].append(("single", argv[2], argv[3] if len(argv) > 3 else None, tuple(members)))
+            child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
+            lines = []
+            for member in members:
+                summary = summaries_for.get(member)
+                if summary is None:
+                    continue
+                path = Path(kwargs["env"]["RUNNER_TEMP"]) / f"dispatch-result-{member}.json"
+                path.write_text(json.dumps(summary), encoding="utf-8")
+                lines.append(f"dispatch_summary_path={path}")
+            if lines:
+                child_output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+            return _FakeProc(returncode=child_rc)
+
+        def fake_route(*, request, repo_root):
+            return DispatchRoute(provider="zai", model="glm-5.3", role=str(request.get("role") or ""),
+                                 target_agent=str(request.get("target_agent") or ""))
+
+        env_vars = {"GITHUB_OUTPUT": str(parent_output), "RUNNER_TEMP": str(out_dir)}
+        with patch.dict(os.environ, env_vars), patch.object(
+            ci_executor_drain.subprocess, "run", side_effect=fake_run,
+        ), patch.object(
+            ci_executor_drain, "_executor_policy", return_value={"max_concurrent": 1, "worktree_per_request": False},
+        ), patch.object(
+            ci_executor_drain, "_judge_batch_policy", return_value=(batch_size, ("zai",)),
+        ), patch.object(
+            ci_executor_drain._dispatch_failure, "resolve_dispatch_route", side_effect=fake_route,
+        ):
+            rc = ci_executor_drain.drain_pending(tools_dir=out_dir / "aria-tools", repo_root=_REPO_ROOT)
+        return rc, calls, parent_output.read_text(encoding="utf-8")
+
+    @staticmethod
+    def _judge(request_id: str, *, sha: str = "aaa", agent: str = "aria-adversarial-judge") -> dict:
+        return {"request_id": request_id, "role": "adversarial_judgment", "target_agent": agent, "target_sha": sha}
+
+    @staticmethod
+    def _summary(request_id: str, outcome: str, *, failure_class=None, detail=None) -> dict:
+        return {"$schema": "aria/dispatch-result/v1", "schema_version": 1, "request_id": request_id,
+                "role": "adversarial_judgment", "target_agent": "aria-adversarial-judge", "provider": "zai",
+                "model": "glm-5.3", "outcome": outcome, "failure_class": failure_class, "retryable": False,
+                "failure_detail_code": detail, "exit_code": 0}
+
+    def test_siblings_are_batched_and_accounted_per_request(self) -> None:
+        queue = [self._judge("J-1"), self._judge("J-2"), self._judge("J-3"), None]
+        rc, calls, output = self._drain_batch(
+            queue, batch_size=3,
+            summaries_for={"J-1": self._summary("J-1", "succeeded"), "J-2": self._summary("J-2", "succeeded"),
+                           "J-3": self._summary("J-3", "refused", failure_class="response_schema_rejected",
+                                                detail="judge_batch_item_unanswered")},
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["dispatch"], [("batch", "adversarial_judgment", "aria-adversarial-judge", ("J-1", "J-2", "J-3"))])
+        # The fill asked for siblings of the agent it holds.
+        self.assertTrue(any(agent == "aria-adversarial-judge" for _role, agent, _ex in calls["next_pending"]))
+        self.assertIn("drained=2\n", output)
+        self.assertIn("drain_failed=0\n", output)
+
+    def test_the_fill_stops_at_the_first_key_mismatch_without_excluding_it(self) -> None:
+        queue = [self._judge("J-1"), self._judge("J-2", sha="bbb"), self._judge("J-3"), None]
+        rc, calls, output = self._drain_batch(
+            queue, batch_size=3,
+            summaries_for={rid: self._summary(rid, "succeeded") for rid in ("J-1", "J-2", "J-3")},
+        )
+        self.assertEqual(rc, 0)
+        # J-1 alone (J-2 is another anchor: the fill stopped), then J-2 alone
+        # (J-3 differs from J-2), then J-3 — nothing was excluded for good.
+        self.assertEqual([d[3] for d in calls["dispatch"]], [("J-1",), ("J-2",), ("J-3",)])
+        self.assertIn("drained=3\n", output)
+
+    def test_a_member_without_a_summary_is_a_named_failure_and_the_breaker_hears_the_child_once(self) -> None:
+        queue = [self._judge("J-1"), self._judge("J-2"), None]
+        recorded: list[dict] = []
+        with patch.object(ci_executor_drain, "_record_breaker_failure", side_effect=lambda *a, **k: recorded.append(k)):
+            rc, calls, output = self._drain_batch(
+                queue, batch_size=2,
+                summaries_for={"J-1": self._summary("J-1", "failed", failure_class="harness_unavailable", detail="x")},
+                child_rc=1,
+            )
+        self.assertEqual([d[3] for d in calls["dispatch"]], [("J-1", "J-2")])
+        self.assertIn("drain_failed=2\n", output)
+        kinds = [k.get("kind") for k in recorded]
+        self.assertEqual(len([k for k in kinds if k is not None]), len(set(kinds)),
+                         "one breaker failure per kind per child, however many members")
+
+    def test_batch_size_one_keeps_the_single_child(self) -> None:
+        queue = [self._judge("J-1"), self._judge("J-2"), None]
+        rc, calls, output = self._drain_batch(
+            queue, batch_size=1, summaries_for={rid: self._summary(rid, "succeeded") for rid in ("J-1", "J-2")},
+        )
+        self.assertEqual([d[0] for d in calls["dispatch"]], ["single", "single"])
+        self.assertIn("drained=2\n", output)

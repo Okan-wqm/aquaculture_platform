@@ -67,6 +67,20 @@ ci_executor_read_contained:
   governance: claude_spawn_read_contained {request_id, subagent_type, profile_id, tools}
   raw_jsonl_persisted: false
   subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
+ci_executor_judge_batch:
+  # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — K judge requests that share a
+  # role, an agent and an anchor, served by ONE typed model call on a process-less
+  # route (`judgment_pipeline.judge_batch_runtimes`, default ["zai"]; opt-in via
+  # `judge_batch_size` > 1). No binary: the kernel's own HTTP transport.
+  entry: "ci_executor.py --judge-batch <role> <target_agent> <request_id>..."
+  admission: "_admit_native_route once per child; _bind_request_to_route per member"
+  lease_seconds: "batch_worst_case_seconds(K) for every member's claim"
+  call: "run_zai_chat(system=render_batch_system_turn(contract), user=render_batch_user_turn(batch), json_object=true)"
+  per_member: "attempt reservation, typed envelope (build_envelope_from_typed_answer), transcript {batch_id, payload_hash, answer, usage_share}, pre-submit gate, submit-result, reconcile, dispatch summary"
+  cost: "one cost row per call; every runtime_attempt_finished row carries batch_id and usage_apportioned"
+  release_reasons:
+    - "judge_batch_call_failed:<code> (harness-class: transport, auth, credit, input_budget, payload_*, http_<status>, usage_unavailable)"
+    - "judge_batch_item_unanswered:<typed_judgment reason code> (request-class: this member's item refused while siblings folded)"
 worker_executor:
   binary: claude
   argv:

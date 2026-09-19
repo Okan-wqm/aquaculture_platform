@@ -21,7 +21,7 @@ import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { useReportPrefill, findFieldMeta, ReportFieldMeta } from '../../../hooks/useReportPrefill';
 import { PrefilledField, ProvenanceBadge } from '../components/common';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -191,21 +191,11 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
     <div className="grid grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
-        <input
-          type="text"
-          value={siteName}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <input
-          type="text"
-          value={getWeekLabel(formData.weekNumber, formData.year)}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={getWeekLabel(formData.weekNumber, formData.year)} disabled />
       </div>
     </div>
     <div>
@@ -239,14 +229,7 @@ export const BasicInfoStep: React.FC<BasicInfoStepProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Water Temperature at 3m Depth (°C) <span className="text-red-500">*</span>
           </label>
-          <input
-            type="number"
-            step="0.1"
-            value={formData.waterTemperature3m || ''}
-            onChange={(e) => onChange({ waterTemperature3m: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Enter water temperature"
-          />
+          <Input fullWidth type="number" step="0.1" value={formData.waterTemperature3m || ''} onChange={(e) => onChange({ waterTemperature3m: parseFloat(e.target.value) || 0 })} placeholder="Enter water temperature" />
         </div>
       )}
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -497,24 +480,14 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Total Avg/Fish</label>
-            <input
-              type="text"
-              value={formData.siteCounts.averagePerFish.toFixed(2)}
-              disabled
-              className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-            />
+            <Input fullWidth type="text" value={formData.siteCounts.averagePerFish.toFixed(2)} disabled />
           </div>
         </div>
       </div>
 
       {/* Per-Cage Breakdown (Optional) */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
-        <button
-          type="button"
-          onClick={() => setShowCageBreakdown(!showCageBreakdown)}
-          className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-        >
-          <div>
+        <Button variant="ghost" type="button" onClick={() => setShowCageBreakdown(!showCageBreakdown)}><div>
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Per-Cage Breakdown (Optional)</span>
             {formData.cageCounts.length > 0 && (
               <span className="ml-2 text-xs text-blue-600">
@@ -529,8 +502,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
             stroke="currentColor"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+          </svg></Button>
 
         {showCageBreakdown && (
           <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-gray-700">
@@ -538,13 +510,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Enter per-cage counts to auto-calculate weighted site averages.
               </p>
-              <button
-                type="button"
-                onClick={addCageCount}
-                className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-              >
-                + Add Cage Count
-              </button>
+              <Button variant="secondary" size="sm" type="button" onClick={addCageCount}>+ Add Cage Count</Button>
             </div>
 
             {formData.cageCounts.length === 0 ? (
@@ -560,12 +526,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                   <div key={index} className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                     <div className="flex items-start justify-between mb-2">
                       <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Cage #{index + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeCageCount(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <svg
+                      <Button variant="ghost" type="button" onClick={() => removeCageCount(index)}><svg
                           className="w-4 h-4"
                           fill="none"
                           viewBox="0 0 24 24"
@@ -577,8 +538,7 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                             strokeWidth={2}
                             d="M6 18L18 6M6 6l12 12"
                           />
-                        </svg>
-                      </button>
+                        </svg></Button>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                       <div>
@@ -597,69 +557,32 @@ export const LiceCountStep: React.FC<LiceCountStepProps> = ({
                             ))}
                           </select>
                         ) : (
-                          <input
-                            type="text"
-                            value={cage.cageName}
-                            onChange={(e) => updateCageCount(index, { cageName: e.target.value })}
-                            className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                            placeholder="Cage name"
-                          />
+                          <Input fullWidth type="text" value={cage.cageName} onChange={(e) => updateCageCount(index, { cageName: e.target.value })} placeholder="Cage name" />
                         )}
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Adult Female</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.adultFemale || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { adultFemale: parseFloat(e.target.value) || 0 })
-                          }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          placeholder="0.00"
-                        />
+                        <Input fullWidth type="number" step="0.01" min="0" value={cage.adultFemale || ''} onChange={(e) =>
+              updateCageCount(index, { adultFemale: parseFloat(e.target.value) || 0 })
+             } placeholder="0.00" />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Mobile</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.mobile || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { mobile: parseFloat(e.target.value) || 0 })
-                          }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          placeholder="0.00"
-                        />
+                        <Input fullWidth type="number" step="0.01" min="0" value={cage.mobile || ''} onChange={(e) =>
+              updateCageCount(index, { mobile: parseFloat(e.target.value) || 0 })
+             } placeholder="0.00" />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Attached</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={cage.attached || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { attached: parseFloat(e.target.value) || 0 })
-                          }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          placeholder="0.00"
-                        />
+                        <Input fullWidth type="number" step="0.01" min="0" value={cage.attached || ''} onChange={(e) =>
+              updateCageCount(index, { attached: parseFloat(e.target.value) || 0 })
+             } placeholder="0.00" />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Sampled</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={cage.fishSampled || ''}
-                          onChange={(e) =>
-                            updateCageCount(index, { fishSampled: parseInt(e.target.value) || 0 })
-                          }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          placeholder="20"
-                        />
+                        <Input fullWidth type="number" min="1" value={cage.fishSampled || ''} onChange={(e) =>
+              updateCageCount(index, { fishSampled: parseInt(e.target.value) || 0 })
+             } placeholder="20" />
                       </div>
                     </div>
                   </div>
@@ -735,13 +658,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
             Record any sea lice treatments during this reporting period (Mattilsynet format)
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addTreatment}
-          className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-        >
-          + Add Treatment
-        </button>
+        <Button variant="secondary" size="sm" type="button" onClick={addTreatment}>+ Add Treatment</Button>
       </div>
 
       {formData.treatmentEntries.length === 0 ? (
@@ -770,20 +687,14 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
             <div key={treatment.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Treatment #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeTreatment(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" type="button" onClick={() => removeTreatment(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M6 18L18 6M6 6l12 12"
                     />
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
 
               {/* Treatment Category Radio */}
@@ -868,18 +779,11 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Dosage</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={treatment.dosage || ''}
-                          onChange={(e) =>
-                            updateTreatment(index, {
-                              dosage: parseFloat(e.target.value) || undefined,
-                            })
-                          }
-                          className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                          placeholder="Amount"
-                        />
+                        <Input fullWidth type="number" step="0.01" value={treatment.dosage || ''} onChange={(e) =>
+              updateTreatment(index, {
+               dosage: parseFloat(e.target.value) || undefined,
+              })
+             } placeholder="Amount" />
                       </div>
                       <div className="w-24">
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
@@ -902,12 +806,7 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                 {/* Date */}
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={treatment.date}
-                    onChange={(e) => updateTreatment(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  />
+                  <Input fullWidth type="date" value={treatment.date} onChange={(e) => updateTreatment(index, { date: e.target.value })} />
                 </div>
 
                 {/* Mattilsynet-specific fields */}
@@ -952,31 +851,18 @@ const TreatmentStep: React.FC<TreatmentStepProps> = ({ formData, onChange }) => 
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Number of cages treated
                     </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={treatment.cagesTreated || ''}
-                      onChange={(e) =>
-                        updateTreatment(index, {
-                          cagesTreated: parseInt(e.target.value) || undefined,
-                        })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="Number of cages"
-                    />
+                    <Input fullWidth type="number" min="1" value={treatment.cagesTreated || ''} onChange={(e) =>
+            updateTreatment(index, {
+             cagesTreated: parseInt(e.target.value) || undefined,
+            })
+           } placeholder="Number of cages" />
                   </div>
                 )}
 
                 {/* Notes */}
                 <div className="col-span-2">
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Notes</label>
-                  <textarea
-                    value={treatment.notes}
-                    onChange={(e) => updateTreatment(index, { notes: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    rows={2}
-                    placeholder="Treatment details..."
-                  />
+                  <Textarea fullWidth value={treatment.notes} onChange={(e) => updateTreatment(index, { notes: e.target.value })} rows={2} placeholder="Treatment details..." />
                 </div>
               </div>
             </div>
@@ -1031,13 +917,7 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Describe the resistance suspicion
             </label>
-            <textarea
-              value={formData.resistanceDetails}
-              onChange={(e) => onChange({ resistanceDetails: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-              rows={3}
-              placeholder="Describe observations suggesting resistance (e.g., reduced treatment efficacy, repeat treatments needed)..."
-            />
+            <Textarea fullWidth value={formData.resistanceDetails} onChange={(e) => onChange({ resistanceDetails: e.target.value })} rows={3} placeholder="Describe observations suggesting resistance (e.g., reduced treatment efficacy, repeat treatments needed)..." />
           </div>
         )}
       </div>
@@ -1068,22 +948,11 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
           <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Laboratory Name</label>
-              <input
-                type="text"
-                value={formData.sensitivityTest.labName}
-                onChange={(e) => updateSensitivityTest({ labName: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                placeholder="e.g., PatoGen"
-              />
+              <Input fullWidth type="text" value={formData.sensitivityTest.labName} onChange={(e) => updateSensitivityTest({ labName: e.target.value })} placeholder="e.g., PatoGen" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Test Date</label>
-              <input
-                type="date"
-                value={formData.sensitivityTest.testDate}
-                onChange={(e) => updateSensitivityTest({ testDate: e.target.value })}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              />
+              <Input fullWidth type="date" value={formData.sensitivityTest.testDate} onChange={(e) => updateSensitivityTest({ testDate: e.target.value })} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Active Ingredient Tested</label>
@@ -1102,18 +971,9 @@ const ResistanceStep: React.FC<ResistanceStepProps> = ({ formData, onChange }) =
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Result</label>
-              <select
-                value={formData.sensitivityTest.result}
-                onChange={(e) =>
-                  updateSensitivityTest({ result: e.target.value as SensitivityTestData['result'] })
-                }
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              >
-                <option value="">Select result...</option>
-                <option value="sensitive">Sensitive (Folsom)</option>
-                <option value="reduced">Reduced Sensitivity (Nedsatt folsomhet)</option>
-                <option value="resistant">Resistant (Resistent)</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'Select result...' }, { value: 'sensitive', label: 'Sensitive (Folsom)' }, { value: 'reduced', label: 'Reduced Sensitivity (Nedsatt folsomhet)' }, { value: 'resistant', label: 'Resistant (Resistent)' }]} value={formData.sensitivityTest.result} onChange={(e) =>
+         updateSensitivityTest({ result: e.target.value as SensitivityTestData['result'] })
+        } />
             </div>
           </div>
         )}
@@ -1672,11 +1532,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
             onChange={setSelectedSiteId}
             show={showSelector}
           />
-          <button
-            onClick={() => handleOpenWizard()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -1684,8 +1540,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
                 d="M12 4v16m8-8H4"
               />
             </svg>
-            New Report
-          </button>
+            New Report</Button>
         </div>
       </div>
 

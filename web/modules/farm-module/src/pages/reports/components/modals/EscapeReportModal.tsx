@@ -12,7 +12,7 @@
  * - Dynamic species list from tank data
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { EscapeReport, EscapeCause } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, ESCAPE_CAUSES } from '../../utils/thresholds';
 import { useTanksList } from '../../../../hooks/useTanks';
@@ -577,12 +577,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                       Unit {idx + 1}
                     </span>
                     {formData.affectedUnits.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeUnit(idx)}
-                        className="text-gray-400 dark:text-gray-500 hover:text-red-500"
-                      >
-                        <svg
+                      <Button variant="ghost" type="button" onClick={() => removeUnit(idx)}><svg
                           className="w-4 h-4"
                           fill="none"
                           viewBox="0 0 24 24"
@@ -594,8 +589,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                             strokeWidth={2}
                             d="M6 18L18 6M6 6l12 12"
                           />
-                        </svg>
-                      </button>
+                        </svg></Button>
                     )}
                   </div>
 
@@ -645,43 +639,23 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                     {/* Batch Number */}
                     <div>
                       <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Batch Number</label>
-                      <input
-                        type="text"
-                        value={unit.batchNumber}
-                        onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="e.g., NF-2025-001"
-                        readOnly={!!unit.tankId}
-                      />
+                      <Input fullWidth type="text" value={unit.batchNumber} onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)} placeholder="e.g., NF-2025-001" readOnly={!!unit.tankId} />
                     </div>
 
                     {/* Average Weight */}
                     <div>
                       <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Avg Weight (g)</label>
-                      <input
-                        type="number"
-                        value={unit.avgWeightG || ''}
-                        onChange={(e) =>
-                          handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
-                        }
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="e.g., 3500"
-                      />
+                      <Input fullWidth type="number" value={unit.avgWeightG || ''} onChange={(e) =>
+             handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
+            } placeholder="e.g., 3500" />
                     </div>
 
                     {/* Original Stock Count */}
                     <div>
                       <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Original Stock</label>
-                      <input
-                        type="number"
-                        value={unit.originalCount || ''}
-                        onChange={(e) =>
-                          handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
-                        }
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Stock before escape"
-                        readOnly={!!unit.tankId}
-                      />
+                      <Input fullWidth type="number" value={unit.originalCount || ''} onChange={(e) =>
+             handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
+            } placeholder="Stock before escape" readOnly={!!unit.tankId} />
                     </div>
 
                     {/* Escaped Count */}
@@ -743,23 +717,11 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Recaptured Count</label>
-              <input
-                type="number"
-                value={formData.recapturedCount}
-                onChange={(e) => handleChange('recapturedCount', e.target.value)}
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="0"
-              />
+              <Input fullWidth type="number" value={formData.recapturedCount} onChange={(e) => handleChange('recapturedCount', e.target.value)} placeholder="0" />
             </div>
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Recapture Method</label>
-              <input
-                type="text"
-                value={formData.recaptureMethod}
-                onChange={(e) => handleChange('recaptureMethod', e.target.value)}
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="e.g., Seine netting"
-              />
+              <Input fullWidth type="text" value={formData.recaptureMethod} onChange={(e) => handleChange('recaptureMethod', e.target.value)} placeholder="e.g., Seine netting" />
             </div>
           </div>
           <div className="mt-4">
@@ -798,12 +760,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                     className="flex items-center gap-2 bg-white dark:bg-gray-900 px-3 py-2 rounded-md border"
                   >
                     <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{river}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeItem('riverSystems', index)}
-                      className="text-gray-400 dark:text-gray-500 hover:text-red-500"
-                    >
-                      <svg
+                    <Button variant="ghost" type="button" onClick={() => removeItem('riverSystems', index)}><svg
                         className="w-4 h-4"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -815,32 +772,18 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                           strokeWidth={2}
                           d="M6 18L18 6M6 6l12 12"
                         />
-                      </svg>
-                    </button>
+                      </svg></Button>
                   </div>
                 ))}
               </div>
               <div className="mt-2 flex gap-2">
-                <input
-                  type="text"
-                  value={formData.newRiver}
-                  onChange={(e) => handleChange('newRiver', e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addItem('riverSystems', 'newRiver');
-                    }
-                  }}
-                  className="flex-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Add river system..."
-                />
-                <button
-                  type="button"
-                  onClick={() => addItem('riverSystems', 'newRiver')}
-                  className="px-3 py-2 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-sm border"
-                >
-                  Add
-                </button>
+                <Input type="text" value={formData.newRiver} onChange={(e) => handleChange('newRiver', e.target.value)} onKeyPress={(e) => {
+          if (e.key === 'Enter') {
+           e.preventDefault();
+           addItem('riverSystems', 'newRiver');
+          }
+         }} placeholder="Add river system..." />
+                <Button variant="secondary" size="sm" type="button" onClick={() => addItem('riverSystems', 'newRiver')}>Add</Button>
               </div>
             </div>
           </div>
@@ -855,37 +798,24 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
             {formData.preventiveMeasures.map((measure, index) => (
               <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{measure}</span>
-                <button
-                  type="button"
-                  onClick={() => removeItem('preventiveMeasures', index)}
-                  className="text-gray-400 dark:text-gray-500 hover:text-red-500"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" type="button" onClick={() => removeItem('preventiveMeasures', index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M6 18L18 6M6 6l12 12"
                     />
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              value={formData.newMeasure}
-              onChange={(e) => handleChange('newMeasure', e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addItem('preventiveMeasures', 'newMeasure');
-                }
-              }}
-              className="flex-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
-              placeholder="e.g., Emergency net repair completed..."
-            />
+            <Input type="text" value={formData.newMeasure} onChange={(e) => handleChange('newMeasure', e.target.value)} onKeyPress={(e) => {
+        if (e.key === 'Enter') {
+         e.preventDefault();
+         addItem('preventiveMeasures', 'newMeasure');
+        }
+       }} placeholder="e.g., Emergency net repair completed..." />
             <button
               type="button"
               onClick={() => addItem('preventiveMeasures', 'newMeasure')}
@@ -905,29 +835,15 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSubmitting ? (
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
               <>
                 <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (
               'Submit Report'
-            )}
-          </button>
+            )}</Button>
         </div>
       </div>
     </Modal>

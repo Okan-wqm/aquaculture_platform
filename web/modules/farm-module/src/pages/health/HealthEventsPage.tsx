@@ -618,70 +618,28 @@ export const HealthEventsPage: React.FC = () => {
           {item.status !== 'resolved' && item.status !== 'cancelled' && (
             <>
               {!item.isUnderTreatment ? (
-                <button
-                  onClick={() => handleOpenStartTreatment(item)}
-                  className="text-purple-600 hover:text-purple-900"
-                  title="Start Treatment"
-                >
-                  <Play className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Start Treatment" onClick={() => handleOpenStartTreatment(item)} title="Start Treatment"><Play className="w-4 h-4" /></Button>
               ) : (
-                <button
-                  onClick={() => handleEndTreatment(item)}
-                  className="text-purple-600 hover:text-purple-900"
-                  title="End Treatment"
-                >
-                  <Square className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="End Treatment" onClick={() => handleEndTreatment(item)} title="End Treatment"><Square className="w-4 h-4" /></Button>
               )}
 
               {/* Quarantine actions */}
               {!item.isQuarantined ? (
-                <button
-                  onClick={() => handleOpenStartQuarantine(item)}
-                  className="text-yellow-600 hover:text-yellow-900"
-                  title="Start Quarantine"
-                >
-                  <Shield className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Start Quarantine" onClick={() => handleOpenStartQuarantine(item)} title="Start Quarantine"><Shield className="w-4 h-4" /></Button>
               ) : (
-                <button
-                  onClick={() => handleEndQuarantine(item)}
-                  className="text-yellow-600 hover:text-yellow-900"
-                  title="End Quarantine"
-                >
-                  <Shield className="w-4 h-4 fill-current" />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="End Quarantine" onClick={() => handleEndQuarantine(item)} title="End Quarantine"><Shield className="w-4 h-4 fill-current" /></Button>
               )}
 
               {/* Resolve */}
-              <button
-                onClick={() => handleOpenResolve(item)}
-                className="text-green-600 hover:text-green-900"
-                title="Resolve Event"
-              >
-                <CheckCircle className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Resolve Event" onClick={() => handleOpenResolve(item)} title="Resolve Event"><CheckCircle className="w-4 h-4" /></Button>
             </>
           )}
 
           {/* Edit */}
-          <button
-            onClick={() => handleOpenEdit(item)}
-            className="text-indigo-600 hover:text-indigo-900"
-            title="Edit"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Edit" onClick={() => handleOpenEdit(item)} title="Edit"><Edit className="w-4 h-4" /></Button>
 
           {/* Delete */}
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-            title="Delete"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => handleDelete(item.id)} title="Delete"><Trash2 className="w-4 h-4" /></Button>
         </div>
       ),
     }

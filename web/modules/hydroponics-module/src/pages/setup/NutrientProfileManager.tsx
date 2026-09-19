@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Select, NumberInput, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Select, NumberInput, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import { Modal } from '@aquaculture/shared-ui';
 // PERF-HYD-002: Consume the shared profiles context rather than instantiating a
 // separate useNutrientProfiles() hook, which would create a duplicate localStorage
@@ -141,18 +141,8 @@ const NutrientProfileManager: React.FC = () => {
       align: 'right',
       render: (_value, p) => (
         <>
-          <button
-            onClick={() => openEdit(p)}
-            className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => deleteProfile(p.id)}
-            className="text-red-600 hover:text-red-800 text-xs font-medium"
-          >
-            Delete
-          </button>
+          <Button variant="ghost" size="xs" className="mr-3" onClick={() => openEdit(p)}>Edit</Button>
+          <Button variant="ghost" size="xs" onClick={() => deleteProfile(p.id)}>Delete</Button>
         </>
       ),
     }
@@ -162,21 +152,11 @@ const NutrientProfileManager: React.FC = () => {
     <div className="space-y-4">
       {/* Actions */}
       <div className="flex items-center gap-3 flex-wrap">
-        <button
-          onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openAdd}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Add Profile
-        </button>
-        <button
-          onClick={() => void importDefaults()}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          Import Default Data
-        </button>
+          Add Profile</Button>
+        <Button variant="secondary" onClick={() => void importDefaults()}>Import Default Data</Button>
         <span className="text-xs text-gray-500 dark:text-gray-400">{profiles.length} profile(s) total</span>
       </div>
 
@@ -293,22 +273,12 @@ const NutrientProfileManager: React.FC = () => {
 
           {/* Save / Cancel */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => {
+            <Button variant="secondary" onClick={() => {
                 setIsModalOpen(false);
                 setEditingId(null);
                 setForm({ ...EMPTY_PROFILE });
-              }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-            >
-              {editingId ? 'Update Profile' : 'Create Profile'}
-            </button>
+              }}>Cancel</Button>
+            <Button variant="primary" onClick={handleSave}>{editingId ? 'Update Profile' : 'Create Profile'}</Button>
           </div>
         </div>
       </Modal>

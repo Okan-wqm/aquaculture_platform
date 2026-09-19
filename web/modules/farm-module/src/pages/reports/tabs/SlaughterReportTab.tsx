@@ -9,6 +9,7 @@
  * - Regulatory metadata from settings
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 import {
   useRegulatorySettings,
   useSubmitPlannedSlaughterReport,
@@ -283,41 +284,22 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
-        <input
-          type="text"
-          value={siteName}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={siteName} disabled />
       </div>
 
       {/* Week / Year Selection */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Week Number</label>
-          <input
-            type="number"
-            min={1}
-            max={52}
-            value={formData.weekNumber}
-            onChange={(e) =>
-              onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
-            }
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-          />
+          <Input fullWidth type="number" min={1} max={52} value={formData.weekNumber} onChange={(e) =>
+       onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
+      } />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Year</label>
-          <input
-            type="number"
-            min={2020}
-            max={2030}
-            value={formData.year}
-            onChange={(e) =>
-              onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
-            }
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-          />
+          <Input fullWidth type="number" min={2020} max={2030} value={formData.year} onChange={(e) =>
+       onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
+      } />
         </div>
       </div>
       <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
@@ -464,60 +446,29 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Organization Number (organisasjonsnummer)
             </label>
-            <input
-              type="text"
-              value={formData.regulatory.organisasjonsnummer}
-              onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="123456789"
-              maxLength={9}
-            />
+            <Input fullWidth type="text" value={formData.regulatory.organisasjonsnummer} onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })} placeholder="123456789" maxLength={9} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Site Number (lokalitetsnummer)
             </label>
-            <input
-              type="number"
-              value={formData.regulatory.lokalitetsnummer}
-              onChange={(e) =>
-                updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
-              }
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="31234"
-            />
+            <Input fullWidth type="number" value={formData.regulatory.lokalitetsnummer} onChange={(e) =>
+        updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
+       } placeholder="31234" />
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3 mt-3">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Contact Person (navn)</label>
-            <input
-              type="text"
-              value={formData.regulatory.kontaktperson.navn}
-              onChange={(e) => updateKontakt({ navn: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="Erik Hansen"
-            />
+            <Input fullWidth type="text" value={formData.regulatory.kontaktperson.navn} onChange={(e) => updateKontakt({ navn: e.target.value })} placeholder="Erik Hansen" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Email (epost)</label>
-            <input
-              type="email"
-              value={formData.regulatory.kontaktperson.epost}
-              onChange={(e) => updateKontakt({ epost: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="erik@example.no"
-            />
+            <Input fullWidth type="email" value={formData.regulatory.kontaktperson.epost} onChange={(e) => updateKontakt({ epost: e.target.value })} placeholder="erik@example.no" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Phone (telefonnummer)</label>
-            <input
-              type="text"
-              value={formData.regulatory.kontaktperson.telefonnummer}
-              onChange={(e) => updateKontakt({ telefonnummer: e.target.value })}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-              placeholder="+47 123 45 678"
-            />
+            <Input fullWidth type="text" value={formData.regulatory.kontaktperson.telefonnummer} onChange={(e) => updateKontakt({ telefonnummer: e.target.value })} placeholder="+47 123 45 678" />
           </div>
         </div>
       </div>
@@ -714,13 +665,7 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => addDayPlan(dayIndex)}
-                  className="px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded hover:bg-blue-50"
-                >
-                  + Add
-                </button>
+                <Button variant="secondary" size="xs" type="button" onClick={() => addDayPlan(dayIndex)}>+ Add</Button>
               </div>
 
               {dayEntries.map((entry) => (
@@ -730,12 +675,7 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                 >
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-xs text-gray-400 dark:text-gray-500">Entry</span>
-                    <button
-                      type="button"
-                      onClick={() => removeDayPlan(entry.originalIndex)}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      <svg
+                    <Button variant="ghost" type="button" onClick={() => removeDayPlan(entry.originalIndex)}><svg
                         className="w-3.5 h-3.5"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -747,8 +687,7 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                           strokeWidth={2}
                           d="M6 18L18 6M6 6l12 12"
                         />
-                      </svg>
-                    </button>
+                      </svg></Button>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div className="md:col-span-2">
@@ -771,47 +710,27 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Species (artskode: {entry.artskode || '-'})
                       </label>
-                      <input
-                        type="text"
-                        value={entry.species}
-                        onChange={(e) =>
-                          updateDayPlan(entry.originalIndex, { species: e.target.value })
-                        }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800"
-                        placeholder="Auto from batch"
-                      />
+                      <Input fullWidth type="text" value={entry.species} onChange={(e) =>
+             updateDayPlan(entry.originalIndex, { species: e.target.value })
+            } placeholder="Auto from batch" />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity (antall)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={entry.quantity || ''}
-                        onChange={(e) =>
-                          updateDayPlan(entry.originalIndex, {
-                            quantity: parseInt(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                        placeholder="0"
-                      />
+                      <Input fullWidth type="number" min="0" value={entry.quantity || ''} onChange={(e) =>
+             updateDayPlan(entry.originalIndex, {
+              quantity: parseInt(e.target.value) || 0,
+             })
+            } placeholder="0" />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Biomass kg (mengdeKg)
                       </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={entry.biomassKg || ''}
-                        onChange={(e) =>
-                          updateDayPlan(entry.originalIndex, {
-                            biomassKg: parseFloat(e.target.value) || 0,
-                          })
-                        }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                        placeholder="0"
-                      />
+                      <Input fullWidth type="number" min="0" value={entry.biomassKg || ''} onChange={(e) =>
+             updateDayPlan(entry.originalIndex, {
+              biomassKg: parseFloat(e.target.value) || 0,
+             })
+            } placeholder="0" />
                     </div>
                   </div>
                 </div>
@@ -920,13 +839,7 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Executed Slaughters</h4>
           <p className="text-xs text-gray-500 dark:text-gray-400">Record actual harvest results for the week</p>
         </div>
-        <button
-          type="button"
-          onClick={addCompleted}
-          className="px-3 py-1.5 text-sm text-green-600 border border-green-300 rounded-md hover:bg-green-50"
-        >
-          + Add Completed
-        </button>
+        <Button variant="secondary" size="sm" type="button" onClick={addCompleted}>+ Add Completed</Button>
       </div>
 
       {/* Summary */}
@@ -971,20 +884,14 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             <div key={record.recordId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Harvest #{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => removeCompleted(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" type="button" onClick={() => removeCompleted(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M6 18L18 6M6 6l12 12"
                     />
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Batch Selection Dropdown */}
@@ -1008,69 +915,33 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <input
-                    type="text"
-                    value={record.speciesName || ''}
-                    onChange={(e) => updateCompleted(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800"
-                    placeholder="Auto from batch"
-                  />
+                  <Input fullWidth type="text" value={record.speciesName || ''} onChange={(e) => updateCompleted(index, { speciesName: e.target.value })} placeholder="Auto from batch" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Harvest Date</label>
-                  <input
-                    type="date"
-                    value={record.harvestDate.toISOString().split('T')[0]}
-                    onChange={(e) =>
-                      updateCompleted(index, { harvestDate: new Date(e.target.value) })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  />
+                  <Input fullWidth type="date" value={record.harvestDate.toISOString().split('T')[0]} onChange={(e) =>
+           updateCompleted(index, { harvestDate: new Date(e.target.value) })
+          } />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Actual Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={record.actualQuantity || ''}
-                    onChange={(e) =>
-                      updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" value={record.actualQuantity || ''} onChange={(e) =>
+           updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Actual Biomass (kg)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={record.actualBiomassKg || ''}
-                    onChange={(e) =>
-                      updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" value={record.actualBiomassKg || ''} onChange={(e) =>
+           updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (kg)</label>
-                  <input
-                    type="text"
-                    value={record.avgWeightKg.toFixed(2)}
-                    disabled
-                    className="w-full px-2 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-400"
-                  />
+                  <Input fullWidth type="text" value={record.avgWeightKg.toFixed(2)} disabled />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Lot Number</label>
-                  <input
-                    type="text"
-                    value={record.lotNumber || ''}
-                    onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="LOT-2026-001"
-                  />
+                  <Input fullWidth type="text" value={record.lotNumber || ''} onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })} placeholder="LOT-2026-001" />
                 </div>
               </div>
             </div>
@@ -1102,28 +973,14 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Superior (Superioer)</label>
               <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formData.gradeDistribution.superior || ''}
-                  onChange={(e) => updateGrade('superior', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                />
+                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.superior || ''} onChange={(e) => updateGrade('superior', parseInt(e.target.value) || 0)} />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ordinary (Ordinaer)</label>
               <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formData.gradeDistribution.ordinary || ''}
-                  onChange={(e) => updateGrade('ordinary', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                />
+                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.ordinary || ''} onChange={(e) => updateGrade('ordinary', parseInt(e.target.value) || 0)} />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
@@ -1132,28 +989,14 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
                 Production (Produksjonsfisk)
               </label>
               <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formData.gradeDistribution.production || ''}
-                  onChange={(e) => updateGrade('production', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                />
+                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.production || ''} onChange={(e) => updateGrade('production', parseInt(e.target.value) || 0)} />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Discard (Kassert)</label>
               <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={formData.gradeDistribution.discard || ''}
-                  onChange={(e) => updateGrade('discard', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                />
+                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.discard || ''} onChange={(e) => updateGrade('discard', parseInt(e.target.value) || 0)} />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
@@ -1713,15 +1556,10 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
             Weekly planned and executed harvest reports (Mattilsynet slakt)
           </p>
         </div>
-        <button
-          onClick={() => handleOpenWizard()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          New Report
-        </button>
+          New Report</Button>
       </div>
 
       {/* Submission History */}

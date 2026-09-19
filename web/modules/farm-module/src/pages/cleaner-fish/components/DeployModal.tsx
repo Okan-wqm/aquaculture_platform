@@ -4,7 +4,7 @@
  * Modal for deploying cleaner fish from a batch to a tank.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import { useDeployCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
 import type { TankOption } from '../types';
 
@@ -168,16 +168,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Quantity to Deploy <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              id="quantity"
-              min="1"
-              max={maxQuantity}
-              value={quantity || ''}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter quantity"
-            />
+            <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Max: {maxQuantity.toLocaleString()}
             </p>
@@ -186,16 +177,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
             <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Avg Weight (g)
             </label>
-            <input
-              type="number"
-              id="avgWeight"
-              min="0.1"
-              step="0.1"
-              value={avgWeightG || ''}
-              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Optional"
-            />
+            <Input fullWidth type="number" id="avgWeight" min="0.1" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)} placeholder="Optional" />
           </div>
         </div>
 
@@ -216,14 +198,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
           <label htmlFor="deployedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Deployment Date
           </label>
-          <input
-            type="date"
-            id="deployedAt"
-            value={deployedAt}
-            max={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setDeployedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          />
+          <Input fullWidth type="date" id="deployedAt" value={deployedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setDeployedAt(e.target.value)} />
         </div>
 
         {/* Notes */}
@@ -231,15 +206,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
           <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
-          <textarea
-            id="notes"
-            rows={2}
-            maxLength={2000}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Optional notes..."
-          />
+          <Textarea fullWidth id="notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." />
         </div>
 
         {/* Validation Error */}

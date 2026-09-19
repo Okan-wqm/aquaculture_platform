@@ -13,7 +13,7 @@
  * Phase 3 Tier 1 of the "Farm modülü kalan kör noktalar" plan.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 
 import {
   AllocationType,
@@ -186,28 +186,13 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
               <label htmlFor="alloc-quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Quantity <span className="text-orange-500">*</span>
               </label>
-              <input
-                type="number"
-                id="alloc-quantity"
-                min={1}
-                value={quantity || ''}
-                onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              />
+              <Input fullWidth type="number" id="alloc-quantity" min={1} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)} />
             </div>
             <div>
               <label htmlFor="alloc-weight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Avg weight (g) <span className="text-orange-500">*</span>
               </label>
-              <input
-                type="number"
-                id="alloc-weight"
-                min={0}
-                step="0.1"
-                value={avgWeightG || ''}
-                onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              />
+              <Input fullWidth type="number" id="alloc-weight" min={0} step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)} />
             </div>
           </div>
 
@@ -233,14 +218,7 @@ export const AllocateBatchToTankModal: React.FC<AllocateBatchToTankModalProps> =
             <label htmlFor="alloc-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes (optional)
             </label>
-            <textarea
-              id="alloc-notes"
-              rows={2}
-              maxLength={500}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Textarea fullWidth id="alloc-notes" rows={2} maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 

@@ -8,7 +8,7 @@
  * operator resubmits only the remainder — that message is surfaced verbatim.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import {
   useRecordGrading,
@@ -237,14 +237,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                   Output {index + 1}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => removeRow(index)}
-                  disabled={rows.length <= 1}
-                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Remove
-                </button>
+                <Button variant="ghost" size="xs" type="button" onClick={() => removeRow(index)} disabled={rows.length <= 1}>Remove</Button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -287,16 +280,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                   >
                     Quantity <span className="text-purple-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    id={`grading-quantity-${index}`}
-                    min="1"
-                    max={availableQuantity}
-                    value={row.quantity || ''}
-                    onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })}
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
-                    placeholder="Fish count"
-                  />
+                  <Input fullWidth type="number" id={`grading-quantity-${index}`} min="1" max={availableQuantity} value={row.quantity || ''} onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })} placeholder="Fish count" />
                 </div>
 
                 <div>
@@ -306,18 +290,9 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                   >
                     Avg Weight (g) <span className="text-purple-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    id={`grading-avgweight-${index}`}
-                    min="0.01"
-                    step="0.1"
-                    value={row.avgWeightG || ''}
-                    onChange={(e) =>
-                      updateRow(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-                    }
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
-                    placeholder="Measured size-class weight"
-                  />
+                  <Input fullWidth type="number" id={`grading-avgweight-${index}`} min="0.01" step="0.1" value={row.avgWeightG || ''} onChange={(e) =>
+           updateRow(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+          } placeholder="Measured size-class weight" />
                 </div>
 
                 <div className="col-span-2">
@@ -327,15 +302,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                   >
                     Size Class
                   </label>
-                  <input
-                    type="text"
-                    id={`grading-sizeclass-${index}`}
-                    maxLength={64}
-                    value={row.sizeClass}
-                    onChange={(e) => updateRow(index, { sizeClass: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
-                    placeholder="e.g. Small / Medium / Large or >250g"
-                  />
+                  <Input fullWidth type="text" id={`grading-sizeclass-${index}`} maxLength={64} value={row.sizeClass} onChange={(e) => updateRow(index, { sizeClass: e.target.value })} placeholder="e.g. Small / Medium / Large or >250g" />
                 </div>
               </div>
 
@@ -354,28 +321,13 @@ export const GradingModal: React.FC<GradingModalProps> = ({
             <label htmlFor="gradedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Grading Date
             </label>
-            <input
-              type="date"
-              id="gradedAt"
-              value={gradedAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setGradedAt(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
-            />
+            <Input fullWidth type="date" id="gradedAt" value={gradedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setGradedAt(e.target.value)} />
           </div>
           <div>
             <label htmlFor="gradingNotes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes
             </label>
-            <input
-              type="text"
-              id="gradingNotes"
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
-              placeholder="Optional operation notes"
-            />
+            <Input fullWidth type="text" id="gradingNotes" maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional operation notes" />
           </div>
         </div>
 

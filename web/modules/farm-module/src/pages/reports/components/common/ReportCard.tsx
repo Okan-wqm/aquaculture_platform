@@ -3,6 +3,7 @@
  * Displays a summary card for a regulatory report
  */
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { ReportBase, ReportType } from '../../types/reports.types';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { DeadlineIndicator } from './DeadlineIndicator';
@@ -194,40 +195,22 @@ export const ReportCard: React.FC<ReportCardProps> = ({
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 rounded-b-lg">
           <div className="flex items-center justify-end gap-2">
             {onView && (
-              <button
-                type="button"
-                onClick={(e) => {
+              <Button variant="secondary" size="sm" type="button" onClick={(e) => {
                   e.stopPropagation();
                   onView();
-                }}
-                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                View
-              </button>
+                }}>View</Button>
             )}
             {canEdit && onEdit && (
-              <button
-                type="button"
-                onClick={(e) => {
+              <Button variant="secondary" size="sm" type="button" onClick={(e) => {
                   e.stopPropagation();
                   onEdit();
-                }}
-                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Edit
-              </button>
+                }}>Edit</Button>
             )}
             {canSubmit && onSubmit && (
-              <button
-                type="button"
-                onClick={(e) => {
+              <Button variant="primary" size="sm" type="button" onClick={(e) => {
                   e.stopPropagation();
                   onSubmit();
-                }}
-                className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Submit
-              </button>
+                }}>Submit</Button>
             )}
           </div>
         </div>

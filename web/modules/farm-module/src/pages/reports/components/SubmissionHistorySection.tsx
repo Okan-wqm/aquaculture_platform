@@ -11,6 +11,7 @@
  * an expandable payload view of exactly what was submitted.
  */
 import React, { useMemo, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   useRegulatoryReport,
   useRegulatoryReports,
@@ -231,13 +232,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xs text-gray-500 dark:text-gray-400">{formatTimestamp(row.submittedAt)}</p>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
-                    className="mt-1 text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    {expandedId === row.id ? 'Hide payload' : 'View payload'}
-                  </button>
+                  <Button variant="ghost" size="xs" className="mt-1" type="button" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>{expandedId === row.id ? 'Hide payload' : 'View payload'}</Button>
                 </div>
               </div>
               {expandedId === row.id && (

@@ -4,7 +4,7 @@
  * Handles mixed batch logic when transferring to a tank with existing fish
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import { useTransferBatch, useAvailableTanks, AvailableTank } from '../../../hooks/useBatches';
 import { BatchScopeSelector } from './BatchScopeSelector';
@@ -295,16 +295,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Quantity <span className="text-blue-500">*</span>
             </label>
-            <input
-              type="number"
-              id="quantity"
-              min="1"
-              max={availableQuantity}
-              value={quantity || ''}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Enter number of fish to transfer"
-            />
+            <Input fullWidth type="number" id="quantity" min="1" max={availableQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of fish to transfer" />
             {/* Quick select buttons — percentages of the SELECTED batch's stock */}
             <div className="mt-2 flex gap-2">
               <button
@@ -343,14 +334,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Average Weight (g)
             </label>
-            <input
-              type="number"
-              id="avgWeight"
-              value={scopedAvgWeightG.toFixed(1)}
-              readOnly
-              disabled
-              className="mt-1 block w-full rounded-md border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shadow-sm sm:text-sm text-gray-600 dark:text-gray-400 cursor-not-allowed"
-            />
+            <Input fullWidth type="number" id="avgWeight" value={scopedAvgWeightG.toFixed(1)} readOnly disabled />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {isCombined ? 'Selected batch' : 'Source tank'} average — cannot be changed during
               transfer. Biomass is calculated automatically.
@@ -393,14 +377,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Date
             </label>
-            <input
-              type="date"
-              id="transferredAt"
-              value={transferredAt}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setTransferredAt(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="date" id="transferredAt" value={transferredAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setTransferredAt(e.target.value)} />
           </div>
 
           {/* Notes */}
@@ -408,15 +385,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Notes <span className="text-blue-500">*</span>
             </label>
-            <textarea
-              id="notes"
-              rows={3}
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              placeholder="Explain why the fish are being transferred..."
-            />
+            <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Explain why the fish are being transferred..." />
           </div>
         </div>
 

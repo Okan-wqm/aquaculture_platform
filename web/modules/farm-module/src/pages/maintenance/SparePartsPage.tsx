@@ -347,24 +347,9 @@ export const SparePartsPage: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <button
-            onClick={() => handleOpenStockMovement(item)}
-            className="text-green-600 hover:text-green-900 mr-3"
-          >
-            Stok
-          </button>
-          <button
-            onClick={() => handleOpenEdit(item)}
-            className="text-indigo-600 hover:text-indigo-900 mr-3"
-          >
-            Düzenle
-          </button>
-          <button
-            onClick={() => handleDelete(item.id)}
-            className="text-red-600 hover:text-red-900"
-          >
-            Sil
-          </button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleOpenStockMovement(item)}>Stok</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleOpenEdit(item)}>Düzenle</Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Sil</Button>
         </>
       ),
     }

@@ -5,7 +5,7 @@
  * this modal lets the user choose which type to operate on.
  */
 import React from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { TankWithBatch } from '../types';
 
 export type OperationType = 'mortality' | 'transfer' | 'cull';
@@ -74,12 +74,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
 
         <div className="grid grid-cols-2 gap-4">
           {hasProduction && (
-            <button
-              onClick={() => onSelect('production')}
-              className="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50
-                         transition-colors text-left group"
-            >
-              <div className="flex items-center gap-2 mb-2">
+            <Button variant="secondary" onClick={() => onSelect('production')}><div className="flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
@@ -91,17 +86,11 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                 <div>{tank.pieces?.toLocaleString() || 0} fish</div>
                 <div>{tank.biomass?.toFixed(1) || 0} kg biomass</div>
                 <div className="text-xs">Batch: {tank.batchNumber}</div>
-              </div>
-            </button>
+              </div></Button>
           )}
 
           {showCleanerOption && (
-            <button
-              onClick={() => onSelect('cleaner')}
-              className="p-4 border-2 border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50
-                         transition-colors text-left group"
-            >
-              <div className="flex items-center gap-2 mb-2">
+            <Button variant="secondary" onClick={() => onSelect('cleaner')}><div className="flex items-center gap-2 mb-2">
                 <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12c0 4-4 6-8 6s-8-2-8-6 4-6 8-6 8 2 8 6z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12l4-2v4l-4-2zM6 12a2 2 0 100-4 2 2 0 000 4z" />
@@ -118,8 +107,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                     {tank.cleanerFishDetails.length} batch{tank.cleanerFishDetails.length > 1 ? 'es' : ''}
                   </div>
                 )}
-              </div>
-            </button>
+              </div></Button>
           )}
         </div>
 
@@ -130,12 +118,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
         )}
 
         <div className="mt-6 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-          >
-            Cancel
-          </button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>
     </Modal>

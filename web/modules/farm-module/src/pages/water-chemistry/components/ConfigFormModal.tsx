@@ -6,7 +6,7 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal, colors } from '@aquaculture/shared-ui';
+import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -82,25 +82,11 @@ const RangeFieldset: React.FC<{
     <div className="grid grid-cols-2 gap-4">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-        <input
-          type="number"
-          name={minName}
-          value={minValue}
-          onChange={onChange}
-          step="any"
-          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-        />
+        <Input fullWidth type="number" name={minName} value={minValue} onChange={onChange} step="any" />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-        <input
-          type="number"
-          name={maxName}
-          value={maxValue}
-          onChange={onChange}
-          step="any"
-          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-        />
+        <Input fullWidth type="number" name={maxName} value={maxValue} onChange={onChange} step="any" />
       </div>
     </div>
   </fieldset>
@@ -151,42 +137,18 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         {/* Code */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Code *</label>
-          <input
-            type="text"
-            name="code"
-            value={formData.code}
-            onChange={handleChange}
-            required
-            disabled={mode === 'edit'}
-            placeholder="e.g., dissolved_oxygen"
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
-          />
+          <Input fullWidth type="text" name="code" value={formData.code} onChange={handleChange} required disabled={mode === 'edit'} placeholder="e.g., dissolved_oxygen" />
         </div>
 
         {/* Name + Unit */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              required
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="text" name="name" value={formData.name} onChange={handleChange} required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unit *</label>
-            <input
-              type="text"
-              name="unit"
-              value={formData.unit}
-              onChange={handleChange}
-              required
-              placeholder="e.g., mg/L"
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input fullWidth type="text" name="unit" value={formData.unit} onChange={handleChange} required placeholder="e.g., mg/L" />
           </div>
         </div>
 
@@ -227,15 +189,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         {/* Precision */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Precision (0-6)</label>
-          <input
-            type="number"
-            name="precision"
-            value={formData.precision}
-            onChange={handleChange}
-            min={0}
-            max={6}
-            className="block w-32 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-          />
+          <Input type="number" name="precision" value={formData.precision} onChange={handleChange} min={0} max={6} />
         </div>
 
         {/* Range Fieldsets */}
@@ -268,14 +222,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Chart Color</label>
           <div className="flex items-center space-x-3">
-            <input
-              type="text"
-              name="chartColor"
-              value={formData.chartColor}
-              onChange={handleChange}
-              placeholder={colors.info[500]}
-              className="block w-32 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            />
+            <Input type="text" name="chartColor" value={formData.chartColor} onChange={handleChange} placeholder={colors.info[500]} />
             <div
               className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600"
               style={{ backgroundColor: formData.chartColor || '#ccc' }}
@@ -344,20 +291,8 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSubmitting ? 'Saving...' : 'Save'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save'}</Button>
         </div>
       </form>
     </Modal>

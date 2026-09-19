@@ -14,7 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
   useFeedingProtocolsV2,
@@ -189,12 +189,7 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.effectiveFrom')}
           </label>
-          <input
-            type="date"
-            value={effectiveFrom}
-            onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-          />
+          <Input fullWidth type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
         </div>
         {needsMismatchReason && (
           <div className="rounded-md bg-amber-50 border border-amber-200 p-3">
@@ -204,29 +199,12 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('feedingV2.assignments.speciesMismatchReason')}
             </label>
-            <input
-              maxLength={500}
-              value={mismatchReason}
-              onChange={(e) => setMismatchReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-            />
+            <Input fullWidth maxLength={500} value={mismatchReason} onChange={(e) => setMismatchReason(e.target.value)} />
           </div>
         )}
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={assignMutation.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {assignMutation.isPending ? t('common.loading') : t('common.save')}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" type="submit" disabled={assignMutation.isPending}>{assignMutation.isPending ? t('common.loading') : t('common.save')}</Button>
         </div>
       </form>
     </Modal>
@@ -331,58 +309,36 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.offset')}
               </label>
-              <input
-                type="number"
-                min={-720}
-                max={720}
-                value={overrides.mealTimeOffsetMinutes ?? ''}
-                onChange={(e) =>
-                  setOverrides((prev) => ({
-                    ...prev,
-                    mealTimeOffsetMinutes:
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                  }))
-                }
-                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              />
+              <Input type="number" min={-720} max={720} value={overrides.mealTimeOffsetMinutes ?? ''} onChange={(e) =>
+         setOverrides((prev) => ({
+          ...prev,
+          mealTimeOffsetMinutes:
+           e.target.value === '' ? undefined : Number(e.target.value),
+         }))
+        } />
             </div>
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.mealsPerDayOverride')}
               </label>
-              <input
-                type="number"
-                min={1}
-                max={24}
-                value={overrides.mealsPerDayOverride ?? ''}
-                onChange={(e) =>
-                  setOverrides((prev) => ({
-                    ...prev,
-                    mealsPerDayOverride: e.target.value === '' ? undefined : Number(e.target.value),
-                  }))
-                }
-                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              />
+              <Input type="number" min={1} max={24} value={overrides.mealsPerDayOverride ?? ''} onChange={(e) =>
+         setOverrides((prev) => ({
+          ...prev,
+          mealsPerDayOverride: e.target.value === '' ? undefined : Number(e.target.value),
+         }))
+        } />
             </div>
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.rateAdjustment')}
               </label>
-              <input
-                type="number"
-                min={-50}
-                max={50}
-                step={0.1}
-                value={overrides.rateAdjustmentPercent ?? ''}
-                onChange={(e) =>
-                  setOverrides((prev) => ({
-                    ...prev,
-                    rateAdjustmentPercent:
-                      e.target.value === '' ? undefined : Number(e.target.value),
-                  }))
-                }
-                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-              />
+              <Input type="number" min={-50} max={50} step={0.1} value={overrides.rateAdjustmentPercent ?? ''} onChange={(e) =>
+         setOverrides((prev) => ({
+          ...prev,
+          rateAdjustmentPercent:
+           e.target.value === '' ? undefined : Number(e.target.value),
+         }))
+        } />
             </div>
           </div>
         </div>
@@ -404,33 +360,18 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                         value: feed.defaultFcr,
                       })}
                     </span>
-                    <input
-                      type="number"
-                      min={0.5}
-                      max={5}
-                      step={0.01}
-                      value={override?.expectedFcr ?? ''}
-                      placeholder={String(feed.defaultFcr)}
-                      onChange={(e) =>
-                        setFcrOverride(
-                          feed.feedId,
-                          e.target.value === '' ? null : Number(e.target.value),
-                        )
-                      }
-                      className="w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-                    />
+                    <Input type="number" min={0.5} max={5} step={0.01} value={override?.expectedFcr ?? ''} placeholder={String(feed.defaultFcr)} onChange={(e) =>
+            setFcrOverride(
+             feed.feedId,
+             e.target.value === '' ? null : Number(e.target.value),
+            )
+           } />
                     {override && (
                       <>
                         <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs">
                           {t('feedingV2.assignments.fcrOverride.overridden')}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setFcrOverride(feed.feedId, null)}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          {t('feedingV2.assignments.fcrOverride.reset')}
-                        </button>
+                        <Button variant="ghost" type="button" onClick={() => setFcrOverride(feed.feedId, null)}>{t('feedingV2.assignments.fcrOverride.reset')}</Button>
                       </>
                     )}
                   </div>
@@ -462,20 +403,8 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
         )}
 
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? t('common.loading') : t('common.save')}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" type="submit" disabled={saving}>{saving ? t('common.loading') : t('common.save')}</Button>
         </div>
       </form>
     </Modal>
@@ -650,37 +579,17 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
         <>
           {canUpdate && (
             <>
-              <button
-                onClick={() => setEditAssignment(assignment)}
-                className="text-blue-600 hover:text-blue-800 mr-3"
-              >
-                {t('common.edit')}
-              </button>
-              <button
-                onClick={() => void handleToggleStatus(assignment)}
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 mr-3"
-              >
-                {assignment.status === 'ACTIVE'
+              <Button variant="ghost" className="mr-3" onClick={() => setEditAssignment(assignment)}>{t('common.edit')}</Button>
+              <Button variant="ghost" className="mr-3" onClick={() => void handleToggleStatus(assignment)}>{assignment.status === 'ACTIVE'
                   ? t('feedingV2.assignments.pause')
-                  : t('feedingV2.assignments.resume')}
-              </button>
+                  : t('feedingV2.assignments.resume')}</Button>
             </>
           )}
           {canTransition && assignment.status === 'ACTIVE' && (
-            <button
-              onClick={() => setTransitionAssignment(assignment)}
-              className="text-amber-700 hover:text-amber-900 mr-3"
-            >
-              {t('feedingV2.assignments.manualTransition')}
-            </button>
+            <Button variant="ghost" className="mr-3" onClick={() => setTransitionAssignment(assignment)}>{t('feedingV2.assignments.manualTransition')}</Button>
           )}
           {canUnassign && (
-            <button
-              onClick={() => void handleUnassign(assignment)}
-              className="text-gray-500 dark:text-gray-400 hover:text-red-600"
-            >
-              {t('feedingV2.assignments.unassign')}
-            </button>
+            <Button variant="ghost" onClick={() => void handleUnassign(assignment)}>{t('feedingV2.assignments.unassign')}</Button>
           )}
         </>
       ),
@@ -697,12 +606,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.assignments.subtitle')}</p>
         </div>
         {canAssign && (
-          <button
-            onClick={() => setAssignModalOpen(true)}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-          >
-            + {t('feedingV2.assignments.assign')}
-          </button>
+          <Button variant="primary" onClick={() => setAssignModalOpen(true)}>+ {t('feedingV2.assignments.assign')}</Button>
         )}
       </div>
 
@@ -741,13 +645,9 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
         >
           <div className="space-y-3">
             {(protocolById.get(transitionAssignment.protocolId)?.bands ?? []).map((band) => (
-              <button
-                key={band.feedId}
-                type="button"
-                disabled={
+              <Button variant="secondary" size="sm" key={band.feedId} type="button" disabled={
                   transitionFeed.isPending || band.feedId === transitionAssignment.currentFeedId
-                }
-                onClick={() => {
+                } onClick={() => {
                   const label = `${band.feedName} (${band.feedCode})`;
                   void confirm({
                     title: t('feedingV2.assignments.manualTransitionConfirm', {
@@ -764,16 +664,12 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                       })
                       .then(() => setTransitionAssignment(null));
                   });
-                }}
-                className="flex w-full items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-              >
-                <span>
+                }}><span>
                   {band.feedName} ({band.feedCode})
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   {band.minWeightG}–{band.maxWeightG} g
-                </span>
-              </button>
+                </span></Button>
             ))}
           </div>
         </Modal>

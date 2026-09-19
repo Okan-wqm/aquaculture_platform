@@ -13,7 +13,7 @@
  * the disabled button would be poor UX.
  */
 import React, { useState } from 'react';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, Button } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import CloseBatchModal from '../components/CloseBatchModal';
@@ -56,28 +56,14 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
           </button>
         )}
         {canUpdateStatus && (
-          <button
-            type="button"
-            onClick={() => setShowStatusModal(true)}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Durum Güncelle
-          </button>
+          <Button variant="primary" size="sm" type="button" onClick={() => setShowStatusModal(true)}>Durum Güncelle</Button>
         )}
         {canClose && (
-          <button
-            type="button"
-            onClick={() => setShowCloseModal(true)}
-            disabled={closeButtonDisabled}
-            title={
+          <Button variant="danger" size="sm" type="button" onClick={() => setShowCloseModal(true)} disabled={closeButtonDisabled} title={
               closeButtonDisabled
                 ? 'Bu durumdaki bir parti kapatılamaz'
                 : undefined
-            }
-            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Partiyi Kapat
-          </button>
+            }>Partiyi Kapat</Button>
         )}
       </div>
 

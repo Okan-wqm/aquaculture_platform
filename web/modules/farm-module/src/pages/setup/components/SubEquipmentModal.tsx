@@ -11,7 +11,7 @@
  * kalan kör noktalar" plan.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
 
 import {
   CreateSubEquipmentInput,
@@ -223,27 +223,13 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             <label htmlFor="sub-eq-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Name <span className="text-orange-500">*</span>
             </label>
-            <input
-              id="sub-eq-name"
-              type="text"
-              maxLength={255}
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth id="sub-eq-name" type="text" maxLength={255} value={form.name} onChange={(e) => set('name', e.target.value)} />
           </div>
           <div>
             <label htmlFor="sub-eq-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Code <span className="text-orange-500">*</span>
             </label>
-            <input
-              id="sub-eq-code"
-              type="text"
-              maxLength={50}
-              value={form.code}
-              onChange={(e) => set('code', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth id="sub-eq-code" type="text" maxLength={50} value={form.code} onChange={(e) => set('code', e.target.value)} />
           </div>
         </div>
 
@@ -252,27 +238,13 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             <label htmlFor="sub-eq-manufacturer" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Manufacturer
             </label>
-            <input
-              id="sub-eq-manufacturer"
-              type="text"
-              maxLength={100}
-              value={form.manufacturer}
-              onChange={(e) => set('manufacturer', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth id="sub-eq-manufacturer" type="text" maxLength={100} value={form.manufacturer} onChange={(e) => set('manufacturer', e.target.value)} />
           </div>
           <div>
             <label htmlFor="sub-eq-model" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Model
             </label>
-            <input
-              id="sub-eq-model"
-              type="text"
-              maxLength={100}
-              value={form.model}
-              onChange={(e) => set('model', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth id="sub-eq-model" type="text" maxLength={100} value={form.model} onChange={(e) => set('model', e.target.value)} />
           </div>
         </div>
 
@@ -281,14 +253,7 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
             <label htmlFor="sub-eq-serial" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Serial number
             </label>
-            <input
-              id="sub-eq-serial"
-              type="text"
-              maxLength={100}
-              value={form.serialNumber}
-              onChange={(e) => set('serialNumber', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-            />
+            <Input fullWidth id="sub-eq-serial" type="text" maxLength={100} value={form.serialNumber} onChange={(e) => set('serialNumber', e.target.value)} />
           </div>
           <div>
             <label htmlFor="sub-eq-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -313,41 +278,21 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
           <label htmlFor="sub-eq-install" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Installation date
           </label>
-          <input
-            id="sub-eq-install"
-            type="date"
-            value={form.installationDate}
-            onChange={(e) => set('installationDate', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-          />
+          <Input fullWidth id="sub-eq-install" type="date" value={form.installationDate} onChange={(e) => set('installationDate', e.target.value)} />
         </div>
 
         <div>
           <label htmlFor="sub-eq-desc" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
-          <textarea
-            id="sub-eq-desc"
-            rows={2}
-            maxLength={1000}
-            value={form.description}
-            onChange={(e) => set('description', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-          />
+          <Textarea fullWidth id="sub-eq-desc" rows={2} maxLength={1000} value={form.description} onChange={(e) => set('description', e.target.value)} />
         </div>
 
         <div>
           <label htmlFor="sub-eq-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
-          <textarea
-            id="sub-eq-notes"
-            rows={2}
-            maxLength={2000}
-            value={form.notes}
-            onChange={(e) => set('notes', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-          />
+          <Textarea fullWidth id="sub-eq-notes" rows={2} maxLength={2000} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </div>
 
         {errors.length > 0 && (

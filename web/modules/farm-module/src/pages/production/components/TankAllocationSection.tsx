@@ -4,7 +4,7 @@
  */
 import React, { useMemo } from 'react';
 import type { AvailableTank, InitialLocationInput } from '../../../hooks/useBatches';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 interface TankAllocation {
   id: string;
@@ -217,26 +217,14 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Biomass (kg)
                     </label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={calculateBiomass(allocation.quantity).toFixed(2)}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
-                    />
+                    <Input fullWidth type="text" readOnly value={calculateBiomass(allocation.quantity).toFixed(2)} />
                   </div>
 
                   {/* Remove Button */}
                   <div className="col-span-2 flex items-end justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAllocation(allocation.id)}
-                      className="p-2 text-gray-400 dark:text-gray-500 hover:text-red-600 transition-colors"
-                      title="Remove allocation"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <Button variant="ghost" type="button" onClick={() => handleRemoveAllocation(allocation.id)} title="Remove allocation"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                      </svg>
-                    </button>
+                      </svg></Button>
                   </div>
                 </div>
 
@@ -262,18 +250,12 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
       {/* Add Allocation Button */}
       {availableTanks.length > allocations.length && (
-        <button
-          type="button"
-          onClick={handleAddAllocation}
-          className="w-full py-2 px-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-        >
-          <span className="flex items-center justify-center">
+        <Button variant="secondary" type="button" onClick={handleAddAllocation}><span className="flex items-center justify-center">
             <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
             </svg>
             Add Tank Allocation
-          </span>
-        </button>
+          </span></Button>
       )}
 
       {/* No Tanks Available Message */}

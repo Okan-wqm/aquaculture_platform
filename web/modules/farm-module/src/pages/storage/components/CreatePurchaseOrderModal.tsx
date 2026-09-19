@@ -2,7 +2,7 @@
  * Create Purchase Order Modal
  */
 import React, { useState } from 'react';
-import { Modal, useToast, formatCurrency, DEFAULT_CURRENCY, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useToast, formatCurrency, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   useCreatePurchaseOrder,
   PurchaseOrderCategory,
@@ -174,16 +174,9 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       key: 'qty',
       header: 'Qty',
       render: (_value, item) => (
-        <input
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={item.quantity}
-          onChange={(e) =>
-            updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)
-          }
-          className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
-        />
+        <Input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(e) =>
+      updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)
+     } />
       ),
     },
     {
@@ -195,21 +188,13 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       key: 'price',
       header: 'Price',
       render: (_value, item) => (
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={item.unitPrice ?? ''}
-          onChange={(e) =>
-            updateItem(
-              item.itemId,
-              'unitPrice',
-              e.target.value ? parseFloat(e.target.value) : undefined,
-            )
-          }
-          placeholder="0.00"
-          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
-        />
+        <Input type="number" min="0" step="0.01" value={item.unitPrice ?? ''} onChange={(e) =>
+      updateItem(
+       item.itemId,
+       'unitPrice',
+       e.target.value ? parseFloat(e.target.value) : undefined,
+      )
+     } placeholder="0.00" />
       ),
     },
     {
@@ -228,12 +213,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       header: '',
       render: (_value, item) => (
         <>
-          <button
-            type="button"
-            onClick={() => removeItem(item.itemId)}
-            className="text-red-500 hover:text-red-700"
-          >
-            <svg
+          <Button variant="ghost" type="button" onClick={() => removeItem(item.itemId)}><svg
               className="w-4 h-4"
               fill="none"
               viewBox="0 0 24 24"
@@ -245,8 +225,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                 strokeWidth={2}
                 d="M6 18L18 6M6 6l12 12"
               />
-            </svg>
-          </button>
+            </svg></Button>
         </>
       ),
     }
@@ -284,22 +263,11 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
-              <input
-                type="text"
-                required
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              />
+              <Input fullWidth type="text" required value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact</label>
-              <input
-                type="text"
-                value={supplierContact}
-                onChange={(e) => setSupplierContact(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              />
+              <Input fullWidth type="text" value={supplierContact} onChange={(e) => setSupplierContact(e.target.value)} />
             </div>
           </div>
 
@@ -308,12 +276,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expected Delivery Date
             </label>
-            <input
-              type="date"
-              value={expectedDeliveryDate}
-              onChange={(e) => setExpectedDeliveryDate(e.target.value)}
-              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Input fullWidth type="date" value={expectedDeliveryDate} onChange={(e) => setExpectedDeliveryDate(e.target.value)} />
           </div>
 
           {/* Add Items */}
@@ -334,14 +297,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                     </option>
                   ))}
               </select>
-              <button
-                type="button"
-                onClick={addItem}
-                disabled={!selectedItemId}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Add
-              </button>
+              <Button variant="primary" type="button" onClick={addItem} disabled={!selectedItemId}>Add</Button>
             </div>
           </div>
 
@@ -368,30 +324,13 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           {/* Notes */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
-            />
+            <Textarea fullWidth rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!supplierName || items.length === 0 || createPO.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-          >
-            {createPO.isPending ? 'Creating...' : 'Create PO'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={!supplierName || items.length === 0 || createPO.isPending}>{createPO.isPending ? 'Creating...' : 'Create PO'}</Button>
         </div>
       </form>
     </Modal>

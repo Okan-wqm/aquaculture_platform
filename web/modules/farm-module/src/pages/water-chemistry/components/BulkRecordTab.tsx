@@ -41,8 +41,7 @@ import {
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 import {
   formatErrorForToast,
-  useToast,
-} from '@aquaculture/shared-ui';
+  useToast, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import { useEquipmentList } from '../../../hooks/useEquipment';
 import { useSystemList } from '../../../hooks/useSystems';
@@ -158,14 +157,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
             {equipment.department?.name && ` · ${equipment.department.name}`}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="text-red-600 hover:text-red-800 text-sm"
-          aria-label={`${equipment.name} ekipmanını gruptan çıkar`}
-        >
-          Çıkar
-        </button>
+        <Button variant="ghost" type="button" onClick={onRemove} aria-label={`${equipment.name} ekipmanını gruptan çıkar`}>Çıkar</Button>
       </div>
 
       {configsQuery.isLoading ? (
@@ -196,14 +188,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
         >
           Notlar
         </label>
-        <textarea
-          id={`bulk-notes-${row.idempotencyKey}`}
-          value={row.notes}
-          onChange={handleNotesChange}
-          maxLength={NOTES_MAX}
-          rows={2}
-          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-        />
+        <Textarea fullWidth id={`bulk-notes-${row.idempotencyKey}`} value={row.notes} onChange={handleNotesChange} maxLength={NOTES_MAX} rows={2} />
         <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           {row.notes.length} / {NOTES_MAX}
         </p>
@@ -223,7 +208,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
 // ============================================================================
 
 function toLocalDateTimeInputValue(d: Date): string {
-  // <input type="datetime-local"> uses YYYY-MM-DDTHH:mm in *local* time.
+  // <Input type="datetime-local" /> uses YYYY-MM-DDTHH:mm in *local* time.
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -416,28 +401,13 @@ export const BulkRecordTab: React.FC = () => {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Ölçüm Tarihi/Saati
           </label>
-          <input
-            type="datetime-local"
-            value={measuredAtLocal}
-            onChange={(e) => setMeasuredAtLocal(e.target.value)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
-          />
+          <Input fullWidth type="datetime-local" value={measuredAtLocal} onChange={(e) => setMeasuredAtLocal(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Kaynak
           </label>
-          <select
-            value={source}
-            onChange={(e) => setSource(e.target.value as MeasurementSource)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
-          >
-            <option value="MANUAL">Manuel</option>
-            <option value="LAB_ANALYSIS">Laboratuvar</option>
-            <option value="SENSOR_AUTOMATIC">Sensör (otomatik)</option>
-            <option value="SENSOR_TRIGGERED">Sensör (tetikli)</option>
-            <option value="CALIBRATION">Kalibrasyon</option>
-          </select>
+          <Select fullWidth options={[{ value: 'MANUAL', label: 'Manuel' }, { value: 'LAB_ANALYSIS', label: 'Laboratuvar' }, { value: 'SENSOR_AUTOMATIC', label: 'Sensör (otomatik)' }, { value: 'SENSOR_TRIGGERED', label: 'Sensör (tetikli)' }, { value: 'CALIBRATION', label: 'Kalibrasyon' }]} value={source} onChange={(e) => setSource(e.target.value as MeasurementSource)} />
         </div>
       </section>
 
@@ -474,14 +444,7 @@ export const BulkRecordTab: React.FC = () => {
           >
             Görünür hepsini ekle
           </button>
-          <button
-            type="button"
-            onClick={handleClear}
-            disabled={rows.length === 0}
-            className="px-3 py-2 text-sm text-red-700 hover:bg-red-50 border border-red-200 rounded-md disabled:opacity-50"
-          >
-            Temizle
-          </button>
+          <Button variant="secondary" size="sm" type="button" onClick={handleClear} disabled={rows.length === 0}>Temizle</Button>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {rows.length} / {MAX_BATCH_SIZE} ekipman seçildi · Tüm satırlar tek transaction'da yazılır.
@@ -499,13 +462,7 @@ export const BulkRecordTab: React.FC = () => {
                 className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-sm text-amber-800"
               >
                 Ekipman bulunamadı: {row.equipmentId} —{' '}
-                <button
-                  type="button"
-                  onClick={() => handleRowRemove(row.equipmentId)}
-                  className="underline hover:no-underline"
-                >
-                  satırı çıkar
-                </button>
+                <Button variant="ghost" type="button" onClick={() => handleRowRemove(row.equipmentId)}>satırı çıkar</Button>
               </div>
             );
           }
@@ -523,16 +480,9 @@ export const BulkRecordTab: React.FC = () => {
 
       {/* Submit */}
       <section className="flex justify-end gap-3 pb-8">
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={rows.length === 0 || isSubmitting}
-          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-md text-sm font-medium"
-        >
-          {isSubmitting
+        <Button variant="primary" size="lg" type="button" onClick={handleSubmit} disabled={rows.length === 0 || isSubmitting}>{isSubmitting
             ? `Kaydediliyor… (${rows.length})`
-            : `${rows.length} Ölçümü Tek Transaction'da Gönder`}
-        </button>
+            : `${rows.length} Ölçümü Tek Transaction'da Gönder`}</Button>
       </section>
     </div>
   );

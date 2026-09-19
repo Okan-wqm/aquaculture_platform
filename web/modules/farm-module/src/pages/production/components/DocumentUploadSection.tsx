@@ -3,7 +3,7 @@
  * Handles file uploads for batch documents (health certificates, import documents)
  */
 import React, { useRef, useState, useCallback } from 'react';
-import { useToast, Spinner } from '@aquaculture/shared-ui';
+import { useToast, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { validateDocumentFile, formatFileSize } from '../../../hooks/useFileUpload';
 import type { BatchDocumentInput, BatchDocumentType } from '../../../hooks/useBatches';
 import type { UploadedDocument } from '../../../hooks/useFileUpload';
@@ -275,24 +275,11 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                   </svg>
                 )}
                 {doc.uploadError && (
-                  <button
-                    type="button"
-                    onClick={() => handleRetryUpload(doc)}
-                    className="text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    Retry
-                  </button>
+                  <Button variant="ghost" size="xs" type="button" onClick={() => handleRetryUpload(doc)}>Retry</Button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveDocument(doc.id)}
-                  className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600"
-                  title="Remove document"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" size="sm" type="button" onClick={() => handleRemoveDocument(doc.id)} title="Remove document"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
             </div>
           ))}
@@ -307,25 +294,13 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Name <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={newDocName}
-                onChange={(e) => setNewDocName(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="e.g., Health Certificate 2024"
-              />
+              <Input fullWidth type="text" value={newDocName} onChange={(e) => setNewDocName(e.target.value)} placeholder="e.g., Health Certificate 2024" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Number
               </label>
-              <input
-                type="text"
-                value={newDocNumber}
-                onChange={(e) => setNewDocNumber(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="e.g., HC-2024-001"
-              />
+              <Input fullWidth type="text" value={newDocNumber} onChange={(e) => setNewDocNumber(e.target.value)} placeholder="e.g., HC-2024-001" />
             </div>
           </div>
 
@@ -351,46 +326,28 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
             </svg>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="font-medium text-blue-600 hover:text-blue-500"
-              >
-                Choose file
-              </button>
+              <Button variant="ghost" type="button" onClick={() => fileInputRef.current?.click()}>Choose file</Button>
               {' '}or drag and drop
             </p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">PDF, DOC, PNG, JPG up to 15MB</p>
           </div>
 
           <div className="flex justify-end space-x-2">
-            <button
-              type="button"
-              onClick={() => {
+            <Button variant="ghost" size="sm" type="button" onClick={() => {
                 setShowAddForm(false);
                 setNewDocName('');
                 setNewDocNumber('');
-              }}
-              className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100"
-            >
-              Cancel
-            </button>
+              }}>Cancel</Button>
           </div>
         </div>
       ) : (
         documents.length < maxDocuments && (
-          <button
-            type="button"
-            onClick={() => setShowAddForm(true)}
-            className="w-full py-2 px-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-          >
-            <span className="flex items-center justify-center">
+          <Button variant="secondary" type="button" onClick={() => setShowAddForm(true)}><span className="flex items-center justify-center">
               <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
               </svg>
               Add Document
-            </span>
-          </button>
+            </span></Button>
         )
       )}
     </div>

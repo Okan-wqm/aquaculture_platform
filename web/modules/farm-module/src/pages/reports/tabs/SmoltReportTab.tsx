@@ -5,6 +5,7 @@
  * Aligned with Norwegian Mattilsynet "settefisk" requirements
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import { Button, Input, Select } from '@aquaculture/shared-ui';
 import { useRegulatorySettings, useSubmitSmoltReport } from '../../../hooks/useRegulatory';
 import type { SubmitSmoltReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
 import {
@@ -197,21 +198,11 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
     <div className="grid grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
-        <input
-          type="text"
-          value={siteName}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <input
-          type="text"
-          value={getMonthLabel(formData.month, formData.year)}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={getMonthLabel(formData.month, formData.year)} disabled />
       </div>
     </div>
     <div>
@@ -366,13 +357,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
               Load from System
             </button>
           )}
-          <button
-            type="button"
-            onClick={addUnit}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Unit
-          </button>
+          <Button variant="secondary" size="sm" type="button" onClick={addUnit}>+ Add Unit</Button>
         </div>
       </div>
 
@@ -419,20 +404,14 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
               <div key={unit.unitId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                 <div className="flex items-start justify-between mb-3">
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Unit #{index + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeUnit(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <Button variant="ghost" type="button" onClick={() => removeUnit(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M6 18L18 6M6 6l12 12"
                       />
-                    </svg>
-                  </button>
+                    </svg></Button>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                   <div>
@@ -474,39 +453,19 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                         ))}
                       </select>
                     ) : (
-                      <input
-                        type="text"
-                        value={unit.unitName}
-                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                        placeholder="Tank A1"
-                      />
+                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Tank A1" />
                     )}
                     {!isFromSystem && tanks.length > 0 && (
-                      <input
-                        type="text"
-                        value={unit.unitName}
-                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md mt-1"
-                        placeholder="Enter unit name"
-                      />
+                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Enter unit name" />
                     )}
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
-                    <select
-                      value={unit.unitType}
-                      onChange={(e) =>
-                        updateUnit(index, {
-                          unitType: e.target.value as 'tank' | 'raceway' | 'pond',
-                        })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="tank">Tank</option>
-                      <option value="raceway">Raceway</option>
-                      <option value="pond">Pond</option>
-                    </select>
+                    <Select fullWidth options={[{ value: 'tank', label: 'Tank' }, { value: 'raceway', label: 'Raceway' }, { value: 'pond', label: 'Pond' }]} value={unit.unitType} onChange={(e) =>
+            updateUnit(index, {
+             unitType: e.target.value as 'tank' | 'raceway' | 'pond',
+            })
+           } />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -528,44 +487,21 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stage</label>
-                    <select
-                      value={unit.stage}
-                      onChange={(e) =>
-                        updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    >
-                      <option value="fry">Fry</option>
-                      <option value="parr">Parr</option>
-                      <option value="smolt">Smolt</option>
-                    </select>
+                    <Select fullWidth options={[{ value: 'fry', label: 'Fry' }, { value: 'parr', label: 'Parr' }, { value: 'smolt', label: 'Smolt' }]} value={unit.stage} onChange={(e) =>
+            updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
+           } />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Count</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={unit.quantity || ''}
-                      onChange={(e) =>
-                        updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="0"
-                    />
+                    <Input fullWidth type="number" min="0" value={unit.quantity || ''} onChange={(e) =>
+            updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
+           } placeholder="0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={unit.avgWeightG || ''}
-                      onChange={(e) =>
-                        updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="0"
-                    />
+                    <Input fullWidth type="number" min="0" step="0.1" value={unit.avgWeightG || ''} onChange={(e) =>
+            updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+           } placeholder="0" />
                   </div>
                 </div>
               </div>
@@ -721,31 +657,17 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Euthanized (avlivet)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ext.euthanized || ''}
-                      onChange={(e) =>
-                        updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="0"
-                    />
+                    <Input fullWidth type="number" min="0" value={ext.euthanized || ''} onChange={(e) =>
+            updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
+           } placeholder="0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Natural Deaths (selvdod)
                     </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ext.naturalDeaths || ''}
-                      onChange={(e) =>
-                        updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="0"
-                    />
+                    <Input fullWidth type="number" min="0" value={ext.naturalDeaths || ''} onChange={(e) =>
+            updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
+           } placeholder="0" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Total Dead</label>
@@ -755,16 +677,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">External Transfers</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ext.externalTransfers || ''}
-                      onChange={(e) =>
-                        updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                      placeholder="0"
-                    />
+                    <Input fullWidth type="number" min="0" value={ext.externalTransfers || ''} onChange={(e) =>
+            updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
+           } placeholder="0" />
                   </div>
                 </div>
               </div>
@@ -1103,11 +1018,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
             onChange={setSelectedSiteId}
             show={showSelector}
           />
-          <button
-            onClick={() => handleOpenWizard()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -1115,8 +1026,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
                 d="M12 4v16m8-8H4"
               />
             </svg>
-            New Report
-          </button>
+            New Report</Button>
         </div>
       </div>
 

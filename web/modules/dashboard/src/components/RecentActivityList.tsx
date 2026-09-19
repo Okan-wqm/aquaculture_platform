@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Card, Badge, formatRelativeTime } from '@aquaculture/shared-ui';
+import { Card, Badge, formatRelativeTime, Button } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { SensorIcon, BellIcon, TaskIcon, SettingsIcon, UserIcon } from './icons';
 import { useRecentActivity } from '../hooks/useDashboardData';
@@ -60,13 +60,7 @@ const RecentActivityList: React.FC = () => {
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Son Aktiviteler</h3>
         {/* BUG-M3: accessible button instead of non-interactive <span> */}
-        <button
-          type="button"
-          className="text-sm text-primary-600 font-medium hover:underline"
-          onClick={() => { /* TODO: navigate to /activities */ }}
-        >
-          Tumunu Gor
-        </button>
+        <Button variant="ghost" type="button" onClick={() => { /* TODO: navigate to /activities */ }}>Tumunu Gor</Button>
       </div>
 
       {/* Loading State */}
@@ -82,13 +76,7 @@ const RecentActivityList: React.FC = () => {
       {isError && (
         <div className="p-8 text-center">
           <p className="text-sm text-red-500 mb-2">Aktiviteler yuklenemedi</p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="text-xs text-primary-600 font-medium hover:underline"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="ghost" size="xs" type="button" onClick={() => refetch()}>Tekrar Dene</Button>
         </div>
       )}
 

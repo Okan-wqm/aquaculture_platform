@@ -18,7 +18,7 @@
  *    variance details for compliance record-keeping.
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Modal, useToast, useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useToast, useAuth, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import {
   useInventoryCount,
   useUpdateInventoryCountItems,
@@ -287,15 +287,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
       render: (_value, item) => (
         <>
           {isCountingMode ? (
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={item.actualQuantity ?? ''}
-              onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
-              placeholder="0"
-              className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm text-right focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Input type="number" min="0" step="0.01" value={item.actualQuantity ?? ''} onChange={(e) => handleQuantityChange(item.itemId, e.target.value)} placeholder="0" />
           ) : (
             <span className="text-sm text-gray-900 dark:text-gray-100">
               {item.actualQuantity != null
@@ -335,13 +327,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
       key: 'notes',
       header: 'Notes',
       render: (_value, item) => (
-        <input
-          type="text"
-          value={item.notes}
-          onChange={(e) => handleNotesChange(item.itemId, e.target.value)}
-          placeholder="Notes..."
-          className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-        />
+        <Input fullWidth type="text" value={item.notes} onChange={(e) => handleNotesChange(item.itemId, e.target.value)} placeholder="Notes..." />
       ),
     }
   ];
@@ -510,13 +496,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           )}
         </div>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            {isViewMode ? 'Close' : 'Cancel'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>{isViewMode ? 'Close' : 'Cancel'}</Button>
 
           {/* Counting mode: Save Progress + Submit */}
           {isCountingMode && (
@@ -529,27 +509,13 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
               >
                 {updateItems.isPending ? 'Saving...' : 'Save Progress'}
               </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isBusy || uncountedItems > 0}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitCount.isPending ? 'Submitting...' : 'Submit Count'}
-              </button>
+              <Button variant="primary" type="button" onClick={handleSubmit} disabled={isBusy || uncountedItems > 0}>{submitCount.isPending ? 'Submitting...' : 'Submit Count'}</Button>
             </>
           )}
 
           {/* Review mode: Approve button (only if different user) */}
           {canApprove && (
-            <button
-              type="button"
-              onClick={handleApprove}
-              disabled={isBusy}
-              className="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {approveCount.isPending ? 'Approving...' : 'Approve Count'}
-            </button>
+            <Button variant="primary" type="button" onClick={handleApprove} disabled={isBusy}>{approveCount.isPending ? 'Approving...' : 'Approve Count'}</Button>
           )}
         </div>
       </div>

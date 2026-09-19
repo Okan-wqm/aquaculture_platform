@@ -4,7 +4,7 @@
  * Includes full lifecycle workflow: submit, approve, start, verify, cancel, hold, resume.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader, Textarea } from '@aquaculture/shared-ui';
 import {
   useWorkOrders,
   useCreateWorkOrder,
@@ -620,24 +620,14 @@ export const WorkOrdersPage: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <button
-            onClick={(e) => {
+          <Button variant="ghost" className="mr-4" onClick={(e) => {
               e.stopPropagation();
               handleOpenEdit(item);
-            }}
-            className="text-indigo-600 hover:text-indigo-900 mr-4"
-          >
-            Düzenle
-          </button>
-          <button
-            onClick={(e) => {
+            }}>Düzenle</Button>
+          <Button variant="ghost" onClick={(e) => {
               e.stopPropagation();
               handleDelete(item.id);
-            }}
-            className="text-red-600 hover:text-red-900"
-          >
-            Sil
-          </button>
+            }}>Sil</Button>
         </>
       ),
     }
@@ -764,14 +754,9 @@ export const WorkOrdersPage: React.FC = () => {
                   </h2>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedWorkOrder.title}</p>
                 </div>
-                <button
-                  onClick={() => setSelectedWorkOrder(null)}
-                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <Button variant="ghost" onClick={() => setSelectedWorkOrder(null)}><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                  </svg></Button>
               </div>
 
               {/* Status & Priority */}
@@ -1048,17 +1033,11 @@ export const WorkOrdersPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Sebep {confirmAction.actionDef.action === 'cancel' ? '(opsiyonel)' : '(opsiyonel)'}
               </label>
-              <textarea
-                value={actionReason}
-                onChange={(e) => setActionReason(e.target.value)}
-                rows={3}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder={
-                  confirmAction.actionDef.action === 'cancel'
-                    ? 'İptal sebebini belirtin...'
-                    : 'Beklemeye alma sebebini belirtin...'
-                }
-              />
+              <Textarea fullWidth value={actionReason} onChange={(e) => setActionReason(e.target.value)} rows={3} placeholder={
+         confirmAction.actionDef.action === 'cancel'
+          ? 'İptal sebebini belirtin...'
+          : 'Beklemeye alma sebebini belirtin...'
+        } />
             </div>
           )}
 
@@ -1068,13 +1047,7 @@ export const WorkOrdersPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Not (opsiyonel)
               </label>
-              <textarea
-                value={actionNotes}
-                onChange={(e) => setActionNotes(e.target.value)}
-                rows={2}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ek not ekleyin..."
-              />
+              <Textarea fullWidth value={actionNotes} onChange={(e) => setActionNotes(e.target.value)} rows={2} placeholder="Ek not ekleyin..." />
             </div>
           )}
 

@@ -5,7 +5,7 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, Button, Input, Select } from '@aquaculture/shared-ui';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import {
   useBiomassReport,
@@ -317,21 +317,11 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
     <div className="grid grid-cols-2 gap-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
-        <input
-          type="text"
-          value={siteName}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <input
-          type="text"
-          value={getMonthLabel(formData.month, formData.year)}
-          disabled
-          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
-        />
+        <Input fullWidth type="text" value={getMonthLabel(formData.month, formData.year)} disabled />
       </div>
     </div>
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -517,13 +507,7 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
             </button>
           )}
           {!biomassFromRecords && (
-            <button
-              type="button"
-              onClick={addSpecies}
-              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-            >
-              + Add Species
-            </button>
+            <Button variant="secondary" size="sm" type="button" onClick={addSpecies}>+ Add Species</Button>
           )}
         </div>
       </div>
@@ -590,20 +574,14 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Species #{index + 1}</span>
                 {!biomassFromRecords && (
-                  <button
-                    type="button"
-                    onClick={() => removeSpecies(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <Button variant="ghost" type="button" onClick={() => removeSpecies(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M6 18L18 6M6 6l12 12"
                       />
-                    </svg>
-                  </button>
+                    </svg></Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -654,12 +632,7 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                  <input
-                    type="text"
-                    value={species.avgWeightG.toFixed(0)}
-                    disabled
-                    className="w-full px-2 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-400"
-                  />
+                  <Input fullWidth type="text" value={species.avgWeightG.toFixed(0)} disabled />
                 </div>
               </div>
             </div>
@@ -720,13 +693,7 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
           </p>
         </div>
         {!stockingsFromRecords && (
-          <button
-            type="button"
-            onClick={addStockingRecord}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Stocking Record
-          </button>
+          <Button variant="secondary" size="sm" type="button" onClick={addStockingRecord}>+ Add Stocking Record</Button>
         )}
       </div>
 
@@ -770,88 +737,44 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
               <div className="flex items-start justify-between mb-3">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Stocking #{index + 1}</span>
                 {!stockingsFromRecords && (
-                  <button
-                    type="button"
-                    onClick={() => removeStockingRecord(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <Button variant="ghost" type="button" onClick={() => removeStockingRecord(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M6 18L18 6M6 6l12 12"
                       />
-                    </svg>
-                  </button>
+                    </svg></Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={record.date}
-                    onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  />
+                  <Input fullWidth type="date" value={record.date} onChange={(e) => updateStockingRecord(index, { date: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <input
-                    type="text"
-                    value={record.speciesName}
-                    onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., Atlantic Salmon"
-                  />
+                  <Input fullWidth type="text" value={record.speciesName} onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })} placeholder="e.g., Atlantic Salmon" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={record.quantity || ''}
-                    onChange={(e) =>
-                      updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" value={record.quantity || ''} onChange={(e) =>
+           updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={record.avgWeightG || ''}
-                    onChange={(e) =>
-                      updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" step="0.1" value={record.avgWeightG || ''} onChange={(e) =>
+           updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Supplier</label>
-                  <input
-                    type="text"
-                    value={record.supplier}
-                    onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., SalmoBreed"
-                  />
+                  <Input fullWidth type="text" value={record.supplier} onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })} placeholder="e.g., SalmoBreed" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
-                  <input
-                    type="text"
-                    value={record.batchNumber}
-                    onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., B-2024-001"
-                  />
+                  <Input fullWidth type="text" value={record.batchNumber} onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })} placeholder="e.g., B-2024-001" />
                 </div>
               </div>
             </div>
@@ -1100,13 +1023,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
             </button>
           )}
           {!feedFromRecords && (
-            <button
-              type="button"
-              onClick={addFeedType}
-              className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-            >
-              + Add Feed Type
-            </button>
+            <Button variant="secondary" size="sm" type="button" onClick={addFeedType}>+ Add Feed Type</Button>
           )}
         </div>
       </div>
@@ -1170,20 +1087,14 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
               <div className="flex items-start justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Feed #{index + 1}</span>
                 {!feedFromRecords && (
-                  <button
-                    type="button"
-                    onClick={() => removeFeedType(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <Button variant="ghost" type="button" onClick={() => removeFeedType(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M6 18L18 6M6 6l12 12"
                       />
-                    </svg>
-                  </button>
+                    </svg></Button>
                 )}
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -1293,13 +1204,7 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
           </p>
         </div>
         {!transfersFromRecords && (
-          <button
-            type="button"
-            onClick={addTransfer}
-            className="px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            + Add Transfer
-          </button>
+          <Button variant="secondary" size="sm" type="button" onClick={addTransfer}>+ Add Transfer</Button>
         )}
       </div>
 
@@ -1360,114 +1265,58 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                   </span>
                 </div>
                 {!transfersFromRecords && (
-                  <button
-                    type="button"
-                    onClick={() => removeTransfer(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <Button variant="ghost" type="button" onClick={() => removeTransfer(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
                         d="M6 18L18 6M6 6l12 12"
                       />
-                    </svg>
-                  </button>
+                    </svg></Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-                  <select
-                    value={transfer.direction}
-                    onChange={(e) =>
-                      updateTransfer(index, {
-                        direction: e.target.value as 'incoming' | 'outgoing',
-                      })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  >
-                    <option value="incoming">Incoming</option>
-                    <option value="outgoing">Outgoing</option>
-                  </select>
+                  <Select fullWidth options={[{ value: 'incoming', label: 'Incoming' }, { value: 'outgoing', label: 'Outgoing' }]} value={transfer.direction} onChange={(e) =>
+           updateTransfer(index, {
+            direction: e.target.value as 'incoming' | 'outgoing',
+           })
+          } />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={transfer.date}
-                    onChange={(e) => updateTransfer(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                  />
+                  <Input fullWidth type="date" value={transfer.date} onChange={(e) => updateTransfer(index, { date: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <input
-                    type="text"
-                    value={transfer.speciesName}
-                    onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., Atlantic Salmon"
-                  />
+                  <Input fullWidth type="text" value={transfer.speciesName} onChange={(e) => updateTransfer(index, { speciesName: e.target.value })} placeholder="e.g., Atlantic Salmon" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={transfer.quantity || ''}
-                    onChange={(e) =>
-                      updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" value={transfer.quantity || ''} onChange={(e) =>
+           updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Biomass (kg)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={transfer.biomassKg || ''}
-                    onChange={(e) =>
-                      updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="0"
-                  />
+                  <Input fullWidth type="number" min="0" value={transfer.biomassKg || ''} onChange={(e) =>
+           updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
+          } placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     {transfer.direction === 'incoming' ? 'From Site' : 'To Site'}
                   </label>
-                  <input
-                    type="text"
-                    value={transfer.fromToSite}
-                    onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="Site name"
-                  />
+                  <Input fullWidth type="text" value={transfer.fromToSite} onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })} placeholder="Site name" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
-                  <input
-                    type="text"
-                    value={transfer.batchNumber}
-                    onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., B-2024-001"
-                  />
+                  <Input fullWidth type="text" value={transfer.batchNumber} onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })} placeholder="e.g., B-2024-001" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Reason</label>
-                  <input
-                    type="text"
-                    value={transfer.reason}
-                    onChange={(e) => updateTransfer(index, { reason: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
-                    placeholder="e.g., Production move"
-                  />
+                  <Input fullWidth type="text" value={transfer.reason} onChange={(e) => updateTransfer(index, { reason: e.target.value })} placeholder="e.g., Production move" />
                 </div>
               </div>
             </div>
@@ -2023,19 +1872,13 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
               ))}
             </select>
           )}
-          <button
-            onClick={() => handleOpenWizard()}
-            disabled={!periodEditable}
-            title={
+          <Button variant="primary" onClick={() => handleOpenWizard()} disabled={!periodEditable} title={
               periodTerminal
                 ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is already submitted and immutable`
                 : !periodEditable
                   ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is ready for Altinn — reopen it to draft to edit`
                   : undefined
-            }
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            }><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -2043,8 +1886,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
                 d="M12 4v16m8-8H4"
               />
             </svg>
-            {periodDraftExists ? 'Continue Draft' : 'New Report'}
-          </button>
+            {periodDraftExists ? 'Continue Draft' : 'New Report'}</Button>
         </div>
       </div>
 
@@ -2090,12 +1932,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       ) : biomassReports.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No reports found</p>
-          <button
-            onClick={() => handleOpenWizard()}
-            className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
-          >
-            Create First Report
-          </button>
+          <Button variant="secondary" className="mt-4" onClick={() => handleOpenWizard()}>Create First Report</Button>
         </div>
       ) : (
         <ul className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">

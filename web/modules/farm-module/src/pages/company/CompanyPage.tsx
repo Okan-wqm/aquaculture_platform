@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner, PageHeader, Button, Input } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -173,23 +173,11 @@ export const CompanyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name</label>
-                <input
-                  type="text"
-                  value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="Your Company AS"
-                />
+                <Input fullWidth type="text" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} placeholder="Your Company AS" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Organisation Number</label>
-                <input
-                  type="text"
-                  value={formData.organisationNumber}
-                  onChange={(e) => setFormData({ ...formData, organisationNumber: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="123456789"
-                />
+                <Input fullWidth type="text" value={formData.organisationNumber} onChange={(e) => setFormData({ ...formData, organisationNumber: e.target.value })} placeholder="123456789" />
               </div>
             </div>
           </div>
@@ -200,57 +188,26 @@ export const CompanyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Street Address</label>
-                <input
-                  type="text"
-                  value={formData.street}
-                  onChange={(e) => setFormData({ ...formData, street: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="Storgata 1"
-                />
+                <Input fullWidth type="text" value={formData.street} onChange={(e) => setFormData({ ...formData, street: e.target.value })} placeholder="Storgata 1" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Postal Code</label>
-                <input
-                  type="text"
-                  value={formData.postalCode}
-                  onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="0123"
-                />
+                <Input fullWidth type="text" value={formData.postalCode} onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })} placeholder="0123" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
-                <input
-                  type="text"
-                  value={formData.city}
-                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="Oslo"
-                />
+                <Input fullWidth type="text" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="Oslo" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Country</label>
-                <input
-                  type="text"
-                  value={formData.country}
-                  onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                  placeholder="Norway"
-                />
+                <Input fullWidth type="text" value={formData.country} onChange={(e) => setFormData({ ...formData, country: e.target.value })} placeholder="Norway" />
               </div>
             </div>
           </div>
 
           {/* Save Button */}
           <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={updateSettingsMutation.isPending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {updateSettingsMutation.isPending ? 'Saving...' : 'Save Company Information'}
-            </button>
+            <Button variant="primary" type="button" onClick={handleSave} disabled={updateSettingsMutation.isPending}>{updateSettingsMutation.isPending ? 'Saving...' : 'Save Company Information'}</Button>
           </div>
         </div>
       </div>

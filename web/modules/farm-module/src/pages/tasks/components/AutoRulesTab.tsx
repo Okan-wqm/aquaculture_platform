@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   AutoRule,
   CATEGORY_CONFIG,
@@ -21,9 +22,7 @@ export const AutoRulesTab: React.FC<AutoRulesTabProps> = ({ rules, onToggleActiv
             Koşul bazlı otomatik görev oluşturma kuralları. Koşul sağlandığında ilgili görev otomatik oluşturulur.
           </p>
         </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium whitespace-nowrap">
-          + Yeni Kural
-        </button>
+        <Button variant="primary">+ Yeni Kural</Button>
       </div>
 
       {/* Rules List */}

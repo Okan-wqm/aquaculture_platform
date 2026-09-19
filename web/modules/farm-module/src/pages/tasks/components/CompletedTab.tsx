@@ -4,7 +4,7 @@ import {
   CATEGORY_CONFIG,
 } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
 
 interface CompletedTabProps {
   tasks: Task[];
@@ -61,12 +61,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       header: 'Görev',
       render: (_value, task) => (
         <>
-          <button
-            onClick={() => setSelectedTask(task)}
-            className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 text-left"
-          >
-            {task.title}
-          </button>
+          <Button variant="ghost" onClick={() => setSelectedTask(task)}>{task.title}</Button>
           {task.location && <p className="text-xs text-gray-500 dark:text-gray-400">{task.location}</p>}
         </>
       ),
@@ -121,26 +116,11 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       {/* Date Filter */}
       <div className="flex items-center gap-3">
         <label className="text-sm text-gray-600 dark:text-gray-400">Tarih Aralığı:</label>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-        />
+        <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         <span className="text-gray-400 dark:text-gray-500">-</span>
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-        />
+        <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         {(dateFrom || dateTo) && (
-          <button
-            onClick={() => { setDateFrom(''); setDateTo(''); }}
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            Temizle
-          </button>
+          <Button variant="ghost" onClick={() => { setDateFrom(''); setDateTo(''); }}>Temizle</Button>
         )}
       </div>
 

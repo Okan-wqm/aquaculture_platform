@@ -14,7 +14,7 @@ import {
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
 import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
-import { FormField, Modal, useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, useConfirm, useToast, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -125,15 +125,7 @@ const StarRating: React.FC<{
   return (
     <div className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((star) => (
-        <button
-          key={star}
-          type="button"
-          onClick={() => onChange(star)}
-          onMouseEnter={() => setHover(star)}
-          onMouseLeave={() => setHover(0)}
-          className="focus:outline-hidden"
-        >
-          <svg
+        <Button variant="ghost" key={star} type="button" onClick={() => onChange(star)} onMouseEnter={() => setHover(star)} onMouseLeave={() => setHover(0)}><svg
             className={`w-6 h-6 ${
               (hover || value || 0) >= star ? 'text-yellow-400' : 'text-gray-300'
             }`}
@@ -141,17 +133,10 @@ const StarRating: React.FC<{
             viewBox="0 0 20 20"
           >
             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-          </svg>
-        </button>
+          </svg></Button>
       ))}
       {value !== '' && (
-        <button
-          type="button"
-          onClick={() => onChange(0)}
-          className="ml-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
-        >
-          Clear
-        </button>
+        <Button variant="ghost" size="xs" className="ml-2" type="button" onClick={() => onChange(0)}>Clear</Button>
       )}
     </div>
   );
@@ -384,11 +369,7 @@ export const SuppliersTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openAddModal}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -396,8 +377,7 @@ export const SuppliersTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Supplier
-        </button>
+          Add Supplier</Button>
       </div>
 
       {/* Loading State */}
@@ -411,9 +391,7 @@ export const SuppliersTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load suppliers. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -618,18 +596,8 @@ export const SuppliersTab: React.FC = () => {
                   {supplier.paymentTerms ? `Payment: ${supplier.paymentTerms}` : ''}
                 </span>
                 <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEdit(supplier)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(supplier.id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Delete
-                  </button>
+                  <Button variant="ghost" onClick={() => handleEdit(supplier)}>Edit</Button>
+                  <Button variant="ghost" onClick={() => handleDelete(supplier.id)}>Delete</Button>
                 </div>
               </div>
             </div>
@@ -677,23 +645,12 @@ export const SuppliersTab: React.FC = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                  <input
-                    type="text"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
                   </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code</label>
-                  <input
-                    type="text"
-                    value={formData.code}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
@@ -745,44 +702,23 @@ export const SuppliersTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
-                  <input
-                    type="text"
-                    value={formData.contactPerson}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.contactPerson} onChange={(e) =>
+           setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
+          } />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="email" value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-                  <input
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="tel" value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Website</label>
-                  <input
-                    type="url"
-                    value={formData.website}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
-                    placeholder="https://..."
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="url" value={formData.website} onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))} placeholder="https://..." />
                 </div>
               </div>
             </CollapsibleSection>
@@ -795,32 +731,16 @@ export const SuppliersTab: React.FC = () => {
             >
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Street Address</label>
-                <input
-                  type="text"
-                  value={formData.street}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))}
-                  placeholder="Street, Building, No."
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Input fullWidth type="text" value={formData.street} onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))} placeholder="Street, Building, No." />
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">City</label>
-                  <input
-                    type="text"
-                    value={formData.city}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.city} onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Country</label>
-                  <input
-                    type="text"
-                    value={formData.country}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input fullWidth type="text" value={formData.country} onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))} />
                 </div>
               </div>
             </CollapsibleSection>
@@ -841,12 +761,7 @@ export const SuppliersTab: React.FC = () => {
                         className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-md"
                       >
                         <span className="flex-1 text-sm">{product}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProduct(index)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <svg
+                        <Button variant="ghost" type="button" onClick={() => handleRemoveProduct(index)}><svg
                             className="w-4 h-4"
                             fill="none"
                             viewBox="0 0 24 24"
@@ -858,8 +773,7 @@ export const SuppliersTab: React.FC = () => {
                               strokeWidth={2}
                               d="M6 18L18 6M6 6l12 12"
                             />
-                          </svg>
-                        </button>
+                          </svg></Button>
                       </div>
                     ))}
                   </div>
@@ -867,19 +781,12 @@ export const SuppliersTab: React.FC = () => {
 
                 {/* Add Product Input */}
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newProduct}
-                    onChange={(e) => setNewProduct(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddProduct();
-                      }
-                    }}
-                    placeholder="Enter product name..."
-                    className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <Input type="text" value={newProduct} onChange={(e) => setNewProduct(e.target.value)} onKeyPress={(e) => {
+           if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddProduct();
+           }
+          }} placeholder="Enter product name..." />
                   <button
                     type="button"
                     onClick={handleAddProduct}
@@ -918,13 +825,7 @@ export const SuppliersTab: React.FC = () => {
             >
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                  rows={4}
-                  placeholder="Additional notes about the supplier..."
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                />
+                <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={4} placeholder="Additional notes about the supplier..." />
               </div>
             </CollapsibleSection>
 
@@ -948,23 +849,11 @@ export const SuppliersTab: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              disabled={createSupplier.isPending || updateSupplier.isPending}
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
-            >
-              {(createSupplier.isPending || updateSupplier.isPending) && (
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={createSupplier.isPending || updateSupplier.isPending}>{(createSupplier.isPending || updateSupplier.isPending) && (
                 <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
-              {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+              {editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

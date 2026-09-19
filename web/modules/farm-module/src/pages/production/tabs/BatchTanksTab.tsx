@@ -11,7 +11,7 @@
  * the detailed allocation list lands as part of PR-2/PR-3.
  */
 import React, { useState } from 'react';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { useCanMutate, Button } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import AllocateBatchToTankModal from '../components/AllocateBatchToTankModal';
@@ -60,21 +60,13 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
           </p>
         </div>
         {canAllocate && (
-          <button
-            type="button"
-            onClick={() => setShowAllocateModal(true)}
-            disabled={buttonDisabled}
-            title={
+          <Button variant="primary" size="sm" type="button" onClick={() => setShowAllocateModal(true)} disabled={buttonDisabled} title={
               buttonDisabled
                 ? batch.currentQuantity <= 0
                   ? 'Tahsis edilebilir adet kalmadı'
                   : 'Bu durumdaki bir parti tahsis edilemez'
                 : undefined
-            }
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Tanka Tahsis Et
-          </button>
+            }>Tanka Tahsis Et</Button>
         )}
       </div>
 

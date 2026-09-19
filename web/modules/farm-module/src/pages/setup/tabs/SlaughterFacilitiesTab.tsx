@@ -9,7 +9,7 @@
  * at submit time.
  */
 import React, { useState } from 'react';
-import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
 
 import {
   SlaughterFacility,
@@ -161,18 +161,8 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       align: 'right',
       render: (_value, facility) => (
         <>
-          <button
-            onClick={() => openEditModal(facility)}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => toggleActive(facility)}
-            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
-          >
-            {facility.isActive ? 'Deactivate' : 'Activate'}
-          </button>
+          <Button variant="ghost" onClick={() => openEditModal(facility)}>Edit</Button>
+          <Button variant="ghost" onClick={() => toggleActive(facility)}>{facility.isActive ? 'Deactivate' : 'Activate'}</Button>
         </>
       ),
     }
@@ -189,11 +179,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
             facility is used automatically when assembling the report.
           </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="primary" onClick={openAddModal}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -201,8 +187,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
               d="M12 6v6m0 0v6m0-6h6m-6 0H6"
             />
           </svg>
-          Add Facility
-        </button>
+          Add Facility</Button>
       </div>
 
       {isLoading && (
@@ -214,9 +199,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load slaughter facilities.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
-            Retry
-          </button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -257,35 +240,19 @@ export const SlaughterFacilitiesTab: React.FC = () => {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-              <input
-                type="text"
-                required
-                maxLength={150}
-                value={formData.name}
-                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g., Nordfjord Slakteri AS"
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Input fullWidth type="text" required maxLength={150} value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g., Nordfjord Slakteri AS" />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Godkjenningsnummer *
               </label>
-              <input
-                type="text"
-                required
-                maxLength={6}
-                value={formData.godkjenningsnummer}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    godkjenningsnummer: e.target.value.toUpperCase(),
-                  }))
-                }
-                placeholder="e.g., M12345"
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 uppercase font-mono focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Input fullWidth type="text" required maxLength={6} value={formData.godkjenningsnummer} onChange={(e) =>
+         setFormData((prev) => ({
+          ...prev,
+          godkjenningsnummer: e.target.value.toUpperCase(),
+         }))
+        } placeholder="e.g., M12345" />
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Official approval number, 1–6 alphanumeric characters. Required for slaughter
                 reports.
@@ -294,13 +261,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
-              <input
-                type="text"
-                maxLength={255}
-                value={formData.address}
-                onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-              />
+              <Input fullWidth type="text" maxLength={255} value={formData.address} onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))} />
             </div>
 
             <label className="flex items-center gap-2">
@@ -317,20 +278,8 @@ export const SlaughterFacilitiesTab: React.FC = () => {
           </div>
 
           <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              disabled={pending}
-              className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
-            >
-              {editingId ? 'Update' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancel
-            </button>
+            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={pending}>{editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
           </div>
         </form>
       </Modal>

@@ -12,7 +12,7 @@
  * button hands the same data to the pure HTML builder and a hidden-iframe
  * print (batchTraceabilityReportExport.ts).
  */
-import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import React, { useMemo } from 'react';
 
 import type { Batch } from '../../../hooks/useBatches';
@@ -311,13 +311,7 @@ const SummaryHeader: React.FC<{ traceability: BatchTraceability }> = ({ traceabi
           {summary.harvestedAt && ` · Harvested ${formatTraceabilityDate(summary.harvestedAt)}`}
         </p>
       </div>
-      <button
-        type="button"
-        onClick={() => printBatchTraceabilityReport(traceability)}
-        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Print report
-      </button>
+      <Button variant="primary" size="sm" type="button" onClick={() => printBatchTraceabilityReport(traceability)}>Print report</Button>
     </div>
   );
 };

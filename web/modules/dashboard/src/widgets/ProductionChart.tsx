@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, chartChrome, colors } from '@aquaculture/shared-ui';
+import { Card, chartChrome, colors, Button } from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -84,13 +84,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
         <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-red-400" />
           <p className="text-sm font-medium text-red-500">Uretim verileri yuklenemedi</p>
-          <button
-            type="button"
-            onClick={() => harvestQuery.refetch()}
-            className="text-xs text-primary-600 font-medium hover:underline mt-2"
-          >
-            Tekrar Dene
-          </button>
+          <Button variant="ghost" size="xs" className="mt-2" type="button" onClick={() => harvestQuery.refetch()}>Tekrar Dene</Button>
         </div>
       </Card>
     );

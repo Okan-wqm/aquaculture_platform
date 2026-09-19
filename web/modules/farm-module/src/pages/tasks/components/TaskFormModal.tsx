@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -116,24 +116,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Görev Adı *</label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              required
-            />
+            <Input fullWidth type="text" value={formData.title} onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))} required />
           </div>
 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Textarea fullWidth value={formData.description} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} rows={3} />
           </div>
 
           {/* Category + Priority */}
@@ -194,22 +183,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bitiş Tarihi *</label>
-              <input
-                type="date"
-                value={formData.dueDate}
-                onChange={(e) => setFormData((prev) => ({ ...prev, dueDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-                required
-              />
+              <Input fullWidth type="date" value={formData.dueDate} onChange={(e) => setFormData((prev) => ({ ...prev, dueDate: e.target.value }))} required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Saat</label>
-              <input
-                type="time"
-                value={formData.dueTime}
-                onChange={(e) => setFormData((prev) => ({ ...prev, dueTime: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
+              <Input fullWidth type="time" value={formData.dueTime} onChange={(e) => setFormData((prev) => ({ ...prev, dueTime: e.target.value }))} />
             </div>
           </div>
 
@@ -217,30 +195,18 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Konum</label>
-              <input
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
-                placeholder="Kafes 1, Tank 2..."
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
+              <Input fullWidth type="text" value={formData.location} onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))} placeholder="Kafes 1, Tank 2..." />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tahmini Süre (dk)
               </label>
-              <input
-                type="number"
-                value={formData.estimatedMinutes}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    estimatedMinutes: parseInt(e.target.value) || 0,
-                  }))
-                }
-                min={0}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
+              <Input fullWidth type="number" value={formData.estimatedMinutes} onChange={(e) =>
+         setFormData((prev) => ({
+          ...prev,
+          estimatedMinutes: parseInt(e.target.value) || 0,
+         }))
+        } min={0} />
             </div>
           </div>
 
@@ -252,24 +218,11 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded">
                   {item.text}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => removeChecklistItem(item.id)}
-                  className="text-red-500 hover:text-red-700 text-sm"
-                >
-                  Sil
-                </button>
+                <Button variant="ghost" type="button" onClick={() => removeChecklistItem(item.id)}>Sil</Button>
               </div>
             ))}
             <div className="flex gap-2 mt-1">
-              <input
-                type="text"
-                value={newChecklistItem}
-                onChange={(e) => setNewChecklistItem(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addChecklistItem())}
-                placeholder="Yeni madde ekle..."
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              />
+              <Input type="text" value={newChecklistItem} onChange={(e) => setNewChecklistItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addChecklistItem())} placeholder="Yeni madde ekle..." />
               <button
                 type="button"
                 onClick={addChecklistItem}
@@ -290,25 +243,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
                   {tag}
-                  <button
-                    type="button"
-                    onClick={() => removeTag(tag)}
-                    className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    &times;
-                  </button>
+                  <Button variant="ghost" type="button" onClick={() => removeTag(tag)}>&times;</Button>
                 </span>
               ))}
             </div>
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                placeholder="Etiket ekle..."
-                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              />
+              <Input type="text" value={newTag} onChange={(e) => setNewTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())} placeholder="Etiket ekle..." />
               <button
                 type="button"
                 onClick={addTag}
@@ -322,20 +262,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
         {/* Footer */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            İptal
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {submitting ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>İptal</Button>
+          <Button variant="primary" type="submit" disabled={submitting}>{submitting ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}</Button>
         </div>
       </form>
     </Modal>

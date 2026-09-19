@@ -19,8 +19,7 @@ import {
   Button,
   useToast,
   useConfirm,
-  parseGraphQLError,
-} from '@aquaculture/shared-ui';
+  parseGraphQLError, Textarea } from '@aquaculture/shared-ui';
 
 import {
   ActiveTreatmentInfo,
@@ -191,15 +190,7 @@ export const CloseBatchModal: React.FC<CloseBatchModalProps> = ({
             <label htmlFor="close-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes (optional)
             </label>
-            <textarea
-              id="close-notes"
-              rows={3}
-              maxLength={2000}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
-              placeholder="Contextual notes (written to the audit log)"
-            />
+            <Textarea fullWidth id="close-notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Contextual notes (written to the audit log)" />
           </div>
         </div>
 
